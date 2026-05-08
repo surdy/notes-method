@@ -2,13 +2,6 @@
 
 A method for organizing my notes. Some details are figured out; others I want to get ideas on.
 
-
-## Current Implementation Direction
-
-- The canonical notes organization method remains file-based markdown with the customer-centric structure below.
-- The reviewed Obsidian implementation plan lives in `plans/reviewed-plan.md`.
-- A custom Obsidian-compatible replacement app plan lives in `plans/app-plan-gpt-5.5.md`; it preserves this method while replacing plugin dependencies with native app features, CLI/URL automation, MCP, and ACP-style agent integration.
-
 ## Context
 
 I work with customers, and I want to organize each customer's notes in their own folder.
