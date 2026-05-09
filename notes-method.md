@@ -7,6 +7,7 @@ A method for organizing my notes. Some details are figured out; others I want to
 I work with customers, and I want to organize each customer's notes in their own folder.
 
 This method is now intended to be implemented by **Notesmith**, a custom markdown notes app. The definitive application blueprint is `plans/notesmith-plan.md`.
+The repository root is also the Notesmith Cargo workspace root, with Rust crates living under `crates/` alongside the planning, vault, and spike directories.
 
 ## Per-Customer Folder Structure
 

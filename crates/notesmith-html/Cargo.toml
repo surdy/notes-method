@@ -1,0 +1,11 @@
+[package]
+name = "notesmith-html"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+notesmith-core = { workspace = true }
+comrak = { workspace = true }
+anyhow = { workspace = true }

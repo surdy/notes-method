@@ -1,0 +1,19 @@
+[package]
+name = "notesmith-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+notesmith-core = { workspace = true }
+notesmith-config = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[[bin]]
+name = "notesmith"
+path = "src/main.rs"
