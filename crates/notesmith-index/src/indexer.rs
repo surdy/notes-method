@@ -224,7 +224,7 @@ impl<'a> CacheIndexer<'a> {
     }
 }
 
-type NoteMetadata = (
+pub(crate) type NoteMetadata = (
     String,
     String,
     Option<String>,
@@ -237,7 +237,7 @@ type NoteMetadata = (
     bool,
 );
 
-fn extract_note_metadata(note: &Note) -> NoteMetadata {
+pub(crate) fn extract_note_metadata(note: &Note) -> NoteMetadata {
     let title = note.path.stem().unwrap_or("Untitled").to_string();
 
     match &note.frontmatter {

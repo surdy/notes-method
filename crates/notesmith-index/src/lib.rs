@@ -3,6 +3,8 @@
 pub mod cache;
 pub mod indexer;
 pub mod schema;
+pub mod search;
 
 pub use cache::VaultCache;
 pub use indexer::CacheIndexer;
+pub use search::{SearchIndex, SearchResult};
