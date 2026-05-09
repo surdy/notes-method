@@ -1,1 +1,10 @@
+# Rust
 target/
+
+# Node / SvelteKit
+node_modules/
+ui/app/.svelte-kit/
+ui/app/build/
+
+# OS
+.DS_Store
