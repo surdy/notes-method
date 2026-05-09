@@ -1,3 +1,8 @@
 //! notesmith-index: SQLite cache builder and Tantivy full-text search indexing
 
-// TODO: Implementation coming in issue #{relevant_issue}
+pub mod cache;
+pub mod indexer;
+pub mod schema;
+
+pub use cache::VaultCache;
+pub use indexer::CacheIndexer;

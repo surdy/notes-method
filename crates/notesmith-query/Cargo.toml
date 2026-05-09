@@ -7,4 +7,13 @@ license.workspace = true
 
 [dependencies]
 notesmith-core = { workspace = true }
+notesmith-index = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+notesmith-vault = { workspace = true }
