@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, time::Duration};
 
 use notesmith_core::VaultEngine;
 use notesmith_http::{AppState, SharedAppState, VaultState, watch_vault};
-use notesmith_index::VaultCache;
+use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_vault::NativeVaultEngine;
 use tokio::sync::RwLock;
 
@@ -17,12 +17,15 @@ async fn watcher_indexes_new_markdown_files() {
     let notes = engine.scan(&vault_root).unwrap();
     let cache = VaultCache::open_in_memory().unwrap();
     cache.reindex("test-vault", &notes).unwrap();
+    let search_index = SearchIndex::open_in_memory().unwrap();
+    search_index.reindex("test-vault", &notes).unwrap();
 
     let state: SharedAppState = std::sync::Arc::new(RwLock::new(AppState {
         vaults: HashMap::from([(
             "test-vault".to_string(),
             VaultState {
                 cache,
+                search_index,
                 engine,
                 root: vault_root.clone(),
             },
@@ -52,7 +55,11 @@ async fn watcher_indexes_new_markdown_files() {
                     |row| row.get::<_, i64>(0),
                 )
                 .unwrap();
-            if count == 1 {
+            let search_results = vault.search_index.search("watcher", 10).unwrap();
+            let search_hit = search_results
+                .iter()
+                .any(|result| result.path == "Inbox/New Note.md");
+            if count == 1 && search_hit {
                 return;
             }
         }
@@ -60,5 +67,5 @@ async fn watcher_indexes_new_markdown_files() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    panic!("watcher did not index the new note within 2 seconds");
+    panic!("watcher did not index the new note in both caches within 2 seconds");
 }

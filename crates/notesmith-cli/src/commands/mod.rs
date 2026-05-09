@@ -2,4 +2,5 @@
 
 pub mod daemon;
 pub mod query;
+pub mod search;
 pub mod vault;

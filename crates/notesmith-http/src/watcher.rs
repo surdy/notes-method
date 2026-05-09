@@ -133,10 +133,12 @@ async fn process_pending(
         match action {
             ChangeAction::Delete => {
                 vault.cache.remove_note(vault_name, &relative_path)?;
+                vault.search_index.remove_note(vault_name, &relative_path)?;
             }
             ChangeAction::Upsert => {
                 if !absolute_path.exists() {
                     vault.cache.remove_note(vault_name, &relative_path)?;
+                    vault.search_index.remove_note(vault_name, &relative_path)?;
                     continue;
                 }
 
@@ -147,6 +149,7 @@ async fn process_pending(
                     &vault.engine,
                 )?;
                 vault.cache.update_note(vault_name, &note)?;
+                vault.search_index.update_note(vault_name, &note)?;
             }
         }
     }

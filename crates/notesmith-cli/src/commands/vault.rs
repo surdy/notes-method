@@ -3,8 +3,8 @@
 use clap::Subcommand;
 use notesmith_config::{DetectionSource, GlobalConfig, VaultConfig, detect_vault};
 use notesmith_core::VaultEngine;
-use notesmith_http::cache_path_for_vault;
-use notesmith_index::VaultCache;
+use notesmith_http::{cache_path_for_vault, search_index_path_for_vault};
+use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_vault::NativeVaultEngine;
 use std::path::Path;
 
@@ -211,12 +211,16 @@ fn cmd_reindex(
     let cache_path = cache_path_for_vault(&detected.name)?;
     let cache = VaultCache::open(&cache_path)?;
     cache.reindex(&detected.name, &notes)?;
+    let search_index_path = search_index_path_for_vault(&detected.name)?;
+    let search_index = SearchIndex::open(&search_index_path)?;
+    search_index.reindex(&detected.name, &notes)?;
 
     println!(
-        "Reindexed {} notes for {} into {}",
+        "Reindexed {} notes for {} into {} and {}",
         notes.len(),
         detected.name,
-        cache_path.display()
+        cache_path.display(),
+        search_index_path.display()
     );
 
     Ok(())

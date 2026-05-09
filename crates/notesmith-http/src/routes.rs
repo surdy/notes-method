@@ -1,9 +1,10 @@
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
 use notesmith_core::{Note, NotesmithError, VaultEngine, VaultName, VaultPath};
+use notesmith_index::SearchResult;
 use notesmith_query::{QueryError, QueryResult, execute_sql};
 use notesmith_vault::parse_note;
 use serde::Deserialize;
@@ -85,6 +86,17 @@ pub struct SqlQueryRequest {
     pub sql: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SearchQuery {
+    pub q: String,
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+}
+
+fn default_limit() -> usize {
+    20
+}
+
 pub async fn execute_sql_query(
     State(state): State<SharedAppState>,
     Path(vault_name): Path<String>,
@@ -101,6 +113,26 @@ pub async fn execute_sql_query(
     execute_sql(&vault.cache, &request.sql)
         .map(Json)
         .map_err(query_error)
+}
+
+pub async fn search_notes(
+    State(state): State<SharedAppState>,
+    Path(vault_name): Path<String>,
+    Query(params): Query<SearchQuery>,
+) -> Result<Json<Vec<SearchResult>>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    vault
+        .search_index
+        .search(&params.q, params.limit)
+        .map(Json)
+        .map_err(internal_error)
 }
 
 pub async fn get_note(

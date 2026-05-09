@@ -77,6 +77,7 @@ fn vault_reindex_creates_cache_file() {
     );
 
     assert!(cache_home.join("notesmith/work/cache.sqlite").exists());
+    assert!(cache_home.join("notesmith/work/tantivy").exists());
 }
 
 #[tokio::test]
@@ -87,6 +88,7 @@ async fn daemon_start_serves_ping_endpoint() {
     fs::write(vault_root.join("Home.md"), "# Home\n").unwrap();
 
     let config_home = temp_dir.path().join("config-home");
+    let cache_home = temp_dir.path().join("cache-home");
     write_global_config(&config_home, "work", &vault_root, None);
 
     let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -95,6 +97,7 @@ async fn daemon_start_serves_ping_endpoint() {
 
     let mut child = Command::new(notesmith_bin())
         .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_CACHE_HOME", &cache_home)
         .arg("daemon")
         .arg("start")
         .arg("--bind")
@@ -145,10 +148,12 @@ async fn query_sql_uses_http_daemon() {
     drop(reserved);
 
     let config_home = temp_dir.path().join("config-home");
+    let cache_home = temp_dir.path().join("cache-home");
     write_global_config(&config_home, "work", &vault_root, Some(bind.to_string()));
 
     let mut daemon = Command::new(notesmith_bin())
         .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_CACHE_HOME", &cache_home)
         .arg("daemon")
         .arg("start")
         .stdout(Stdio::piped())
@@ -167,6 +172,7 @@ async fn query_sql_uses_http_daemon() {
             let output = Command::new(notesmith_bin())
                 .current_dir(&vault_root)
                 .env("XDG_CONFIG_HOME", &config_home)
+                .env("XDG_CACHE_HOME", &cache_home)
                 .args([
                     "--format",
                     "json",
@@ -190,6 +196,78 @@ async fn query_sql_uses_http_daemon() {
             let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
             assert_eq!(json["columns"], serde_json::json!(["title"]));
             assert_eq!(json["row_count"], serde_json::json!(1));
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    daemon.kill().unwrap();
+    let output = daemon.wait_with_output().unwrap();
+    panic!(
+        "daemon did not become ready\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[tokio::test]
+async fn search_uses_http_daemon() {
+    let temp_dir = TempDir::new().unwrap();
+    let vault_root = temp_dir.path().join("work");
+    create_vault(&vault_root, "work");
+    fs::write(
+        vault_root.join("Home.md"),
+        "# Home\n\nAcme landing zone and searchonlyneedle.\n",
+    )
+    .unwrap();
+
+    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let bind = reserved.local_addr().unwrap();
+    drop(reserved);
+
+    let config_home = temp_dir.path().join("config-home");
+    let cache_home = temp_dir.path().join("cache-home");
+    write_global_config(&config_home, "work", &vault_root, Some(bind.to_string()));
+
+    let mut daemon = Command::new(notesmith_bin())
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .arg("daemon")
+        .arg("start")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let client = reqwest::Client::new();
+    for _ in 0..20 {
+        if client
+            .get(format!("http://{bind}/ping"))
+            .send()
+            .await
+            .is_ok()
+        {
+            let output = Command::new(notesmith_bin())
+                .current_dir(&vault_root)
+                .env("XDG_CONFIG_HOME", &config_home)
+                .env("XDG_CACHE_HOME", &cache_home)
+                .args(["search", "searchonlyneedle"])
+                .output()
+                .unwrap();
+
+            daemon.kill().unwrap();
+            let _ = daemon.wait();
+
+            assert!(
+                output.status.success(),
+                "stdout: {}\nstderr: {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(stdout.contains("Home.md"));
+            assert!(stdout.contains("Home"));
             return;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;

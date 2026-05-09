@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use notesmith_cli::commands::{
     daemon::DaemonCommand,
     query::QueryCommand,
+    search::SearchCommand,
     vault::{OutputFormat, VaultCommand},
 };
 use notesmith_config::GlobalConfig;
@@ -57,6 +58,8 @@ enum Command {
         #[command(subcommand)]
         command: VaultCommand,
     },
+    /// Full-text search against the daemon index
+    Search(SearchCommand),
 }
 
 #[tokio::main]
@@ -77,6 +80,11 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Vault { command } => {
             command.run(&global_config, cli.vault.as_deref(), &cwd, format)?;
+        }
+        Command::Search(command) => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
         }
     }
 
