@@ -36,7 +36,7 @@
 - Choose the right agent type and model for the job:
   - **explore** (Haiku) — codebase research, file lookups, reading multiple modules in parallel.
   - **task** (Haiku) — running commands (tests, builds, lints) where only pass/fail matters.
-  - **general-purpose** (Sonnet) — complex multi-step implementation work that needs full tooling.
+  - **general-purpose** (Opus 4.6 or GPT-5.5) — complex multi-step implementation work that needs full tooling and high-quality reasoning.
   - **code-review** (Sonnet) — reviewing diffs for bugs and regressions before committing.
 - Do not do work yourself that a sub-agent can own end-to-end; delegate and collect results.
 - Provide complete context in each sub-agent prompt — sub-agents are stateless.
