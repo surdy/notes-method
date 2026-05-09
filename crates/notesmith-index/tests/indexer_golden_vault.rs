@@ -38,8 +38,8 @@ fn v_notes_view_works() {
 fn v_notes_has_typed_notes() {
     let cache = build_cache();
     let types: Vec<String> = {
-        let mut stmt = cache
-            .connection()
+        let conn = cache.connection();
+        let mut stmt = conn
             .prepare("SELECT DISTINCT type FROM v_notes ORDER BY type")
             .unwrap();
         stmt.query_map([], |row| row.get(0))
@@ -80,8 +80,8 @@ fn v_tasks_populated() {
 fn v_tasks_has_all_statuses() {
     let cache = build_cache();
     let statuses: Vec<String> = {
-        let mut stmt = cache
-            .connection()
+        let conn = cache.connection();
+        let mut stmt = conn
             .prepare("SELECT DISTINCT status FROM v_tasks ORDER BY status")
             .unwrap();
         stmt.query_map([], |row| row.get(0))

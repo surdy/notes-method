@@ -57,11 +57,13 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive"] }
 axum = "0.8"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
 comrak = "0.36"
 rusqlite = { version = "0.35", features = ["bundled"] }
 tantivy = "0.22"
 minijinja = "2"
 notify = "8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 git2 = "0.20"
 walkdir = "2"
 regex = "1"

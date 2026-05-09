@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 
 use notesmith_core::Note;
 use rusqlite::Connection;
@@ -7,7 +8,7 @@ use crate::indexer::CacheIndexer;
 use crate::schema::create_schema;
 
 pub struct VaultCache {
-    conn: Connection,
+    conn: Mutex<Connection>,
     cache_path: PathBuf,
 }
 
@@ -22,7 +23,7 @@ impl VaultCache {
         create_schema(&conn)?;
 
         Ok(Self {
-            conn,
+            conn: Mutex::new(conn),
             cache_path: cache_path.to_path_buf(),
         })
     }
@@ -32,28 +33,31 @@ impl VaultCache {
         create_schema(&conn)?;
 
         Ok(Self {
-            conn,
+            conn: Mutex::new(conn),
             cache_path: PathBuf::from(":memory:"),
         })
     }
 
     pub fn reindex(&self, vault_name: &str, notes: &[Note]) -> anyhow::Result<()> {
-        let indexer = CacheIndexer::new(&self.conn);
+        let conn = self.connection();
+        let indexer = CacheIndexer::new(&conn);
         indexer.index_all(vault_name, notes)
     }
 
     pub fn update_note(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
-        let indexer = CacheIndexer::new(&self.conn);
+        let conn = self.connection();
+        let indexer = CacheIndexer::new(&conn);
         indexer.index_note(vault_name, note)
     }
 
     pub fn remove_note(&self, vault_name: &str, path: &str) -> anyhow::Result<()> {
-        let indexer = CacheIndexer::new(&self.conn);
+        let conn = self.connection();
+        let indexer = CacheIndexer::new(&conn);
         indexer.remove_note(vault_name, path)
     }
 
-    pub fn connection(&self) -> &Connection {
-        &self.conn
+    pub fn connection(&self) -> MutexGuard<'_, Connection> {
+        self.conn.lock().expect("vault cache mutex poisoned")
     }
 
     pub fn cache_path(&self) -> &Path {

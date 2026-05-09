@@ -66,7 +66,10 @@ impl GlobalConfig {
     }
 
     pub fn default_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|dir| dir.join("notesmith").join("config.toml"))
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(dirs::config_dir)
+            .map(|dir| dir.join("notesmith").join("config.toml"))
     }
 
     pub fn save_to(&self, path: &Path) -> Result<(), ConfigError> {
