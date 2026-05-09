@@ -28,3 +28,15 @@
 - Create the doc file if it doesn't exist yet.
 - Keep docs concise: show the command/endpoint signature, parameters, and a usage example.
 - Don't document internal crate APIs or architecture — only user-facing surfaces.
+
+## Sub-Agent Delegation
+
+- Use sub-agents (via the `task` tool) to parallelize work whenever tasks are independent of each other.
+- Launch multiple agents in parallel when the work can be decomposed: e.g., exploring different crates simultaneously, running tests and linting concurrently, or writing tests for independent modules at the same time.
+- Choose the right agent type and model for the job:
+  - **explore** (Haiku) — codebase research, file lookups, reading multiple modules in parallel.
+  - **task** (Haiku) — running commands (tests, builds, lints) where only pass/fail matters.
+  - **general-purpose** (Sonnet) — complex multi-step implementation work that needs full tooling.
+  - **code-review** (Sonnet) — reviewing diffs for bugs and regressions before committing.
+- Do not do work yourself that a sub-agent can own end-to-end; delegate and collect results.
+- Provide complete context in each sub-agent prompt — sub-agents are stateless.
