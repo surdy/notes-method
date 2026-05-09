@@ -8,15 +8,22 @@ license.workspace = true
 [dependencies]
 notesmith-core = { workspace = true }
 notesmith-config = { workspace = true }
+notesmith-vault = { workspace = true }
+notesmith-index = { workspace = true }
+notesmith-query = { workspace = true }
+notesmith-http = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 serde_json = { workspace = true }
+reqwest = { workspace = true }
+dirs = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+reqwest = { workspace = true }
 
 [[bin]]
 name = "notesmith"

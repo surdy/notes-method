@@ -2,6 +2,10 @@
 
 use clap::Subcommand;
 use notesmith_config::{DetectionSource, GlobalConfig, VaultConfig, detect_vault};
+use notesmith_core::VaultEngine;
+use notesmith_http::cache_path_for_vault;
+use notesmith_index::VaultCache;
+use notesmith_vault::NativeVaultEngine;
 use std::path::Path;
 
 #[derive(Debug, Subcommand)]
@@ -12,6 +16,8 @@ pub enum VaultCommand {
     Detect,
     /// Show vault path, name, and config summary
     Info,
+    /// Rebuild the local SQLite cache for the detected vault
+    Reindex,
 }
 
 impl VaultCommand {
@@ -26,6 +32,7 @@ impl VaultCommand {
             VaultCommand::List => cmd_list(global_config, format),
             VaultCommand::Detect => cmd_detect(global_config, explicit_vault, cwd, format),
             VaultCommand::Info => cmd_info(global_config, explicit_vault, cwd, format),
+            VaultCommand::Reindex => cmd_reindex(global_config, explicit_vault, cwd),
         }
     }
 }
@@ -190,5 +197,27 @@ fn cmd_info(
             );
         }
     }
+    Ok(())
+}
+
+fn cmd_reindex(
+    global_config: &GlobalConfig,
+    explicit_vault: Option<&str>,
+    cwd: &Path,
+) -> anyhow::Result<()> {
+    let detected = detect_vault(cwd, explicit_vault, global_config)?;
+    let engine = NativeVaultEngine;
+    let notes = engine.scan(&detected.root)?;
+    let cache_path = cache_path_for_vault(&detected.name)?;
+    let cache = VaultCache::open(&cache_path)?;
+    cache.reindex(&detected.name, &notes)?;
+
+    println!(
+        "Reindexed {} notes for {} into {}",
+        notes.len(),
+        detected.name,
+        cache_path.display()
+    );
+
     Ok(())
 }

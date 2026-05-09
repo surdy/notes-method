@@ -1,5 +1,9 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use notesmith_cli::commands::vault::{OutputFormat, VaultCommand};
+use notesmith_cli::commands::{
+    daemon::DaemonCommand,
+    query::QueryCommand,
+    vault::{OutputFormat, VaultCommand},
+};
 use notesmith_config::GlobalConfig;
 
 #[derive(Parser)]
@@ -38,6 +42,16 @@ impl From<FormatArg> for OutputFormat {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Daemon lifecycle commands
+    Daemon {
+        #[command(subcommand)]
+        command: DaemonCommand,
+    },
+    /// Query commands against the daemon cache
+    Query {
+        #[command(subcommand)]
+        command: QueryCommand,
+    },
     /// Vault management commands
     Vault {
         #[command(subcommand)]
@@ -45,13 +59,22 @@ enum Command {
     },
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let global_config = GlobalConfig::load().unwrap_or_default();
     let cwd = std::env::current_dir()?;
     let format: OutputFormat = cli.format.into();
 
     match cli.command {
+        Command::Daemon { command } => {
+            command.run(&global_config).await?;
+        }
+        Command::Query { command } => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
         Command::Vault { command } => {
             command.run(&global_config, cli.vault.as_deref(), &cwd, format)?;
         }
