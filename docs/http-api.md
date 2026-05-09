@@ -263,3 +263,93 @@ curl -s http://127.0.0.1:27183/api/v/work/query/sql \
 ```
 
 See [SQL Views Reference](sql-views.md) for available views.
+
+---
+
+## Tasks
+
+### `GET /api/v/{vault}/tasks`
+
+List tasks from the vault with optional filters.
+
+**Query parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `status` | Filter by status (`todo`, `in_progress`, `blocked`, `waiting`, `on_hold`, `done`, `cancelled`) |
+| `customer` | Filter by customer name |
+| `due_before` | Filter to tasks due before this date (`YYYY-MM-DD`) |
+| `limit` | Maximum results (default: 200) |
+
+**Response:** `200 OK`
+```json
+[
+  {
+    "task_hash": "abc123...",
+    "note_path": "Customers/Acme/Streams/Migration to v2.md",
+    "heading_path": null,
+    "ordinal": 2,
+    "status": "in_progress",
+    "text": "Testing in staging",
+    "customer": null,
+    "stream": null,
+    "owner": null,
+    "due": null,
+    "scheduled": "2025-01-20",
+    "start_date": null,
+    "done_at": null,
+    "priority": null
+  }
+]
+```
+
+**Example:**
+```bash
+curl "http://127.0.0.1:27183/api/v/work/tasks?status=todo&customer=Acme"
+```
+
+### `POST /api/v/{vault}/tasks`
+
+Add a new To Do task to an existing note.
+
+**Request body:**
+```json
+{
+  "note_path": "Customers/Acme/Acme Corp.md",
+  "description": "Follow up on SLA requirements",
+  "customer": "Acme",
+  "stream": "Migration to v2",
+  "due": "2025-02-01",
+  "priority": "high"
+}
+```
+
+Only `note_path` and `description` are required. Inline fields (`customer`, `stream`, `owner`) appear as `[key:: value]` in the task line. The `due` date appears as `📅 YYYY-MM-DD`.
+
+**Response:** `201 Created`
+```json
+{ "path": "Customers/Acme/Acme Corp.md", "hash": "2d7d0d..." }
+```
+
+### `POST /api/v/{vault}/tasks/toggle`
+
+Toggle a task to a new status using its content hash (blake3 of the raw task line). The engine finds the matching line, validates the transition, rewrites it in place, and runs the save pipeline.
+
+**Request body:**
+```json
+{
+  "note_path": "Customers/Acme/Streams/Migration to v2.md",
+  "task_hash": "abc123...",
+  "new_status": "done"
+}
+```
+
+**Response:** `200 OK`
+```json
+{ "path": "Customers/Acme/Streams/Migration to v2.md", "hash": "ef456..." }
+```
+
+**Errors:**
+- `404` — task hash not found in the note
+- `409` — hash matches more than one task (collision)
+- `422` — invalid status string or disallowed status transition

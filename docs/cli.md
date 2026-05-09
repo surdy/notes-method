@@ -162,6 +162,91 @@ All create/put/append writes run through the save pipeline, which trims trailing
 
 ---
 
+## task
+
+Task commands go through the running daemon and operate on the detected vault.
+
+### `task list`
+
+List tasks from the vault with optional filters.
+
+```bash
+notesmith task list [--status <status>] [--customer <name>] [--due-before <YYYY-MM-DD>] [--limit N]
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--status` | Filter by status (`todo`, `in_progress`, `blocked`, `waiting`, `on_hold`, `done`, `cancelled`) | all |
+| `--customer` | Filter by customer name | all |
+| `--due-before` | Only tasks due before this date | none |
+| `--limit N` | Maximum results | 200 |
+
+Text output shows `[marker] text  📅 due  (note_path)` for each task.
+
+**Examples:**
+
+```bash
+notesmith task list
+notesmith task list --status todo --customer Acme
+notesmith task list --due-before 2025-02-01 --format json | jq '.[].text'
+```
+
+### `task add`
+
+Add a new To Do task to an existing note.
+
+```bash
+notesmith task add <note_path> <description> [--customer <name>] [--stream <name>] [--due <YYYY-MM-DD>] [--priority <level>]
+```
+
+| Arg/Flag | Description |
+|----------|-------------|
+| `note_path` | Vault-relative path to the note |
+| `description` | Task text |
+| `--customer <name>` | Inline field `[customer:: name]` |
+| `--stream <name>` | Inline field `[stream:: name]` |
+| `--due <YYYY-MM-DD>` | Due date emoji 📅 |
+| `--priority <level>` | `highest`, `high`, `medium`, `low`, or `lowest` |
+
+**Examples:**
+
+```bash
+notesmith task add "Customers/Acme/Acme Corp.md" "Follow up on SLA requirements" --customer Acme --due 2025-02-01
+notesmith task add Inbox/Daily/2025-01-15.md "Review pull requests" --priority high
+```
+
+### `task toggle`
+
+Toggle a task to a new status using its content hash. The hash uniquely identifies the task line and is returned by `note get` or `task list`.
+
+```bash
+notesmith task toggle <note_path> <task_hash> <new_status>
+```
+
+**Status transitions** (from the notes method):
+
+| From | Allowed next states |
+|------|---------------------|
+| `todo` | `in_progress`, `blocked`, `waiting`, `on_hold`, `done` |
+| `in_progress` | `done`, `blocked`, `waiting`, `on_hold` |
+| `blocked` | `todo`, `in_progress`, `done` |
+| `waiting` | `todo`, `in_progress`, `done` |
+| `on_hold` | `todo`, `in_progress`, `done` |
+| `done` | `todo` |
+| `cancelled` | `todo` |
+
+Returns `404` if the hash is not found, `409` if it matches more than one task, `422` if the transition is not allowed.
+
+### `task set-status`
+
+Alias for `task toggle` — explicitly set a task's status.
+
+```bash
+notesmith task set-status <note_path> <task_hash> <new_status>
+```
+
+---
+
 ## search
 
 Full-text search across note titles and body content. Requires the daemon to be running.

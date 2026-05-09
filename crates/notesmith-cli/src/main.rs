@@ -4,6 +4,7 @@ use notesmith_cli::commands::{
     note::NoteCommand,
     query::QueryCommand,
     search::SearchCommand,
+    task::TaskCommand,
     vault::{OutputFormat, VaultCommand},
 };
 use notesmith_config::GlobalConfig;
@@ -66,6 +67,11 @@ enum Command {
     },
     /// Full-text search against the daemon index
     Search(SearchCommand),
+    /// Task management commands
+    Task {
+        #[command(subcommand)]
+        command: TaskCommand,
+    },
 }
 
 #[tokio::main]
@@ -93,6 +99,11 @@ async fn main() -> anyhow::Result<()> {
             command.run(&global_config, cli.vault.as_deref(), &cwd, format)?;
         }
         Command::Search(command) => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
+        Command::Task { command } => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;

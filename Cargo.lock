@@ -1475,11 +1475,13 @@ dependencies = [
  "anyhow",
  "axum",
  "blake3",
+ "chrono",
  "dirs",
  "notesmith-config",
  "notesmith-core",
  "notesmith-index",
  "notesmith-query",
+ "notesmith-tasks",
  "notesmith-vault",
  "notify",
  "reqwest",
@@ -1547,8 +1549,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
+ "chrono",
  "notesmith-core",
  "regex",
+ "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

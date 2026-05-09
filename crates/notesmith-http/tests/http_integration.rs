@@ -485,3 +485,170 @@ async fn save_pipeline_stamps_created_updated() {
 
     server.server.abort();
 }
+
+// ── Task API tests ─────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn list_tasks_returns_tasks_from_golden_vault() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let root = golden_vault();
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, build_test_state(&root))
+            .await
+            .unwrap();
+    });
+
+    let response = reqwest::get(format!("http://{address}/api/v/test-vault/tasks"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.json::<Vec<serde_json::Value>>().await.unwrap();
+    assert!(body.len() >= 10, "expected ≥10 tasks, got {}", body.len());
+    // Every task has the expected fields
+    for task in &body {
+        assert!(task["task_hash"].as_str().is_some());
+        assert!(task["note_path"].as_str().is_some());
+        assert!(task["status"].as_str().is_some());
+        assert!(task["text"].as_str().is_some());
+    }
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn list_tasks_filters_by_status() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let root = golden_vault();
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, build_test_state(&root))
+            .await
+            .unwrap();
+    });
+
+    let response = reqwest::get(format!(
+        "http://{address}/api/v/test-vault/tasks?status=done"
+    ))
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.json::<Vec<serde_json::Value>>().await.unwrap();
+    assert!(!body.is_empty(), "expected at least one done task");
+    for task in &body {
+        assert_eq!(task["status"], serde_json::json!("done"));
+    }
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn create_task_appends_to_note() {
+    let note_content = "# My Note\n\nSome content here.\n";
+    let server = TestServer::with_files(&[("Inbox/My Note.md", note_content)]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/tasks"))
+        .json(&serde_json::json!({
+            "note_path": "Inbox/My Note.md",
+            "description": "Write tests for task engine",
+            "customer": "Acme",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["path"], serde_json::json!("Inbox/My Note.md"));
+
+    let written = fs::read_to_string(server.root.join("Inbox/My Note.md")).unwrap();
+    assert!(written.contains("- [ ] Write tests for task engine [customer:: Acme]"));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn toggle_task_status_rewrites_task_line() {
+    let task_line = "- [ ] Fix the bug";
+    let note_content = format!("# Tasks\n\n{task_line}\n");
+    let server = TestServer::with_files(&[("Inbox/Tasks.md", &note_content)]).await;
+    let client = reqwest::Client::new();
+
+    // Compute hash using the same blake3 logic as the parser
+    let task_hash = notesmith_tasks::task_content_hash(task_line);
+
+    let response = client
+        .post(server.url("/api/v/test-vault/tasks/toggle"))
+        .json(&serde_json::json!({
+            "note_path": "Inbox/Tasks.md",
+            "task_hash": task_hash,
+            "new_status": "in_progress",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let written = fs::read_to_string(server.root.join("Inbox/Tasks.md")).unwrap();
+    assert!(
+        written.contains("- [/] Fix the bug"),
+        "expected [/] in:\n{written}"
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn toggle_task_returns_not_found_for_bad_hash() {
+    let server = TestServer::with_files(&[("Inbox/Tasks.md", "- [ ] Some task\n")]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/tasks/toggle"))
+        .json(&serde_json::json!({
+            "note_path": "Inbox/Tasks.md",
+            "task_hash": "deadbeefdeadbeef",
+            "new_status": "done",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn toggle_task_returns_unprocessable_for_invalid_transition() {
+    let task_line = "- [/] In progress task";
+    let note_content = format!("{task_line}\n");
+    let server = TestServer::with_files(&[("Inbox/Tasks.md", &note_content)]).await;
+    let client = reqwest::Client::new();
+
+    let task_hash = notesmith_tasks::task_content_hash(task_line);
+
+    let response = client
+        .post(server.url("/api/v/test-vault/tasks/toggle"))
+        .json(&serde_json::json!({
+            "note_path": "Inbox/Tasks.md",
+            "task_hash": task_hash,
+            "new_status": "todo", // InProgress → Todo is not allowed
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+
+    server.server.abort();
+}

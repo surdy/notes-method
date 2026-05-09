@@ -53,6 +53,14 @@ fn build_router_with_shared_state(state: SharedAppState) -> Router {
         .route("/api/v/{vault}/notes-move/{*path}", post(routes::move_note))
         .route("/api/v/{vault}/search", get(routes::search_notes))
         .route("/api/v/{vault}/query/sql", post(routes::execute_sql_query))
+        .route(
+            "/api/v/{vault}/tasks",
+            get(routes::list_tasks).post(routes::create_task),
+        )
+        .route(
+            "/api/v/{vault}/tasks/toggle",
+            post(routes::toggle_task_status),
+        )
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
