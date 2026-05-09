@@ -1,0 +1,19 @@
+[package]
+name = "turbovault-spike"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90.0"
+publish = false
+
+[dependencies]
+turbovault-core = "1.4"
+turbovault-parser = "1.4"
+turbovault-vault = "1.4"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+serde_json = "1"
+serde_yaml = "0.9"
+walkdir = "2"
+
+[dev-dependencies]
+pretty_assertions = "1"
