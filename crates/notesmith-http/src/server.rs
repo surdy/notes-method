@@ -35,8 +35,22 @@ pub fn build_router(state: AppState) -> Router {
 fn build_router_with_shared_state(state: SharedAppState) -> Router {
     Router::new()
         .route("/ping", get(routes::ping))
-        .route("/api/v/{vault}/notes", get(routes::list_notes))
-        .route("/api/v/{vault}/notes/{*path}", get(routes::get_note))
+        .route(
+            "/api/v/{vault}/notes",
+            get(routes::list_notes).post(routes::create_note),
+        )
+        .route(
+            "/api/v/{vault}/notes/{*path}",
+            get(routes::get_note)
+                .put(routes::put_note)
+                .patch(routes::patch_note)
+                .delete(routes::delete_note),
+        )
+        .route(
+            "/api/v/{vault}/notes-append/{*path}",
+            post(routes::append_note),
+        )
+        .route("/api/v/{vault}/notes-move/{*path}", post(routes::move_note))
         .route("/api/v/{vault}/search", get(routes::search_notes))
         .route("/api/v/{vault}/query/sql", post(routes::execute_sql_query))
         .layer(CorsLayer::permissive())
