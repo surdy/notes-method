@@ -20,3 +20,11 @@
 - Tests go in the standard Rust locations: unit tests in `#[cfg(test)] mod tests` within source files, integration tests in `tests/` directories.
 - Use the `golden-vault/` fixture for integration tests against real vault content.
 - Use the `insta` crate for snapshot tests where appropriate (rendered output, parsed structures, routing decisions).
+
+## User-Facing Documentation
+
+- When completing an issue that adds or changes CLI commands, HTTP endpoints, or SQL views, update the corresponding doc file in `docs/`.
+- CLI commands go in `docs/cli.md`, HTTP endpoints in `docs/http-api.md`, SQL views in `docs/sql-views.md`.
+- Create the doc file if it doesn't exist yet.
+- Keep docs concise: show the command/endpoint signature, parameters, and a usage example.
+- Don't document internal crate APIs or architecture — only user-facing surfaces.
