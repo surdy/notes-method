@@ -952,6 +952,8 @@ dependencies = [
  "clap",
  "notesmith-config",
  "notesmith-core",
+ "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
