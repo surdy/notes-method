@@ -6,6 +6,8 @@ A method for organizing my notes. Some details are figured out; others I want to
 
 I work with customers, and I want to organize each customer's notes in their own folder.
 
+This method is now intended to be implemented by **Notesmith**, a custom markdown notes app. The definitive application blueprint is `plans/notesmith-plan.md`.
+
 ## Per-Customer Folder Structure
 
 For each customer there would be a folder containing:
@@ -22,6 +24,7 @@ For each customer there would be a folder containing:
 
 - Inbox
 - Tasks (aggregated)
+- Dashboards
 - Customer 1
 - Customer 2
 - Customer N
@@ -39,19 +42,19 @@ For each customer there would be a folder containing:
 
 ## Daily Notes
 
-- Every morning I would have a note for that particular day generated automatically and placed in Inbox.
+- Every morning I want a note for that day generated into **Inbox/Daily**. Primary creation should come from an external agent using a saved prompt template, with a daemon scheduler available as a fallback.
 
 ## Tasks
 
 - I want an aggregation of tasks from all notes to appear in a single place.
 - The aggregated list should also show the associated project.
 - Aggregated tasks should link to the stream note.
-- The aggregated task list should only show tasks that are **not done** and **not blocked**.
-- There would be a separate list of tasks that are **blocked**.
+- The primary aggregated task list should show only **active** tasks (**To Do** and **In Progress**).
+- There should be separate aggregated views for **Blocked**, **Awaiting Customer**, and **On Hold** tasks.
 - Each meeting note optionally has tasks associated with it.
 - A task can be associated with a stream of work (note).
 - Tasks can have a status independent of the stream of work.
-- Task statuses: **To Do**, **Blocked**, **Done**, **Awaiting Customer**, **On Hold**.
+- Task statuses: **To Do**, **In Progress**, **Blocked**, **Awaiting Customer**, **On Hold**, **Done**, **Cancelled**.
 
 ## Streams of Work
 
@@ -69,9 +72,9 @@ For each customer there would be a folder containing:
 ## Customer State
 
 - Customers have a state associated with them based on my relationship with them: **Active**, **On Hold**, **Temp**, **Inactive**.
-- I will use these states to filter customer folders.
-- Customer state can live in the account info note, but I'm open to other ideas.
+- I will use these states to filter customer folders and smart views.
+- Customer state should live in the Customer Index note frontmatter (`state:`), not in the Account Info note.
 
 ## Open for Ideas
 
-- Where customer state lives (currently considering: account info note).
+- What additional customer metadata should live alongside `state:` on the Customer Index note.
