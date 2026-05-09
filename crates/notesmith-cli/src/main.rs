@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use notesmith_cli::commands::{
     daemon::DaemonCommand,
+    note::NoteCommand,
     query::QueryCommand,
     search::SearchCommand,
     vault::{OutputFormat, VaultCommand},
@@ -53,6 +54,11 @@ enum Command {
         #[command(subcommand)]
         command: QueryCommand,
     },
+    /// Note CRUD commands against the daemon API
+    Note {
+        #[command(subcommand)]
+        command: NoteCommand,
+    },
     /// Vault management commands
     Vault {
         #[command(subcommand)]
@@ -74,6 +80,11 @@ async fn main() -> anyhow::Result<()> {
             command.run(&global_config).await?;
         }
         Command::Query { command } => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
+        Command::Note { command } => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;

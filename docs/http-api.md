@@ -60,6 +60,135 @@ curl http://127.0.0.1:27183/api/v/work/notes/Customers/Acme%20Corp/Acme%20Corp.m
 **Errors:**
 - `404` — vault or note not found
 
+### `POST /api/v/{vault}/notes`
+
+Create a new note. The server writes `{folder}/{title}.md`, defaults `folder` to `Inbox`, runs the save pipeline, and returns the written hash.
+
+**Request body:**
+```json
+{
+  "title": "Follow Up",
+  "folder": "Inbox",
+  "content": "Body text",
+  "frontmatter": {
+    "status": "draft"
+  }
+}
+```
+
+**Response:** `201 Created`
+```json
+{
+  "path": "Inbox/Follow Up.md",
+  "hash": "2d7d0d..."
+}
+```
+
+**Errors:**
+- `409` — note already exists
+
+### `PUT /api/v/{vault}/notes/{path...}`
+
+Replace a note's content. If `expected_hash` is supplied, the write is rejected on mismatch.
+
+**Request body:**
+```json
+{
+  "content": "---\ntitle: Follow Up\n---\nReplaced body",
+  "expected_hash": "2d7d0d..."
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "path": "Inbox/Follow Up.md",
+  "hash": "9a5b62..."
+}
+```
+
+**Errors:**
+- `404` — vault or note not found
+- `409` — write conflict
+
+### `PATCH /api/v/{vault}/notes/{path...}`
+
+Merge frontmatter fields into the current note, then run the save pipeline before writing.
+
+**Request body:**
+```json
+{
+  "frontmatter": {
+    "owner": "me",
+    "status": "active"
+  },
+  "expected_hash": "9a5b62..."
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "path": "Inbox/Follow Up.md",
+  "hash": "35cb45..."
+}
+```
+
+### `DELETE /api/v/{vault}/notes/{path...}`
+
+Delete a note.
+
+**Response:** `204 No Content`
+
+### `POST /api/v/{vault}/notes-append/{path...}`
+
+Append content to an existing note, then run the save pipeline.
+
+**Request body:**
+```json
+{
+  "content": "Next line"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "path": "Inbox/Follow Up.md",
+  "hash": "0f18d0..."
+}
+```
+
+### `POST /api/v/{vault}/notes-move/{path...}`
+
+Move a note to another vault-relative path.
+
+**Request body:**
+```json
+{
+  "destination": "Customers/Acme/Follow Up.md"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "from": "Inbox/Follow Up.md",
+  "to": "Customers/Acme/Follow Up.md"
+}
+```
+
+### Save pipeline
+
+Every write path (`POST /notes`, `PUT /notes/{path...}`, `PATCH /notes/{path...}`, and `POST /notes-append/{path...}`) runs the save pipeline:
+
+- parse YAML frontmatter when present
+- stamp `created` when missing
+- stamp `updated` on every write
+- sort frontmatter keys alphabetically
+- trim trailing whitespace on every line
+- ensure exactly one trailing newline
+
 ---
 
 ## Search
