@@ -191,6 +191,51 @@ Every write path (`POST /notes`, `PUT /notes/{path...}`, `PATCH /notes/{path...}
 
 ---
 
+## Inbox
+
+### `POST /api/v/{vault}/inbox`
+
+Quick-capture a note to the inbox folder. Generates a timestamped filename.
+
+**Request body:**
+```json
+{
+  "text": "Call Sarah about the project",
+  "title": "Phone Call"
+}
+```
+
+Only `text` is required. `title` is optional — when provided it's used as the filename slug, otherwise the slug is derived from the first 40 characters of `text`.
+
+**Filename format:** `{inbox_folder}/{YYYY-MM-DD HH-MM-SS} - {slug}.md`
+
+**Response:** `201 Created`
+```json
+{
+  "path": "Inbox/2026-05-09 16-30-00 - Phone Call.md",
+  "hash": "a1b2c3..."
+}
+```
+
+### `GET /api/v/{vault}/inbox`
+
+List unarchived notes in the inbox folder (up to 100, sorted by path descending).
+
+**Response:** `200 OK`
+```json
+[
+  {
+    "path": "Inbox/2026-05-09 16-30-00 - Phone Call.md",
+    "title": "Phone Call",
+    "type": "note",
+    "archived": false,
+    "..."
+  }
+]
+```
+
+---
+
 ## Search
 
 ### `GET /api/v/{vault}/search`

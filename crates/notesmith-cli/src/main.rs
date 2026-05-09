@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use notesmith_cli::commands::{
     daemon::DaemonCommand,
+    inbox::InboxCommand,
     note::NoteCommand,
     query::QueryCommand,
     search::SearchCommand,
@@ -72,6 +73,11 @@ enum Command {
         #[command(subcommand)]
         command: TaskCommand,
     },
+    /// Inbox quick-capture commands
+    Inbox {
+        #[command(subcommand)]
+        command: InboxCommand,
+    },
 }
 
 #[tokio::main]
@@ -104,6 +110,11 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
         }
         Command::Task { command } => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
+        Command::Inbox { command } => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;

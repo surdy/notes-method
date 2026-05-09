@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fs, time::Duration};
 
+use notesmith_config::VaultConfig;
 use notesmith_core::VaultEngine;
 use notesmith_http::{AppState, SharedAppState, VaultState, watch_vault};
 use notesmith_index::{SearchIndex, VaultCache};
@@ -28,6 +29,15 @@ async fn watcher_indexes_new_markdown_files() {
                 search_index,
                 engine,
                 root: vault_root.clone(),
+                vault_config: VaultConfig {
+                    name: "test-vault".to_string(),
+                    inbox: Default::default(),
+                    daily: Default::default(),
+                    editor: Default::default(),
+                    git: Default::default(),
+                    hooks: Default::default(),
+                    homepage: None,
+                },
             },
         )]),
     }));

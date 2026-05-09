@@ -162,6 +162,54 @@ All create/put/append writes run through the save pipeline, which trims trailing
 
 ---
 
+## inbox
+
+Inbox quick-capture commands go through the running daemon.
+
+### `inbox add`
+
+Quick-capture a note to the inbox folder. Generates a timestamped filename.
+
+```bash
+notesmith inbox add "<text>" [--title <title>]
+```
+
+| Arg/Flag | Description |
+|----------|-------------|
+| `<text>` | Note body content |
+| `--title <title>` | Optional title used in filename slug |
+
+**Filename format:** `Inbox/{YYYY-MM-DD HH-MM-SS} - {slug}.md`
+
+The slug is derived from `--title` if provided, otherwise from the first 40 characters of the text (sanitized to keep alphanumeric, spaces, and hyphens).
+
+**Examples:**
+
+```bash
+notesmith inbox add "Call Sarah about the project"
+notesmith inbox add "Meeting notes from standup" --title "Standup Notes"
+notesmith inbox add "Quick thought" --format json
+```
+
+### `inbox list`
+
+List unarchived notes in the inbox folder.
+
+```bash
+notesmith inbox list
+```
+
+Returns up to 100 notes sorted by path descending (newest first). Text output shows `path  title` per line.
+
+**Examples:**
+
+```bash
+notesmith inbox list
+notesmith inbox list --format json | jq '.[].path'
+```
+
+---
+
 ## task
 
 Task commands go through the running daemon and operate on the detected vault.

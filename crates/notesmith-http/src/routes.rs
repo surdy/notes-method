@@ -394,6 +394,114 @@ pub async fn move_note(
     }))
 }
 
+// ── Inbox routes ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct InboxCaptureRequest {
+    pub text: String,
+    pub title: Option<String>,
+}
+
+pub async fn inbox_capture(
+    State(state): State<SharedAppState>,
+    Path(vault_name): Path<String>,
+    Json(request): Json<InboxCaptureRequest>,
+) -> Result<(StatusCode, Json<WriteNoteResponse>), (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    let inbox_folder = &vault.vault_config.inbox.folder;
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H-%M-%S").to_string();
+
+    let slug = match &request.title {
+        Some(title) => sanitize_slug(title),
+        None => sanitize_slug(&request.text.chars().take(40).collect::<String>()),
+    };
+
+    let filename = if slug.is_empty() {
+        format!("{timestamp}.md")
+    } else {
+        format!("{timestamp} - {slug}.md")
+    };
+
+    let note_path = VaultPath::new(format!("{inbox_folder}/{filename}"));
+    let content = request.text.clone();
+    let response = write_note(&vault.engine, &vault.root, &note_path, None, &content)?;
+
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+pub async fn list_inbox(
+    State(state): State<SharedAppState>,
+    Path(vault_name): Path<String>,
+) -> Result<Json<Vec<NoteSummary>>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    let inbox_folder = &vault.vault_config.inbox.folder;
+    let like_pattern = format!("{inbox_folder}/%");
+
+    let conn = vault.cache.connection();
+    let mut statement = conn
+        .prepare(
+            "SELECT path, title, type, customer, stream, state, status, date, created_at, updated_at, archived, mtime_unix, frontmatter_json
+             FROM v_notes
+             WHERE path LIKE ?1 AND archived = 0
+             ORDER BY path DESC
+             LIMIT 100",
+        )
+        .map_err(internal_error)?;
+    let rows = statement
+        .query_map([&like_pattern], |row| {
+            let frontmatter_json: String = row.get(12)?;
+            Ok(NoteSummary {
+                path: row.get(0)?,
+                title: row.get(1)?,
+                note_type: row.get(2)?,
+                customer: row.get(3)?,
+                stream: row.get(4)?,
+                state: row.get(5)?,
+                status: row.get(6)?,
+                date: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+                archived: row.get::<_, i64>(10)? != 0,
+                mtime_unix: row.get(11)?,
+                frontmatter: serde_json::from_str(&frontmatter_json).unwrap_or(Value::Null),
+            })
+        })
+        .map_err(internal_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(internal_error)?;
+
+    Ok(Json(rows))
+}
+
+fn sanitize_slug(input: &str) -> String {
+    let sanitized: String = input
+        .chars()
+        .map(|ch| {
+            if ch.is_alphanumeric() || ch == ' ' || ch == '-' {
+                ch
+            } else {
+                ' '
+            }
+        })
+        .collect();
+    // Collapse multiple spaces and trim
+    sanitized.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 // ── Task routes ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]

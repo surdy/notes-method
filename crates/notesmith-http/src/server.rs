@@ -5,7 +5,7 @@ use axum::{
     Router,
     routing::{get, post},
 };
-use notesmith_config::GlobalConfig;
+use notesmith_config::{GlobalConfig, VaultConfig};
 use notesmith_core::VaultEngine;
 use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_vault::NativeVaultEngine;
@@ -19,6 +19,7 @@ pub struct VaultState {
     pub search_index: SearchIndex,
     pub engine: NativeVaultEngine,
     pub root: PathBuf,
+    pub vault_config: VaultConfig,
 }
 
 #[derive(Default)]
@@ -51,6 +52,10 @@ fn build_router_with_shared_state(state: SharedAppState) -> Router {
             post(routes::append_note),
         )
         .route("/api/v/{vault}/notes-move/{*path}", post(routes::move_note))
+        .route(
+            "/api/v/{vault}/inbox",
+            get(routes::list_inbox).post(routes::inbox_capture),
+        )
         .route("/api/v/{vault}/search", get(routes::search_notes))
         .route("/api/v/{vault}/query/sql", post(routes::execute_sql_query))
         .route(
@@ -107,6 +112,15 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
         cache.reindex(vault_name, &notes)?;
         let search_index = SearchIndex::open(&search_index_path_for_vault(vault_name)?)?;
         search_index.reindex(vault_name, &notes)?;
+        let vault_config = VaultConfig::load_from_vault(&root).unwrap_or_else(|_| VaultConfig {
+            name: vault_name.clone(),
+            inbox: Default::default(),
+            daily: Default::default(),
+            editor: Default::default(),
+            git: Default::default(),
+            hooks: Default::default(),
+            homepage: None,
+        });
         vaults.insert(
             vault_name.clone(),
             VaultState {
@@ -114,6 +128,7 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
                 search_index,
                 engine,
                 root,
+                vault_config,
             },
         );
     }

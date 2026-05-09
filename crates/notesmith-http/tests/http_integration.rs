@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fs, net::SocketAddr, path::Path, path::PathBuf};
 
+use notesmith_config::VaultConfig;
 use notesmith_core::VaultEngine;
 use notesmith_http::{AppState, VaultState, serve_with_listener};
 use notesmith_index::{SearchIndex, VaultCache};
@@ -18,6 +19,16 @@ fn build_test_state(root: &Path) -> AppState {
     let search_index = SearchIndex::open_in_memory().unwrap();
     search_index.reindex("test-vault", &notes).unwrap();
 
+    let vault_config = VaultConfig::load_from_vault(root).unwrap_or_else(|_| VaultConfig {
+        name: "test-vault".to_string(),
+        inbox: Default::default(),
+        daily: Default::default(),
+        editor: Default::default(),
+        git: Default::default(),
+        hooks: Default::default(),
+        homepage: None,
+    });
+
     AppState {
         vaults: HashMap::from([(
             "test-vault".to_string(),
@@ -26,6 +37,7 @@ fn build_test_state(root: &Path) -> AppState {
                 search_index,
                 engine,
                 root: root.to_path_buf(),
+                vault_config,
             },
         )]),
     }
@@ -649,6 +661,111 @@ async fn toggle_task_returns_unprocessable_for_invalid_transition() {
         .unwrap();
 
     assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+
+    server.server.abort();
+}
+
+// ── Inbox API tests ────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn post_inbox_creates_note_with_timestamp_filename() {
+    let server = TestServer::empty().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/inbox"))
+        .json(&serde_json::json!({
+            "text": "Buy milk and eggs",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    let path = body["path"].as_str().unwrap();
+    assert!(
+        path.starts_with("Inbox/"),
+        "path should start with Inbox/: {path}"
+    );
+    assert!(path.ends_with(".md"), "path should end with .md: {path}");
+    assert!(body["hash"].as_str().unwrap().len() > 10);
+
+    // Verify file exists on disk with expected content
+    let file_path = server.root.join(path);
+    assert!(
+        file_path.exists(),
+        "file should exist at {}",
+        file_path.display()
+    );
+    let content = fs::read_to_string(&file_path).unwrap();
+    assert!(content.contains("Buy milk and eggs"));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn post_inbox_with_title_uses_title_in_filename() {
+    let server = TestServer::empty().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/inbox"))
+        .json(&serde_json::json!({
+            "text": "Some detailed content here",
+            "title": "Grocery List",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    let path = body["path"].as_str().unwrap();
+    assert!(
+        path.contains("Grocery List"),
+        "path should contain title slug: {path}"
+    );
+    assert!(path.starts_with("Inbox/"));
+
+    let file_path = server.root.join(path);
+    let content = fs::read_to_string(&file_path).unwrap();
+    assert!(content.contains("Some detailed content here"));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn get_inbox_lists_inbox_notes() {
+    let server = TestServer::with_files(&[
+        ("Inbox/2026-05-09 10-00-00 - Note One.md", "First note"),
+        ("Inbox/2026-05-09 10-01-00 - Note Two.md", "Second note"),
+        ("Other/Not Inbox.md", "Should not appear"),
+    ])
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/v/test-vault/inbox"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<Vec<serde_json::Value>>().await.unwrap();
+    assert!(
+        body.len() >= 2,
+        "expected at least 2 inbox notes, got {}",
+        body.len()
+    );
+    // All returned notes should be in Inbox/
+    for note in &body {
+        let path = note["path"].as_str().unwrap();
+        assert!(
+            path.starts_with("Inbox/"),
+            "expected Inbox/ path, got {path}"
+        );
+    }
 
     server.server.abort();
 }
