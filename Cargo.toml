@@ -65,5 +65,6 @@ notify = "8"
 git2 = "0.20"
 walkdir = "2"
 regex = "1"
+dirs = "6"
 tempfile = "3"
 insta = { version = "1", features = ["yaml"] }

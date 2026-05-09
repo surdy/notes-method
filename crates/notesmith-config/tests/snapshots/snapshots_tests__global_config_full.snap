@@ -1,0 +1,15 @@
+---
+source: crates/notesmith-config/tests/snapshots_tests.rs
+expression: serialized
+---
+default_vault = "work"
+
+[daemon]
+bind = "127.0.0.1:27183"
+auto_start = true
+
+[vaults.personal]
+path = "/Users/surdy/Notes/personal"
+
+[vaults.work]
+path = "/Users/surdy/Notes/work"

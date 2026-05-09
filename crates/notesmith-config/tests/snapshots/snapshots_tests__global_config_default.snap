@@ -1,0 +1,9 @@
+---
+source: crates/notesmith-config/tests/snapshots_tests.rs
+expression: serialized
+---
+[daemon]
+bind = "127.0.0.1:27183"
+auto_start = true
+
+[vaults]

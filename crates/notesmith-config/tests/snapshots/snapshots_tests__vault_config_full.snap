@@ -1,0 +1,32 @@
+---
+source: crates/notesmith-config/tests/snapshots_tests.rs
+expression: serialized
+---
+name = "work"
+homepage = "Dashboards/Home.md"
+
+[inbox]
+folder = "Inbox"
+template = "generic-note"
+
+[daily]
+folder = "Inbox/Daily"
+template = "daily-note"
+generate_at = "06:30"
+timezone = "America/Los_Angeles"
+catch_up = true
+
+[editor]
+live_preview = true
+default_mode = "source"
+
+[git]
+enabled = true
+auto_commit_every = "15m"
+auto_pull_every = "30m"
+auto_push_every = "30m"
+commit_message = "notesmith: {{ operation }}"
+
+[hooks]
+on_note_create = "Assets/scripts/on-note-create.py"
+on_daily_create = "Assets/scripts/on-daily-create.py"
