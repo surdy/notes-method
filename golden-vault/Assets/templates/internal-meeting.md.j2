@@ -1,0 +1,28 @@
+---
+notesmith:
+  name: internal-meeting
+  description: Internal team meeting about a customer
+  output_path: "Customers/{{ customer }}/Internal Meetings/{{ today }} {{ title | default('Internal Sync') }}.md"
+  prompts:
+    - name: customer
+      type: text
+      required: true
+    - name: title
+      type: text
+      required: false
+---
+---
+date: {{ today }}
+type: internal-meeting
+customer: {{ customer }}
+---
+# {{ today }} - {{ title | default("Internal Sync") }}
+
+**Customer:** {{ customer }}
+**Date:** {{ today }}
+
+## Updates
+
+## Next Steps
+
+- [ ]

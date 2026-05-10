@@ -398,3 +398,77 @@ Toggle a task to a new status using its content hash (blake3 of the raw task lin
 - `404` — task hash not found in the note
 - `409` — hash matches more than one task (collision)
 - `422` — invalid status string or disallowed status transition
+
+---
+
+## Templates
+
+### `GET /api/v/{vault}/templates`
+
+List all available templates.
+
+**Response:** `200 OK`
+```json
+[
+  {
+    "name": "generic-note",
+    "description": "A generic blank note",
+    "output_path": "{{ folder | default('Inbox') }}/{{ title | slug }}.md",
+    "prompts": [
+      { "name": "title", "type": "text", "required": true },
+      { "name": "folder", "type": "text", "required": false }
+    ]
+  }
+]
+```
+
+### `POST /api/v/{vault}/templates/{name}/render`
+
+Render a template with the given prompt values without creating a file.
+
+**Request body:**
+```json
+{
+  "prompts": {
+    "title": "Hello World",
+    "folder": "Customers/Acme"
+  }
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "path": "Customers/Acme/hello-world.md",
+  "content": "# Hello World\n"
+}
+```
+
+**Errors:**
+- `404` — template not found
+- `422` — missing required prompts (returns `{ "error": "...", "missing": ["title"] }`)
+
+### `POST /api/v/{vault}/templates/{name}/instantiate`
+
+Render a template and create the note at the computed output path. The save pipeline runs on the rendered content.
+
+**Request body:**
+```json
+{
+  "prompts": {
+    "customer": "Acme",
+    "title": "Q2 Check-in"
+  }
+}
+```
+
+**Response:** `201 Created`
+```json
+{
+  "path": "Customers/Acme/External Meetings/2026-05-09 Q2 Check-in.md"
+}
+```
+
+**Errors:**
+- `404` — template not found
+- `422` — missing required prompts

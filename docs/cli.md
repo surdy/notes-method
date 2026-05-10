@@ -315,3 +315,62 @@ notesmith search SSO --limit 5 --format json
 ```
 
 Text output shows path, title, score, and a context snippet for each result.
+
+---
+
+## template
+
+### `template list`
+
+List available templates with their prompt schemas.
+
+```bash
+notesmith template list
+```
+
+Text output shows template name and description. JSON output returns the full template metadata including prompts.
+
+### `template render <name> [--prompt KEY=VALUE ...]`
+
+Render a template to stdout without creating a file.
+
+```bash
+notesmith template render generic-note --prompt title="Hello World"
+```
+
+Text output prints just the rendered content. JSON output returns `{ path, content }`.
+
+### `template instantiate <name> [--prompt KEY=VALUE ...]`
+
+Render and create the note at the computed output path.
+
+```bash
+notesmith template instantiate external-meeting --prompt customer=Acme --prompt title="Q2 Check-in"
+```
+
+| Flag | Description |
+|------|-------------|
+| `--prompt KEY=VALUE` | Supply a prompt value (repeatable) |
+
+**Available templates:**
+
+| Name | Description |
+|------|-------------|
+| `generic-note` | A generic blank note |
+| `daily-note` | Daily note for today |
+| `external-meeting` | External customer meeting note |
+| `internal-meeting` | Internal team meeting about a customer |
+| `account-info` | Account information for a customer |
+| `customer-index` | Top-level customer index note |
+| `glossary` | Glossary of terms for a customer |
+| `milestones` | Dates and milestones for a customer |
+| `stream` | Customer stream or initiative |
+
+**Examples:**
+
+```bash
+notesmith template list
+notesmith template render daily-note
+notesmith template instantiate stream --prompt customer=Acme --prompt title="Migration to v2"
+notesmith template instantiate account-info --prompt customer="Globex Industries" --format json
+```

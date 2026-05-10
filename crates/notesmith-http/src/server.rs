@@ -20,6 +20,7 @@ pub struct VaultState {
     pub engine: NativeVaultEngine,
     pub root: PathBuf,
     pub vault_config: VaultConfig,
+    pub template_engine: notesmith_templates::TemplateEngine,
 }
 
 #[derive(Default)]
@@ -65,6 +66,15 @@ fn build_router_with_shared_state(state: SharedAppState) -> Router {
         .route(
             "/api/v/{vault}/tasks/toggle",
             post(routes::toggle_task_status),
+        )
+        .route("/api/v/{vault}/templates", get(routes::list_templates))
+        .route(
+            "/api/v/{vault}/templates/{name}/render",
+            post(routes::render_template),
+        )
+        .route(
+            "/api/v/{vault}/templates/{name}/instantiate",
+            post(routes::instantiate_template),
         )
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
@@ -121,6 +131,9 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
             hooks: Default::default(),
             homepage: None,
         });
+        let cache_path = cache_path_for_vault(vault_name)?;
+        let template_engine =
+            notesmith_templates::TemplateEngine::new(root.clone(), Some(cache_path));
         vaults.insert(
             vault_name.clone(),
             VaultState {
@@ -129,6 +142,7 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
                 engine,
                 root,
                 vault_config,
+                template_engine,
             },
         );
     }

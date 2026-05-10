@@ -1,0 +1,30 @@
+---
+notesmith:
+  name: external-meeting
+  description: External customer meeting note
+  output_path: "Customers/{{ customer }}/External Meetings/{{ today }} {{ title | default('Meeting') }}.md"
+  prompts:
+    - name: customer
+      type: text
+      required: true
+    - name: title
+      type: text
+      required: false
+---
+---
+date: {{ today }}
+type: external-meeting
+customer: {{ customer }}
+---
+# {{ today }} - {{ title | default("Meeting") }}
+
+**Customer:** {{ customer }}
+**Date:** {{ today }}
+
+## Agenda
+
+## Discussion
+
+## Action Items
+
+- [ ]

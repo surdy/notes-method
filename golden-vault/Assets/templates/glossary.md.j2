@@ -1,0 +1,19 @@
+---
+notesmith:
+  name: glossary
+  description: Glossary of terms for a customer
+  output_path: "Customers/{{ customer }}/Account Info/Glossary.md"
+  prompts:
+    - name: customer
+      type: text
+      required: true
+---
+---
+type: glossary
+customer: {{ customer }}
+---
+# Glossary - {{ customer }}
+
+| Term | Definition |
+|------|------------|
+|      |            |

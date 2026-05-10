@@ -11,6 +11,7 @@ notesmith-config = { workspace = true }
 notesmith-vault = { workspace = true }
 notesmith-index = { workspace = true }
 notesmith-query = { workspace = true }
+notesmith-templates = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

@@ -38,6 +38,7 @@ async fn watcher_indexes_new_markdown_files() {
                     hooks: Default::default(),
                     homepage: None,
                 },
+                template_engine: notesmith_templates::TemplateEngine::new(vault_root.clone(), None),
             },
         )]),
     }));

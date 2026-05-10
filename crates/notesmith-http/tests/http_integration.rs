@@ -29,6 +29,8 @@ fn build_test_state(root: &Path) -> AppState {
         homepage: None,
     });
 
+    let template_engine = notesmith_templates::TemplateEngine::new(root.to_path_buf(), None);
+
     AppState {
         vaults: HashMap::from([(
             "test-vault".to_string(),
@@ -38,6 +40,7 @@ fn build_test_state(root: &Path) -> AppState {
                 engine,
                 root: root.to_path_buf(),
                 vault_config,
+                template_engine,
             },
         )]),
     }
@@ -766,6 +769,192 @@ async fn get_inbox_lists_inbox_notes() {
             "expected Inbox/ path, got {path}"
         );
     }
+
+    server.server.abort();
+}
+
+// ── Template API tests ─────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn get_templates_lists_all() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let root = golden_vault();
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, build_test_state(&root))
+            .await
+            .unwrap();
+    });
+
+    let response = reqwest::get(format!("http://{address}/api/v/test-vault/templates"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.json::<Vec<serde_json::Value>>().await.unwrap();
+    assert_eq!(body.len(), 9, "expected 9 templates, got {}", body.len());
+    let names: Vec<&str> = body.iter().filter_map(|t| t["name"].as_str()).collect();
+    assert!(names.contains(&"generic-note"));
+    assert!(names.contains(&"daily-note"));
+    assert!(names.contains(&"stream"));
+    for template in &body {
+        assert!(template["prompts"].as_array().is_some());
+        assert!(template["description"].as_str().is_some());
+    }
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn post_render_template_returns_content() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let root = golden_vault();
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, build_test_state(&root))
+            .await
+            .unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!(
+            "http://{address}/api/v/test-vault/templates/generic-note/render"
+        ))
+        .json(&serde_json::json!({
+            "prompts": { "title": "Test Note" }
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["path"], serde_json::json!("Inbox/test-note.md"));
+    assert!(body["content"].as_str().unwrap().contains("# Test Note"));
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn post_render_missing_prompt_returns_422() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let root = golden_vault();
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, build_test_state(&root))
+            .await
+            .unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!(
+            "http://{address}/api/v/test-vault/templates/generic-note/render"
+        ))
+        .json(&serde_json::json!({ "prompts": {} }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert!(
+        body["missing"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("title"))
+    );
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn post_render_unknown_template_returns_404() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let root = golden_vault();
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, build_test_state(&root))
+            .await
+            .unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!(
+            "http://{address}/api/v/test-vault/templates/nonexistent/render"
+        ))
+        .json(&serde_json::json!({ "prompts": {} }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn post_instantiate_creates_note() {
+    let server = TestServer::empty().await;
+    let templates_src = golden_vault().join("Assets").join("templates");
+    let templates_dst = server.root.join("Assets").join("templates");
+    fs::create_dir_all(&templates_dst).unwrap();
+    for entry in fs::read_dir(&templates_src).unwrap() {
+        let entry = entry.unwrap();
+        fs::copy(entry.path(), templates_dst.join(entry.file_name())).unwrap();
+    }
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(server.url("/api/v/test-vault/templates/generic-note/instantiate"))
+        .json(&serde_json::json!({
+            "prompts": { "title": "Created Note" }
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["path"], serde_json::json!("Inbox/created-note.md"));
+    assert!(server.root.join("Inbox/created-note.md").exists());
+
+    let content = fs::read_to_string(server.root.join("Inbox/created-note.md")).unwrap();
+    assert!(content.contains("# Created Note"));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn post_instantiate_missing_prompt_returns_422() {
+    let server = TestServer::empty().await;
+    let templates_src = golden_vault().join("Assets").join("templates");
+    let templates_dst = server.root.join("Assets").join("templates");
+    fs::create_dir_all(&templates_dst).unwrap();
+    for entry in fs::read_dir(&templates_src).unwrap() {
+        let entry = entry.unwrap();
+        fs::copy(entry.path(), templates_dst.join(entry.file_name())).unwrap();
+    }
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(server.url("/api/v/test-vault/templates/generic-note/instantiate"))
+        .json(&serde_json::json!({ "prompts": {} }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
 
     server.server.abort();
 }

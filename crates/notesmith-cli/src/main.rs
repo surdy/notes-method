@@ -6,6 +6,7 @@ use notesmith_cli::commands::{
     query::QueryCommand,
     search::SearchCommand,
     task::TaskCommand,
+    template::TemplateCommand,
     vault::{OutputFormat, VaultCommand},
 };
 use notesmith_config::GlobalConfig;
@@ -78,6 +79,11 @@ enum Command {
         #[command(subcommand)]
         command: InboxCommand,
     },
+    /// Template management commands
+    Template {
+        #[command(subcommand)]
+        command: TemplateCommand,
+    },
 }
 
 #[tokio::main]
@@ -115,6 +121,11 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
         }
         Command::Inbox { command } => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
+        Command::Template { command } => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;
