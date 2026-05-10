@@ -23,6 +23,15 @@ pub enum DailyCommand {
         #[arg(long)]
         date: Option<String>,
     },
+    /// Agent-driven daily note creation
+    AgentCreate {
+        /// Date in YYYY-MM-DD format (defaults to today)
+        #[arg(long)]
+        date: Option<String>,
+        /// Write pre-generated content directly as today's daily note
+        #[arg(long)]
+        content: Option<String>,
+    },
 }
 
 impl DailyCommand {
@@ -39,6 +48,17 @@ impl DailyCommand {
             }
             DailyCommand::Open { date } => {
                 cmd_open(global_config, explicit_vault, cwd, date.as_deref(), format).await
+            }
+            DailyCommand::AgentCreate { date, content } => {
+                cmd_agent_create(
+                    global_config,
+                    explicit_vault,
+                    cwd,
+                    date.as_deref(),
+                    content.as_deref(),
+                    format,
+                )
+                .await
             }
         }
     }
@@ -113,6 +133,56 @@ async fn cmd_open(
     match format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&note)?),
         OutputFormat::Text => print!("{}", note["content"].as_str().unwrap_or_default()),
+    }
+
+    Ok(())
+}
+
+async fn cmd_agent_create(
+    global_config: &GlobalConfig,
+    explicit_vault: Option<&str>,
+    cwd: &Path,
+    date: Option<&str>,
+    content: Option<&str>,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    let detected = detect_vault(cwd, explicit_vault, global_config)?;
+    let date_str = resolve_date(date);
+    let url = build_vault_url(global_config, &detected.name, &["daily", "agent-create"])?;
+    let mut request = serde_json::json!({ "date": date_str });
+    if let Some(content) = content {
+        request["content"] = serde_json::Value::String(content.to_string());
+    }
+
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&request)
+        .send()
+        .await
+        .map_err(map_request_error(global_config))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("daily agent-create failed with {status}: {body}");
+    }
+
+    let json = response.json::<serde_json::Value>().await?;
+    match format {
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&json)?),
+        OutputFormat::Text => {
+            if let Some(prompt) = json["prompt"].as_str() {
+                print!("{prompt}");
+            } else {
+                let path = json["path"].as_str().unwrap_or_default();
+                let created = json["created"].as_bool().unwrap_or(false);
+                if created {
+                    println!("Created {path}");
+                } else {
+                    println!("{path}");
+                }
+            }
+        }
     }
 
     Ok(())

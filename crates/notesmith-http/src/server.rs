@@ -92,6 +92,10 @@ fn build_router_with_shared_state(state: SharedAppState) -> Router {
             "/api/v/{vault}/daily/{date}",
             get(routes::get_daily_note).post(routes::create_daily_note),
         )
+        .route(
+            "/api/v/{vault}/daily/agent-create",
+            post(routes::agent_create_daily),
+        )
         .route("/api/v/{vault}/events", get(routes::vault_events))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

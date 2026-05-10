@@ -7,6 +7,7 @@ use notesmith_cli::commands::{
     query::QueryCommand,
     route::RouteCommand,
     search::SearchCommand,
+    skill::SkillCommand,
     task::TaskCommand,
     template::TemplateCommand,
     vault::{OutputFormat, VaultCommand},
@@ -96,6 +97,11 @@ enum Command {
         #[command(subcommand)]
         command: DailyCommand,
     },
+    /// Vault skill file commands
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
+    },
 }
 
 #[tokio::main]
@@ -148,6 +154,11 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
         }
         Command::Daily { command } => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
+        Command::Skill { command } => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;

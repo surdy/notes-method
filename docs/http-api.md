@@ -605,6 +605,45 @@ curl -X POST http://127.0.0.1:27183/api/v/work/daily/2025-06-15
 - `400` — invalid date format
 - `404` — vault not found
 
+### `POST /api/v/{vault}/daily/agent-create`
+
+Agent daily workflow endpoint. In prompt mode, the daemon loads `.notesmith/prompts/daily-note.md`, executes its `context_queries`, renders markdown tables for each result set, replaces placeholders such as `{{ open_tasks }}` and `{{ today }}`, and returns the assembled prompt. In write mode, it writes the provided content directly as the daily note for the requested date.
+
+**Request body (prompt mode):**
+```json
+{ "date": "2026-05-10" }
+```
+
+**Request body (write mode):**
+```json
+{
+  "date": "2026-05-10",
+  "content": "---\ntype: daily\ndate: 2026-05-10\n---\n# 2026-05-10\n..."
+}
+```
+
+**Response:** `200 OK` (prompt mode)
+```json
+{
+  "date": "2026-05-10",
+  "prompt": "# Daily Note Prompt\n..."
+}
+```
+
+**Response:** `201 Created` (write mode)
+```json
+{
+  "path": "Inbox/Daily/2026-05-10.md",
+  "created": true
+}
+```
+
+**Errors:**
+- `400` — invalid date format
+- `404` — vault or prompt template not found
+- `409` — daily note already exists in write mode
+- `422` — invalid SQL in a context query
+
 ---
 
 ## Event Stream

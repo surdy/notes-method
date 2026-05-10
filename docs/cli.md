@@ -473,3 +473,31 @@ notesmith daily open --date 2025-06-15
 notesmith daily open
 notesmith daily open --date 2025-01-15 --format json
 ```
+
+### `daily agent-create [--date YYYY-MM-DD] [--content "..."]`
+
+Agent-oriented daily note workflow. Without `--content`, the daemon assembles and returns the saved prompt template from `.notesmith/prompts/daily-note.md`. With `--content`, the daemon writes that pre-generated content as the day's daily note and rejects conflicts if the note already exists.
+
+```bash
+notesmith daily agent-create
+notesmith daily agent-create --date 2025-06-15
+notesmith daily agent-create --date 2025-06-15 --content "---\ntype: daily\ndate: 2025-06-15\n---\n# 2025-06-15"
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--date <YYYY-MM-DD>` | Date for the daily note or prompt assembly | today |
+| `--content <markdown>` | Write pre-generated content instead of printing a prompt | prompt mode |
+
+---
+
+## skill
+
+### `skill print`
+
+Print the detected vault's `.notesmith/skill.md` file so agents can load vault-specific operating instructions.
+
+```bash
+notesmith skill print
+notesmith --format json skill print
+```

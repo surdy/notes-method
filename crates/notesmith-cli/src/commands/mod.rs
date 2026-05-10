@@ -7,6 +7,7 @@ pub mod note;
 pub mod query;
 pub mod route;
 pub mod search;
+pub mod skill;
 pub mod task;
 pub mod template;
 pub mod vault;
