@@ -98,3 +98,13 @@ For each customer there would be a folder containing:
 ## Open for Ideas
 
 - What additional customer metadata should live alongside `state:` on the Customer Index note.
+
+## Git Integration
+
+- Opt-in per-vault git sync via `[git]` in `vault.toml` (`enabled`, `auto_commit_every`, `auto_pull_every`, `auto_push_every`, `commit_message`).
+- Auto-commit stages only note-relevant file types (`.md`, `.yaml`, `.yml`, `.toml`, `.json`, images, `.pdf`).
+- Pull uses fast-forward only — conflicts abort and log a warning instead of attempting resolution.
+- Auto-push always pulls first to minimize conflicts.
+- CLI: `notesmith git {status, pull, push, sync, log}`.
+- HTTP: `GET /api/v/{vault}/git/status`, `POST /api/v/{vault}/git/sync`.
+- Non-git vaults are completely unaffected.
