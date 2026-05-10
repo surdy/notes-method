@@ -21,6 +21,13 @@
 - Use the `golden-vault/` fixture for integration tests against real vault content.
 - Use the `insta` crate for snapshot tests where appropriate (rendered output, parsed structures, routing decisions).
 
+## Frontend–Backend Contract Testing
+
+- When frontend code issues SQL queries against backend views (e.g., `v_backlinks`, `v_notes`, `v_tasks`), add an integration test in `tests/` that runs the **exact query** against a real SQLite database populated via the indexer. This catches column-name mismatches before they reach production.
+- When adding or changing SQL views in the backend, verify that all frontend query builders (`right-rail.ts`, etc.) still reference valid columns. A grep for the view name across `ui/app/src/` is a quick sanity check.
+- When frontend components depend on API response shapes (column names, JSON field names), add at least one integration test that hits the HTTP endpoint and asserts on the response structure — not just status code.
+- When frontend code has loading-state guards (e.g., early returns during async fetches), ensure every exit path resets the loading flag. Prefer a `finally` block or equivalent pattern to guarantee cleanup.
+
 ## User-Facing Documentation
 
 - When completing an issue that adds or changes CLI commands, HTTP endpoints, or SQL views, update the corresponding doc file in `docs/`.
