@@ -60,6 +60,20 @@ curl http://127.0.0.1:27183/api/v/work/notes/Customers/Acme%20Corp/Acme%20Corp.m
 **Errors:**
 - `404` — vault or note not found
 
+### `GET /api/v/{vault}/html/{path...}`
+
+Render a single note body to HTML using the daemon's markdown renderer. YAML frontmatter is stripped before rendering.
+
+**Example:**
+```bash
+curl http://127.0.0.1:27183/api/v/work/html/Customers/Acme%20Corp/Acme%20Corp.md
+```
+
+**Response:** `200 OK` — HTML markup as `text/html`
+
+**Errors:**
+- `404` — vault or note not found
+
 ### `POST /api/v/{vault}/notes`
 
 Create a new note. The server writes `{folder}/{title}.md`, defaults `folder` to `Inbox`, runs the save pipeline, and returns the written hash.
@@ -683,3 +697,18 @@ curl -N http://127.0.0.1:27183/api/v/work/events
 
 **Errors:**
 - `404` — vault not found
+
+---
+
+## App shell
+
+### `GET /app/*`
+
+Serve the compiled SvelteKit app shell and static assets from the daemon.
+
+**Example:**
+```bash
+open http://127.0.0.1:27183/app/
+```
+
+Nested `/app/...` routes fall back to the app's `index.html` so client-side routing works.

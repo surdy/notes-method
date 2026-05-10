@@ -10,7 +10,11 @@ use notesmith_core::VaultEngine;
 use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_vault::NativeVaultEngine;
 use tokio::{net::TcpListener, sync::RwLock};
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{
+    cors::CorsLayer,
+    services::{ServeDir, ServeFile},
+    trace::TraceLayer,
+};
 
 use crate::{events, routes, watcher::watch_all_vaults};
 
@@ -41,10 +45,23 @@ impl Default for AppState {
 pub type SharedAppState = Arc<RwLock<AppState>>;
 
 pub fn build_router(state: AppState) -> Router {
-    build_router_with_shared_state(Arc::new(RwLock::new(state)))
+    build_router_with_app_dir(state, app_build_dir())
 }
 
 fn build_router_with_shared_state(state: SharedAppState) -> Router {
+    build_router_with_shared_state_and_app_dir(state, app_build_dir())
+}
+
+fn build_router_with_app_dir(state: AppState, app_dir: PathBuf) -> Router {
+    build_router_with_shared_state_and_app_dir(Arc::new(RwLock::new(state)), app_dir)
+}
+
+fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: PathBuf) -> Router {
+    let index_path = app_dir.join("index.html");
+    let app_service = ServeDir::new(app_dir)
+        .append_index_html_on_directories(true)
+        .fallback(ServeFile::new(index_path));
+
     Router::new()
         .route("/ping", get(routes::ping))
         .route(
@@ -58,6 +75,7 @@ fn build_router_with_shared_state(state: SharedAppState) -> Router {
                 .patch(routes::patch_note)
                 .delete(routes::delete_note),
         )
+        .route("/api/v/{vault}/html/{*path}", get(routes::render_note_html))
         .route(
             "/api/v/{vault}/notes-append/{*path}",
             post(routes::append_note),
@@ -97,9 +115,16 @@ fn build_router_with_shared_state(state: SharedAppState) -> Router {
             post(routes::agent_create_daily),
         )
         .route("/api/v/{vault}/events", get(routes::vault_events))
+        .nest_service("/app", app_service)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+fn app_build_dir() -> PathBuf {
+    std::env::var_os("NOTESMITH_APP_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("ui/app/build"))
 }
 
 pub async fn serve_with_listener(listener: TcpListener, state: AppState) -> anyhow::Result<()> {
@@ -220,4 +245,40 @@ fn sanitize_vault_name(vault_name: &str) -> String {
             _ => ch,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+
+    use super::{AppState, build_router_with_app_dir};
+
+    #[tokio::test]
+    async fn serves_app_index_for_nested_app_routes() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let app_dir = temp_dir.path().join("app");
+        fs::create_dir_all(&app_dir).unwrap();
+        fs::write(app_dir.join("index.html"), "<html><body>app shell</body></html>").unwrap();
+
+        let response = build_router_with_app_dir(AppState::default(), app_dir)
+            .oneshot(
+                Request::builder()
+                    .uri("/app/customers/acme")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("app shell"), "body was: {text}");
+    }
 }

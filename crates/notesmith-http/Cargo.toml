@@ -14,12 +14,14 @@ notesmith-query = { workspace = true }
 notesmith-templates = { workspace = true }
 notesmith-routing = { workspace = true }
 notesmith-hooks = { workspace = true }
+notesmith-html = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
+tower = { workspace = true }
 tower-http = { workspace = true }
 blake3 = { workspace = true }
 dirs = { workspace = true }

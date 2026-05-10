@@ -232,6 +232,35 @@ async fn get_note_returns_full_note_metadata() {
 }
 
 #[tokio::test]
+async fn get_note_html_renders_markdown_without_frontmatter() {
+    let server = TestServer::with_files(&[(
+        "Inbox/Rendered.md",
+        "---\nstatus: draft\n---\n# Heading\n\n[[Target]]\n\n> [!info] Title\n> body\n",
+    )])
+    .await;
+
+    let response = reqwest::get(server.url("/api/v/test-vault/html/Inbox/Rendered.md"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.text().await.unwrap();
+    assert!(body.contains("<h1>Heading</h1>"), "body was: {body}");
+    assert!(!body.contains("status: draft"), "body was: {body}");
+    assert!(
+        body.contains(r#"<a class="wikilink" data-target="Target">Target</a>"#),
+        "body was: {body}"
+    );
+    assert!(
+        body.contains(r#"<div class="callout callout-info">"#),
+        "body was: {body}"
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
 async fn search_returns_matching_notes() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

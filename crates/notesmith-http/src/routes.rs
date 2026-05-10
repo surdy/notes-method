@@ -4,6 +4,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
     http::StatusCode,
+    response::Html,
     response::sse::{Event as SseEvent, KeepAlive, Sse},
 };
 use chrono;
@@ -313,6 +314,27 @@ pub async fn get_note(
         blocks: parsed.blocks,
         hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
     }))
+}
+
+pub async fn render_note_html(
+    State(state): State<SharedAppState>,
+    Path((vault_name, note_path)): Path<(String, String)>,
+) -> Result<Html<String>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    let vault_path = VaultPath::new(note_path);
+    let content = vault
+        .engine
+        .read(&vault.root, &vault_path)
+        .map_err(note_error)?;
+    let html = notesmith_html::render_to_html(strip_frontmatter(&content));
+    Ok(Html(html))
 }
 
 pub async fn put_note(
@@ -1291,6 +1313,11 @@ fn parse_prompt_template(content: &str) -> anyhow::Result<(Vec<ContextQuery>, St
         frontmatter.context_queries,
         body.trim_start_matches(['\r', '\n']).to_string(),
     ))
+}
+
+fn strip_frontmatter(content: &str) -> &str {
+    let (_, body) = extract_frontmatter(content);
+    body.trim_start_matches(['\r', '\n'])
 }
 
 fn format_query_as_markdown_table(result: &QueryResult) -> String {
