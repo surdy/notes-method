@@ -1,0 +1,649 @@
+//! Pure git2 operations: status, commit, pull, push, log.
+
+use std::path::Path;
+
+use anyhow::{Context, Result};
+use serde::Serialize;
+
+/// File extensions we auto-stage for commits.
+const STAGEABLE_EXTENSIONS: &[&str] = &[
+    "md", "yaml", "yml", "toml", "json", "png", "jpg", "jpeg", "gif", "svg", "pdf",
+];
+
+// ---------------------------------------------------------------------------
+// Data types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GitStatus {
+    pub changed: Vec<String>,
+    pub staged: Vec<String>,
+    pub untracked: Vec<String>,
+    pub clean: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PullResult {
+    pub updated: bool,
+    pub new_head: Option<String>,
+    pub conflict: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PushResult {
+    pub pushed: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GitLogEntry {
+    pub sha: String,
+    pub message: String,
+    pub author: String,
+    pub timestamp: String,
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/// Returns `true` if `path` is inside a git repository (has a `.git` directory).
+pub fn is_git_repo(path: &Path) -> bool {
+    git2::Repository::open(path).is_ok()
+}
+
+/// Returns the working-tree status of the repository at `path`.
+pub fn status(path: &Path) -> Result<GitStatus> {
+    let repo = git2::Repository::open(path).context("failed to open git repo")?;
+    let mut opts = git2::StatusOptions::new();
+    opts.include_untracked(true)
+        .include_ignored(false)
+        .recurse_untracked_dirs(true);
+
+    let statuses = repo.statuses(Some(&mut opts)).context("failed to get git status")?;
+
+    let mut changed = Vec::new();
+    let mut staged = Vec::new();
+    let mut untracked = Vec::new();
+
+    for entry in statuses.iter() {
+        let path_str = entry.path().unwrap_or("").to_string();
+        let s = entry.status();
+        if s.intersects(git2::Status::INDEX_NEW | git2::Status::INDEX_MODIFIED | git2::Status::INDEX_DELETED | git2::Status::INDEX_RENAMED | git2::Status::INDEX_TYPECHANGE) {
+            staged.push(path_str.clone());
+        }
+        if s.intersects(git2::Status::WT_MODIFIED | git2::Status::WT_DELETED | git2::Status::WT_RENAMED | git2::Status::WT_TYPECHANGE) {
+            changed.push(path_str.clone());
+        }
+        if s.intersects(git2::Status::WT_NEW) {
+            untracked.push(path_str);
+        }
+    }
+
+    let clean = changed.is_empty() && staged.is_empty() && untracked.is_empty();
+    Ok(GitStatus { changed, staged, untracked, clean })
+}
+
+/// Stage files matching [`STAGEABLE_EXTENSIONS`], commit if there are changes,
+/// and return the new commit SHA (or `None` if nothing to commit).
+pub fn auto_commit(path: &Path, message: &str) -> Result<Option<String>> {
+    let repo = git2::Repository::open(path).context("failed to open git repo")?;
+
+    // Stage matching files
+    let mut index = repo.index().context("failed to get repo index")?;
+
+    let mut opts = git2::StatusOptions::new();
+    opts.include_untracked(true)
+        .include_ignored(false)
+        .recurse_untracked_dirs(true);
+
+    let statuses = repo.statuses(Some(&mut opts)).context("failed to get status")?;
+    let mut has_changes = false;
+
+    for entry in statuses.iter() {
+        let Some(file_path) = entry.path() else { continue };
+        let s = entry.status();
+        let dominated = s.intersects(
+            git2::Status::WT_MODIFIED
+                | git2::Status::WT_NEW
+                | git2::Status::WT_DELETED
+                | git2::Status::WT_RENAMED
+                | git2::Status::WT_TYPECHANGE,
+        );
+        if !dominated {
+            continue;
+        }
+        if !is_stageable(file_path) {
+            continue;
+        }
+
+        if s.contains(git2::Status::WT_DELETED) {
+            index.remove_path(Path::new(file_path)).ok();
+        } else {
+            index.add_path(Path::new(file_path))?;
+        }
+        has_changes = true;
+    }
+
+    if !has_changes {
+        return Ok(None);
+    }
+
+    index.write()?;
+    let tree_oid = index.write_tree()?;
+    let tree = repo.find_tree(tree_oid)?;
+
+    let sig = repo
+        .signature()
+        .or_else(|_| git2::Signature::now("notesmith", "notesmith@localhost"))
+        .context("failed to create signature")?;
+
+    let parent_commit = match repo.head() {
+        Ok(head) => Some(head.peel_to_commit().context("HEAD is not a commit")?),
+        Err(e) if e.code() == git2::ErrorCode::UnbornBranch || e.code() == git2::ErrorCode::NotFound => None,
+        Err(e) => return Err(e.into()),
+    };
+
+    let parents: Vec<&git2::Commit<'_>> = parent_commit.iter().collect();
+    let oid = repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)?;
+
+    Ok(Some(oid.to_string()))
+}
+
+/// Fetch from remote and attempt a fast-forward merge.
+pub fn pull_ff(path: &Path, remote_name: &str) -> Result<PullResult> {
+    let repo = git2::Repository::open(path).context("failed to open git repo")?;
+
+    // Fetch
+    let mut remote = repo
+        .find_remote(remote_name)
+        .with_context(|| format!("remote '{remote_name}' not found"))?;
+    remote
+        .fetch(&[] as &[&str], None, None)
+        .context("fetch failed")?;
+
+    // Determine current branch
+    let head = match repo.head() {
+        Ok(h) => h,
+        Err(e) if e.code() == git2::ErrorCode::UnbornBranch => {
+            return Ok(PullResult { updated: false, new_head: None, conflict: false });
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let branch_name = head
+        .shorthand()
+        .unwrap_or("main")
+        .to_string();
+
+    // Find the remote tracking reference
+    let remote_ref_name = format!("refs/remotes/{remote_name}/{branch_name}");
+    let remote_ref = match repo.find_reference(&remote_ref_name) {
+        Ok(r) => r,
+        Err(_) => {
+            return Ok(PullResult { updated: false, new_head: None, conflict: false });
+        }
+    };
+
+    let remote_oid = remote_ref
+        .target()
+        .context("remote ref has no target")?;
+
+    let local_oid = head.target().context("HEAD has no target")?;
+
+    if local_oid == remote_oid {
+        return Ok(PullResult { updated: false, new_head: None, conflict: false });
+    }
+
+    // Check if fast-forward is possible
+    let (merge_analysis, _) = repo.merge_analysis(&[&repo.find_annotated_commit(remote_oid)?])?;
+
+    if merge_analysis.is_fast_forward() {
+        // Update the branch ref directly (not HEAD, which is symbolic)
+        repo.reference(
+            &format!("refs/heads/{branch_name}"),
+            remote_oid,
+            true,
+            "notesmith: fast-forward pull",
+        )?;
+        repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))?;
+
+        Ok(PullResult {
+            updated: true,
+            new_head: Some(remote_oid.to_string()),
+            conflict: false,
+        })
+    } else if merge_analysis.is_up_to_date() {
+        Ok(PullResult { updated: false, new_head: None, conflict: false })
+    } else {
+        // Not fast-forwardable — conflict
+        Ok(PullResult { updated: false, new_head: None, conflict: true })
+    }
+}
+
+/// Push the current branch to the named remote.
+pub fn push(path: &Path, remote_name: &str) -> Result<PushResult> {
+    let repo = git2::Repository::open(path).context("failed to open git repo")?;
+
+    let head = match repo.head() {
+        Ok(h) => h,
+        Err(e) if e.code() == git2::ErrorCode::UnbornBranch => {
+            return Ok(PushResult { pushed: false, error: Some("no commits to push".into()) });
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let branch_name = head.shorthand().unwrap_or("main").to_string();
+    let refspec = format!("refs/heads/{branch_name}:refs/heads/{branch_name}");
+
+    let mut remote = repo
+        .find_remote(remote_name)
+        .with_context(|| format!("remote '{remote_name}' not found"))?;
+
+    let mut push_error: Option<String> = None;
+    {
+        let mut callbacks = git2::RemoteCallbacks::new();
+        callbacks.push_update_reference(|_refname, status| {
+            if let Some(msg) = status {
+                push_error = Some(msg.to_string());
+            }
+            Ok(())
+        });
+        let mut push_opts = git2::PushOptions::new();
+        push_opts.remote_callbacks(callbacks);
+
+        match remote.push(&[&refspec], Some(&mut push_opts)) {
+            Ok(()) => {}
+            Err(e) => {
+                return Ok(PushResult {
+                    pushed: false,
+                    error: Some(e.message().to_string()),
+                });
+            }
+        }
+    }
+
+    if let Some(err) = push_error {
+        return Ok(PushResult { pushed: false, error: Some(err) });
+    }
+
+    Ok(PushResult { pushed: true, error: None })
+}
+
+/// Return the most recent `limit` commits from the repository log.
+pub fn log(path: &Path, limit: usize) -> Result<Vec<GitLogEntry>> {
+    let repo = git2::Repository::open(path).context("failed to open git repo")?;
+
+    let head = match repo.head() {
+        Ok(h) => h,
+        Err(e) if e.code() == git2::ErrorCode::UnbornBranch => return Ok(vec![]),
+        Err(e) => return Err(e.into()),
+    };
+
+    let head_oid = head.target().context("HEAD has no target")?;
+    let mut revwalk = repo.revwalk()?;
+    revwalk.push(head_oid)?;
+    revwalk.set_sorting(git2::Sort::TIME | git2::Sort::TOPOLOGICAL)?;
+
+    let mut entries = Vec::new();
+    for oid in revwalk.take(limit) {
+        let oid = oid?;
+        let commit = repo.find_commit(oid)?;
+        let timestamp = chrono::DateTime::from_timestamp(commit.time().seconds(), 0)
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_default();
+
+        entries.push(GitLogEntry {
+            sha: oid.to_string(),
+            message: commit.message().unwrap_or("").trim().to_string(),
+            author: commit.author().name().unwrap_or("").to_string(),
+            timestamp,
+        });
+    }
+
+    Ok(entries)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn is_stageable(file_path: &str) -> bool {
+    let path = Path::new(file_path);
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| STAGEABLE_EXTENSIONS.contains(&ext))
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+
+    use super::*;
+
+    /// Create a temporary git repo and return its path.
+    fn init_test_repo() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        let repo = git2::Repository::init(&path).unwrap();
+
+        // Configure user so commits work
+        let mut config = repo.config().unwrap();
+        config.set_str("user.name", "test").unwrap();
+        config.set_str("user.email", "test@test.com").unwrap();
+
+        (dir, path)
+    }
+
+    /// Create an initial commit so the repo has HEAD.
+    fn make_initial_commit(path: &Path) {
+        let repo = git2::Repository::open(path).unwrap();
+        let sig = git2::Signature::now("test", "test@test.com").unwrap();
+        let mut index = repo.index().unwrap();
+
+        // Write an initial file so we have something to commit
+        fs::write(path.join("README.md"), "# Test").unwrap();
+        index.add_path(Path::new("README.md")).unwrap();
+        index.write().unwrap();
+
+        let tree_oid = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_oid).unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "initial commit", &tree, &[])
+            .unwrap();
+    }
+
+    #[test]
+    fn is_git_repo_true_for_git_dir() {
+        let (dir, path) = init_test_repo();
+        assert!(is_git_repo(&path));
+        drop(dir);
+    }
+
+    #[test]
+    fn is_git_repo_false_for_non_git_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!is_git_repo(dir.path()));
+    }
+
+    #[test]
+    fn status_clean_on_empty_repo() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+        let s = status(&path).unwrap();
+        assert!(s.clean);
+        assert!(s.changed.is_empty());
+        assert!(s.staged.is_empty());
+        assert!(s.untracked.is_empty());
+    }
+
+    #[test]
+    fn status_detects_untracked_md_file() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+        fs::write(path.join("new-note.md"), "hello").unwrap();
+        let s = status(&path).unwrap();
+        assert!(!s.clean);
+        assert!(s.untracked.contains(&"new-note.md".to_string()));
+    }
+
+    #[test]
+    fn status_detects_modified_file() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+        // Modify the tracked README.md
+        fs::write(path.join("README.md"), "# Modified").unwrap();
+        let s = status(&path).unwrap();
+        assert!(!s.clean);
+        assert!(s.changed.contains(&"README.md".to_string()));
+    }
+
+    #[test]
+    fn auto_commit_stages_and_commits_md_file() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+        fs::write(path.join("note.md"), "# My note").unwrap();
+
+        let sha = auto_commit(&path, "test commit").unwrap();
+        assert!(sha.is_some(), "expected a commit SHA");
+
+        // Verify the commit exists
+        let entries = log(&path, 1).unwrap();
+        assert_eq!(entries[0].message, "test commit");
+    }
+
+    #[test]
+    fn auto_commit_ignores_non_stageable_extensions() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+        fs::write(path.join("script.sh"), "#!/bin/bash").unwrap();
+
+        let sha = auto_commit(&path, "should be empty").unwrap();
+        assert!(sha.is_none(), "should not commit non-stageable files");
+    }
+
+    #[test]
+    fn auto_commit_returns_none_when_clean() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+
+        let sha = auto_commit(&path, "nothing").unwrap();
+        assert!(sha.is_none());
+    }
+
+    #[test]
+    fn auto_commit_stages_yaml_and_json() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+        fs::write(path.join("config.yaml"), "key: value").unwrap();
+        fs::write(path.join("data.json"), "{}").unwrap();
+
+        let sha = auto_commit(&path, "config files").unwrap();
+        assert!(sha.is_some());
+    }
+
+    #[test]
+    fn auto_commit_on_empty_repo_creates_initial_commit() {
+        let (_dir, path) = init_test_repo();
+        fs::write(path.join("first.md"), "# First").unwrap();
+
+        let sha = auto_commit(&path, "initial").unwrap();
+        assert!(sha.is_some());
+
+        let entries = log(&path, 1).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].message, "initial");
+    }
+
+    #[test]
+    fn log_returns_commits_in_reverse_chronological_order() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+
+        fs::write(path.join("a.md"), "a").unwrap();
+        auto_commit(&path, "second").unwrap();
+
+        fs::write(path.join("b.md"), "b").unwrap();
+        auto_commit(&path, "third").unwrap();
+
+        let entries = log(&path, 10).unwrap();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].message, "third");
+        assert_eq!(entries[1].message, "second");
+        assert_eq!(entries[2].message, "initial commit");
+    }
+
+    #[test]
+    fn log_respects_limit() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+
+        fs::write(path.join("a.md"), "a").unwrap();
+        auto_commit(&path, "second").unwrap();
+
+        let entries = log(&path, 1).unwrap();
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn log_empty_repo_returns_empty() {
+        let (_dir, path) = init_test_repo();
+        let entries = log(&path, 10).unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn is_stageable_accepts_known_extensions() {
+        assert!(is_stageable("notes/foo.md"));
+        assert!(is_stageable("config.yaml"));
+        assert!(is_stageable("config.yml"));
+        assert!(is_stageable("config.toml"));
+        assert!(is_stageable("data.json"));
+        assert!(is_stageable("image.png"));
+        assert!(is_stageable("image.jpg"));
+        assert!(is_stageable("doc.pdf"));
+        assert!(is_stageable("icon.svg"));
+    }
+
+    #[test]
+    fn is_stageable_rejects_unknown_extensions() {
+        assert!(!is_stageable("script.sh"));
+        assert!(!is_stageable("binary.exe"));
+        assert!(!is_stageable("Makefile"));
+        assert!(!is_stageable("data.csv"));
+    }
+
+    #[test]
+    fn pull_ff_on_repo_without_remote() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+
+        let result = pull_ff(&path, "origin");
+        assert!(result.is_err()); // no remote configured
+    }
+
+    #[test]
+    fn push_on_repo_without_remote() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+
+        let result = push(&path, "origin");
+        assert!(result.is_err()); // no remote configured
+    }
+
+    #[test]
+    fn pull_ff_with_local_bare_remote() {
+        // Set up a bare "remote" repo
+        let bare_dir = tempfile::tempdir().unwrap();
+        let bare_path = bare_dir.path().to_path_buf();
+        git2::Repository::init_bare(&bare_path).unwrap();
+
+        // Clone it to create a working repo with an origin
+        let work_dir = tempfile::tempdir().unwrap();
+        let work_path = work_dir.path().join("repo");
+        let repo = git2::Repository::clone(
+            bare_path.to_str().unwrap(),
+            &work_path,
+        )
+        .unwrap();
+
+        // Configure user
+        let mut config = repo.config().unwrap();
+        config.set_str("user.name", "test").unwrap();
+        config.set_str("user.email", "test@test.com").unwrap();
+
+        // Make an initial commit
+        fs::write(work_path.join("README.md"), "# hello").unwrap();
+        auto_commit(&work_path, "initial").unwrap();
+
+        // Push to bare
+        push(&work_path, "origin").unwrap();
+
+        // Clone again to simulate a second user
+        let work2_dir = tempfile::tempdir().unwrap();
+        let work2_path = work2_dir.path().join("repo");
+        let repo2 = git2::Repository::clone(
+            bare_path.to_str().unwrap(),
+            &work2_path,
+        )
+        .unwrap();
+        let mut config2 = repo2.config().unwrap();
+        config2.set_str("user.name", "test2").unwrap();
+        config2.set_str("user.email", "test2@test.com").unwrap();
+
+        // Second user adds a commit and pushes
+        fs::write(work2_path.join("note.md"), "# a note").unwrap();
+        auto_commit(&work2_path, "from user2").unwrap();
+        push(&work2_path, "origin").unwrap();
+
+        // First user pulls — should fast-forward
+        let result = pull_ff(&work_path, "origin").unwrap();
+        assert!(result.updated);
+        assert!(!result.conflict);
+        assert!(result.new_head.is_some());
+
+        // Verify the file arrived
+        assert!(work_path.join("note.md").exists());
+    }
+
+    #[test]
+    fn push_to_bare_remote_succeeds() {
+        let bare_dir = tempfile::tempdir().unwrap();
+        let bare_path = bare_dir.path().to_path_buf();
+        git2::Repository::init_bare(&bare_path).unwrap();
+
+        let work_dir = tempfile::tempdir().unwrap();
+        let work_path = work_dir.path().join("repo");
+        let repo = git2::Repository::clone(
+            bare_path.to_str().unwrap(),
+            &work_path,
+        )
+        .unwrap();
+        let mut config = repo.config().unwrap();
+        config.set_str("user.name", "test").unwrap();
+        config.set_str("user.email", "test@test.com").unwrap();
+
+        fs::write(work_path.join("note.md"), "# note").unwrap();
+        auto_commit(&work_path, "first commit").unwrap();
+
+        let result = push(&work_path, "origin").unwrap();
+        assert!(result.pushed);
+        assert!(result.error.is_none());
+    }
+
+    #[test]
+    fn push_empty_repo_returns_error() {
+        let bare_dir = tempfile::tempdir().unwrap();
+        let bare_path = bare_dir.path().to_path_buf();
+        git2::Repository::init_bare(&bare_path).unwrap();
+
+        let work_dir = tempfile::tempdir().unwrap();
+        let work_path = work_dir.path().join("repo");
+        git2::Repository::clone(bare_path.to_str().unwrap(), &work_path).unwrap();
+
+        let result = push(&work_path, "origin").unwrap();
+        assert!(!result.pushed);
+    }
+
+    #[test]
+    fn auto_commit_handles_deleted_file() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+
+        // Add and commit a file
+        fs::write(path.join("to-delete.md"), "will be deleted").unwrap();
+        auto_commit(&path, "add file").unwrap();
+
+        // Delete the file
+        fs::remove_file(path.join("to-delete.md")).unwrap();
+        let sha = auto_commit(&path, "delete file").unwrap();
+        assert!(sha.is_some());
+
+        let entries = log(&path, 1).unwrap();
+        assert_eq!(entries[0].message, "delete file");
+    }
+}
