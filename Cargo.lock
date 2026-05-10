@@ -1561,6 +1561,8 @@ dependencies = [
  "anyhow",
  "comrak",
  "notesmith-core",
+ "pretty_assertions",
+ "regex",
 ]
 
 [[package]]

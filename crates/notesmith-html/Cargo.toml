@@ -9,3 +9,7 @@ license.workspace = true
 notesmith-core = { workspace = true }
 comrak = { workspace = true }
 anyhow = { workspace = true }
+regex = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
