@@ -428,3 +428,48 @@ notesmith route apply --inbox
 # Route with JSON output
 notesmith route apply --inbox --format json
 ```
+
+---
+
+## daily
+
+### `daily ensure [--date YYYY-MM-DD]`
+
+Create a daily note for the given date (defaults to today) if it doesn't exist. Uses the configured `daily-note` template.
+
+```bash
+notesmith daily ensure
+notesmith daily ensure --date 2025-06-15
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--date <YYYY-MM-DD>` | Date for the daily note | today |
+
+**Examples:**
+
+```bash
+notesmith daily ensure
+notesmith daily ensure --date 2025-01-15
+notesmith daily ensure --format json
+```
+
+### `daily open [--date YYYY-MM-DD]`
+
+Open a daily note for the given date (defaults to today). Creates it if missing, then displays the content.
+
+```bash
+notesmith daily open
+notesmith daily open --date 2025-06-15
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--date <YYYY-MM-DD>` | Date for the daily note | today |
+
+**Examples:**
+
+```bash
+notesmith daily open
+notesmith daily open --date 2025-01-15 --format json
+```

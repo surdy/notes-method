@@ -973,6 +973,81 @@ pub async fn instantiate_template(
     }
 }
 
+// ── Daily routes ─────────────────────────────────────────────────────────────
+
+pub async fn get_daily_note(
+    State(state): State<SharedAppState>,
+    Path((vault_name, date)): Path<(String, String)>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    let daily_folder = &vault.vault_config.daily.folder;
+    let note_path = VaultPath::new(format!("{daily_folder}/{date}.md"));
+
+    let content = vault
+        .engine
+        .read(&vault.root, &note_path)
+        .map_err(note_error)?;
+    let vault_id = VaultName::new(vault_name.clone());
+    let parsed = parse_note(&content, &vault_id, &note_path);
+
+    Ok(Json(json!({
+        "path": note_path.as_str(),
+        "content": content,
+        "frontmatter": parsed.frontmatter,
+    })))
+}
+
+pub async fn create_daily_note(
+    State(state): State<SharedAppState>,
+    Path((vault_name, date)): Path<(String, String)>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    let parsed_date = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("invalid date: {e}") })),
+        )
+    })?;
+
+    let result = crate::scheduler::ensure_daily_note(
+        &vault.root,
+        &vault.vault_config.daily.folder,
+        &vault.vault_config.daily.template,
+        parsed_date,
+        &vault.template_engine,
+        &vault.engine,
+    )
+    .map_err(internal_error)?;
+
+    match result {
+        Some(path) => Ok((
+            StatusCode::CREATED,
+            Json(json!({ "path": path, "created": true })),
+        )),
+        None => Ok((
+            StatusCode::OK,
+            Json(json!({
+                "path": format!("{}/{}.md", vault.vault_config.daily.folder, date),
+                "created": false,
+            })),
+        )),
+    }
+}
+
 // ── Route routes ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]

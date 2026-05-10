@@ -1102,3 +1102,125 @@ async fn route_preview_returns_conflict_for_archived_note() {
 
     server.server.abort();
 }
+
+// ── Daily integration tests ──────────────────────────────────────────────────
+
+fn copy_templates(server: &TestServer) {
+    let templates_src = golden_vault().join("Assets").join("templates");
+    let templates_dst = server.root.join("Assets").join("templates");
+    fs::create_dir_all(&templates_dst).unwrap();
+    for entry in fs::read_dir(&templates_src).unwrap() {
+        let entry = entry.unwrap();
+        fs::copy(entry.path(), templates_dst.join(entry.file_name())).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn post_daily_creates_note() {
+    let server = TestServer::empty().await;
+    copy_templates(&server);
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/daily/2025-01-15"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["path"], serde_json::json!("Inbox/Daily/2025-01-15.md"));
+    assert_eq!(body["created"], serde_json::json!(true));
+    assert!(server.root.join("Inbox/Daily/2025-01-15.md").exists());
+
+    let content = fs::read_to_string(server.root.join("Inbox/Daily/2025-01-15.md")).unwrap();
+    assert!(content.contains("# 2025-01-15"));
+    assert!(content.contains("date: 2025-01-15"));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn post_daily_idempotent() {
+    let server = TestServer::empty().await;
+    copy_templates(&server);
+    let client = reqwest::Client::new();
+
+    let first = client
+        .post(server.url("/api/v/test-vault/daily/2025-03-20"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), reqwest::StatusCode::CREATED);
+
+    let second = client
+        .post(server.url("/api/v/test-vault/daily/2025-03-20"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second.status(), reqwest::StatusCode::OK);
+    let body = second.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["created"], serde_json::json!(false));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn get_daily_returns_content() {
+    let server = TestServer::empty().await;
+    copy_templates(&server);
+    let client = reqwest::Client::new();
+
+    // Create the note first
+    client
+        .post(server.url("/api/v/test-vault/daily/2025-02-10"))
+        .send()
+        .await
+        .unwrap();
+
+    let response = client
+        .get(server.url("/api/v/test-vault/daily/2025-02-10"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["path"], serde_json::json!("Inbox/Daily/2025-02-10.md"));
+    assert!(body["content"].as_str().unwrap().contains("# 2025-02-10"));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn post_daily_invalid_date_returns_400() {
+    let server = TestServer::empty().await;
+    copy_templates(&server);
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/daily/not-a-date"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn get_daily_missing_returns_404() {
+    let server = TestServer::empty().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/v/test-vault/daily/2099-01-01"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+    server.server.abort();
+}

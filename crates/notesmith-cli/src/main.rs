@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use notesmith_cli::commands::{
     daemon::DaemonCommand,
+    daily::DailyCommand,
     inbox::InboxCommand,
     note::NoteCommand,
     query::QueryCommand,
@@ -90,6 +91,11 @@ enum Command {
         #[command(subcommand)]
         command: RouteCommand,
     },
+    /// Daily note commands
+    Daily {
+        #[command(subcommand)]
+        command: DailyCommand,
+    },
 }
 
 #[tokio::main]
@@ -137,6 +143,11 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
         }
         Command::Route { command } => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
+        Command::Daily { command } => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;

@@ -78,6 +78,10 @@ fn build_router_with_shared_state(state: SharedAppState) -> Router {
         )
         .route("/api/v/{vault}/route/preview", post(routes::route_preview))
         .route("/api/v/{vault}/route/apply", post(routes::route_apply))
+        .route(
+            "/api/v/{vault}/daily/{date}",
+            get(routes::get_daily_note).post(routes::create_daily_note),
+        )
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -103,6 +107,7 @@ pub async fn serve_configured_vaults(
     let bind = bind_override.unwrap_or(&config.daemon.bind);
     let state = Arc::new(RwLock::new(build_app_state(config)?));
     let _watchers = watch_all_vaults(state.clone()).await?;
+    let _schedulers = crate::scheduler::start_daily_schedulers(state.clone()).await;
     let listener = TcpListener::bind(bind)
         .await
         .with_context(|| format!("failed to bind notesmith-http to {bind}"))?;

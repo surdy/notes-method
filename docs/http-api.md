@@ -540,3 +540,63 @@ Apply routing rules to move notes to their destinations. Stamps `archived: true`
 ```
 
 When `inbox: true`, notes without frontmatter, already-archived notes, and notes with no matching rule are silently skipped.
+
+---
+
+## Daily
+
+### `GET /api/v/{vault}/daily/{date}`
+
+Fetch the daily note for the given date.
+
+**Parameters:**
+- `date` — Date in `YYYY-MM-DD` format
+
+**Example:**
+```bash
+curl http://127.0.0.1:27183/api/v/work/daily/2025-06-15
+```
+
+**Response:** `200 OK`
+```json
+{
+  "path": "Inbox/Daily/2025-06-15.md",
+  "content": "---\ndate: 2025-06-15\ntype: daily\n---\n# 2025-06-15\n...",
+  "frontmatter": { "date": "2025-06-15", "type": "daily" }
+}
+```
+
+**Errors:**
+- `404` — vault or daily note not found
+
+### `POST /api/v/{vault}/daily/{date}`
+
+Create the daily note for the given date using the configured template. Idempotent — returns existing note info if already created.
+
+**Parameters:**
+- `date` — Date in `YYYY-MM-DD` format
+
+**Example:**
+```bash
+curl -X POST http://127.0.0.1:27183/api/v/work/daily/2025-06-15
+```
+
+**Response:** `201 Created` (new note)
+```json
+{
+  "path": "Inbox/Daily/2025-06-15.md",
+  "created": true
+}
+```
+
+**Response:** `200 OK` (already exists)
+```json
+{
+  "path": "Inbox/Daily/2025-06-15.md",
+  "created": false
+}
+```
+
+**Errors:**
+- `400` — invalid date format
+- `404` — vault not found
