@@ -41,6 +41,13 @@ For each customer there would be a folder containing:
 - Default smart views should cover **All Notes**, **Tasks**, **Recent**, and **Inbox**.
 - Smart views should be backed by read-only SQL over cached note/task views, with optional grouping and badge counts.
 
+## Editor Experience
+
+- The primary note surface should be an editable **CodeMirror 6** OFM editor, not a read-only HTML viewer.
+- Notes should auto-save shortly after edits and support explicit save with the platform save shortcut.
+- If a file changes on disk while the editor is clean, the editor should silently reload; if it is dirty, the editor should warn and let me reload or keep my in-memory edits.
+- OFM affordances should stay visible while editing, especially wikilinks, tags, task checkboxes, callout markers, inline fields, and YAML frontmatter.
+
 ## Inbox Workflow
 
 - All notes start in the **Inbox** folder.

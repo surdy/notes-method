@@ -251,6 +251,7 @@ async fn get_note_returns_full_note_metadata() {
             .unwrap()
             .contains("API endpoint migration")
     );
+    assert!(body["hash"].as_str().is_some_and(|hash| hash.len() > 10));
     assert!(body["tasks"].as_array().unwrap().len() >= 5);
     assert!(body["links"].as_array().unwrap().len() >= 3);
     assert!(body["inline_fields"].as_array().unwrap().len() >= 2);
@@ -770,6 +771,37 @@ async fn toggle_task_status_rewrites_task_line() {
             "note_path": "Inbox/Tasks.md",
             "task_hash": task_hash,
             "new_status": "in_progress",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let written = fs::read_to_string(server.root.join("Inbox/Tasks.md")).unwrap();
+    assert!(
+        written.contains("- [/] Fix the bug"),
+        "expected [/] in:\n{written}"
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn toggle_task_accepts_status_alias() {
+    let task_line = "- [ ] Fix the bug";
+    let note_content = format!("# Tasks\n\n{task_line}\n");
+    let server = TestServer::with_files(&[("Inbox/Tasks.md", &note_content)]).await;
+    let client = reqwest::Client::new();
+
+    let task_hash = notesmith_tasks::task_content_hash(task_line);
+
+    let response = client
+        .post(server.url("/api/v/test-vault/tasks/toggle"))
+        .json(&serde_json::json!({
+            "note_path": "Inbox/Tasks.md",
+            "task_hash": task_hash,
+            "status": "in_progress",
         }))
         .send()
         .await

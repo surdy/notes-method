@@ -830,6 +830,7 @@ pub async fn create_task(
 pub struct ToggleTaskRequest {
     pub note_path: String,
     pub task_hash: String,
+    #[serde(alias = "status")]
     pub new_status: String,
 }
 

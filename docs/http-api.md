@@ -442,9 +442,11 @@ Toggle a task to a new status using its content hash (blake3 of the raw task lin
 {
   "note_path": "Customers/Acme/Streams/Migration to v2.md",
   "task_hash": "abc123...",
-  "new_status": "done"
+  "status": "done"
 }
 ```
+
+`status` is the preferred field name. The server still accepts `new_status` for older clients.
 
 **Response:** `200 OK`
 ```json

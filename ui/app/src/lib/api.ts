@@ -1,6 +1,16 @@
 const API_BASE = '';
 
-function encodePath(path: string): string {
+export class ApiError extends Error {
+	constructor(
+		message: string,
+		public readonly status: number
+	) {
+		super(message);
+		this.name = 'ApiError';
+	}
+}
+
+export function encodePath(path: string): string {
 return path
 .split('/')
 .map((segment) => encodeURIComponent(segment))
@@ -19,12 +29,38 @@ archived: boolean;
 export interface NoteDetail {
 path: string;
 body: string;
-frontmatter: Record<string, unknown>;
+frontmatter: Record<string, unknown> | null;
+raw_frontmatter?: string | null;
+tasks?: NoteTask[];
+hash: string;
 }
 
 export interface WriteNoteResponse {
 path: string;
 hash: string;
+}
+
+export type TaskMutationStatus =
+	| 'todo'
+	| 'in_progress'
+	| 'blocked'
+	| 'waiting'
+	| 'on_hold'
+	| 'done'
+	| 'cancelled';
+
+export interface SourcePosition {
+	line: number;
+	column: number;
+	offset: number;
+	length: number;
+}
+
+export interface NoteTask {
+	status: string;
+	content: string;
+	position: SourcePosition;
+	content_hash?: string | null;
 }
 
 export interface RouteResult {
@@ -80,7 +116,7 @@ return res.json();
 
 export async function getNote(vault: string, path: string): Promise<NoteDetail> {
 const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes/${encodePath(path)}`);
-if (!res.ok) throw new Error(`Failed to get note: ${res.status}`);
+if (!res.ok) throw new ApiError(`Failed to get note: ${res.status}`, res.status);
 return res.json();
 }
 
@@ -119,6 +155,40 @@ body: JSON.stringify({ title, content, folder })
 });
 if (!res.ok) throw new Error(`Failed to create note: ${res.status}`);
 return res.json();
+}
+
+export async function putNote(
+	vault: string,
+	path: string,
+	content: string,
+	expectedHash?: string | null
+): Promise<WriteNoteResponse> {
+	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes/${encodePath(path)}`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ content, expected_hash: expectedHash ?? undefined })
+	});
+	if (!res.ok) throw new ApiError(`Failed to save note: ${res.status}`, res.status);
+	return res.json();
+}
+
+export async function toggleTaskStatus(
+	vault: string,
+	notePath: string,
+	taskHash: string,
+	status: TaskMutationStatus
+): Promise<WriteNoteResponse> {
+	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/tasks/toggle`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			note_path: notePath,
+			task_hash: taskHash,
+			status
+		})
+	});
+	if (!res.ok) throw new ApiError(`Failed to toggle task: ${res.status}`, res.status);
+	return res.json();
 }
 
 export async function inboxCapture(

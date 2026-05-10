@@ -2,7 +2,7 @@
 import { onMount } from 'svelte';
 import { buildCommands, OPEN_QUICK_SWITCHER_EVENT } from '$lib/commands';
 import CommandPalette from '$lib/components/CommandPalette.svelte';
-import NoteViewer from '$lib/components/NoteViewer.svelte';
+import NoteEditor from '$lib/components/NoteEditor.svelte';
 import QuickSwitcher from '$lib/components/QuickSwitcher.svelte';
 import SidebarViews from '$lib/components/SidebarViews.svelte';
 import TabBar from '$lib/components/TabBar.svelte';
@@ -16,6 +16,7 @@ let showCommandPalette = $state(false);
 let showQuickSwitcher = $state(false);
 let sseConnection: EventSource | null = null;
 let sidebarViewsRef: { refresh: () => void } | null = null;
+let noteEditorRef: { handleExternalChange: (path: string) => void } | null = null;
 
 let commands = $derived.by(() =>
 buildCommands(vaultStore.currentVault, (path) => {
@@ -65,6 +66,9 @@ sseConnection = connectSSE(vault, (event) => {
 	if (refreshNotes) {
 		void vaultStore.loadNotes();
 	}
+	if (event.type === 'note.updated' || event.type === 'note.created') {
+		noteEditorRef?.handleExternalChange(event.path);
+	}
 	if (refreshNotes || event.type === 'task.updated') {
 		sidebarViewsRef?.refresh();
 	}
@@ -84,6 +88,7 @@ const unregister = registerHotkeys([
 { key: 'a', meta: true, shift: true, action: () => runCommand('archive-current') },
 { key: 'i', meta: true, shift: true, action: () => runCommand('inbox-capture') },
 { key: 'n', meta: true, shift: true, action: () => runCommand('new-from-template') },
+{ key: 's', meta: true, action: () => {} },
 { key: 't', meta: true, shift: true, action: () => vaultStore.reopenLastTab() },
 { key: 'f', meta: true, shift: true, action: openQuickSwitcher }
 ]);
@@ -114,7 +119,7 @@ unregister();
 
 <main class="content-area">
 <TabBar />
-<NoteViewer />
+<NoteEditor bind:this={noteEditorRef} />
 </main>
 </div>
 
