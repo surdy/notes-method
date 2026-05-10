@@ -33,6 +33,20 @@ The daemon indexes all registered vaults on startup and watches for file changes
 
 ---
 
+## mcp
+
+### `mcp start`
+
+Start the Notesmith MCP server over stdio for local MCP clients such as Claude Desktop.
+
+```bash
+notesmith mcp start [--vault <name>]
+```
+
+The command detects the target vault, scans and indexes it in memory, then serves MCP tools and resources over standard input/output.
+
+---
+
 ## vault
 
 ### `vault list`

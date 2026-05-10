@@ -3,6 +3,7 @@
 pub mod daemon;
 pub mod daily;
 pub mod inbox;
+pub mod mcp;
 pub mod note;
 pub mod query;
 pub mod route;

@@ -74,3 +74,4 @@ dirs = "6"
 tempfile = "3"
 insta = { version = "1", features = ["yaml"] }
 pretty_assertions = "1"
+rmcp = { version = "0.16", features = ["server"] }

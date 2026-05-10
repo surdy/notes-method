@@ -12,6 +12,7 @@ notesmith-vault = { workspace = true }
 notesmith-index = { workspace = true }
 notesmith-query = { workspace = true }
 notesmith-http = { workspace = true }
+notesmith-mcp = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }

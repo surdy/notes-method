@@ -3,6 +3,7 @@ use notesmith_cli::commands::{
     daemon::DaemonCommand,
     daily::DailyCommand,
     inbox::InboxCommand,
+    mcp::McpCommand,
     note::NoteCommand,
     query::QueryCommand,
     route::RouteCommand,
@@ -65,6 +66,11 @@ enum Command {
         #[command(subcommand)]
         command: NoteCommand,
     },
+    /// MCP server commands
+    Mcp {
+        #[command(subcommand)]
+        command: McpCommand,
+    },
     /// Vault management commands
     Vault {
         #[command(subcommand)]
@@ -123,6 +129,11 @@ async fn main() -> anyhow::Result<()> {
         Command::Note { command } => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
+        Command::Mcp { command } => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd)
                 .await?;
         }
         Command::Vault { command } => {

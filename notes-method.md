@@ -8,6 +8,7 @@ I work with customers, and I want to organize each customer's notes in their own
 
 This method is now intended to be implemented by **Notesmith**, a custom markdown notes app. The definitive application blueprint is `plans/notesmith-plan.md`.
 The repository root is also the Notesmith Cargo workspace root, with Rust crates living under `crates/` alongside the planning, vault, and spike directories.
+- Notesmith should also expose the vault to local AI clients through an MCP server (`notesmith mcp start`) so agents can create, read, search, route, and template notes over stdio without going through the HTTP daemon.
 
 ## Per-Customer Folder Structure
 
