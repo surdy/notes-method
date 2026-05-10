@@ -5,4 +5,21 @@ edition = "2024"
 publish = false
 
 [dependencies]
-# Tauri deps added when GUI work begins
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+tauri-plugin-deep-link = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[[bin]]
+name = "notesmith-desktop"
+path = "src/main.rs"

@@ -33,6 +33,25 @@ The daemon indexes all registered vaults on startup and watches for file changes
 
 ---
 
+## Desktop app
+
+The Notesmith desktop shell wraps the daemon-served web UI in a native Tauri window. It auto-starts the daemon if needed, opens `http://127.0.0.1:27183/app/`, and exposes tray/menu actions for opening the app, quick capture, and quitting.
+
+```bash
+# Run the desktop shell during development
+cd crates/notesmith-tauri && cargo tauri dev
+
+# Compile the Rust side without the Tauri CLI
+cd crates/notesmith-tauri && cargo check
+
+# Build a distributable app bundle
+cd crates/notesmith-tauri && cargo tauri build
+```
+
+> Building with `cargo tauri ...` requires the Tauri CLI (`cargo install tauri-cli`) and platform tooling such as Xcode command line tools on macOS.
+
+---
+
 ## mcp
 
 ### `mcp start`
