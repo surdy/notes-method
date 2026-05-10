@@ -261,7 +261,11 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let app_dir = temp_dir.path().join("app");
         fs::create_dir_all(&app_dir).unwrap();
-        fs::write(app_dir.join("index.html"), "<html><body>app shell</body></html>").unwrap();
+        fs::write(
+            app_dir.join("index.html"),
+            "<html><body>app shell</body></html>",
+        )
+        .unwrap();
 
         let response = build_router_with_app_dir(AppState::default(), app_dir)
             .oneshot(
