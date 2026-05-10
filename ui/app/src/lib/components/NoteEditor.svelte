@@ -26,7 +26,9 @@ type TaskMutationStatus
 } from '$lib/api';
 import { createAutoSave } from '$lib/editor/auto-save';
 import { createOFMDecorations } from '$lib/editor/ofm-decorations';
+import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-blocks';
 import { notesmithTheme } from '$lib/editor/theme';
+import { isDashboardNote } from '$lib/right-rail';
 import { vaultStore } from '$lib/stores.svelte';
 
 const TASK_LINE_RE = /^\s*[-*+]\s+\[[ xX/\-bwhBWH]\]/;
@@ -83,6 +85,10 @@ if (view) {
 view.destroy();
 view = null;
 }
+}
+
+function setDashboardMode(enabled: boolean) {
+editorContainer?.classList.toggle('dashboard-mode', enabled);
 }
 
 function buildEditorDocument(note: NoteDetail): string {
@@ -151,6 +157,7 @@ return true;
 markdown({ base: markdownLanguage, codeLanguages: languages }),
 syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 notesmithTheme,
+createSqlBlockPlugin(() => vaultStore.currentVault),
 createOFMDecorations({
 notes: () => vaultStore.notes,
 taskHashes: () => currentTaskHashes,
@@ -182,6 +189,7 @@ saveError = null;
 conflictBanner = null;
 dirty = false;
 destroyEditor();
+setDashboardMode(false);
 
 try {
 const note = await getNote(vaultStore.currentVault, path);
@@ -194,6 +202,7 @@ currentHash = note.hash;
 currentTaskHashes = buildTaskHashes(note);
 loading = false;
 await tick();
+setDashboardMode(isDashboardNote(note.frontmatter));
 createEditor(note);
 vaultStore.markDirty(path, false);
 } catch (cause) {
@@ -250,6 +259,14 @@ return;
 conflictBanner = { show: true, path: changedPath };
 }
 
+export function refreshSqlBlocks() {
+if (!view) {
+	return;
+}
+
+view.dispatch({ effects: refreshSqlBlockResults.of(Date.now()) });
+}
+
 async function handleReload() {
 if (!currentPath) {
 return;
@@ -283,6 +300,7 @@ dirty = false;
 error = null;
 saveError = null;
 conflictBanner = null;
+setDashboardMode(false);
 }
 });
 
@@ -333,6 +351,21 @@ color: var(--text-primary, #e0e0e0);
 .editor-container {
 flex: 1;
 min-height: 0;
+}
+
+:global(.editor-container.dashboard-mode .cm-content) {
+padding-top: 10px;
+padding-bottom: 10px;
+}
+
+:global(.editor-container.dashboard-mode .cm-line) {
+padding-left: 12px;
+padding-right: 12px;
+}
+
+:global(.editor-container.dashboard-mode .cm-sql-result) {
+margin-top: 6px;
+margin-bottom: 10px;
 }
 
 .empty-state,

@@ -4,6 +4,7 @@ import { buildCommands, OPEN_QUICK_SWITCHER_EVENT } from '$lib/commands';
 import CommandPalette from '$lib/components/CommandPalette.svelte';
 import NoteEditor from '$lib/components/NoteEditor.svelte';
 import QuickSwitcher from '$lib/components/QuickSwitcher.svelte';
+import RightRail from '$lib/components/RightRail.svelte';
 import SidebarViews from '$lib/components/SidebarViews.svelte';
 import TabBar from '$lib/components/TabBar.svelte';
 import VaultSwitcher from '$lib/components/VaultSwitcher.svelte';
@@ -16,7 +17,10 @@ let showCommandPalette = $state(false);
 let showQuickSwitcher = $state(false);
 let sseConnection: EventSource | null = null;
 let sidebarViewsRef: { refresh: () => void } | null = null;
-let noteEditorRef: { handleExternalChange: (path: string) => void } | null = null;
+let noteEditorRef:
+	| { handleExternalChange: (path: string) => void; refreshSqlBlocks: () => void }
+	| null = null;
+let rightRailRef: { refresh: () => void; toggle: () => void } | null = null;
 
 let commands = $derived.by(() =>
 buildCommands(vaultStore.currentVault, (path) => {
@@ -45,6 +49,11 @@ console.error(`Failed to execute command: ${commandId}`, error);
 
 onMount(() => {
 const handleOpenQuickSwitcher = () => openQuickSwitcher();
+const refreshContextPanels = () => {
+	sidebarViewsRef?.refresh();
+	rightRailRef?.refresh();
+	noteEditorRef?.refreshSqlBlocks();
+};
 
 window.addEventListener(OPEN_QUICK_SWITCHER_EVENT, handleOpenQuickSwitcher as EventListener);
 
@@ -64,13 +73,15 @@ sseConnection = connectSSE(vault, (event) => {
 		event.type === 'daily.created' ||
 		event.type === 'cache.rebuilt';
 	if (refreshNotes) {
-		void vaultStore.loadNotes();
+		void vaultStore.loadNotes().finally(() => {
+			refreshContextPanels();
+		});
 	}
 	if (event.type === 'note.updated' || event.type === 'note.created') {
 		noteEditorRef?.handleExternalChange(event.path);
 	}
-	if (refreshNotes || event.type === 'task.updated') {
-		sidebarViewsRef?.refresh();
+	if (!refreshNotes && event.type === 'task.updated') {
+		refreshContextPanels();
 	}
 });
 } catch (error) {
@@ -90,6 +101,7 @@ const unregister = registerHotkeys([
 { key: 'n', meta: true, shift: true, action: () => runCommand('new-from-template') },
 { key: 's', meta: true, action: () => {} },
 { key: 't', meta: true, shift: true, action: () => vaultStore.reopenLastTab() },
+{ key: '\\', meta: true, action: () => rightRailRef?.toggle() },
 { key: 'f', meta: true, shift: true, action: openQuickSwitcher }
 ]);
 
@@ -121,6 +133,10 @@ unregister();
 <TabBar />
 <NoteEditor bind:this={noteEditorRef} />
 </main>
+
+<aside class="right-rail-shell">
+<RightRail bind:this={rightRailRef} />
+</aside>
 </div>
 
 {#if showCommandPalette}
@@ -164,6 +180,13 @@ flex: 1;
 display: flex;
 flex-direction: column;
 overflow: hidden;
+}
+
+.right-rail-shell {
+position: relative;
+display: flex;
+flex: 0 0 auto;
+overflow: visible;
 }
 
 @media (max-width: 768px) {

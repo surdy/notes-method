@@ -40,6 +40,7 @@ For each customer there would be a folder containing:
 - The left sidebar should support both the file tree and YAML-driven smart views from `.notesmith/sidebar-views.yaml`.
 - Default smart views should cover **All Notes**, **Tasks**, **Recent**, and **Inbox**.
 - Smart views should be backed by read-only SQL over cached note/task views, with optional grouping and badge counts.
+- The main note workspace should also include a contextual **right rail** for metadata, backlinks, and outgoing links on the active note.
 
 ## Editor Experience
 
@@ -47,6 +48,7 @@ For each customer there would be a folder containing:
 - Notes should auto-save shortly after edits and support explicit save with the platform save shortcut.
 - If a file changes on disk while the editor is clean, the editor should silently reload; if it is dirty, the editor should warn and let me reload or keep my in-memory edits.
 - OFM affordances should stay visible while editing, especially wikilinks, tags, task checkboxes, callout markers, inline fields, and YAML frontmatter.
+- Dashboard notes should stay as normal markdown files in the editor; fenced `notesmith` and `notesmith sql` blocks should execute read-only SQL against the cache and render inline result tables.
 
 ## Inbox Workflow
 

@@ -95,7 +95,47 @@ accentColor: '#ffb347'
 '.cm-url': { color: '#888' },
 '.cm-meta': { color: '#888' },
 '.cm-comment': { color: '#6a9955' },
-'.cm-monospace': { fontFamily: 'ui-monospace, monospace' }
+'.cm-monospace': { fontFamily: 'ui-monospace, monospace' },
+'.cm-sql-result': {
+	margin: '8px 16px',
+	padding: '8px 12px',
+	border: '1px solid var(--border-color, #333)',
+	borderRadius: '6px',
+	backgroundColor: 'var(--surface-bg, #252526)',
+	fontSize: '13px',
+	overflowX: 'auto'
+},
+'.cm-sql-error': {
+	color: '#ff6b6b',
+	fontStyle: 'italic'
+},
+'.cm-sql-loading': {
+	color: 'var(--text-muted, #888)'
+},
+'.cm-sql-empty': {
+	color: 'var(--text-muted, #888)',
+	fontStyle: 'italic'
+},
+'.cm-sql-table': {
+	width: '100%',
+	borderCollapse: 'collapse'
+},
+'.cm-sql-table th': {
+	textAlign: 'left',
+	padding: '6px 10px',
+	borderBottom: '2px solid var(--border-color, #444)',
+	color: 'var(--text-accent, #7ec8e3)',
+	fontWeight: '600',
+	fontSize: '12px',
+	textTransform: 'uppercase'
+},
+'.cm-sql-table td': {
+	padding: '5px 10px',
+	borderBottom: '1px solid var(--border-color, #333)'
+},
+'.cm-sql-table tr:hover td': {
+	backgroundColor: 'var(--hover-bg, #2a2d2e)'
+}
 },
 { dark: true }
 );
