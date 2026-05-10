@@ -31,12 +31,25 @@
 
 ## Sub-Agent Delegation
 
-- Use sub-agents (via the `task` tool) to parallelize work whenever tasks are independent of each other.
-- Launch multiple agents in parallel when the work can be decomposed: e.g., exploring different crates simultaneously, running tests and linting concurrently, or writing tests for independent modules at the same time.
-- Choose the right agent type and model for the job:
-  - **explore** (Haiku) — codebase research, file lookups, reading multiple modules in parallel.
-  - **task** (Haiku) — running commands (tests, builds, lints) where only pass/fail matters.
-  - **general-purpose** (Opus 4.6 or GPT-5.5) — complex multi-step implementation work that needs full tooling and high-quality reasoning.
-  - **code-review** (Sonnet) — reviewing diffs for bugs and regressions before committing.
-- Do not do work yourself that a sub-agent can own end-to-end; delegate and collect results.
-- Provide complete context in each sub-agent prompt — sub-agents are stateless.
+- Use sub-agents (via the `task` tool) to parallelize independent work and to delegate complex implementation that benefits from a focused context window.
+- For small, targeted changes (single-file edits, doc tweaks, config changes), work directly — the overhead of prompt crafting + wait time isn't worth it.
+
+### When to delegate
+- **Exploring unfamiliar code**: Launch parallel `explore` agents to research different crates/modules simultaneously.
+- **Complex implementation**: Delegate multi-file feature work to a `general-purpose` agent with the highest-capability reasoning model available.
+- **Running validation**: Use `task` agents for builds, tests, and lints where only pass/fail matters.
+- **Researching external APIs**: Use `research` agents for crate documentation, API references, or design pattern lookups.
+
+### Agent type → model selection
+| Agent type | Default model | Use for |
+|---|---|---|
+| `explore` | Haiku (fast) | Codebase research, file lookups, reading multiple modules |
+| `task` | Haiku (fast) | Commands: tests, builds, lints — pass/fail only |
+| `general-purpose` | Best reasoning model | Multi-step implementation requiring full tooling |
+| `code-review` | Sonnet | Reviewing diffs for bugs/regressions before committing |
+| `research` | Default | External docs, API references, design patterns |
+
+### Prompt quality is critical
+- Sub-agents are stateless — provide complete context in every prompt.
+- Include: exact file paths and line ranges, existing code patterns to follow, struct/type definitions, expected test patterns, and acceptance criteria.
+- The more precise the prompt, the more likely the agent succeeds on the first attempt.
