@@ -60,7 +60,9 @@ pub fn status(path: &Path) -> Result<GitStatus> {
         .include_ignored(false)
         .recurse_untracked_dirs(true);
 
-    let statuses = repo.statuses(Some(&mut opts)).context("failed to get git status")?;
+    let statuses = repo
+        .statuses(Some(&mut opts))
+        .context("failed to get git status")?;
 
     let mut changed = Vec::new();
     let mut staged = Vec::new();
@@ -69,10 +71,21 @@ pub fn status(path: &Path) -> Result<GitStatus> {
     for entry in statuses.iter() {
         let path_str = entry.path().unwrap_or("").to_string();
         let s = entry.status();
-        if s.intersects(git2::Status::INDEX_NEW | git2::Status::INDEX_MODIFIED | git2::Status::INDEX_DELETED | git2::Status::INDEX_RENAMED | git2::Status::INDEX_TYPECHANGE) {
+        if s.intersects(
+            git2::Status::INDEX_NEW
+                | git2::Status::INDEX_MODIFIED
+                | git2::Status::INDEX_DELETED
+                | git2::Status::INDEX_RENAMED
+                | git2::Status::INDEX_TYPECHANGE,
+        ) {
             staged.push(path_str.clone());
         }
-        if s.intersects(git2::Status::WT_MODIFIED | git2::Status::WT_DELETED | git2::Status::WT_RENAMED | git2::Status::WT_TYPECHANGE) {
+        if s.intersects(
+            git2::Status::WT_MODIFIED
+                | git2::Status::WT_DELETED
+                | git2::Status::WT_RENAMED
+                | git2::Status::WT_TYPECHANGE,
+        ) {
             changed.push(path_str.clone());
         }
         if s.intersects(git2::Status::WT_NEW) {
@@ -81,7 +94,12 @@ pub fn status(path: &Path) -> Result<GitStatus> {
     }
 
     let clean = changed.is_empty() && staged.is_empty() && untracked.is_empty();
-    Ok(GitStatus { changed, staged, untracked, clean })
+    Ok(GitStatus {
+        changed,
+        staged,
+        untracked,
+        clean,
+    })
 }
 
 /// Stage files matching [`STAGEABLE_EXTENSIONS`], commit if there are changes,
@@ -97,11 +115,15 @@ pub fn auto_commit(path: &Path, message: &str) -> Result<Option<String>> {
         .include_ignored(false)
         .recurse_untracked_dirs(true);
 
-    let statuses = repo.statuses(Some(&mut opts)).context("failed to get status")?;
+    let statuses = repo
+        .statuses(Some(&mut opts))
+        .context("failed to get status")?;
     let mut has_changes = false;
 
     for entry in statuses.iter() {
-        let Some(file_path) = entry.path() else { continue };
+        let Some(file_path) = entry.path() else {
+            continue;
+        };
         let s = entry.status();
         let dominated = s.intersects(
             git2::Status::WT_MODIFIED
@@ -140,7 +162,12 @@ pub fn auto_commit(path: &Path, message: &str) -> Result<Option<String>> {
 
     let parent_commit = match repo.head() {
         Ok(head) => Some(head.peel_to_commit().context("HEAD is not a commit")?),
-        Err(e) if e.code() == git2::ErrorCode::UnbornBranch || e.code() == git2::ErrorCode::NotFound => None,
+        Err(e)
+            if e.code() == git2::ErrorCode::UnbornBranch
+                || e.code() == git2::ErrorCode::NotFound =>
+        {
+            None
+        }
         Err(e) => return Err(e.into()),
     };
 
@@ -166,33 +193,40 @@ pub fn pull_ff(path: &Path, remote_name: &str) -> Result<PullResult> {
     let head = match repo.head() {
         Ok(h) => h,
         Err(e) if e.code() == git2::ErrorCode::UnbornBranch => {
-            return Ok(PullResult { updated: false, new_head: None, conflict: false });
+            return Ok(PullResult {
+                updated: false,
+                new_head: None,
+                conflict: false,
+            });
         }
         Err(e) => return Err(e.into()),
     };
 
-    let branch_name = head
-        .shorthand()
-        .unwrap_or("main")
-        .to_string();
+    let branch_name = head.shorthand().unwrap_or("main").to_string();
 
     // Find the remote tracking reference
     let remote_ref_name = format!("refs/remotes/{remote_name}/{branch_name}");
     let remote_ref = match repo.find_reference(&remote_ref_name) {
         Ok(r) => r,
         Err(_) => {
-            return Ok(PullResult { updated: false, new_head: None, conflict: false });
+            return Ok(PullResult {
+                updated: false,
+                new_head: None,
+                conflict: false,
+            });
         }
     };
 
-    let remote_oid = remote_ref
-        .target()
-        .context("remote ref has no target")?;
+    let remote_oid = remote_ref.target().context("remote ref has no target")?;
 
     let local_oid = head.target().context("HEAD has no target")?;
 
     if local_oid == remote_oid {
-        return Ok(PullResult { updated: false, new_head: None, conflict: false });
+        return Ok(PullResult {
+            updated: false,
+            new_head: None,
+            conflict: false,
+        });
     }
 
     // Check if fast-forward is possible
@@ -214,10 +248,18 @@ pub fn pull_ff(path: &Path, remote_name: &str) -> Result<PullResult> {
             conflict: false,
         })
     } else if merge_analysis.is_up_to_date() {
-        Ok(PullResult { updated: false, new_head: None, conflict: false })
+        Ok(PullResult {
+            updated: false,
+            new_head: None,
+            conflict: false,
+        })
     } else {
         // Not fast-forwardable — conflict
-        Ok(PullResult { updated: false, new_head: None, conflict: true })
+        Ok(PullResult {
+            updated: false,
+            new_head: None,
+            conflict: true,
+        })
     }
 }
 
@@ -228,7 +270,10 @@ pub fn push(path: &Path, remote_name: &str) -> Result<PushResult> {
     let head = match repo.head() {
         Ok(h) => h,
         Err(e) if e.code() == git2::ErrorCode::UnbornBranch => {
-            return Ok(PushResult { pushed: false, error: Some("no commits to push".into()) });
+            return Ok(PushResult {
+                pushed: false,
+                error: Some("no commits to push".into()),
+            });
         }
         Err(e) => return Err(e.into()),
     };
@@ -264,10 +309,16 @@ pub fn push(path: &Path, remote_name: &str) -> Result<PushResult> {
     }
 
     if let Some(err) = push_error {
-        return Ok(PushResult { pushed: false, error: Some(err) });
+        return Ok(PushResult {
+            pushed: false,
+            error: Some(err),
+        });
     }
 
-    Ok(PushResult { pushed: true, error: None })
+    Ok(PushResult {
+        pushed: true,
+        error: None,
+    })
 }
 
 /// Return the most recent `limit` commits from the repository log.
@@ -545,11 +596,7 @@ mod tests {
         // Clone it to create a working repo with an origin
         let work_dir = tempfile::tempdir().unwrap();
         let work_path = work_dir.path().join("repo");
-        let repo = git2::Repository::clone(
-            bare_path.to_str().unwrap(),
-            &work_path,
-        )
-        .unwrap();
+        let repo = git2::Repository::clone(bare_path.to_str().unwrap(), &work_path).unwrap();
 
         // Configure user
         let mut config = repo.config().unwrap();
@@ -566,11 +613,7 @@ mod tests {
         // Clone again to simulate a second user
         let work2_dir = tempfile::tempdir().unwrap();
         let work2_path = work2_dir.path().join("repo");
-        let repo2 = git2::Repository::clone(
-            bare_path.to_str().unwrap(),
-            &work2_path,
-        )
-        .unwrap();
+        let repo2 = git2::Repository::clone(bare_path.to_str().unwrap(), &work2_path).unwrap();
         let mut config2 = repo2.config().unwrap();
         config2.set_str("user.name", "test2").unwrap();
         config2.set_str("user.email", "test2@test.com").unwrap();
@@ -598,11 +641,7 @@ mod tests {
 
         let work_dir = tempfile::tempdir().unwrap();
         let work_path = work_dir.path().join("repo");
-        let repo = git2::Repository::clone(
-            bare_path.to_str().unwrap(),
-            &work_path,
-        )
-        .unwrap();
+        let repo = git2::Repository::clone(bare_path.to_str().unwrap(), &work_path).unwrap();
         let mut config = repo.config().unwrap();
         config.set_str("user.name", "test").unwrap();
         config.set_str("user.email", "test@test.com").unwrap();

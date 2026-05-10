@@ -14,6 +14,7 @@ notesmith-query = { workspace = true }
 notesmith-templates = { workspace = true }
 notesmith-routing = { workspace = true }
 notesmith-hooks = { workspace = true }
+notesmith-git = { workspace = true }
 notesmith-html = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }

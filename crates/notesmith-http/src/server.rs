@@ -110,6 +110,8 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
         )
         .route("/api/v/{vault}/route/preview", post(routes::route_preview))
         .route("/api/v/{vault}/route/apply", post(routes::route_apply))
+        .route("/api/v/{vault}/git/status", get(routes::git_status))
+        .route("/api/v/{vault}/git/sync", post(routes::git_sync))
         .route(
             "/api/v/{vault}/daily/{date}",
             get(routes::get_daily_note).post(routes::create_daily_note),
@@ -173,6 +175,23 @@ pub async fn serve_configured_vaults(
         hook_vaults,
         notesmith_hooks::HookRunner::default(),
     );
+
+    // Start git timers for vaults with git enabled
+    let git_configs: Vec<notesmith_git::timers::GitTimerConfig> = {
+        let state = state.read().await;
+        state
+            .vaults
+            .iter()
+            .filter(|(_, v)| v.vault_config.git.enabled)
+            .map(|(name, v)| notesmith_git::timers::GitTimerConfig {
+                vault_name: name.clone(),
+                vault_root: v.root.clone(),
+                config: v.vault_config.git.clone(),
+            })
+            .collect()
+    };
+    let _git_timers = notesmith_git::timers::start_git_timers(git_configs).await;
+
     let listener = TcpListener::bind(bind)
         .await
         .with_context(|| format!("failed to bind notesmith-http to {bind}"))?;

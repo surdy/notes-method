@@ -753,3 +753,50 @@ open http://127.0.0.1:27183/app/
 ```
 
 Nested `/app/...` routes fall back to the app's `index.html` so client-side routing works.
+
+---
+
+## Git
+
+### `GET /api/v/{vault}/git/status`
+
+Returns git working tree status for the vault.
+
+**Response (200):**
+```json
+{
+  "changed": ["README.md"],
+  "staged": [],
+  "untracked": ["Inbox/new-note.md"],
+  "clean": false
+}
+```
+
+**Errors:**
+- `400` — vault is not a git repository
+- `404` — vault not found
+
+### `POST /api/v/{vault}/git/sync`
+
+Triggers pull (fast-forward only) then push. Returns combined result.
+
+**Response (200):**
+```json
+{
+  "pull": { "updated": true, "new_head": "abc1234...", "conflict": false },
+  "push": { "pushed": true, "error": null }
+}
+```
+
+If pull conflicts, push is skipped:
+```json
+{
+  "pull": { "updated": false, "new_head": null, "conflict": true },
+  "push": null,
+  "error": "pull conflict, push skipped"
+}
+```
+
+**Errors:**
+- `400` — vault is not a git repository
+- `404` — vault not found

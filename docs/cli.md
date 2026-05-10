@@ -583,3 +583,61 @@ notesmith url-open "notesmith://user/standup?date=2026-05-10"
 | `notesmith://app/task/{vault}/{path}?line_hash={h}&status={s}` | Toggle a task |
 | `notesmith://app/command/{name}?args…` | Trigger a built-in command |
 | `notesmith://user/{action}?params…` | Run a user-defined action from `.notesmith/url-actions.yaml` |
+
+---
+
+## git
+
+Git integration commands for version history and sync. Requires the vault to be a git repository.
+
+### `git status`
+
+Show working tree status (staged, changed, untracked files).
+
+```bash
+notesmith git status
+```
+
+### `git pull`
+
+Pull from remote (fast-forward only). Aborts on conflict.
+
+```bash
+notesmith git pull
+```
+
+### `git push`
+
+Push current branch to remote.
+
+```bash
+notesmith git push
+```
+
+### `git sync`
+
+Pull then push in one step. Skips push if pull has conflicts.
+
+```bash
+notesmith git sync
+```
+
+### `git log`
+
+Show recent commits.
+
+```bash
+notesmith git log [--count 10]
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--count <N>` | Number of commits to show | 10 |
+
+**Examples:**
+
+```bash
+notesmith git status
+notesmith git log --count 5 --format json
+notesmith git sync
+```

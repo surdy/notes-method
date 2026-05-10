@@ -34,9 +34,7 @@ pub fn parse_duration(s: &str) -> Option<Duration> {
 /// Spawn timer tasks for each vault with git enabled.
 ///
 /// Returns the join handles so callers can manage the task lifetimes.
-pub async fn start_git_timers(
-    configs: Vec<GitTimerConfig>,
-) -> Vec<tokio::task::JoinHandle<()>> {
+pub async fn start_git_timers(configs: Vec<GitTimerConfig>) -> Vec<tokio::task::JoinHandle<()>> {
     let mut handles = Vec::new();
 
     for cfg in configs {
@@ -215,7 +213,10 @@ mod tests {
         };
 
         let handles = start_git_timers(vec![config]).await;
-        assert!(handles.is_empty(), "should not spawn timers for disabled vaults");
+        assert!(
+            handles.is_empty(),
+            "should not spawn timers for disabled vaults"
+        );
     }
 
     #[tokio::test]
@@ -235,7 +236,10 @@ mod tests {
         };
 
         let handles = start_git_timers(vec![config]).await;
-        assert!(handles.is_empty(), "should not spawn timers for non-git dirs");
+        assert!(
+            handles.is_empty(),
+            "should not spawn timers for non-git dirs"
+        );
     }
 
     #[tokio::test]
@@ -256,7 +260,11 @@ mod tests {
         };
 
         let handles = start_git_timers(vec![config]).await;
-        assert_eq!(handles.len(), 3, "should spawn commit, pull, and push timers");
+        assert_eq!(
+            handles.len(),
+            3,
+            "should spawn commit, pull, and push timers"
+        );
 
         // Clean up tasks
         for h in handles {
