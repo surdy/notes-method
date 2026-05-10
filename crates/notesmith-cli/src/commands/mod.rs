@@ -12,4 +12,5 @@ pub mod search;
 pub mod skill;
 pub mod task;
 pub mod template;
+pub mod url_open;
 pub mod vault;

@@ -12,6 +12,7 @@ use notesmith_cli::commands::{
     skill::SkillCommand,
     task::TaskCommand,
     template::TemplateCommand,
+    url_open::UrlOpenCommand,
     vault::{OutputFormat, VaultCommand},
 };
 use notesmith_config::GlobalConfig;
@@ -111,6 +112,8 @@ enum Command {
     },
     /// Copy a note as portable HTML
     CopyHtml(CopyHtmlCommand),
+    /// Open a notesmith:// deep-link URL
+    UrlOpen(UrlOpenCommand),
 }
 
 #[tokio::main]
@@ -179,6 +182,11 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::CopyHtml(command) => {
             command.run(&global_config, cli.vault.as_deref(), &cwd)?;
+        }
+        Command::UrlOpen(command) => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
         }
     }
 

@@ -8,6 +8,7 @@ use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
+use tauri_plugin_deep_link::DeepLinkExt;
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_ID: &str = "notesmith-tray";
@@ -67,8 +68,116 @@ fn main() {
 fn initialize_app<R: Runtime>(app: &tauri::App<R>) -> Result<(), DynError> {
     tauri::async_runtime::block_on(daemon::ensure_daemon_running())?;
     setup_tray(app.handle())?;
+    setup_deep_links(app.handle())?;
     show_main_window(app.handle())?;
     Ok(())
+}
+
+fn setup_deep_links<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
+    let handle = app.clone();
+    app.deep_link().on_open_url(move |event| {
+        let urls = event.urls();
+        for url in urls {
+            let url_str = url.as_str();
+            tracing::info!("deep link received: {url_str}");
+            match notesmith_core::url_scheme::parse_notesmith_url(url_str) {
+                Ok(parsed) => handle_deep_link(&handle, parsed),
+                Err(error) => tracing::error!("failed to parse deep link: {error}"),
+            }
+        }
+    });
+    Ok(())
+}
+
+fn handle_deep_link<R: Runtime>(app: &AppHandle<R>, parsed: notesmith_core::NotesmithUrl) {
+    use notesmith_core::NotesmithUrl;
+
+    // Ensure the main window is visible before navigating
+    if let Err(error) = show_main_window(app) {
+        tracing::error!("failed to show main window for deep link: {error}");
+        return;
+    }
+
+    let config = notesmith_config::GlobalConfig::load().unwrap_or_default();
+    let daemon_base = format!("http://{}", config.daemon.bind);
+
+    match parsed {
+        NotesmithUrl::Open { vault, path } => {
+            navigate_webview(app, &format!("/vault/{vault}/note/{path}"));
+        }
+        NotesmithUrl::Daily { vault } => {
+            navigate_webview(app, &format!("/vault/{vault}/daily"));
+        }
+        NotesmithUrl::Search { vault, query } => {
+            navigate_webview(app, &format!("/vault/{vault}/search?q={query}"));
+        }
+        NotesmithUrl::New { vault, template, folder } => {
+            let mut route = format!("/vault/{vault}/new");
+            let mut params = Vec::new();
+            if let Some(t) = template {
+                params.push(format!("template={t}"));
+            }
+            if let Some(f) = folder {
+                params.push(format!("folder={f}"));
+            }
+            if !params.is_empty() {
+                route.push('?');
+                route.push_str(&params.join("&"));
+            }
+            navigate_webview(app, &route);
+        }
+        NotesmithUrl::Inbox { vault, text } => {
+            let url = format!("{daemon_base}/api/v/{vault}/inbox");
+            let body = serde_json::json!({ "text": text });
+            tauri::async_runtime::spawn(async move {
+                match reqwest::Client::new().post(&url).json(&body).send().await {
+                    Ok(resp) if resp.status().is_success() => {
+                        tracing::info!("inbox capture successful");
+                    }
+                    Ok(resp) => {
+                        tracing::error!("inbox capture failed: {}", resp.status());
+                    }
+                    Err(error) => tracing::error!("inbox request failed: {error}"),
+                }
+            });
+        }
+        NotesmithUrl::Task { vault, path, line_hash, status } => {
+            let url = format!("{daemon_base}/api/v/{vault}/tasks/toggle");
+            let body = serde_json::json!({
+                "path": path,
+                "line_hash": line_hash,
+                "status": status,
+            });
+            tauri::async_runtime::spawn(async move {
+                match reqwest::Client::new().post(&url).json(&body).send().await {
+                    Ok(resp) if resp.status().is_success() => {
+                        tracing::info!("task toggle successful");
+                    }
+                    Ok(resp) => {
+                        tracing::error!("task toggle failed: {}", resp.status());
+                    }
+                    Err(error) => tracing::error!("task toggle request failed: {error}"),
+                }
+            });
+        }
+        NotesmithUrl::Command { command_name, .. } => {
+            navigate_webview(app, &format!("/command/{command_name}"));
+        }
+        NotesmithUrl::UserAction { action_name, params } => {
+            tracing::info!("user action: {action_name} (params: {params:?})");
+            // User actions are best handled via the CLI; log and navigate to a status page
+            navigate_webview(app, &format!("/action/{action_name}"));
+        }
+    }
+}
+
+fn navigate_webview<R: Runtime>(app: &AppHandle<R>, route: &str) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let script = format!("window.location.hash = '{}';", route.replace('\'', "\\'"));
+        if let Err(error) = window.eval(&script) {
+            tracing::error!("failed to navigate webview: {error}");
+        }
+    }
 }
 
 fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {

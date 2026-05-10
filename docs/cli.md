@@ -552,3 +552,34 @@ Print the detected vault's `.notesmith/skill.md` file so agents can load vault-s
 notesmith skill print
 notesmith --format json skill print
 ```
+
+---
+
+## url-open
+
+### `url-open <URL>`
+
+Handle a `notesmith://` deep-link URL by translating it into daemon API calls.
+
+```bash
+notesmith url-open "notesmith://app/open/main/Inbox/hello.md"
+notesmith url-open "notesmith://app/daily/main"
+notesmith url-open "notesmith://app/search/main?q=meeting+notes"
+notesmith url-open "notesmith://app/inbox/main?text=Remember+to+buy+milk"
+notesmith url-open "notesmith://app/new/main?template=meeting&folder=Inbox"
+notesmith url-open "notesmith://app/task/main/todo.md?line_hash=abc123&status=done"
+notesmith url-open "notesmith://user/standup?date=2026-05-10"
+```
+
+**URL scheme:**
+
+| Route | Description |
+|-------|-------------|
+| `notesmith://app/open/{vault}/{path}` | Open a note |
+| `notesmith://app/daily/{vault}` | Create/open today's daily note |
+| `notesmith://app/search/{vault}?q={query}` | Full-text search |
+| `notesmith://app/new/{vault}?template={name}&folder={path}` | Create note from template |
+| `notesmith://app/inbox/{vault}?text={text}` | Quick capture to inbox |
+| `notesmith://app/task/{vault}/{path}?line_hash={h}&status={s}` | Toggle a task |
+| `notesmith://app/command/{name}?args…` | Trigger a built-in command |
+| `notesmith://user/{action}?params…` | Run a user-defined action from `.notesmith/url-actions.yaml` |

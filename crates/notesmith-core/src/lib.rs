@@ -7,6 +7,8 @@ pub mod note;
 pub mod task;
 pub mod traits;
 pub mod types;
+pub mod url_actions;
+pub mod url_scheme;
 
 // Re-exports for convenience
 pub use error::NotesmithError;
@@ -16,3 +18,5 @@ pub use note::Note;
 pub use task::{Task, TaskPriority, TaskStatus};
 pub use traits::{VaultEngine, WriteResult};
 pub use types::{VaultName, VaultPath};
+pub use url_actions::{ActionStep, UrlAction, UrlActionsFile};
+pub use url_scheme::{NotesmithUrl, UrlParseError, parse_notesmith_url};
