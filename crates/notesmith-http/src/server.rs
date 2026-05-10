@@ -1,6 +1,8 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
+use axum::http::header;
+use axum::middleware;
 use axum::{
     Router,
     routing::{get, post},
@@ -122,9 +124,29 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
         )
         .route("/api/v/{vault}/events", get(routes::vault_events))
         .nest_service("/app", app_service)
+        .layer(middleware::map_response(set_cache_headers))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+async fn set_cache_headers(
+    uri: axum::http::Uri,
+    mut response: axum::response::Response,
+) -> axum::response::Response {
+    let path = uri.path();
+    if path.contains("/_app/immutable/") {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("public, max-age=31536000, immutable"),
+        );
+    } else if path.starts_with("/app") {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-cache"),
+        );
+    }
+    response
 }
 
 fn app_build_dir() -> PathBuf {
