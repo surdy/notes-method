@@ -13,6 +13,7 @@ notesmith-index = { workspace = true }
 notesmith-query = { workspace = true }
 notesmith-templates = { workspace = true }
 notesmith-routing = { workspace = true }
+notesmith-hooks = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

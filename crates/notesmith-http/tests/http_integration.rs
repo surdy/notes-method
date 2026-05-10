@@ -57,6 +57,17 @@ fn write_note(root: &Path, relative_path: &str, content: &str) {
     fs::write(absolute_path, content).unwrap();
 }
 
+fn write_executable(path: &Path, content: &str) {
+    fs::write(path, content).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).unwrap();
+    }
+}
+
 struct TestServer {
     _temp_dir: TempDir,
     root: PathBuf,
@@ -271,6 +282,72 @@ async fn create_note_returns_path_and_hash() {
     assert!(server.root.join("Inbox/Example.md").exists());
 
     server.server.abort();
+}
+
+#[tokio::test]
+async fn hook_fires_on_note_create() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+
+    let hook_script = root.join("hook.sh");
+    write_executable(&hook_script, "#!/bin/sh\ncat > hook-fired.json\n");
+    fs::create_dir_all(root.join(".notesmith")).unwrap();
+    fs::write(
+        root.join(".notesmith").join("vault.toml"),
+        "name = \"test-vault\"\n\n[hooks]\non_note_create = \"hook.sh\"\n",
+    )
+    .unwrap();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = build_test_state(&root);
+    let hook_rx = state.event_tx.subscribe();
+    let vault = state.vaults.get("test-vault").unwrap();
+    let hook_listener = notesmith_http::start_hook_listener(
+        hook_rx,
+        vec![notesmith_http::hooks::HookVaultContext {
+            vault_name: "test-vault".to_string(),
+            vault_root: vault.root.clone(),
+            hooks_config: vault.vault_config.hooks.clone(),
+        }],
+        notesmith_hooks::HookRunner::default(),
+    );
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, state).await.unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("http://{address}/api/v/test-vault/notes"))
+        .json(&serde_json::json!({
+            "title": "Hook Test",
+            "content": "Hook me"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+
+    let marker = root.join("hook-fired.json");
+    for _ in 0..20 {
+        if marker.exists() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    assert!(marker.exists());
+    let payload: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(marker).unwrap()).unwrap();
+    assert_eq!(payload["event"], serde_json::json!("on_note_create"));
+    assert_eq!(payload["vault"], serde_json::json!("test-vault"));
+    assert_eq!(payload["path"], serde_json::json!("Inbox/Hook Test.md"));
+
+    hook_listener.abort();
+    server.abort();
 }
 
 #[tokio::test]

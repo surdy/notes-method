@@ -45,6 +45,7 @@ For each customer there would be a folder containing:
 ## Daily Notes
 
 - Every morning I want a note for that day generated into **Inbox/Daily**. Primary creation should come from an external agent using a saved prompt template, with a daemon scheduler available as a fallback.
+- Vault hooks can trigger external automation on note creation (`on_note_create`) and daily note creation (`on_daily_create`) without blocking the underlying Notesmith action.
 
 ## Tasks
 

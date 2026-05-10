@@ -119,6 +119,27 @@ pub async fn serve_configured_vaults(
     let state = Arc::new(RwLock::new(build_app_state(config)?));
     let _watchers = watch_all_vaults(state.clone()).await?;
     let _schedulers = crate::scheduler::start_daily_schedulers(state.clone()).await;
+    let hook_vaults: Vec<crate::hooks::HookVaultContext> = {
+        let state = state.read().await;
+        state
+            .vaults
+            .iter()
+            .map(|(name, vault)| crate::hooks::HookVaultContext {
+                vault_name: name.clone(),
+                vault_root: vault.root.clone(),
+                hooks_config: vault.vault_config.hooks.clone(),
+            })
+            .collect()
+    };
+    let hook_rx = {
+        let state = state.read().await;
+        state.event_tx.subscribe()
+    };
+    let _hook_listener = crate::hooks::start_hook_listener(
+        hook_rx,
+        hook_vaults,
+        notesmith_hooks::HookRunner::default(),
+    );
     let listener = TcpListener::bind(bind)
         .await
         .with_context(|| format!("failed to bind notesmith-http to {bind}"))?;

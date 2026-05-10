@@ -189,6 +189,10 @@ Every write path (`POST /notes`, `PUT /notes/{path...}`, `PATCH /notes/{path...}
 - trim trailing whitespace on every line
 - ensure exactly one trailing newline
 
+### Hooks
+
+Vaults can configure `.notesmith/vault.toml` hooks for `on_note_create` and `on_daily_create`. When configured, Notesmith runs the script relative to the vault root, sends a JSON payload on stdin (`event`, `vault`, `path`, optional `frontmatter`, optional `source`), and logs hook failures without failing the originating HTTP request.
+
 ---
 
 ## Inbox
