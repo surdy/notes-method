@@ -1,5 +1,6 @@
 //! CLI command modules
 
+pub mod copy_html;
 pub mod daemon;
 pub mod daily;
 pub mod inbox;

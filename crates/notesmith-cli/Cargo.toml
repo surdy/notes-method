@@ -13,6 +13,7 @@ notesmith-index = { workspace = true }
 notesmith-query = { workspace = true }
 notesmith-http = { workspace = true }
 notesmith-mcp = { workspace = true }
+notesmith-html = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
@@ -22,6 +23,7 @@ serde_json = { workspace = true }
 reqwest = { workspace = true }
 dirs = { workspace = true }
 chrono = { workspace = true }
+arboard = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use notesmith_cli::commands::{
+    copy_html::CopyHtmlCommand,
     daemon::DaemonCommand,
     daily::DailyCommand,
     inbox::InboxCommand,
@@ -108,6 +109,8 @@ enum Command {
         #[command(subcommand)]
         command: SkillCommand,
     },
+    /// Copy a note as portable HTML
+    CopyHtml(CopyHtmlCommand),
 }
 
 #[tokio::main]
@@ -173,6 +176,9 @@ async fn main() -> anyhow::Result<()> {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;
+        }
+        Command::CopyHtml(command) => {
+            command.run(&global_config, cli.vault.as_deref(), &cwd)?;
         }
     }
 

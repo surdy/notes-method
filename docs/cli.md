@@ -195,6 +195,24 @@ All create/put/append writes run through the save pipeline, which trims trailing
 
 ---
 
+## copy-html
+
+### `copy-html`
+
+Render a vault note to portable HTML with embedded styles, strip frontmatter, and copy the result to the system clipboard.
+
+```bash
+notesmith copy-html Customers/Acme/Acme\ Corp.md
+```
+
+| Arg | Description |
+|-----|-------------|
+| `<path>` | Vault-relative note path |
+
+The clipboard entry includes both `text/html` and a plain-text markdown fallback.
+
+---
+
 ## inbox
 
 Inbox quick-capture commands go through the running daemon.

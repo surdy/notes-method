@@ -1,6 +1,7 @@
 import {
 createNote,
 ensureDaily,
+getNoteHtmlInline,
 inboxCapture,
 instantiateTemplate,
 listTemplates,
@@ -109,6 +110,32 @@ await reloadAndNavigate(created.path, onNavigate);
 } catch (cause) {
 notifyError('Failed to capture note.', cause);
 }
+}
+},
+{
+id: 'copy-as-html',
+label: 'Copy as HTML',
+category: 'Notes',
+execute: async () => {
+	const currentVault = requireVault();
+	if (!currentVault) return;
+	if (!vaultStore.selectedPath) {
+		window.alert('Select a note first.');
+		return;
+	}
+
+	try {
+		const html = await getNoteHtmlInline(currentVault, vaultStore.selectedPath);
+		await navigator.clipboard.write([
+			new ClipboardItem({
+				'text/html': new Blob([html], { type: 'text/html' }),
+				'text/plain': new Blob([html], { type: 'text/plain' })
+			})
+		]);
+		window.alert('Copied note as HTML.');
+	} catch (cause) {
+		notifyError('Failed to copy as HTML.', cause);
+	}
 }
 },
 {
