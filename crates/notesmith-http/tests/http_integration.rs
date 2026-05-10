@@ -194,6 +194,33 @@ async fn execute_sql_returns_query_result_json() {
 }
 
 #[tokio::test]
+async fn get_sidebar_views_returns_json_array() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let root = golden_vault();
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, build_test_state(&root))
+            .await
+            .unwrap();
+    });
+
+    let response = reqwest::get(format!("http://{address}/api/v/test-vault/sidebar-views"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    let views = body.as_array().unwrap();
+    assert!(views.len() >= 4);
+    assert_eq!(views[0]["id"], serde_json::json!("all-notes"));
+    assert!(views.iter().all(|view| view.is_object()));
+
+    server.abort();
+}
+
+#[tokio::test]
 async fn get_note_returns_full_note_metadata() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -256,6 +283,34 @@ async fn get_note_html_renders_markdown_without_frontmatter() {
         body.contains(r#"<div class="callout callout-info">"#),
         "body was: {body}"
     );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn get_note_html_with_inline_styles_returns_portable_document() {
+    let server = TestServer::with_files(&[(
+        "Inbox/Rendered.md",
+        "---\nstatus: draft\n---\n# Heading\n\n[[Target|Alias]]\n",
+    )])
+    .await;
+
+    let response =
+        reqwest::get(server.url("/api/v/test-vault/html/Inbox/Rendered.md?inline_styles=true"))
+            .await
+            .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.text().await.unwrap();
+    assert!(body.contains("<html"), "body was: {body}");
+    assert!(body.contains("<style>"), "body was: {body}");
+    assert!(!body.contains("status: draft"), "body was: {body}");
+    assert!(
+        body.contains(r#"<a href="Target">Alias</a>"#),
+        "body was: {body}"
+    );
+    assert!(!body.contains("class=\"wikilink\""), "body was: {body}");
 
     server.server.abort();
 }

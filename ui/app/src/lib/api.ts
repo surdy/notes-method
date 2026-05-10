@@ -51,6 +51,27 @@ output_path: string;
 prompts: TemplatePrompt[];
 }
 
+export interface SidebarViewConfig {
+id: string;
+name: string;
+icon: string;
+data_source: string;
+group_by?: string;
+sort_by?: string;
+badge_query?: string;
+}
+
+export interface SqlQueryResult {
+columns: string[];
+rows: Record<string, unknown>[];
+}
+
+interface RawSqlQueryResult {
+columns: string[];
+rows: unknown[][];
+row_count: number;
+}
+
 export async function listNotes(vault: string): Promise<NoteSummary[]> {
 const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes`);
 if (!res.ok) throw new Error(`Failed to list notes: ${res.status}`);
@@ -66,6 +87,14 @@ return res.json();
 export async function getNoteHtml(vault: string, path: string): Promise<string> {
 const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/html/${encodePath(path)}`);
 if (!res.ok) throw new Error(`Failed to render note: ${res.status}`);
+return res.text();
+}
+
+export async function getNoteHtmlInline(vault: string, path: string): Promise<string> {
+const res = await fetch(
+`${API_BASE}/api/v/${encodeURIComponent(vault)}/html/${encodePath(path)}?inline_styles=true`
+);
+if (!res.ok) throw new Error(`Failed to render note HTML: ${res.status}`);
 return res.text();
 }
 
@@ -147,4 +176,27 @@ body: JSON.stringify({ prompts })
 });
 if (!res.ok) throw new Error(`Failed to instantiate template: ${res.status}`);
 return res.json();
+}
+
+export async function getSidebarViews(vault: string): Promise<SidebarViewConfig[]> {
+const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/sidebar-views`);
+if (!res.ok) throw new Error(`Failed to load sidebar views: ${res.status}`);
+return res.json();
+}
+
+export async function executeSql(vault: string, sql: string): Promise<SqlQueryResult> {
+const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/query/sql`, {
+	method: 'POST',
+	headers: { 'Content-Type': 'application/json' },
+	body: JSON.stringify({ sql })
+});
+if (!res.ok) throw new Error(`SQL query failed: ${res.status}`);
+
+const raw = (await res.json()) as RawSqlQueryResult;
+return {
+	columns: raw.columns,
+	rows: raw.rows.map((values) =>
+		Object.fromEntries(raw.columns.map((column, index) => [column, values[index]]))
+	)
+};
 }

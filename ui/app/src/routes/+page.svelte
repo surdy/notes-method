@@ -2,9 +2,9 @@
 import { onMount } from 'svelte';
 import { buildCommands, OPEN_QUICK_SWITCHER_EVENT } from '$lib/commands';
 import CommandPalette from '$lib/components/CommandPalette.svelte';
-import FileTree from '$lib/components/FileTree.svelte';
 import NoteViewer from '$lib/components/NoteViewer.svelte';
 import QuickSwitcher from '$lib/components/QuickSwitcher.svelte';
+import SidebarViews from '$lib/components/SidebarViews.svelte';
 import VaultSwitcher from '$lib/components/VaultSwitcher.svelte';
 import { registerHotkeys } from '$lib/hotkeys';
 import { connectSSE } from '$lib/sse';
@@ -14,6 +14,7 @@ let vaults = $state<string[]>([]);
 let showCommandPalette = $state(false);
 let showQuickSwitcher = $state(false);
 let sseConnection: EventSource | null = null;
+let sidebarViewsRef: { refresh: () => void } | null = null;
 
 let commands = $derived.by(() =>
 buildCommands(vaultStore.currentVault, (path) => {
@@ -54,13 +55,17 @@ vaultStore.currentVault = vault;
 await vaultStore.loadNotes();
 
 sseConnection = connectSSE(vault, (event) => {
-if (
-event.type.startsWith('note.') ||
-event.type === 'inbox.added' ||
-event.type === 'daily.created'
-) {
-void vaultStore.loadNotes();
-}
+	const refreshNotes =
+		event.type.startsWith('note.') ||
+		event.type === 'inbox.added' ||
+		event.type === 'daily.created' ||
+		event.type === 'cache.rebuilt';
+	if (refreshNotes) {
+		void vaultStore.loadNotes();
+	}
+	if (refreshNotes || event.type === 'task.updated') {
+		sidebarViewsRef?.refresh();
+	}
 });
 } catch (error) {
 console.error('Failed to initialize Notesmith app shell', error);
@@ -100,15 +105,7 @@ unregister();
 <VaultSwitcher {vaults} />
 {/if}
 
-<div class="file-tree-container">
-{#if vaultStore.loading && vaultStore.notes.length === 0}
-<div class="loading-indicator">Loading...</div>
-{:else if vaultStore.error}
-<div class="error-indicator">{vaultStore.error}</div>
-{:else}
-<FileTree node={vaultStore.tree} />
-{/if}
-</div>
+<SidebarViews bind:this={sidebarViewsRef} />
 </aside>
 
 <main class="content-area">
@@ -152,28 +149,11 @@ font-size: 16px;
 font-weight: 600;
 }
 
-.file-tree-container {
-flex: 1;
-overflow-y: auto;
-padding: 4px 0;
-}
-
 .content-area {
 flex: 1;
 display: flex;
 flex-direction: column;
 overflow: hidden;
-}
-
-.loading-indicator,
-.error-indicator {
-padding: 16px;
-text-align: center;
-color: var(--text-muted, #888);
-}
-
-.error-indicator {
-color: #ff6b6b;
 }
 
 @media (max-width: 768px) {

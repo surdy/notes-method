@@ -35,6 +35,12 @@ For each customer there would be a folder containing:
   - templates
   - data
 
+## Sidebar Views
+
+- The left sidebar should support both the file tree and YAML-driven smart views from `.notesmith/sidebar-views.yaml`.
+- Default smart views should cover **All Notes**, **Tasks**, **Recent**, and **Inbox**.
+- Smart views should be backed by read-only SQL over cached note/task views, with optional grouping and badge counts.
+
 ## Inbox Workflow
 
 - All notes start in the **Inbox** folder.

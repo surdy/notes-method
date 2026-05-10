@@ -86,6 +86,10 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
             get(routes::list_inbox).post(routes::inbox_capture),
         )
         .route("/api/v/{vault}/search", get(routes::search_notes))
+        .route(
+            "/api/v/{vault}/sidebar-views",
+            get(routes::get_sidebar_views),
+        )
         .route("/api/v/{vault}/query/sql", post(routes::execute_sql_query))
         .route(
             "/api/v/{vault}/tasks",

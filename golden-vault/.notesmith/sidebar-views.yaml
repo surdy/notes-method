@@ -1,0 +1,22 @@
+views:
+  - id: all-notes
+    name: All Notes
+    icon: 📄
+    data_source: "SELECT path, title, type FROM v_notes ORDER BY path"
+
+  - id: tasks
+    name: Tasks
+    icon: ✅
+    data_source: "SELECT note_path AS path, text AS title, status FROM v_tasks ORDER BY status, note_path, ordinal"
+    group_by: status
+
+  - id: recent
+    name: Recent
+    icon: 🕐
+    data_source: "SELECT path, title, type, updated_at FROM v_notes ORDER BY mtime_unix DESC LIMIT 30"
+
+  - id: inbox
+    name: Inbox
+    icon: 📥
+    data_source: "SELECT path, title FROM v_notes WHERE path LIKE 'Inbox/%' ORDER BY path"
+    badge_query: "SELECT COUNT(*) as count FROM v_notes WHERE path LIKE 'Inbox/%'"

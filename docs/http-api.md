@@ -64,9 +64,18 @@ curl http://127.0.0.1:27183/api/v/work/notes/Customers/Acme%20Corp/Acme%20Corp.m
 
 Render a single note body to HTML using the daemon's markdown renderer. YAML frontmatter is stripped before rendering.
 
+**Query parameters:**
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `inline_styles` | When `true`, returns a complete HTML document with embedded CSS and plain `href` links for portable clipboard/email pasting. | `false` |
+
 **Example:**
 ```bash
 curl http://127.0.0.1:27183/api/v/work/html/Customers/Acme%20Corp/Acme%20Corp.md
+
+# Portable HTML for clipboard/email paste
+curl "http://127.0.0.1:27183/api/v/work/html/Customers/Acme%20Corp/Acme%20Corp.md?inline_styles=true"
 ```
 
 **Response:** `200 OK` — HTML markup as `text/html`
@@ -326,6 +335,36 @@ curl -s http://127.0.0.1:27183/api/v/work/query/sql \
 ```
 
 See [SQL Views Reference](sql-views.md) for available views.
+
+---
+
+## Sidebar Views
+
+### `GET /api/v/{vault}/sidebar-views`
+
+Load sidebar view definitions for a vault. Notesmith reads `.notesmith/sidebar-views.yaml` from the vault root and falls back to built-in defaults when the file is missing.
+
+**Response:** `200 OK`
+```json
+[
+  {
+    "id": "all-notes",
+    "name": "All Notes",
+    "icon": "📄",
+    "data_source": "SELECT path, title, type FROM v_notes ORDER BY path",
+    "group_by": null,
+    "sort_by": null,
+    "badge_query": null
+  }
+]
+```
+
+**Example:**
+```bash
+curl http://127.0.0.1:27183/api/v/work/sidebar-views
+```
+
+Use each view's `data_source` and optional `badge_query` with `POST /api/v/{vault}/query/sql`.
 
 ---
 

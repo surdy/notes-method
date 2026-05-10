@@ -1,4 +1,4 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, fs, io::ErrorKind, path::Path as StdPath};
 
 use axum::{
     Json,
@@ -130,6 +130,22 @@ pub struct SqlQueryRequest {
     pub sql: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SidebarViewConfig {
+    pub id: String,
+    pub name: String,
+    pub icon: String,
+    pub data_source: String,
+    pub group_by: Option<String>,
+    pub sort_by: Option<String>,
+    pub badge_query: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SidebarViewsFile {
+    pub views: Vec<SidebarViewConfig>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateNoteRequest {
     pub title: String,
@@ -197,6 +213,12 @@ pub struct SearchQuery {
     pub limit: usize,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct HtmlRenderQuery {
+    #[serde(default)]
+    pub inline_styles: bool,
+}
+
 fn default_limit() -> usize {
     20
 }
@@ -217,6 +239,23 @@ pub async fn execute_sql_query(
     execute_sql(&vault.cache, &request.sql)
         .map(Json)
         .map_err(query_error)
+}
+
+pub async fn get_sidebar_views(
+    State(state): State<SharedAppState>,
+    Path(vault_name): Path<String>,
+) -> Result<Json<Vec<SidebarViewConfig>>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    load_sidebar_views_from_root(&vault.root)
+        .map(Json)
+        .map_err(internal_error)
 }
 
 pub async fn search_notes(
@@ -319,6 +358,7 @@ pub async fn get_note(
 pub async fn render_note_html(
     State(state): State<SharedAppState>,
     Path((vault_name, note_path)): Path<(String, String)>,
+    Query(query): Query<HtmlRenderQuery>,
 ) -> Result<Html<String>, (StatusCode, Json<Value>)> {
     let state = state.read().await;
     let vault = state.vaults.get(&vault_name).ok_or_else(|| {
@@ -333,7 +373,11 @@ pub async fn render_note_html(
         .engine
         .read(&vault.root, &vault_path)
         .map_err(note_error)?;
-    let html = notesmith_html::render_to_html(strip_frontmatter(&content));
+    let html = if query.inline_styles {
+        notesmith_html::render_to_html_with_inline_styles(&content)
+    } else {
+        notesmith_html::render_to_html(notesmith_html::strip_frontmatter(&content))
+    };
     Ok(Html(html))
 }
 
@@ -1298,6 +1342,63 @@ fn parse_daily_date(
     Ok((parsed, date_str))
 }
 
+fn load_sidebar_views_from_root(root: &StdPath) -> anyhow::Result<Vec<SidebarViewConfig>> {
+    let path = root.join(".notesmith").join("sidebar-views.yaml");
+    match fs::read_to_string(&path) {
+        Ok(raw) => Ok(serde_yaml::from_str::<SidebarViewsFile>(&raw)?.views),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(default_sidebar_views()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn default_sidebar_views() -> Vec<SidebarViewConfig> {
+    vec![
+        SidebarViewConfig {
+            id: "all-notes".to_string(),
+            name: "All Notes".to_string(),
+            icon: "📄".to_string(),
+            data_source: "SELECT path, title, type FROM v_notes ORDER BY path".to_string(),
+            group_by: None,
+            sort_by: None,
+            badge_query: None,
+        },
+        SidebarViewConfig {
+            id: "tasks".to_string(),
+            name: "Tasks".to_string(),
+            icon: "✅".to_string(),
+            data_source:
+                "SELECT note_path AS path, text AS title, status FROM v_tasks ORDER BY status, note_path, ordinal"
+                    .to_string(),
+            group_by: Some("status".to_string()),
+            sort_by: None,
+            badge_query: None,
+        },
+        SidebarViewConfig {
+            id: "recent".to_string(),
+            name: "Recent".to_string(),
+            icon: "🕐".to_string(),
+            data_source:
+                "SELECT path, title, type, updated_at FROM v_notes ORDER BY mtime_unix DESC LIMIT 30"
+                    .to_string(),
+            group_by: None,
+            sort_by: None,
+            badge_query: None,
+        },
+        SidebarViewConfig {
+            id: "inbox".to_string(),
+            name: "Inbox".to_string(),
+            icon: "📥".to_string(),
+            data_source:
+                "SELECT path, title FROM v_notes WHERE path LIKE 'Inbox/%' ORDER BY path".to_string(),
+            group_by: None,
+            sort_by: None,
+            badge_query: Some(
+                "SELECT COUNT(*) as count FROM v_notes WHERE path LIKE 'Inbox/%'".to_string(),
+            ),
+        },
+    ]
+}
+
 fn daily_note_path(daily_folder: &str, date: &str) -> VaultPath {
     VaultPath::new(format!("{daily_folder}/{date}.md"))
 }
@@ -1313,11 +1414,6 @@ fn parse_prompt_template(content: &str) -> anyhow::Result<(Vec<ContextQuery>, St
         frontmatter.context_queries,
         body.trim_start_matches(['\r', '\n']).to_string(),
     ))
-}
-
-fn strip_frontmatter(content: &str) -> &str {
-    let (_, body) = extract_frontmatter(content);
-    body.trim_start_matches(['\r', '\n'])
 }
 
 fn format_query_as_markdown_table(result: &QueryResult) -> String {
@@ -1478,7 +1574,10 @@ pub async fn route_apply(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
     use serde_json::json;
+    use tempfile::TempDir;
 
     #[test]
     fn parse_prompt_template_extracts_queries() {
@@ -1537,5 +1636,50 @@ context_queries:
         };
 
         assert_eq!(format_query_as_markdown_table(&result), "(no results)");
+    }
+
+    #[test]
+    fn load_sidebar_views_returns_defaults_when_file_missing() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let views = load_sidebar_views_from_root(temp_dir.path()).unwrap();
+
+        assert_eq!(views, default_sidebar_views());
+    }
+
+    #[test]
+    fn load_sidebar_views_parses_custom_yaml() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_dir = temp_dir.path().join(".notesmith");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(
+            config_dir.join("sidebar-views.yaml"),
+            r#"views:
+  - id: customers
+    name: Customers
+    icon: 🏢
+    data_source: "SELECT path, title, state FROM v_customers ORDER BY title"
+    group_by: state
+    sort_by: title
+    badge_query: "SELECT COUNT(*) as count FROM v_customers"
+"#,
+        )
+        .unwrap();
+
+        let views = load_sidebar_views_from_root(temp_dir.path()).unwrap();
+
+        assert_eq!(
+            views,
+            vec![SidebarViewConfig {
+                id: "customers".to_string(),
+                name: "Customers".to_string(),
+                icon: "🏢".to_string(),
+                data_source: "SELECT path, title, state FROM v_customers ORDER BY title"
+                    .to_string(),
+                group_by: Some("state".to_string()),
+                sort_by: Some("title".to_string()),
+                badge_query: Some("SELECT COUNT(*) as count FROM v_customers".to_string()),
+            }]
+        );
     }
 }
