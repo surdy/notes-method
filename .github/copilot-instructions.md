@@ -36,6 +36,13 @@
 - Keep docs concise: show the command/endpoint signature, parameters, and a usage example.
 - Don't document internal crate APIs or architecture — only user-facing surfaces.
 
+## Frontend Styling — Dark Theme Safety
+
+- The app uses a dark theme by default. All interactive elements (`<button>`, `<input>`, `<select>`, `<textarea>`) must have `color: inherit` or an explicit color — browsers default these to black text.
+- The global CSS reset in `+layout.svelte` sets `color: inherit; font: inherit;` on form elements. Do not remove this.
+- When adding new styled components, always verify text visibility on the dark background (`--bg-primary: #1e1e1e`, `--sidebar-bg: #252526`). Use `var(--text-primary, #e0e0e0)` for primary text and `var(--text-muted, #888)` for secondary text.
+- Never leave a `<button>` or `<input>` without an explicit `color` declaration in its scoped CSS — the global reset is a safety net, not a substitute.
+
 ## Sub-Agent Delegation
 
 - Use sub-agents (via the `task` tool) to parallelize independent work and to delegate complex implementation that benefits from a focused context window.

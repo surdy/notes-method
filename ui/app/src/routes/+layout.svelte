@@ -23,4 +23,9 @@
 	:global(*) {
 		box-sizing: border-box;
 	}
+
+	:global(button, input, select, textarea) {
+		color: inherit;
+		font: inherit;
+	}
 </style>

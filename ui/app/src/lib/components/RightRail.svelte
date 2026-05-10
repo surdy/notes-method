@@ -344,6 +344,7 @@
 		border: none;
 		border-radius: 0;
 		background: transparent;
+		color: var(--text-primary, #e0e0e0);
 		font-size: 12px;
 		font-weight: 700;
 		letter-spacing: 0.03em;
@@ -403,6 +404,7 @@
 		border: none;
 		border-radius: 0;
 		background: transparent;
+		color: var(--text-primary, #e0e0e0);
 		text-align: left;
 	}
 
