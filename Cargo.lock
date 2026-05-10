@@ -1497,6 +1497,7 @@ dependencies = [
  "notesmith-core",
  "notesmith-index",
  "notesmith-query",
+ "notesmith-routing",
  "notesmith-tasks",
  "notesmith-templates",
  "notesmith-vault",
@@ -1557,7 +1558,16 @@ name = "notesmith-routing"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
+ "minijinja",
  "notesmith-core",
+ "notesmith-vault",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

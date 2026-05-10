@@ -374,3 +374,57 @@ notesmith template render daily-note
 notesmith template instantiate stream --prompt customer=Acme --prompt title="Migration to v2"
 notesmith template instantiate account-info --prompt customer="Globex Industries" --format json
 ```
+
+---
+
+## route
+
+### `route preview`
+
+Preview where a note would be routed without moving it.
+
+```bash
+notesmith route preview <path>
+```
+
+| Arg | Description |
+|-----|-------------|
+| `path` | Vault-relative path to the note |
+
+Text output shows `source -> destination (rule: rule_id)`.
+
+**Examples:**
+
+```bash
+notesmith route preview "Inbox/standup.md"
+notesmith route preview "Inbox/idea.md" --format json
+```
+
+### `route apply`
+
+Apply routing to move note(s) to their destination folder. Stamps `archived: true` and `archived-at` in frontmatter before moving.
+
+```bash
+notesmith route apply <path>
+notesmith route apply --inbox
+```
+
+| Arg/Flag | Description |
+|----------|-------------|
+| `path` | Route a single note by vault-relative path |
+| `--inbox` | Route all eligible notes in the inbox folder |
+
+One of `path` or `--inbox` is required.
+
+**Examples:**
+
+```bash
+# Route a single note
+notesmith route apply "Inbox/standup.md"
+
+# Route all inbox notes
+notesmith route apply --inbox
+
+# Route with JSON output
+notesmith route apply --inbox --format json
+```

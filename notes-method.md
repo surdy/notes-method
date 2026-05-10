@@ -38,7 +38,8 @@ For each customer there would be a folder containing:
 
 - All notes start in the **Inbox** folder.
 - Once I am done working on a note, I move it to the appropriate folder for long-term storage.
-- I want the note to be moved automatically from Inbox to the appropriate folder once done.
+- **Routing engine** (`.notesmith/routing.yaml`) automatically determines each note's destination based on frontmatter fields (`type`, `customer`, `meeting-kind`, `stream`) and moves notes with `notesmith route apply --inbox` or per-note `notesmith route apply <path>`.
+- Routed notes are stamped with `archived: true` and `archived-at` in frontmatter before moving.
 - The goal is to achieve **Inbox zero**.
 
 ## Daily Notes

@@ -76,6 +76,8 @@ fn build_router_with_shared_state(state: SharedAppState) -> Router {
             "/api/v/{vault}/templates/{name}/instantiate",
             post(routes::instantiate_template),
         )
+        .route("/api/v/{vault}/route/preview", post(routes::route_preview))
+        .route("/api/v/{vault}/route/apply", post(routes::route_apply))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)

@@ -1,0 +1,74 @@
+version: 1
+default_on_exists: skip
+
+rules:
+  - id: external-meeting
+    when:
+      type: meeting
+      meeting-kind: external
+    then:
+      move_to: "Customers/{{ customer | unwikilink }}/External Meetings/"
+
+  - id: internal-meeting
+    when:
+      type: meeting
+      meeting-kind: internal
+    then:
+      move_to: "Customers/{{ customer | unwikilink }}/Internal Meetings/"
+
+  - id: stream
+    when:
+      type: stream
+    then:
+      move_to: "Customers/{{ customer | unwikilink }}/Streams/"
+
+  - id: account-info
+    when:
+      type: account-info
+    then:
+      move_to: "Customers/{{ customer | unwikilink }}/Account Info/"
+
+  - id: glossary
+    when:
+      type: glossary
+    then:
+      move_to: "Customers/{{ customer | unwikilink }}/Account Info/"
+
+  - id: milestones
+    when:
+      type: milestones
+    then:
+      move_to: "Customers/{{ customer | unwikilink }}/Account Info/"
+
+  - id: customer-index
+    when:
+      type: customer
+    then:
+      move_to: "Customers/{{ customer | unwikilink }}/"
+
+  - id: daily
+    when:
+      type: daily
+    then:
+      move_to: "General/Journal/{{ date | year }}/{{ date | month }}/"
+
+  - id: note-customer-stream
+    when:
+      type: note
+      customer: "*"
+      stream: "*"
+    then:
+      move_to: "Customers/{{ customer | unwikilink }}/Streams/"
+
+  - id: note-customer
+    when:
+      type: note
+      customer: "*"
+    then:
+      move_to: "Customers/{{ customer | unwikilink }}/"
+
+  - id: note-general
+    when:
+      type: note
+    then:
+      move_to: "General/"

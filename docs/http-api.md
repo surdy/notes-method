@@ -472,3 +472,71 @@ Render a template and create the note at the computed output path. The save pipe
 **Errors:**
 - `404` — template not found
 - `422` — missing required prompts
+
+---
+
+## Routing
+
+### `POST /api/v/{vault}/route/preview`
+
+Preview where a note would be routed based on `.notesmith/routing.yaml` rules.
+
+**Request body:**
+```json
+{
+  "path": "Inbox/standup.md"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "path": "Inbox/standup.md",
+  "destination": "Customers/Acme Corp/External Meetings/standup.md",
+  "rule_id": "external-meeting"
+}
+```
+
+**Errors:**
+- `404` — vault, routing config, or no matching rule
+- `409` — note already archived
+- `422` — note has no frontmatter
+
+### `POST /api/v/{vault}/route/apply`
+
+Apply routing rules to move notes to their destinations. Stamps `archived: true` and `archived-at` in frontmatter before moving.
+
+**Request body (specific notes):**
+```json
+{
+  "paths": ["Inbox/standup.md", "Inbox/idea.md"]
+}
+```
+
+**Request body (inbox batch):**
+```json
+{
+  "inbox": true
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "routed": 2,
+  "results": [
+    {
+      "from": "Inbox/standup.md",
+      "to": "Customers/Acme Corp/External Meetings/standup.md",
+      "rule_id": "external-meeting"
+    },
+    {
+      "from": "Inbox/idea.md",
+      "to": "General/idea.md",
+      "rule_id": "note-general"
+    }
+  ]
+}
+```
+
+When `inbox: true`, notes without frontmatter, already-archived notes, and notes with no matching rule are silently skipped.

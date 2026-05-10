@@ -41,7 +41,7 @@ fn now_timestamp() -> String {
     Local::now().format("%Y-%m-%d %H:%M").to_string()
 }
 
-fn extract_frontmatter(content: &str) -> (Option<String>, &str) {
+pub fn extract_frontmatter(content: &str) -> (Option<String>, &str) {
     let mut lines = content.split_inclusive('\n');
     let Some(first_line) = lines.next() else {
         return (None, content);
@@ -69,7 +69,7 @@ fn trim_line_ending(line: &str) -> &str {
     line.trim_end_matches(['\r', '\n'])
 }
 
-fn parse_frontmatter_mapping(raw_frontmatter: &str) -> Option<Mapping> {
+pub fn parse_frontmatter_mapping(raw_frontmatter: &str) -> Option<Mapping> {
     if raw_frontmatter.trim().is_empty() {
         return Some(Mapping::new());
     }
@@ -81,7 +81,7 @@ fn parse_frontmatter_mapping(raw_frontmatter: &str) -> Option<Mapping> {
     }
 }
 
-fn sort_mapping(mapping: Mapping) -> Mapping {
+pub fn sort_mapping(mapping: Mapping) -> Mapping {
     let mut entries = mapping.into_iter().collect::<Vec<_>>();
     entries.sort_by(|(left_key, _), (right_key, _)| {
         yaml_key_sort_key(left_key).cmp(&yaml_key_sort_key(right_key))
@@ -101,7 +101,7 @@ fn yaml_key_sort_key(key: &Value) -> String {
     }
 }
 
-fn serialize_frontmatter(frontmatter: &Mapping) -> String {
+pub fn serialize_frontmatter(frontmatter: &Mapping) -> String {
     let serialized =
         serde_yaml::to_string(&Value::Mapping(frontmatter.clone())).unwrap_or_default();
     serialized

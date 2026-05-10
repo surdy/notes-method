@@ -972,3 +972,106 @@ pub async fn instantiate_template(
         Err(e) => Err(internal_error(e)),
     }
 }
+
+// ── Route routes ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct RoutePreviewRequest {
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RouteApplyRequest {
+    pub paths: Option<Vec<String>>,
+    #[serde(default)]
+    pub inbox: bool,
+}
+
+pub async fn route_preview(
+    State(state): State<SharedAppState>,
+    Path(vault_name): Path<String>,
+    Json(request): Json<RoutePreviewRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    let routing_engine =
+        notesmith_routing::RoutingEngine::load(&vault.root).map_err(|e| match &e {
+            notesmith_routing::RoutingError::ConfigNotFound { .. } => (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": e.to_string() })),
+            ),
+            _ => internal_error(e),
+        })?;
+
+    let note_path = VaultPath::new(request.path.clone());
+    let content = vault
+        .engine
+        .read(&vault.root, &note_path)
+        .map_err(note_error)?;
+
+    let route_match = routing_engine
+        .preview(&request.path, &content)
+        .map_err(|e| match &e {
+            notesmith_routing::RoutingError::NoMatch { .. } => (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": e.to_string() })),
+            ),
+            notesmith_routing::RoutingError::NoFrontmatter { .. } => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({ "error": e.to_string() })),
+            ),
+            notesmith_routing::RoutingError::AlreadyArchived { .. } => (
+                StatusCode::CONFLICT,
+                Json(json!({ "error": e.to_string() })),
+            ),
+            _ => internal_error(e),
+        })?;
+
+    Ok(Json(json!({
+        "path": request.path,
+        "destination": route_match.destination,
+        "rule_id": route_match.rule_id,
+    })))
+}
+
+pub async fn route_apply(
+    State(state): State<SharedAppState>,
+    Path(vault_name): Path<String>,
+    Json(request): Json<RouteApplyRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    let routing_engine =
+        notesmith_routing::RoutingEngine::load(&vault.root).map_err(internal_error)?;
+
+    if request.inbox {
+        let inbox_folder = &vault.vault_config.inbox.folder;
+        let results = routing_engine
+            .apply_inbox(&vault.root, inbox_folder, &vault.engine)
+            .map_err(internal_error)?;
+        return Ok(Json(json!({ "routed": results.len(), "results": results })));
+    }
+
+    let paths = request.paths.unwrap_or_default();
+    let mut results = Vec::new();
+    for path in &paths {
+        let result = routing_engine
+            .apply(&vault.root, path, &vault.engine)
+            .map_err(internal_error)?;
+        results.push(result);
+    }
+
+    Ok(Json(json!({ "routed": results.len(), "results": results })))
+}

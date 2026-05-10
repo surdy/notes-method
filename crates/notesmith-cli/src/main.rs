@@ -4,6 +4,7 @@ use notesmith_cli::commands::{
     inbox::InboxCommand,
     note::NoteCommand,
     query::QueryCommand,
+    route::RouteCommand,
     search::SearchCommand,
     task::TaskCommand,
     template::TemplateCommand,
@@ -84,6 +85,11 @@ enum Command {
         #[command(subcommand)]
         command: TemplateCommand,
     },
+    /// Route notes to their destination folder
+    Route {
+        #[command(subcommand)]
+        command: RouteCommand,
+    },
 }
 
 #[tokio::main]
@@ -126,6 +132,11 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
         }
         Command::Template { command } => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
+        Command::Route { command } => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;

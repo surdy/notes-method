@@ -958,3 +958,147 @@ async fn post_instantiate_missing_prompt_returns_422() {
 
     server.server.abort();
 }
+
+// ── Routing integration tests ─────────────────────────────────────────────────
+
+fn write_routing_config(root: &Path) {
+    let config = r#"version: 1
+default_on_exists: skip
+rules:
+  - id: external-meeting
+    when:
+      type: meeting
+      meeting-kind: external
+    then:
+      move_to: "Customers/{{ customer | unwikilink }}/External Meetings/"
+  - id: note-customer
+    when:
+      type: note
+      customer: "*"
+    then:
+      move_to: "Customers/{{ customer | unwikilink }}/"
+  - id: note-general
+    when:
+      type: note
+    then:
+      move_to: "General/"
+"#;
+    write_note(root, ".notesmith/routing.yaml", config);
+}
+
+#[tokio::test]
+async fn route_preview_shows_destination() {
+    let server = TestServer::with_files(&[(
+        "Inbox/standup.md",
+        "---\ntype: meeting\nmeeting-kind: external\ncustomer: \"[[Acme Corp]]\"\ndate: 2025-03-15\n---\n# Standup\n",
+    )])
+    .await;
+    write_routing_config(&server.root);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(server.url("/api/v/test-vault/route/preview"))
+        .json(&serde_json::json!({ "path": "Inbox/standup.md" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["rule_id"], "external-meeting");
+    assert_eq!(
+        body["destination"],
+        "Customers/Acme Corp/External Meetings/standup.md"
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn route_apply_moves_note_and_stamps_archive() {
+    let server =
+        TestServer::with_files(&[("Inbox/idea.md", "---\ntype: note\n---\n# My Idea\n")]).await;
+    write_routing_config(&server.root);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(server.url("/api/v/test-vault/route/apply"))
+        .json(&serde_json::json!({ "paths": ["Inbox/idea.md"] }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["routed"], 1);
+
+    let results = body["results"].as_array().unwrap();
+    assert_eq!(results[0]["from"], "Inbox/idea.md");
+    assert_eq!(results[0]["to"], "General/idea.md");
+    assert_eq!(results[0]["rule_id"], "note-general");
+
+    // Verify file was moved and stamped
+    assert!(!server.root.join("Inbox/idea.md").exists());
+    let content = fs::read_to_string(server.root.join("General/idea.md")).unwrap();
+    assert!(content.contains("archived: true"));
+    assert!(content.contains("archived-at:"));
+    assert!(content.contains("# My Idea"));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn route_apply_inbox_routes_all_eligible() {
+    let server = TestServer::with_files(&[
+        ("Inbox/note1.md", "---\ntype: note\n---\n# Note 1\n"),
+        (
+            "Inbox/note2.md",
+            "---\ntype: note\ncustomer: \"[[Acme]]\"\n---\n# Note 2\n",
+        ),
+        ("Inbox/readme.md", "No frontmatter here\n"),
+    ])
+    .await;
+    write_routing_config(&server.root);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(server.url("/api/v/test-vault/route/apply"))
+        .json(&serde_json::json!({ "inbox": true }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["routed"], 2);
+
+    // note1 → General/, note2 → Customers/Acme/
+    assert!(server.root.join("General/note1.md").exists());
+    assert!(server.root.join("Customers/Acme/note2.md").exists());
+    // readme stays in Inbox (no frontmatter)
+    assert!(server.root.join("Inbox/readme.md").exists());
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn route_preview_returns_conflict_for_archived_note() {
+    let server = TestServer::with_files(&[(
+        "Inbox/old.md",
+        "---\ntype: note\narchived: true\n---\n# Old\n",
+    )])
+    .await;
+    write_routing_config(&server.root);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(server.url("/api/v/test-vault/route/preview"))
+        .json(&serde_json::json!({ "path": "Inbox/old.md" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
+
+    server.server.abort();
+}
