@@ -16,7 +16,7 @@
 	let error = $state<string | null>(null);
 	let loadToken = 0;
 
-	const backlinkItems = $derived.by(() => toRailLinks(backlinks.rows, 'source_path', 'source_title'));
+	const backlinkItems = $derived.by(() => toRailLinks(backlinks.rows, 'backlink_path', 'source_title'));
 	const outgoingItems = $derived.by(() => toRailLinks(outgoingLinks.rows, 'target_path', 'target'));
 	const metadataEntries = $derived.by(() => Object.entries(metadata ?? {}));
 

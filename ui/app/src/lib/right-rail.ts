@@ -6,12 +6,18 @@ export function escapeSqlLiteral(value: string): string {
 	return value.replace(/'/g, "''");
 }
 
+export function pathStem(path: string): string {
+	const filename = path.split('/').pop() ?? path;
+	return filename.replace(/\.md$/i, '');
+}
+
 export function buildBacklinksQuery(path: string): string {
-	return `SELECT source_path, source_title FROM v_backlinks WHERE target_path = '${escapeSqlLiteral(path)}' ORDER BY source_title`;
+	const stem = escapeSqlLiteral(pathStem(path));
+	return `SELECT DISTINCT b.backlink_path, COALESCE(n.title, b.backlink_path) AS source_title FROM v_backlinks b LEFT JOIN v_notes n ON b.backlink_path = n.path WHERE b.note_path = '${stem}' ORDER BY source_title`;
 }
 
 export function buildOutgoingLinksQuery(path: string): string {
-	return `SELECT target_path, target FROM v_backlinks WHERE source_path = '${escapeSqlLiteral(path)}' ORDER BY target`;
+	return `SELECT DISTINCT COALESCE(n.path, b.note_path) AS target_path, COALESCE(n.title, b.note_path) AS target FROM v_backlinks b LEFT JOIN v_notes n ON n.title = b.note_path WHERE b.backlink_path = '${escapeSqlLiteral(path)}' ORDER BY target`;
 }
 
 export function buildRailMetadata(

@@ -194,6 +194,7 @@ setDashboardMode(false);
 try {
 const note = await getNote(vaultStore.currentVault, path);
 if (vaultStore.selectedPath !== path) {
+loading = false;
 return;
 }
 
