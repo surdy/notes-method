@@ -1,4 +1,16 @@
 import { listNotes, type NoteSummary } from './api';
+import {
+	closeTab as closeTabState,
+	markTabDirty as markTabDirtyState,
+	moveTab as moveTabState,
+	openTab,
+	reopenLastClosedTab,
+	restoreTabState,
+	serializeTabState,
+	switchToTab as switchToTabState,
+	type Tab,
+	type TabState
+} from './tab-state';
 
 export interface FolderNode {
 	name: string;
@@ -7,15 +19,25 @@ export interface FolderNode {
 	notes: NoteSummary[];
 }
 
+export type { Tab } from './tab-state';
+
 class VaultStore {
 	currentVault = $state('');
 	notes = $state<NoteSummary[]>([]);
 	selectedPath = $state<string | null>(null);
 	loading = $state(false);
 	error = $state<string | null>(null);
+	tabs = $state<Tab[]>([]);
+	activeTabIndex = $state(-1);
+
+	private _recentlyClosed: string[] = [];
 
 	get tree(): FolderNode {
 		return buildTree(this.notes);
+	}
+
+	get activeTab(): Tab | null {
+		return this.tabs[this.activeTabIndex] ?? null;
 	}
 
 	async loadNotes() {
@@ -33,7 +55,84 @@ class VaultStore {
 	}
 
 	selectNote(path: string) {
-		this.selectedPath = path;
+		this._applyTabState(openTab(this._tabState(), path, this.notes));
+		this._persistTabs();
+	}
+
+	closeTab(index: number) {
+		this._applyTabState(closeTabState(this._tabState(), index));
+		this._persistTabs();
+	}
+
+	closeActiveTab() {
+		if (this.activeTabIndex >= 0) {
+			this.closeTab(this.activeTabIndex);
+		}
+	}
+
+	reopenLastTab() {
+		this._applyTabState(reopenLastClosedTab(this._tabState(), this.notes));
+		this._persistTabs();
+	}
+
+	switchToTab(index: number) {
+		this._applyTabState(switchToTabState(this._tabState(), index));
+		this._persistTabs();
+	}
+
+	markDirty(path: string, dirty: boolean) {
+		this._applyTabState(markTabDirtyState(this._tabState(), path, dirty));
+	}
+
+	moveTab(fromIndex: number, toIndex: number) {
+		this._applyTabState(moveTabState(this._tabState(), fromIndex, toIndex));
+		this._persistTabs();
+	}
+
+	restoreTabs() {
+		try {
+			const restored = restoreTabState(localStorage.getItem('notesmith:tabs'));
+			if (!restored) {
+				return;
+			}
+
+			this.tabs = restored.tabs;
+			this.activeTabIndex = restored.activeTabIndex;
+			this.selectedPath = restored.selectedPath;
+			this._recentlyClosed = [];
+		} catch {
+			// Ignore unavailable or invalid browser storage.
+		}
+	}
+
+	private _tabState(): TabState {
+		return {
+			tabs: this.tabs,
+			activeTabIndex: this.activeTabIndex,
+			selectedPath: this.selectedPath,
+			recentlyClosed: this._recentlyClosed
+		};
+	}
+
+	private _applyTabState(state: TabState) {
+		this.tabs = state.tabs;
+		this.activeTabIndex = state.activeTabIndex;
+		this.selectedPath = state.selectedPath;
+		this._recentlyClosed = state.recentlyClosed;
+	}
+
+	private _persistTabs() {
+		try {
+			localStorage.setItem(
+				'notesmith:tabs',
+				serializeTabState({
+					tabs: this.tabs,
+					activeTabIndex: this.activeTabIndex
+				})
+			);
+		} catch {
+			// Ignore unavailable browser storage.
+		}
 	}
 }
 

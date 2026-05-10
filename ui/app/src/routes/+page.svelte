@@ -5,6 +5,7 @@ import CommandPalette from '$lib/components/CommandPalette.svelte';
 import NoteViewer from '$lib/components/NoteViewer.svelte';
 import QuickSwitcher from '$lib/components/QuickSwitcher.svelte';
 import SidebarViews from '$lib/components/SidebarViews.svelte';
+import TabBar from '$lib/components/TabBar.svelte';
 import VaultSwitcher from '$lib/components/VaultSwitcher.svelte';
 import { registerHotkeys } from '$lib/hotkeys';
 import { connectSSE } from '$lib/sse';
@@ -52,6 +53,7 @@ const url = new URL(window.location.href);
 const vault = url.searchParams.get('vault') ?? 'work';
 vaults = [vault];
 vaultStore.currentVault = vault;
+vaultStore.restoreTabs();
 await vaultStore.loadNotes();
 
 sseConnection = connectSSE(vault, (event) => {
@@ -76,11 +78,13 @@ const unregister = registerHotkeys([
 { key: 'k', meta: true, action: openCommandPalette },
 { key: 'p', meta: true, action: openCommandPalette },
 { key: 'o', meta: true, action: openQuickSwitcher },
+{ key: 'w', meta: true, action: () => vaultStore.closeActiveTab() },
 { key: 'n', meta: true, action: () => runCommand('new-note') },
 { key: 'd', meta: true, action: () => runCommand('open-daily') },
 { key: 'a', meta: true, shift: true, action: () => runCommand('archive-current') },
 { key: 'i', meta: true, shift: true, action: () => runCommand('inbox-capture') },
 { key: 'n', meta: true, shift: true, action: () => runCommand('new-from-template') },
+{ key: 't', meta: true, shift: true, action: () => vaultStore.reopenLastTab() },
 { key: 'f', meta: true, shift: true, action: openQuickSwitcher }
 ]);
 
@@ -109,6 +113,7 @@ unregister();
 </aside>
 
 <main class="content-area">
+<TabBar />
 <NoteViewer />
 </main>
 </div>
