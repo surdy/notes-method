@@ -1,9 +1,13 @@
+use std::convert::Infallible;
+
 use axum::{
     Json,
     extract::{Path, Query, State},
     http::StatusCode,
+    response::sse::{Event as SseEvent, KeepAlive, Sse},
 };
 use chrono;
+use futures::stream::Stream;
 use notesmith_core::{
     Note, NotesmithError, TaskStatus, VaultEngine, VaultName, VaultPath, WriteResult,
 };
@@ -15,7 +19,10 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::{Value, json};
 use serde_yaml::{Mapping, Value as YamlValue};
+use tokio_stream::StreamExt;
+use tokio_stream::wrappers::BroadcastStream;
 
+use crate::events::{self, EventType, VaultEvent};
 use crate::server::SharedAppState;
 
 #[derive(Debug, Serialize)]
@@ -38,6 +45,37 @@ pub struct NoteSummary {
 
 pub async fn ping() -> Json<serde_json::Value> {
     Json(json!({ "status": "ok" }))
+}
+
+// ── SSE event stream ─────────────────────────────────────────────────────────
+
+pub async fn vault_events(
+    State(state): State<SharedAppState>,
+    Path(vault_name): Path<String>,
+) -> Result<Sse<impl Stream<Item = Result<SseEvent, Infallible>>>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+
+    if !state.vaults.contains_key(&vault_name) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        ));
+    }
+
+    let rx = state.event_tx.subscribe();
+    drop(state);
+
+    let stream = BroadcastStream::new(rx).filter_map(move |result| match result {
+        Ok(event) if event.vault == vault_name => {
+            let data = serde_json::to_string(&event).unwrap_or_default();
+            Some(Ok(SseEvent::default()
+                .event(event.event_type.as_str())
+                .data(data)))
+        }
+        _ => None,
+    });
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 pub async fn list_notes(
@@ -217,6 +255,11 @@ pub async fn create_note(
     let content = apply_save_pipeline(&initial_content);
     let response = write_note(&vault.engine, &vault.root, &note_path, None, &content)?;
 
+    events::emit(
+        &state.event_tx,
+        VaultEvent::new(&vault_name, EventType::NoteCreated, note_path.as_str()),
+    );
+
     Ok((StatusCode::CREATED, Json(response)))
 }
 
@@ -277,6 +320,11 @@ pub async fn put_note(
         &content,
     )?;
 
+    events::emit(
+        &state.event_tx,
+        VaultEvent::new(&vault_name, EventType::NoteUpdated, note_path.as_str()),
+    );
+
     Ok(Json(response))
 }
 
@@ -314,6 +362,11 @@ pub async fn patch_note(
         &content,
     )?;
 
+    events::emit(
+        &state.event_tx,
+        VaultEvent::new(&vault_name, EventType::NoteUpdated, note_path.as_str()),
+    );
+
     Ok(Json(response))
 }
 
@@ -334,6 +387,11 @@ pub async fn delete_note(
         .engine
         .delete(&vault.root, &note_path)
         .map_err(note_error)?;
+
+    events::emit(
+        &state.event_tx,
+        VaultEvent::new(&vault_name, EventType::NoteDeleted, note_path.as_str()),
+    );
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -365,6 +423,11 @@ pub async fn append_note(
     let content = apply_save_pipeline(&appended_content);
     let response = write_note(&vault.engine, &vault.root, &note_path, None, &content)?;
 
+    events::emit(
+        &state.event_tx,
+        VaultEvent::new(&vault_name, EventType::NoteUpdated, note_path.as_str()),
+    );
+
     Ok(Json(response))
 }
 
@@ -387,6 +450,11 @@ pub async fn move_note(
         .engine
         .move_path(&vault.root, &from, &to)
         .map_err(note_error)?;
+
+    events::emit(
+        &state.event_tx,
+        VaultEvent::new(&vault_name, EventType::NoteMoved, to.as_str()),
+    );
 
     Ok(Json(MoveNoteResponse {
         from: from.to_string(),
@@ -432,6 +500,11 @@ pub async fn inbox_capture(
     let note_path = VaultPath::new(format!("{inbox_folder}/{filename}"));
     let content = request.text.clone();
     let response = write_note(&vault.engine, &vault.root, &note_path, None, &content)?;
+
+    events::emit(
+        &state.event_tx,
+        VaultEvent::new(&vault_name, EventType::InboxAdded, note_path.as_str()),
+    );
 
     Ok((StatusCode::CREATED, Json(response)))
 }
@@ -661,6 +734,11 @@ pub async fn create_task(
     let content = apply_save_pipeline(&updated);
     let response = write_note(&vault.engine, &vault.root, &note_path, None, &content)?;
 
+    events::emit(
+        &state.event_tx,
+        VaultEvent::new(&vault_name, EventType::TaskUpdated, note_path.as_str()),
+    );
+
     Ok((StatusCode::CREATED, Json(response)))
 }
 
@@ -710,6 +788,11 @@ pub async fn toggle_task_status(
 
     let content = apply_save_pipeline(&updated);
     let response = write_note(&vault.engine, &vault.root, &note_path, None, &content)?;
+
+    events::emit(
+        &state.event_tx,
+        VaultEvent::new(&vault_name, EventType::TaskUpdated, note_path.as_str()),
+    );
 
     Ok(Json(response))
 }
@@ -960,7 +1043,13 @@ pub async fn instantiate_template(
         .template_engine
         .instantiate(&template_name, &prompts, &vault.engine)
     {
-        Ok(rendered) => Ok((StatusCode::CREATED, Json(json!({ "path": rendered.path })))),
+        Ok(rendered) => {
+            events::emit(
+                &state.event_tx,
+                VaultEvent::new(&vault_name, EventType::NoteCreated, &rendered.path),
+            );
+            Ok((StatusCode::CREATED, Json(json!({ "path": rendered.path }))))
+        }
         Err(notesmith_templates::TemplateError::NotFound { name }) => Err((
             StatusCode::NOT_FOUND,
             Json(json!({ "error": format!("template not found: {name}") })),
@@ -1034,10 +1123,16 @@ pub async fn create_daily_note(
     .map_err(internal_error)?;
 
     match result {
-        Some(path) => Ok((
-            StatusCode::CREATED,
-            Json(json!({ "path": path, "created": true })),
-        )),
+        Some(path) => {
+            events::emit(
+                &state.event_tx,
+                VaultEvent::new(&vault_name, EventType::DailyCreated, &path),
+            );
+            Ok((
+                StatusCode::CREATED,
+                Json(json!({ "path": path, "created": true })),
+            ))
+        }
         None => Ok((
             StatusCode::OK,
             Json(json!({
@@ -1136,6 +1231,12 @@ pub async fn route_apply(
         let results = routing_engine
             .apply_inbox(&vault.root, inbox_folder, &vault.engine)
             .map_err(internal_error)?;
+        for r in &results {
+            events::emit(
+                &state.event_tx,
+                VaultEvent::new(&vault_name, EventType::NoteMoved, &r.to),
+            );
+        }
         return Ok(Json(json!({ "routed": results.len(), "results": results })));
     }
 
@@ -1145,6 +1246,10 @@ pub async fn route_apply(
         let result = routing_engine
             .apply(&vault.root, path, &vault.engine)
             .map_err(internal_error)?;
+        events::emit(
+            &state.event_tx,
+            VaultEvent::new(&vault_name, EventType::NoteMoved, &result.to),
+        );
         results.push(result);
     }
 

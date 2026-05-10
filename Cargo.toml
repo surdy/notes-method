@@ -64,7 +64,9 @@ rusqlite = { version = "0.35", features = ["bundled"] }
 tantivy = "0.22"
 minijinja = "2"
 notify = "8"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures = "0.3"
 git2 = "0.20"
 walkdir = "2"
 regex = "1"

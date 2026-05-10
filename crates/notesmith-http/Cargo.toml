@@ -27,8 +27,12 @@ notesmith-tasks = { workspace = true }
 serde_yaml = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
+tokio-stream = { workspace = true }
+futures = { workspace = true }
 
 [dev-dependencies]
 reqwest = { workspace = true }
 tempfile = { workspace = true }
 notesmith-tasks = { workspace = true }
+tokio-stream = { workspace = true }
+futures = { workspace = true }

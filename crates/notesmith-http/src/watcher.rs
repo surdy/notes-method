@@ -134,11 +134,27 @@ async fn process_pending(
             ChangeAction::Delete => {
                 vault.cache.remove_note(vault_name, &relative_path)?;
                 vault.search_index.remove_note(vault_name, &relative_path)?;
+                crate::events::emit(
+                    &state.event_tx,
+                    crate::events::VaultEvent::new(
+                        vault_name,
+                        crate::events::EventType::NoteDeleted,
+                        &relative_path,
+                    ),
+                );
             }
             ChangeAction::Upsert => {
                 if !absolute_path.exists() {
                     vault.cache.remove_note(vault_name, &relative_path)?;
                     vault.search_index.remove_note(vault_name, &relative_path)?;
+                    crate::events::emit(
+                        &state.event_tx,
+                        crate::events::VaultEvent::new(
+                            vault_name,
+                            crate::events::EventType::NoteDeleted,
+                            &relative_path,
+                        ),
+                    );
                     continue;
                 }
 
@@ -150,6 +166,14 @@ async fn process_pending(
                 )?;
                 vault.cache.update_note(vault_name, &note)?;
                 vault.search_index.update_note(vault_name, &note)?;
+                crate::events::emit(
+                    &state.event_tx,
+                    crate::events::VaultEvent::new(
+                        vault_name,
+                        crate::events::EventType::NoteUpdated,
+                        &relative_path,
+                    ),
+                );
             }
         }
     }

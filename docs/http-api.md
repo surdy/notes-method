@@ -600,3 +600,43 @@ curl -X POST http://127.0.0.1:27183/api/v/work/daily/2025-06-15
 **Errors:**
 - `400` — invalid date format
 - `404` — vault not found
+
+---
+
+## Event Stream
+
+### `GET /api/v/{vault}/events`
+
+Server-Sent Events (SSE) stream for real-time vault change notifications. Each connected client receives events for the specified vault only. Multiple clients can subscribe concurrently.
+
+**Event types:**
+
+| Event | Emitted when |
+|-------|-------------|
+| `note.created` | New note created |
+| `note.updated` | Note content changed |
+| `note.moved` | Note path changed (move or route) |
+| `note.deleted` | Note removed |
+| `task.updated` | Task added or status toggled |
+| `inbox.added` | New inbox capture |
+| `daily.created` | Daily note created |
+| `cache.rebuilt` | Cache rebuild completed |
+| `search.reindexed` | Search index rebuilt |
+
+**Payload (JSON in `data:` field):**
+```json
+{
+  "vault": "work",
+  "type": "note.created",
+  "path": "Inbox/Follow Up.md",
+  "timestamp": "2026-05-09T16:30:00.123-0700"
+}
+```
+
+**Example:**
+```bash
+curl -N http://127.0.0.1:27183/api/v/work/events
+```
+
+**Errors:**
+- `404` — vault not found

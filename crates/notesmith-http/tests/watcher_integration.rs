@@ -21,6 +21,8 @@ async fn watcher_indexes_new_markdown_files() {
     let search_index = SearchIndex::open_in_memory().unwrap();
     search_index.reindex("test-vault", &notes).unwrap();
 
+    let (event_tx, _) = notesmith_http::create_event_channel();
+
     let state: SharedAppState = std::sync::Arc::new(RwLock::new(AppState {
         vaults: HashMap::from([(
             "test-vault".to_string(),
@@ -41,6 +43,7 @@ async fn watcher_indexes_new_markdown_files() {
                 template_engine: notesmith_templates::TemplateEngine::new(vault_root.clone(), None),
             },
         )]),
+        event_tx,
     }));
 
     let _watcher = watch_vault(state.clone(), "test-vault".to_string())

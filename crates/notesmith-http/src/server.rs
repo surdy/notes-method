@@ -12,7 +12,7 @@ use notesmith_vault::NativeVaultEngine;
 use tokio::{net::TcpListener, sync::RwLock};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
-use crate::{routes, watcher::watch_all_vaults};
+use crate::{events, routes, watcher::watch_all_vaults};
 
 pub struct VaultState {
     pub cache: VaultCache,
@@ -23,9 +23,19 @@ pub struct VaultState {
     pub template_engine: notesmith_templates::TemplateEngine,
 }
 
-#[derive(Default)]
 pub struct AppState {
     pub vaults: HashMap<String, VaultState>,
+    pub event_tx: events::EventSender,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        let (event_tx, _) = tokio::sync::broadcast::channel(events::EVENT_CHANNEL_CAPACITY);
+        Self {
+            vaults: HashMap::new(),
+            event_tx,
+        }
+    }
 }
 
 pub type SharedAppState = Arc<RwLock<AppState>>;
@@ -82,6 +92,7 @@ fn build_router_with_shared_state(state: SharedAppState) -> Router {
             "/api/v/{vault}/daily/{date}",
             get(routes::get_daily_note).post(routes::create_daily_note),
         )
+        .route("/api/v/{vault}/events", get(routes::vault_events))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -117,6 +128,7 @@ pub async fn serve_configured_vaults(
 }
 
 pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
+    let (event_tx, _) = crate::events::create_event_channel();
     let mut vaults = HashMap::new();
 
     for (vault_name, registration) in &config.vaults {
@@ -154,7 +166,7 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
         );
     }
 
-    Ok(AppState { vaults })
+    Ok(AppState { vaults, event_tx })
 }
 
 pub fn cache_dir_for_vault(vault_name: &str) -> anyhow::Result<PathBuf> {

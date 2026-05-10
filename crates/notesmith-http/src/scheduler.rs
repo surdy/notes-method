@@ -105,14 +105,23 @@ pub async fn start_daily_schedulers(state: SharedAppState) -> Vec<DailyScheduler
                 let today = Local::now().date_naive();
                 let state = state_clone.read().await;
                 if let Some(vault) = state.vaults.get(&vault_name_clone) {
-                    let _ = ensure_daily_note(
+                    if let Ok(Some(path)) = ensure_daily_note(
                         &vault.root,
                         &vault.vault_config.daily.folder,
                         &vault.vault_config.daily.template,
                         today,
                         &vault.template_engine,
                         &vault.engine,
-                    );
+                    ) {
+                        crate::events::emit(
+                            &state.event_tx,
+                            crate::events::VaultEvent::new(
+                                &vault_name_clone,
+                                crate::events::EventType::DailyCreated,
+                                &path,
+                            ),
+                        );
+                    }
                 }
                 drop(state);
 

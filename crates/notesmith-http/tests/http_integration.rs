@@ -31,6 +31,8 @@ fn build_test_state(root: &Path) -> AppState {
 
     let template_engine = notesmith_templates::TemplateEngine::new(root.to_path_buf(), None);
 
+    let (event_tx, _) = notesmith_http::create_event_channel();
+
     AppState {
         vaults: HashMap::from([(
             "test-vault".to_string(),
@@ -43,6 +45,7 @@ fn build_test_state(root: &Path) -> AppState {
                 template_engine,
             },
         )]),
+        event_tx,
     }
 }
 
@@ -1222,5 +1225,118 @@ async fn get_daily_missing_returns_404() {
 
     assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
 
+    server.server.abort();
+}
+
+// ── SSE event stream tests ──────────────────────────────────────────────────
+
+#[tokio::test]
+async fn sse_vault_not_found_returns_404() {
+    let server = TestServer::empty().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/v/nonexistent/events"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn sse_receives_note_created_event() {
+    let server = TestServer::empty().await;
+    let client = reqwest::Client::new();
+    let sse_url = server.url("/api/v/test-vault/events");
+
+    // Collect SSE chunks in a background task
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(10);
+    let sse_task = tokio::spawn(async move {
+        use futures::StreamExt;
+        let response = client.get(&sse_url).send().await.unwrap();
+        let mut stream = response.bytes_stream();
+        while let Some(Ok(chunk)) = stream.next().await {
+            let text = String::from_utf8_lossy(&chunk).to_string();
+            let _ = tx.send(text).await;
+        }
+    });
+
+    // Give SSE connection time to establish
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Create a note via API
+    let client2 = reqwest::Client::new();
+    let resp = client2
+        .post(server.url("/api/v/test-vault/notes"))
+        .json(&serde_json::json!({
+            "title": "SSE Test Note",
+            "content": "Testing SSE events"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), reqwest::StatusCode::CREATED);
+
+    // Wait for event
+    let event_text = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("timeout waiting for SSE event")
+        .unwrap();
+
+    assert!(
+        event_text.contains("note.created"),
+        "Expected note.created event, got: {event_text}"
+    );
+    assert!(
+        event_text.contains("SSE Test Note"),
+        "Expected note path in event, got: {event_text}"
+    );
+
+    sse_task.abort();
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn sse_filters_events_by_vault() {
+    let server = TestServer::empty().await;
+    let client = reqwest::Client::new();
+    let sse_url = server.url("/api/v/test-vault/events");
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(10);
+    let sse_task = tokio::spawn(async move {
+        use futures::StreamExt;
+        let response = client.get(&sse_url).send().await.unwrap();
+        let mut stream = response.bytes_stream();
+        while let Some(Ok(chunk)) = stream.next().await {
+            let text = String::from_utf8_lossy(&chunk).to_string();
+            let _ = tx.send(text).await;
+        }
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Create a note in test-vault and confirm we get the event
+    let client2 = reqwest::Client::new();
+    let resp = client2
+        .post(server.url("/api/v/test-vault/notes"))
+        .json(&serde_json::json!({
+            "title": "Vault Filter Test",
+            "content": "Should arrive"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), reqwest::StatusCode::CREATED);
+
+    let event_text = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("timeout waiting for SSE event")
+        .unwrap();
+
+    assert!(event_text.contains("test-vault"));
+
+    sse_task.abort();
     server.server.abort();
 }

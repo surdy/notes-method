@@ -1,10 +1,12 @@
 //! notesmith-http: Axum daemon, REST endpoints, SSE, and static app serving
 
+pub mod events;
 pub mod routes;
 pub mod scheduler;
 pub mod server;
 pub mod watcher;
 
+pub use events::{EventSender, EventType, VaultEvent, create_event_channel};
 pub use scheduler::{
     DailyScheduler, catch_up_daily_notes, ensure_daily_note, start_daily_schedulers,
 };
