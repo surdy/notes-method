@@ -1,0 +1,1512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Notesmith — Settings · Pane Policies</title>
+<style>
+  /* ---------- Tokens ---------- */
+  :root {
+    --bg:            #0b0f15;
+    --bg-rail:       #0d1320;
+    --surface:       #131826;
+    --surface-2:     #181f2f;
+    --surface-3:     #1f2638;
+    --border:        #262e44;
+    --border-strong: #364063;
+    --text:          #e6ecf5;
+    --text-2:        #aab3c5;
+    --text-3:        #6c7795;
+    --accent:        #6aa6ff;
+    --accent-soft:   rgba(106,166,255,.12);
+    --accent-line:   rgba(106,166,255,.45);
+    --ok:            #7ee0a8;
+    --ok-soft:       rgba(126,224,168,.12);
+    --warn:          #f0b86b;
+    --warn-soft:     rgba(240,184,107,.14);
+    --danger:        #f08585;
+    --danger-soft:   rgba(240,133,133,.13);
+    --purple:        #c098ff;
+    --purple-soft:   rgba(192,152,255,.14);
+    --teal:          #6fd8d2;
+    --shadow:        0 6px 24px rgba(0,0,0,.45);
+    --radius:        10px;
+    --mono:          ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans:          -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: radial-gradient(1200px 800px at 80% -10%, #182135 0%, var(--bg) 55%) fixed;
+    color: var(--text);
+    font: 13px/1.5 var(--sans);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  kbd {
+    font: 11px/1 var(--mono);
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 2px 5px;
+    color: var(--text-2);
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #2a3349; border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: #364063; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---------- App shell ---------- */
+  .app {
+    display: grid;
+    grid-template-rows: 44px 1fr 28px;
+    height: 100vh;
+  }
+
+  .titlebar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 14px;
+    background: linear-gradient(180deg, #121828 0%, #0d1320 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  .titlebar .dots { display: flex; gap: 6px; margin-right: 6px; }
+  .titlebar .dots span { width: 11px; height: 11px; border-radius: 50%; background: #3a445d; }
+  .titlebar .dots span:nth-child(1) { background: #f08585; }
+  .titlebar .dots span:nth-child(2) { background: #f0b86b; }
+  .titlebar .dots span:nth-child(3) { background: #7ee0a8; }
+  .titlebar .crumbs {
+    font-size: 12.5px; color: var(--text-2); display: flex; gap: 6px; align-items: center;
+  }
+  .titlebar .crumbs strong { color: var(--text); font-weight: 600; }
+  .titlebar .crumbs .sep { color: var(--text-3); }
+  .titlebar .right { margin-left: auto; display: flex; gap: 10px; align-items: center; color: var(--text-3); font-size: 12px; }
+  .titlebar .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 3px 10px; color: var(--text-2); font-size: 11.5px;
+  }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+
+  /* ---------- Settings layout ---------- */
+  .main {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    min-height: 0;
+  }
+
+  /* Left settings nav */
+  .nav {
+    background: var(--bg-rail);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 14px 8px 24px;
+  }
+  .nav .search {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 6px 9px; margin: 4px 6px 14px;
+    border-radius: 8px;
+    color: var(--text-3);
+  }
+  .nav .search input {
+    background: transparent; border: 0; outline: 0; color: var(--text);
+    width: 100%; font: inherit;
+  }
+  .nav .group-title {
+    font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--text-3); margin: 14px 14px 6px;
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 12px; margin: 1px 4px;
+    border-radius: 7px; color: var(--text-2); font-size: 13px;
+    cursor: pointer; user-select: none;
+    border: 1px solid transparent;
+  }
+  .nav-item:hover { background: var(--surface); color: var(--text); }
+  .nav-item.active {
+    background: linear-gradient(180deg, rgba(106,166,255,.16), rgba(106,166,255,.06));
+    border-color: var(--accent-line);
+    color: var(--text);
+  }
+  .nav-item .ico { width: 16px; opacity: .85; flex: none; text-align: center; }
+  .nav-item .badge {
+    margin-left: auto; font-size: 10.5px;
+    background: var(--surface-3); border: 1px solid var(--border);
+    color: var(--text-3); padding: 1px 6px; border-radius: 999px;
+  }
+  .nav-item.active .badge { color: var(--accent); border-color: var(--accent-line); }
+
+  /* Right content */
+  .content {
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    min-height: 0;
+    background: var(--bg);
+  }
+
+  .pageHeader {
+    padding: 18px 24px 6px;
+    display: flex; align-items: flex-end; gap: 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .pageHeader h1 {
+    margin: 0; font-size: 18px; font-weight: 600; letter-spacing: .2px;
+  }
+  .pageHeader p {
+    margin: 4px 0 0; color: var(--text-2); font-size: 12.5px; max-width: 720px;
+  }
+  .pageHeader .schema {
+    margin-left: auto; text-align: right; color: var(--text-3); font-size: 11.5px;
+  }
+  .pageHeader .schema code {
+    font-family: var(--mono); color: var(--text-2);
+    background: var(--surface-2); padding: 2px 6px; border-radius: 5px;
+    border: 1px solid var(--border);
+  }
+
+  .tabs {
+    display: flex; gap: 2px;
+    padding: 10px 18px 0;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(0,0,0,.18) 100%);
+  }
+  .tab {
+    padding: 8px 14px;
+    color: var(--text-2); font-size: 13px;
+    border-radius: 7px 7px 0 0;
+    border: 1px solid transparent;
+    border-bottom: none;
+    position: relative;
+    margin-bottom: -1px;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--text);
+    background: var(--surface);
+    border-color: var(--border);
+    box-shadow: inset 0 2px 0 var(--accent);
+  }
+  .tab .count {
+    font-size: 10.5px;
+    background: var(--surface-3); border: 1px solid var(--border);
+    color: var(--text-3); padding: 1px 6px; border-radius: 999px;
+  }
+  .tab.active .count { color: var(--accent); border-color: var(--accent-line); }
+  .tab .conflict-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--warn);
+    box-shadow: 0 0 6px var(--warn);
+  }
+
+  .panel {
+    overflow: auto;
+    padding: 20px 24px 40px;
+  }
+  .panel.hidden { display: none; }
+
+  /* ---------- Generic UI ---------- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .card .card-h {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text); font-weight: 600; font-size: 13px;
+  }
+  .card .card-h .sub {
+    margin-left: auto; color: var(--text-3); font-weight: 400; font-size: 12px;
+  }
+  .card .card-b { padding: 12px 14px; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--border);
+    padding: 6px 11px; border-radius: 7px;
+    font-size: 12.5px;
+  }
+  .btn:hover { background: var(--surface-3); border-color: var(--border-strong); }
+  .btn.primary {
+    background: linear-gradient(180deg, #2f6dd1, #2459b8);
+    border-color: #3b7adf; color: white;
+  }
+  .btn.primary:hover { background: linear-gradient(180deg, #3a7ce0, #2c66c8); }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+  .btn.ghost:hover { background: var(--surface-2); color: var(--text); }
+  .btn.danger { color: var(--danger); border-color: rgba(240,133,133,.35); background: var(--danger-soft); }
+
+  .seg {
+    display: inline-flex; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 7px; padding: 2px;
+  }
+  .seg button {
+    padding: 5px 10px; border-radius: 5px; color: var(--text-2); font-size: 12.5px;
+  }
+  .seg button.on { background: var(--surface-3); color: var(--text); }
+
+  .switch {
+    position: relative; width: 34px; height: 20px;
+    background: var(--surface-3); border: 1px solid var(--border);
+    border-radius: 999px; cursor: pointer; flex: none;
+    transition: background .15s ease;
+  }
+  .switch::after {
+    content: ""; position: absolute;
+    top: 2px; left: 2px; width: 14px; height: 14px;
+    background: #c4ccdc; border-radius: 50%;
+    transition: transform .18s ease, background .18s ease;
+  }
+  .switch.on { background: rgba(106,166,255,.3); border-color: var(--accent-line); }
+  .switch.on::after { transform: translateX(14px); background: var(--accent); }
+
+  /* ---------- Policies tab ---------- */
+  .policies-grid {
+    display: grid; grid-template-columns: 1fr 320px; gap: 16px;
+  }
+  .toolbar {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .toolbar .grow { flex: 1; }
+
+  .rules-table { padding: 0; overflow: hidden; }
+  .rules-table .row-head, .rule {
+    display: grid;
+    grid-template-columns: 28px 36px 1.4fr 1.4fr 0.8fr 0.6fr 28px;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .rules-table .row-head {
+    background: var(--surface-2);
+    color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+  }
+  .rule { background: var(--surface); cursor: pointer; transition: background .12s; }
+  .rule:hover { background: var(--surface-2); }
+  .rule.selected {
+    background: linear-gradient(90deg, var(--accent-soft), transparent 60%);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .rule:last-child { border-bottom: 0; }
+  .rule.disabled { opacity: .5; }
+  .drag-handle {
+    color: var(--text-3); text-align: center; cursor: grab; user-select: none;
+    line-height: 1; font-size: 14px;
+  }
+  .drag-handle:active { cursor: grabbing; }
+  .priority-badge {
+    width: 30px; height: 26px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--surface-3); border: 1px solid var(--border);
+    border-radius: 6px;
+    font: 600 12px var(--mono); color: var(--text-2);
+  }
+  .priority-badge.p1 { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+  .priority-badge.p2 { color: var(--purple); border-color: rgba(192,152,255,.4); background: var(--purple-soft); }
+  .priority-badge.p3 { color: var(--teal); border-color: rgba(111,216,210,.4); background: rgba(111,216,210,.1); }
+
+  .rule-name { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .rule-name .n { font-weight: 600; color: var(--text); font-size: 13px; }
+  .rule-name .src { color: var(--text-3); font: 11px var(--mono); }
+
+  .matcher {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 11.5px; color: var(--text-2);
+    background: var(--surface-2); border: 1px solid var(--border);
+    padding: 3px 8px; border-radius: 5px; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .matcher .k { color: var(--text-3); }
+  .matcher .v { color: var(--accent); }
+
+  .outcome {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 500;
+    border: 1px solid transparent;
+  }
+  .outcome.triage  { color: var(--purple); background: var(--purple-soft); border-color: rgba(192,152,255,.3); }
+  .outcome.browse  { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+  .outcome.inherit { color: var(--text-2); background: var(--surface-3); border-color: var(--border); }
+  .outcome.pin     { color: var(--ok); background: var(--ok-soft); border-color: rgba(126,224,168,.3); }
+
+  .rule-flags { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
+  .flag {
+    width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 5px; font-size: 11px;
+    color: var(--text-3); border: 1px solid transparent;
+  }
+  .flag.conflict { color: var(--warn); background: var(--warn-soft); border-color: rgba(240,184,107,.3); }
+  .flag.shadowed { color: var(--text-3); background: var(--surface-3); border-color: var(--border); }
+  .flag.user     { color: var(--purple); background: var(--purple-soft); border-color: rgba(192,152,255,.3); }
+  .flag.locked   { color: var(--text-3); }
+
+  .row-menu { color: var(--text-3); text-align: center; font-size: 16px; }
+
+  /* Conflict callouts on Policies tab */
+  .conflict-banner {
+    display: flex; align-items: flex-start; gap: 12px;
+    background: linear-gradient(90deg, rgba(240,184,107,.08), transparent);
+    border: 1px solid rgba(240,184,107,.35);
+    border-radius: var(--radius);
+    padding: 12px 14px; margin-bottom: 14px;
+  }
+  .conflict-banner .ic {
+    width: 28px; height: 28px; flex: none;
+    display: grid; place-items: center;
+    background: var(--warn-soft); color: var(--warn);
+    border-radius: 7px; font-weight: 700; font-size: 14px;
+    border: 1px solid rgba(240,184,107,.4);
+  }
+  .conflict-banner h4 { margin: 0 0 2px; font-size: 13px; color: var(--warn); }
+  .conflict-banner p { margin: 0; color: var(--text-2); font-size: 12.5px; }
+  .conflict-banner .actions { margin-left: auto; display: flex; gap: 8px; }
+
+  /* Detail side card */
+  .detail h5 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--text-3); }
+  .detail .row { padding: 10px 0; border-bottom: 1px dashed var(--border); }
+  .detail .row:last-child { border-bottom: 0; }
+  .detail .row .v { color: var(--text); font-size: 13px; }
+  .detail .field {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 6px 0;
+  }
+  .detail .field label { color: var(--text-2); font-size: 12.5px; }
+  .detail input[type=text], .detail select {
+    background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 8px; font: inherit;
+    width: 100%;
+  }
+
+  /* ---------- Inspector tab ---------- */
+  .inspector {
+    display: grid;
+    grid-template-columns: 320px 1fr 320px;
+    gap: 16px;
+    height: 100%;
+  }
+  .ctx-builder .field-group { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .ctx-builder .field-group:last-child { border-bottom: 0; }
+  .ctx-builder label.lbl {
+    display: block;
+    font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--text-3); margin-bottom: 8px;
+  }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    padding: 5px 10px; border-radius: 999px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--text-2); font-size: 12px;
+    cursor: pointer; user-select: none;
+    transition: all .15s;
+  }
+  .chip:hover { color: var(--text); border-color: var(--border-strong); }
+  .chip.active {
+    background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent);
+  }
+  .chip .ic { margin-right: 4px; }
+
+  .ctx-summary {
+    background: var(--surface-2);
+    border-top: 1px solid var(--border);
+    padding: 12px 14px; font: 12px var(--mono);
+    color: var(--text-2); white-space: pre-wrap;
+  }
+  .ctx-summary .k { color: var(--text-3); }
+  .ctx-summary .s { color: var(--accent); }
+  .ctx-summary .n { color: var(--purple); }
+
+  /* Decision trace */
+  .trace { padding: 0; }
+  .trace .trace-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .trace .trace-head h3 { margin: 0; font-size: 13px; font-weight: 600; }
+  .trace .trace-head .meta { color: var(--text-3); font-size: 12px; margin-left: auto; }
+  .trace ol {
+    list-style: none; margin: 0; padding: 8px 16px 16px;
+    counter-reset: step;
+  }
+  .trace li {
+    position: relative;
+    padding: 12px 12px 12px 38px;
+    margin: 6px 0;
+    border-radius: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .trace li::before {
+    counter-increment: step;
+    content: counter(step);
+    position: absolute; left: 10px; top: 12px;
+    width: 20px; height: 20px;
+    display: grid; place-items: center;
+    background: var(--surface-3); color: var(--text-3);
+    border-radius: 50%;
+    font: 600 11px var(--mono);
+    border: 1px solid var(--border);
+  }
+  .trace li.match  { border-color: rgba(126,224,168,.35); background: linear-gradient(90deg, var(--ok-soft), transparent 70%); }
+  .trace li.match::before { background: var(--ok); color: #0b1410; border-color: var(--ok); }
+  .trace li.skip   { opacity: .8; }
+  .trace li.skip::before { background: var(--surface-3); color: var(--text-3); }
+  .trace li.win {
+    border-color: var(--accent-line);
+    background: linear-gradient(90deg, var(--accent-soft), transparent 70%);
+    box-shadow: 0 0 0 1px var(--accent-line) inset, 0 8px 24px rgba(106,166,255,.12);
+  }
+  .trace li.win::before { background: var(--accent); color: #0b1422; border-color: var(--accent); }
+  .trace li.over {
+    border-color: rgba(192,152,255,.4);
+    background: linear-gradient(90deg, var(--purple-soft), transparent 70%);
+  }
+  .trace li.over::before { background: var(--purple); color: #1a1230; border-color: var(--purple); }
+
+  .trace .ti-h {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .trace .ti-h .name { font-weight: 600; color: var(--text); font-size: 13px; }
+  .trace .ti-h .badge {
+    font-size: 10.5px; padding: 2px 7px; border-radius: 999px;
+    background: var(--surface-3); color: var(--text-3); border: 1px solid var(--border);
+    text-transform: uppercase; letter-spacing: .08em;
+  }
+  .trace li.match .badge.kind { color: var(--ok); border-color: rgba(126,224,168,.4); background: var(--ok-soft); }
+  .trace li.skip  .badge.kind { color: var(--text-3); }
+  .trace li.win   .badge.kind { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+  .trace li.over  .badge.kind { color: var(--purple); border-color: rgba(192,152,255,.4); background: var(--purple-soft); }
+
+  .trace .why {
+    margin-top: 6px;
+    color: var(--text-2); font-size: 12.5px;
+  }
+  .trace .why code { font-family: var(--mono); color: var(--text); background: var(--surface-3); padding: 1px 5px; border-radius: 4px; }
+  .trace .arrow {
+    display: inline-block; margin: 0 6px; color: var(--text-3);
+  }
+  .trace .winline {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 6px;
+    color: var(--accent); font: 600 11.5px var(--mono);
+    text-transform: uppercase; letter-spacing: .08em;
+  }
+  .trace .skip-pred {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;
+  }
+  .trace .pred {
+    display: inline-flex; align-items: center; gap: 5px;
+    font: 11px var(--mono);
+    background: var(--surface-3); padding: 2px 7px; border-radius: 4px;
+    color: var(--text-3);
+    border: 1px solid var(--border);
+  }
+  .trace .pred .x { color: var(--danger); }
+  .trace .pred .ok { color: var(--ok); }
+
+  /* Outcome card */
+  .outcome-card .card-b { padding: 0; }
+  .outcome-hero {
+    padding: 18px 16px;
+    background: linear-gradient(135deg, rgba(106,166,255,.18), rgba(192,152,255,.10));
+    border-bottom: 1px solid var(--border);
+  }
+  .outcome-hero .layout {
+    display: grid; grid-template-columns: 1fr 2fr 3fr; gap: 4px;
+    height: 70px; margin-bottom: 12px;
+    border-radius: 6px; overflow: hidden;
+    background: var(--surface-3);
+  }
+  .outcome-hero .layout .cell {
+    background: var(--surface-2);
+    display: grid; place-items: center;
+    color: var(--text-3); font: 10.5px var(--mono); text-transform: uppercase; letter-spacing: .08em;
+  }
+  .outcome-hero .layout .cell.active { background: linear-gradient(180deg, #25304a, #1d2741); color: var(--accent); border: 1px solid var(--accent-line); }
+  .outcome-hero .layout .cell.ghost { background: repeating-linear-gradient(45deg, var(--surface-2), var(--surface-2) 6px, var(--surface-3) 6px, var(--surface-3) 12px); color: var(--text-3); }
+  .outcome-hero h2 { margin: 0; font-size: 16px; font-weight: 600; color: var(--text); }
+  .outcome-hero .sub { color: var(--text-2); font-size: 12px; margin-top: 3px; }
+  .outcome-list { padding: 10px 16px; }
+  .outcome-list .row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 0; font-size: 12.5px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .outcome-list .row:last-child { border-bottom: 0; }
+  .outcome-list .row .k { color: var(--text-3); }
+  .outcome-list .row .v { color: var(--text); font-family: var(--mono); font-size: 12px; }
+
+  /* ---------- Overrides tab ---------- */
+  .ovr-table { padding: 0; overflow: hidden; }
+  .ovr-row {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr 1fr 80px;
+    gap: 10px; align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12.5px;
+  }
+  .ovr-row.head {
+    background: var(--surface-2); color: var(--text-3); font-size: 11px;
+    text-transform: uppercase; letter-spacing: .08em;
+  }
+  .ovr-row:last-child { border-bottom: 0; }
+  .ovr-row .who {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--text);
+  }
+  .ovr-row .who .av {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: linear-gradient(135deg, #6aa6ff, #c098ff);
+    color: #1a1230; display: grid; place-items: center;
+    font-weight: 700; font-size: 11px;
+  }
+  .ovr-row .when { color: var(--text-3); font-size: 12px; }
+
+  /* ---------- Migration tab ---------- */
+  .mig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .schema-line {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .schema-line:last-child { border-bottom: 0; }
+  .schema-ver {
+    font: 600 12px var(--mono);
+    background: var(--surface-2); border: 1px solid var(--border);
+    padding: 4px 8px; border-radius: 6px; color: var(--text-2);
+  }
+  .schema-line.current .schema-ver { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+  .schema-line .desc { flex: 1; }
+  .schema-line .desc .t { font-weight: 600; }
+  .schema-line .desc .d { color: var(--text-3); font-size: 12px; margin-top: 2px; }
+
+  .json-preview {
+    font: 12px/1.55 var(--mono);
+    background: var(--bg);
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    overflow: auto;
+    max-height: 260px;
+    color: var(--text-2);
+  }
+  .json-preview .k { color: var(--accent); }
+  .json-preview .s { color: var(--ok); }
+  .json-preview .n { color: var(--purple); }
+  .json-preview .b { color: var(--warn); }
+  .json-preview .c { color: var(--text-3); font-style: italic; }
+
+  /* Bottom status bar */
+  .statusbar {
+    background: var(--bg-rail);
+    border-top: 1px solid var(--border);
+    color: var(--text-3); font-size: 11.5px;
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 14px;
+  }
+  .statusbar .right { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+  .statusbar .pulse {
+    display: inline-block; width: 6px; height: 6px; background: var(--ok); border-radius: 50%;
+    box-shadow: 0 0 6px var(--ok);
+  }
+
+  /* ---------- Toasts ---------- */
+  .toast-wrap {
+    position: fixed; right: 18px; bottom: 40px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 30; pointer-events: none;
+  }
+  .toast {
+    background: var(--surface-2); border: 1px solid var(--border-strong);
+    border-radius: 8px; box-shadow: var(--shadow);
+    color: var(--text); padding: 9px 12px;
+    font-size: 12.5px; min-width: 240px;
+    display: flex; gap: 10px; align-items: flex-start;
+    animation: slideIn .25s ease;
+  }
+  .toast .ic { color: var(--accent); }
+  .toast .t { font-weight: 600; }
+  .toast .d { color: var(--text-2); font-size: 12px; margin-top: 1px; }
+  @keyframes slideIn { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  .global-toggle-card {
+    margin-bottom: 16px;
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    background: linear-gradient(90deg, var(--surface), var(--surface-2));
+    border-radius: var(--radius);
+  }
+  .global-toggle-card .ic {
+    width: 34px; height: 34px; flex: none;
+    display: grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent);
+    border: 1px solid var(--accent-line);
+    border-radius: 8px; font-size: 16px;
+  }
+  .global-toggle-card .text { flex: 1; }
+  .global-toggle-card .text .t { font-weight: 600; }
+  .global-toggle-card .text .d { color: var(--text-2); font-size: 12px; margin-top: 1px; }
+
+  /* small responsive */
+  @media (max-width: 1280px) {
+    .inspector { grid-template-columns: 280px 1fr 280px; }
+    .policies-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============= TITLE BAR ============= -->
+  <header class="titlebar">
+    <div class="dots"><span></span><span></span><span></span></div>
+    <div class="crumbs">
+      <strong>Notesmith</strong>
+      <span class="sep">›</span> Settings
+      <span class="sep">›</span> Workspace
+      <span class="sep">›</span> <strong>Pane Policies</strong>
+    </div>
+    <div class="right">
+      <span class="pill"><span class="dot"></span> Policy engine v3 — synced</span>
+      <span><kbd>⌘</kbd> <kbd>,</kbd> Settings · <kbd>⌘</kbd> <kbd>K</kbd> Command</span>
+    </div>
+  </header>
+
+  <!-- ============= MAIN ============= -->
+  <div class="main">
+
+    <!-- Settings nav -->
+    <aside class="nav">
+      <div class="search">
+        <span>⌕</span><input placeholder="Search settings…" />
+      </div>
+
+      <div class="group-title">Workspace</div>
+      <div class="nav-item"><span class="ico">▦</span>Layout</div>
+      <div class="nav-item active"><span class="ico">⚖</span>Pane Policies <span class="badge">3</span></div>
+      <div class="nav-item"><span class="ico">⌨</span>Keybindings</div>
+      <div class="nav-item"><span class="ico">⤧</span>Quick Switcher</div>
+
+      <div class="group-title">Vault</div>
+      <div class="nav-item"><span class="ico">📁</span>Sources</div>
+      <div class="nav-item"><span class="ico">⇅</span>Sync &amp; backup</div>
+      <div class="nav-item"><span class="ico">🔍</span>Indexing</div>
+
+      <div class="group-title">Appearance</div>
+      <div class="nav-item"><span class="ico">◐</span>Theme</div>
+      <div class="nav-item"><span class="ico">Aa</span>Typography</div>
+
+      <div class="group-title">Advanced</div>
+      <div class="nav-item"><span class="ico">⌘</span>Plugins <span class="badge">12</span></div>
+      <div class="nav-item"><span class="ico">{ }</span>Config files</div>
+      <div class="nav-item"><span class="ico">↻</span>Migration</div>
+      <div class="nav-item"><span class="ico">!</span>Diagnostics</div>
+    </aside>
+
+    <!-- Content -->
+    <section class="content">
+
+      <!-- Page header -->
+      <div class="pageHeader">
+        <div>
+          <h1>Pane Policies</h1>
+          <p>Configure when Notesmith shows the triage pane vs. the reader pane based on view, folder, query and pin state. Higher-priority rules win; conflicts surface here before they ever reach the user.</p>
+        </div>
+        <div class="schema">
+          Schema <code>panePolicy/v3</code><br>
+          Loaded from <code>~/.notesmith/policy.yaml</code>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-tab="policies">Policies <span class="count">7</span> <span class="conflict-dot" title="2 conflicts"></span></button>
+        <button class="tab" data-tab="overrides">Overrides <span class="count">4</span></button>
+        <button class="tab" data-tab="inspector">Inspector</button>
+        <button class="tab" data-tab="migration">Migration</button>
+      </nav>
+
+      <!-- ============= POLICIES TAB ============= -->
+      <div class="panel" id="tab-policies">
+
+        <div class="global-toggle-card">
+          <div class="ic">ⓘ</div>
+          <div class="text">
+            <div class="t">Always show explanation badges in app</div>
+            <div class="d">When enabled, every view shows a small badge naming the rule that produced the current layout. Click any badge to jump straight to it in the Inspector.</div>
+          </div>
+          <div class="switch on" id="badgeSwitch" role="switch" aria-checked="true"></div>
+        </div>
+
+        <div class="conflict-banner">
+          <div class="ic">!</div>
+          <div>
+            <h4>2 conflicts detected</h4>
+            <p><b>Inbox: capture-first triage</b> and <b>Project · Inbox override</b> both target <code>folder = Inbox</code> at priority <b>P1</b> with different outcomes (<i>triage</i> vs <i>browse</i>). The first declared wins; promote one to break the tie.</p>
+          </div>
+          <div class="actions">
+            <button class="btn ghost">Dismiss</button>
+            <button class="btn primary">Open in Inspector</button>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <div class="seg">
+            <button class="on">All sources</button>
+            <button>System</button>
+            <button>User</button>
+            <button>Plugin</button>
+          </div>
+          <div class="seg">
+            <button>Show disabled</button>
+            <button class="on">Hide disabled</button>
+          </div>
+          <div class="grow"></div>
+          <button class="btn ghost">⤓ Sort by priority</button>
+          <button class="btn primary">+ New rule</button>
+        </div>
+
+        <div class="policies-grid">
+
+          <!-- Rules table -->
+          <div class="card rules-table">
+            <div class="row-head">
+              <div></div>
+              <div>P</div>
+              <div>Rule</div>
+              <div>Match</div>
+              <div>Outcome</div>
+              <div>Flags</div>
+              <div></div>
+            </div>
+
+            <div class="rule" data-rule="r1">
+              <div class="drag-handle">⋮⋮</div>
+              <div><span class="priority-badge p1">P1</span></div>
+              <div class="rule-name">
+                <div class="n">Manual pin override</div>
+                <div class="src">system · ui.pin</div>
+              </div>
+              <div><span class="matcher"><span class="k">pin</span> = <span class="v">true</span></span></div>
+              <div><span class="outcome pin">📌 force triage</span></div>
+              <div class="rule-flags"><span class="flag locked" title="Built-in, cannot delete">🔒</span></div>
+              <div class="row-menu">⋯</div>
+            </div>
+
+            <div class="rule selected" data-rule="r2">
+              <div class="drag-handle">⋮⋮</div>
+              <div><span class="priority-badge p1">P1</span></div>
+              <div class="rule-name">
+                <div class="n">Inbox: capture-first triage</div>
+                <div class="src">user · folder.match</div>
+              </div>
+              <div><span class="matcher"><span class="k">folder</span> = <span class="v">"Inbox"</span></span></div>
+              <div><span class="outcome triage">⊟ triage</span></div>
+              <div class="rule-flags">
+                <span class="flag conflict" title="Conflicts with r3 at same priority">⚠</span>
+              </div>
+              <div class="row-menu">⋯</div>
+            </div>
+
+            <div class="rule" data-rule="r3">
+              <div class="drag-handle">⋮⋮</div>
+              <div><span class="priority-badge p1">P1</span></div>
+              <div class="rule-name">
+                <div class="n">Project · Inbox override</div>
+                <div class="src">plugin · projects-pro@2.4</div>
+              </div>
+              <div><span class="matcher"><span class="k">folder</span> = <span class="v">"Inbox"</span> &nbsp;&amp;&amp;&nbsp; <span class="k">view</span> = <span class="v">"projects"</span></span></div>
+              <div><span class="outcome browse">▭ browse</span></div>
+              <div class="rule-flags">
+                <span class="flag conflict" title="Conflicts with r2">⚠</span>
+              </div>
+              <div class="row-menu">⋯</div>
+            </div>
+
+            <div class="rule" data-rule="r4">
+              <div class="drag-handle">⋮⋮</div>
+              <div><span class="priority-badge p2">P2</span></div>
+              <div class="rule-name">
+                <div class="n">Tasks view default</div>
+                <div class="src">user · view.match</div>
+              </div>
+              <div><span class="matcher"><span class="k">view</span> = <span class="v">"tasks"</span></span></div>
+              <div><span class="outcome triage">⊟ triage</span></div>
+              <div class="rule-flags"></div>
+              <div class="row-menu">⋯</div>
+            </div>
+
+            <div class="rule" data-rule="r5">
+              <div class="drag-handle">⋮⋮</div>
+              <div><span class="priority-badge p2">P2</span></div>
+              <div class="rule-name">
+                <div class="n">Daily review queue</div>
+                <div class="src">user · view.match</div>
+              </div>
+              <div><span class="matcher"><span class="k">view</span> = <span class="v">"review"</span></span></div>
+              <div><span class="outcome triage">⊟ triage</span></div>
+              <div class="rule-flags"></div>
+              <div class="row-menu">⋯</div>
+            </div>
+
+            <div class="rule" data-rule="r6">
+              <div class="drag-handle">⋮⋮</div>
+              <div><span class="priority-badge p3">P3</span></div>
+              <div class="rule-name">
+                <div class="n">Archive folders → reader</div>
+                <div class="src">user · folder.glob</div>
+              </div>
+              <div><span class="matcher"><span class="k">folder</span> matches <span class="v">"Archive/**"</span></span></div>
+              <div><span class="outcome browse">▭ browse</span></div>
+              <div class="rule-flags">
+                <span class="flag shadowed" title="Shadowed by Manual pin override when active">▣</span>
+              </div>
+              <div class="row-menu">⋯</div>
+            </div>
+
+            <div class="rule disabled" data-rule="r7">
+              <div class="drag-handle">⋮⋮</div>
+              <div><span class="priority-badge p3">P3</span></div>
+              <div class="rule-name">
+                <div class="n">Narrow screen → drawer</div>
+                <div class="src">system · viewport</div>
+              </div>
+              <div><span class="matcher"><span class="k">width</span> &lt; <span class="v">900</span></span></div>
+              <div><span class="outcome inherit">↻ as drawer</span></div>
+              <div class="rule-flags"><span class="flag" title="Disabled">○</span></div>
+              <div class="row-menu">⋯</div>
+            </div>
+
+            <div class="rule" data-rule="rd">
+              <div class="drag-handle">⋮⋮</div>
+              <div><span class="priority-badge">∞</span></div>
+              <div class="rule-name">
+                <div class="n">Default fallback</div>
+                <div class="src">system · panePolicy.defaultMode</div>
+              </div>
+              <div><span class="matcher"><span class="k">*</span></span></div>
+              <div><span class="outcome browse">▭ browse</span></div>
+              <div class="rule-flags"><span class="flag locked">🔒</span></div>
+              <div class="row-menu">⋯</div>
+            </div>
+          </div>
+
+          <!-- Detail card -->
+          <div class="card detail">
+            <div class="card-h">
+              Selected rule
+              <span class="sub" id="ruleSourceLabel">user · folder.match</span>
+            </div>
+            <div class="card-b">
+              <div class="row">
+                <h5>Name</h5>
+                <div class="v" id="ruleName">Inbox: capture-first triage</div>
+              </div>
+              <div class="row">
+                <h5>Matcher</h5>
+                <div class="field"><label>Folder equals</label><input type="text" value='"Inbox"' /></div>
+                <div class="field"><label>View</label>
+                  <select><option>any</option><option>notes</option><option>tasks</option><option>review</option></select>
+                </div>
+              </div>
+              <div class="row">
+                <h5>Outcome</h5>
+                <div class="seg" style="margin-bottom:6px">
+                  <button class="on">triage</button>
+                  <button>browse</button>
+                  <button>inherit</button>
+                </div>
+                <div class="field"><label>Show explanation badge</label><div class="switch on"></div></div>
+                <div class="field"><label>Persist user pin</label><div class="switch"></div></div>
+              </div>
+              <div class="row">
+                <h5>Reason (shown to user)</h5>
+                <div class="v"><i>“Captures need routing before reading.”</i></div>
+              </div>
+              <div class="row">
+                <h5>Conflicts</h5>
+                <div class="v" style="color:var(--warn);font-size:12.5px">
+                  ⚠ Same priority as <b>Project · Inbox override</b> (plugin).
+                  Currently winning by declaration order.
+                </div>
+                <div style="display:flex;gap:6px;margin-top:8px">
+                  <button class="btn">Promote to P0</button>
+                  <button class="btn ghost">Open in Inspector</button>
+                </div>
+              </div>
+              <div class="row">
+                <div style="display:flex;gap:8px">
+                  <button class="btn">Duplicate</button>
+                  <button class="btn ghost">Disable</button>
+                  <button class="btn danger" style="margin-left:auto">Delete</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ============= OVERRIDES TAB ============= -->
+      <div class="panel hidden" id="tab-overrides">
+
+        <div class="toolbar">
+          <div class="seg">
+            <button class="on">Active</button>
+            <button>Expired</button>
+            <button>All</button>
+          </div>
+          <div class="grow"></div>
+          <button class="btn ghost">Clear all session pins</button>
+          <button class="btn primary">+ New override</button>
+        </div>
+
+        <div class="card ovr-table">
+          <div class="ovr-row head">
+            <div>Override</div>
+            <div>Scope</div>
+            <div>Forces</div>
+            <div>Source</div>
+            <div></div>
+          </div>
+
+          <div class="ovr-row">
+            <div class="who"><span class="av">SU</span> Pinned triage in <b>Customers</b></div>
+            <div><span class="matcher"><span class="k">view</span>=<span class="v">customers</span></span></div>
+            <div><span class="outcome pin">📌 triage</span></div>
+            <div class="when">Manual · 2h ago · session</div>
+            <div><button class="btn ghost">Unpin</button></div>
+          </div>
+
+          <div class="ovr-row">
+            <div class="who"><span class="av">SU</span> Browse-only on <b>Projects/Active</b></div>
+            <div><span class="matcher"><span class="k">folder</span>=<span class="v">Projects/Active</span></span></div>
+            <div><span class="outcome browse">▭ browse</span></div>
+            <div class="when">Workspace · permanent</div>
+            <div><button class="btn ghost">Edit</button></div>
+          </div>
+
+          <div class="ovr-row">
+            <div class="who"><span class="av">D</span> Demo mode (presenter)</div>
+            <div><span class="matcher"><span class="k">*</span></span></div>
+            <div><span class="outcome browse">▭ browse</span></div>
+            <div class="when">Profile · "Demo" only</div>
+            <div><button class="btn ghost">Edit</button></div>
+          </div>
+
+          <div class="ovr-row">
+            <div class="who"><span class="av">P</span> projects-pro: hide triage in archive</div>
+            <div><span class="matcher"><span class="k">folder</span>~<span class="v">Archive/**</span></span></div>
+            <div><span class="outcome browse">▭ browse</span></div>
+            <div class="when">Plugin · auto</div>
+            <div><button class="btn ghost">Disable</button></div>
+          </div>
+        </div>
+
+        <p style="color:var(--text-3);font-size:12px;margin-top:14px">
+          Overrides sit above the priority engine. They’re scoped to a session, a workspace, a profile, or a plugin
+          — and every override creates an entry in the Inspector’s decision trace so the user always knows why their layout changed.
+        </p>
+      </div>
+
+      <!-- ============= INSPECTOR TAB ============= -->
+      <div class="panel hidden" id="tab-inspector">
+
+        <div class="inspector">
+
+          <!-- Context builder -->
+          <div class="card ctx-builder">
+            <div class="card-h">Context to evaluate
+              <span class="sub">try a click</span>
+            </div>
+
+            <div class="field-group">
+              <label class="lbl">View</label>
+              <div class="chip-row" data-group="view">
+                <div class="chip">notes</div>
+                <div class="chip active">tasks</div>
+                <div class="chip">projects</div>
+                <div class="chip">review</div>
+                <div class="chip">customers</div>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label class="lbl">Folder</label>
+              <div class="chip-row" data-group="folder">
+                <div class="chip">— none —</div>
+                <div class="chip active">Inbox</div>
+                <div class="chip">Projects/Active</div>
+                <div class="chip">Archive/2024</div>
+                <div class="chip">Customers/Acme</div>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label class="lbl">Modifiers</label>
+              <div class="chip-row" data-group="mod">
+                <div class="chip" data-key="pin">📌 Pin</div>
+                <div class="chip" data-key="narrow">📱 Narrow viewport (&lt;900)</div>
+                <div class="chip" data-key="demo">🎤 Demo profile</div>
+              </div>
+            </div>
+
+            <div class="ctx-summary" id="ctxSummary"></div>
+          </div>
+
+          <!-- Decision trace -->
+          <div class="card trace">
+            <div class="trace-head">
+              <h3>Decision trace</h3>
+              <span class="meta" id="traceMeta">8 rules evaluated · 1 winner</span>
+              <button class="btn ghost" style="margin-left:10px">⧉ Copy as JSON</button>
+            </div>
+            <ol id="traceList">
+              <!-- filled by JS -->
+            </ol>
+          </div>
+
+          <!-- Resolved outcome -->
+          <div class="card outcome-card">
+            <div class="card-h">Resolved layout</div>
+            <div class="card-b">
+              <div class="outcome-hero">
+                <div class="layout" id="layoutPreview">
+                  <div class="cell active">SIDEBAR</div>
+                  <div class="cell active">TRIAGE</div>
+                  <div class="cell active">READER</div>
+                </div>
+                <h2 id="outcomeTitle">3-pane · triage</h2>
+                <div class="sub" id="outcomeWhy">because <b>Inbox: capture-first triage</b> matched at P1</div>
+              </div>
+              <div class="outcome-list">
+                <div class="row"><span class="k">layout.mode</span><span class="v" id="kMode">"triage"</span></div>
+                <div class="row"><span class="k">layout.panes</span><span class="v" id="kPanes">3</span></div>
+                <div class="row"><span class="k">winning rule</span><span class="v" id="kRule">user.r2</span></div>
+                <div class="row"><span class="k">priority</span><span class="v" id="kPri">P1</span></div>
+                <div class="row"><span class="k">badge text</span><span class="v" id="kBadge">"Inbox triage"</span></div>
+                <div class="row"><span class="k">resolved in</span><span class="v">0.42 ms</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============= MIGRATION TAB ============= -->
+      <div class="panel hidden" id="tab-migration">
+
+        <div class="mig-grid">
+
+          <div class="card">
+            <div class="card-h">Schema versions
+              <span class="sub">panePolicy</span>
+            </div>
+            <div>
+              <div class="schema-line">
+                <span class="schema-ver">v1</span>
+                <div class="desc">
+                  <div class="t">Binary 2-/3-pane per view</div>
+                  <div class="d">Released 0.4 · superseded by per-folder overrides in v2.</div>
+                </div>
+                <button class="btn ghost">Read notes</button>
+              </div>
+              <div class="schema-line">
+                <span class="schema-ver">v2</span>
+                <div class="desc">
+                  <div class="t">View + folder overrides</div>
+                  <div class="d">Released 0.7 · adds <code style="font-family:var(--mono);color:var(--text-2)">folders.*</code> with <code style="font-family:var(--mono);color:var(--text-2)">mode: inherit</code>.</div>
+                </div>
+                <button class="btn ghost">Read notes</button>
+              </div>
+              <div class="schema-line current">
+                <span class="schema-ver">v3</span>
+                <div class="desc">
+                  <div class="t">Priority engine + manual pin <span style="color:var(--accent);font-weight:600;margin-left:6px">· current</span></div>
+                  <div class="d">Released 1.0 · ranked rules, conflict markers, and explanation badges. Auto-migrated from v2 on first launch.</div>
+                </div>
+                <button class="btn ghost">Read notes</button>
+              </div>
+              <div class="schema-line">
+                <span class="schema-ver">v4-rc</span>
+                <div class="desc">
+                  <div class="t">Predicate matchers (preview)</div>
+                  <div class="d">Adds <code style="font-family:var(--mono);color:var(--text-2)">when:</code> expressions over tags, queries, time-of-day. Opt-in.</div>
+                </div>
+                <button class="btn">Try preview</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-h">Import / export
+              <span class="sub">round-trip safe</span>
+            </div>
+            <div class="card-b">
+              <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+                <button class="btn primary" onclick="toast('Export', 'policy.v3.yaml copied to ~/Downloads')">⤓ Export policy.yaml</button>
+                <button class="btn" onclick="toast('Import', 'Choose a file… (mock)')">⤒ Import…</button>
+                <button class="btn ghost" onclick="toast('Reset', 'Reverted to factory defaults (mock)')">↻ Restore defaults</button>
+                <button class="btn ghost" onclick="toast('Diff', 'Comparing policy.v2.yaml → policy.v3.yaml (mock)')">⇄ Diff against backup</button>
+              </div>
+              <div class="json-preview"><span class="c"># panePolicy.yaml — schema v3</span>
+<span class="k">version</span>: <span class="n">3</span>
+<span class="k">defaultMode</span>: <span class="s">browse</span>
+<span class="k">showExplanationBadges</span>: <span class="b">true</span>
+<span class="k">rules</span>:
+  - <span class="k">id</span>: <span class="s">manual.pin</span>
+    <span class="k">priority</span>: <span class="n">1</span>
+    <span class="k">when</span>: { <span class="k">pin</span>: <span class="b">true</span> }
+    <span class="k">outcome</span>: <span class="s">force-triage</span>
+  - <span class="k">id</span>: <span class="s">user.inbox</span>
+    <span class="k">priority</span>: <span class="n">1</span>
+    <span class="k">when</span>: { <span class="k">folder</span>: <span class="s">"Inbox"</span> }
+    <span class="k">outcome</span>: <span class="s">triage</span>
+    <span class="k">badge</span>: <span class="s">"Inbox triage"</span>
+    <span class="k">reason</span>: <span class="s">"Captures need routing before reading."</span>
+  - <span class="k">id</span>: <span class="s">user.tasks</span>
+    <span class="k">priority</span>: <span class="n">2</span>
+    <span class="k">when</span>: { <span class="k">view</span>: <span class="s">"tasks"</span> }
+    <span class="k">outcome</span>: <span class="s">triage</span>
+  - <span class="k">id</span>: <span class="s">user.archive</span>
+    <span class="k">priority</span>: <span class="n">3</span>
+    <span class="k">when</span>: { <span class="k">folder</span>: <span class="s">"Archive/**"</span> }
+    <span class="k">outcome</span>: <span class="s">browse</span>
+<span class="c"># … 4 more rules omitted</span>
+              </div>
+              <p style="color:var(--text-3);font-size:12px;margin-top:12px">
+                Files are validated against <code style="font-family:var(--mono);color:var(--text-2);background:var(--surface-2);padding:1px 5px;border-radius:4px">panePolicy/v3.schema.json</code>
+                before import. Older schemas are migrated forward; downgrades require explicit confirmation because v3
+                outcomes (<code style="font-family:var(--mono);color:var(--text-2);background:var(--surface-2);padding:1px 5px;border-radius:4px">force-triage</code>) cannot be expressed in v2.
+              </p>
+            </div>
+          </div>
+
+          <div class="card" style="grid-column: 1 / -1">
+            <div class="card-h">Recent migrations</div>
+            <div>
+              <div class="schema-line">
+                <span class="schema-ver">v2 → v3</span>
+                <div class="desc">
+                  <div class="t">Auto-migrated 6 rules · 2 conflicts surfaced</div>
+                  <div class="d">May 9, 2026 — <code style="font-family:var(--mono);color:var(--text-2)">panePolicy.folders.Inbox</code> became <code style="font-family:var(--mono);color:var(--text-2)">user.inbox</code> at P1. Backup saved as <code style="font-family:var(--mono);color:var(--text-2)">policy.v2.bak.yaml</code>.</div>
+                </div>
+                <button class="btn ghost">View report</button>
+              </div>
+              <div class="schema-line">
+                <span class="schema-ver">v1 → v2</span>
+                <div class="desc">
+                  <div class="t">Auto-migrated 3 rules</div>
+                  <div class="d">Mar 2, 2026 — Per-view modes converted to per-folder overrides.</div>
+                </div>
+                <button class="btn ghost">View report</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </section>
+  </div>
+
+  <!-- ============= STATUS BAR ============= -->
+  <footer class="statusbar">
+    <span><span class="pulse"></span> Policy engine: healthy</span>
+    <span>|</span>
+    <span>7 rules · 4 overrides · 2 conflicts</span>
+    <span>|</span>
+    <span>Last evaluated: <span id="lastEval">just now</span></span>
+    <div class="right">
+      <span>Workspace: <b style="color:var(--text-2)">Personal</b></span>
+      <span><kbd>?</kbd> Help</span>
+    </div>
+  </footer>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<script>
+  /* =========================================================
+   * Tab switching
+   * ========================================================= */
+  document.querySelectorAll('#tabs .tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('#tabs .tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      const id = 'tab-' + t.dataset.tab;
+      document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
+      document.getElementById(id).classList.remove('hidden');
+    });
+  });
+
+  /* =========================================================
+   * Toggle switches (badge toggle + inspector toggles)
+   * ========================================================= */
+  document.querySelectorAll('.switch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      sw.classList.toggle('on');
+      sw.setAttribute('aria-checked', sw.classList.contains('on'));
+      if (sw.id === 'badgeSwitch') {
+        toast('Setting saved',
+              sw.classList.contains('on')
+                ? 'Explanation badges will appear in every view.'
+                : 'Explanation badges hidden. Inspector still available.');
+      }
+    });
+  });
+
+  /* =========================================================
+   * Rule selection on Policies tab
+   * ========================================================= */
+  document.querySelectorAll('.rule').forEach(r => {
+    r.addEventListener('click', () => {
+      document.querySelectorAll('.rule').forEach(x => x.classList.remove('selected'));
+      r.classList.add('selected');
+      const name = r.querySelector('.rule-name .n')?.textContent;
+      const src  = r.querySelector('.rule-name .src')?.textContent;
+      if (name) document.getElementById('ruleName').textContent = name;
+      if (src)  document.getElementById('ruleSourceLabel').textContent = src;
+    });
+  });
+
+  /* =========================================================
+   * Inspector — context builder + decision trace
+   * ========================================================= */
+  const ctx = { view: 'tasks', folder: 'Inbox', mod: new Set() };
+
+  // Single-select chip groups
+  document.querySelectorAll('[data-group="view"] .chip, [data-group="folder"] .chip').forEach(c => {
+    c.addEventListener('click', () => {
+      const group = c.parentElement.dataset.group;
+      c.parentElement.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+      ctx[group] = c.textContent.trim().replace(/^—\s*none\s*—$/i, '');
+      renderInspector();
+    });
+  });
+
+  // Multi-select modifier chips
+  document.querySelectorAll('[data-group="mod"] .chip').forEach(c => {
+    c.addEventListener('click', () => {
+      const k = c.dataset.key;
+      if (ctx.mod.has(k)) { ctx.mod.delete(k); c.classList.remove('active'); }
+      else { ctx.mod.add(k); c.classList.add('active'); }
+      renderInspector();
+    });
+  });
+
+  /* The rule book — kept in sync with the Policies tab table */
+  const RULES = [
+    { id: 'system.pin',     name: 'Manual pin override',       p: 1, src: 'system',
+      pred: c => c.mod.has('pin'),
+      preds: c => [['pin', c.mod.has('pin')]],
+      outcome: 'force triage', mode: 'triage', panes: 3,
+      reason: 'You have explicitly pinned the triage pane open.' },
+
+    { id: 'user.inbox',     name: 'Inbox: capture-first triage', p: 1, src: 'user',
+      pred: c => c.folder === 'Inbox',
+      preds: c => [['folder == "Inbox"', c.folder === 'Inbox']],
+      outcome: 'triage', mode: 'triage', panes: 3,
+      reason: 'Captures need routing before reading.' },
+
+    { id: 'plugin.proj',    name: 'Project · Inbox override',  p: 1, src: 'plugin',
+      pred: c => c.folder === 'Inbox' && c.view === 'projects',
+      preds: c => [['folder == "Inbox"', c.folder === 'Inbox'], ['view == "projects"', c.view === 'projects']],
+      outcome: 'browse', mode: 'browse', panes: 2,
+      reason: 'Project notes always open in the reader.' },
+
+    { id: 'user.tasks',     name: 'Tasks view default',        p: 2, src: 'user',
+      pred: c => c.view === 'tasks',
+      preds: c => [['view == "tasks"', c.view === 'tasks']],
+      outcome: 'triage', mode: 'triage', panes: 3,
+      reason: 'Tasks are easier to scan in the queue layout.' },
+
+    { id: 'user.review',    name: 'Daily review queue',        p: 2, src: 'user',
+      pred: c => c.view === 'review',
+      preds: c => [['view == "review"', c.view === 'review']],
+      outcome: 'triage', mode: 'triage', panes: 3,
+      reason: 'Daily review benefits from the queue.' },
+
+    { id: 'user.archive',   name: 'Archive folders → reader',  p: 3, src: 'user',
+      pred: c => /^Archive\b/.test(c.folder || ''),
+      preds: c => [['folder ~ "Archive/**"', /^Archive\b/.test(c.folder || '')]],
+      outcome: 'browse', mode: 'browse', panes: 2,
+      reason: 'Archived material is read, not triaged.' },
+
+    { id: 'system.narrow',  name: 'Narrow screen → drawer',    p: 3, src: 'system', disabled: true,
+      pred: c => c.mod.has('narrow'),
+      preds: c => [['width < 900', c.mod.has('narrow')]],
+      outcome: 'as drawer', mode: 'drawer', panes: 2,
+      reason: 'Triage collapses to slide-over below 900px.' },
+
+    { id: 'system.default', name: 'Default fallback',          p: '∞', src: 'system',
+      pred: () => true,
+      preds: () => [['*', true]],
+      outcome: 'browse', mode: 'browse', panes: 2,
+      reason: 'No more specific rule matched — using defaultMode.' },
+  ];
+
+  function evaluate(c) {
+    const trace = [];
+    let winner = null;
+    let demoSeen = false;
+    for (const r of RULES) {
+      if (r.disabled) {
+        trace.push({ r, kind: 'skip', why: 'Rule is disabled.', preds: r.preds(c) });
+        continue;
+      }
+      const matched = r.pred(c);
+      if (!matched) {
+        trace.push({ r, kind: 'skip', why: 'Predicate did not match.', preds: r.preds(c) });
+        continue;
+      }
+      if (winner) {
+        trace.push({ r, kind: 'skip', why: `Already resolved by ${winner.r.name} (P${winner.r.p}).`, preds: r.preds(c) });
+      } else {
+        trace.push({ r, kind: 'match', why: r.reason, preds: r.preds(c) });
+        winner = trace[trace.length - 1];
+      }
+    }
+    // demo profile is a session "override" sitting above the engine
+    if (c.mod.has('demo')) {
+      const overrideEntry = {
+        r: { id: 'override.demo', name: 'Demo mode (presenter override)', p: 'OVR', src: 'profile',
+             outcome: 'browse', mode: 'browse', panes: 2,
+             reason: 'Active "Demo" profile forces 2-pane reader-only.' },
+        kind: 'over',
+        why: 'Profile overrides the engine result.',
+        preds: [['profile == "Demo"', true]],
+      };
+      trace.push(overrideEntry);
+      winner = overrideEntry;
+    }
+    return { trace, winner };
+  }
+
+  function renderInspector() {
+    // Context summary
+    const summary = document.getElementById('ctxSummary');
+    summary.innerHTML =
+      `<span class="k">view:</span>    <span class="s">"${ctx.view}"</span>\n` +
+      `<span class="k">folder:</span>  <span class="s">"${ctx.folder || '(none)'}"</span>\n` +
+      `<span class="k">pin:</span>     <span class="n">${ctx.mod.has('pin')}</span>\n` +
+      `<span class="k">viewport:</span><span class="n"> ${ctx.mod.has('narrow') ? '<900' : '>=900'}</span>\n` +
+      `<span class="k">profile:</span> <span class="s">"${ctx.mod.has('demo') ? 'Demo' : 'Personal'}"</span>`;
+
+    // Trace
+    const { trace, winner } = evaluate(ctx);
+    const list = document.getElementById('traceList');
+    list.innerHTML = '';
+    let evaluated = 0, matches = 0;
+    for (const e of trace) {
+      const isWin = winner && e === winner && e.kind !== 'over';
+      const kindClass = e.kind === 'over' ? 'over' : isWin ? 'win' : e.kind;
+      const li = document.createElement('li');
+      li.className = kindClass;
+      const kindLabel =
+        e.kind === 'match' ? (isWin ? 'WINNER' : 'matched')
+        : e.kind === 'over' ? 'OVERRIDE'
+        : 'skipped';
+
+      const predHTML = e.preds.map(([p, ok]) =>
+        `<span class="pred">${ok ? '<span class="ok">✓</span>' : '<span class="x">✗</span>'} ${p}</span>`
+      ).join('');
+
+      li.innerHTML = `
+        <div class="ti-h">
+          <span class="name">${e.r.name}</span>
+          <span class="badge">P${e.r.p}</span>
+          <span class="badge">${e.r.src}</span>
+          <span class="badge kind">${kindLabel}</span>
+        </div>
+        <div class="why">${e.why} ${isWin ? `→ outcome <code>${e.r.mode}</code>` : ''}</div>
+        <div class="skip-pred">${predHTML}</div>
+        ${isWin ? `<div class="winline">▲ used to compute final layout</div>` : ''}
+        ${e.kind === 'over' ? `<div class="winline" style="color:var(--purple)">▲ overrode engine result</div>` : ''}
+      `;
+      list.appendChild(li);
+      if (e.kind !== 'skip' || true) evaluated++;
+      if (e.kind === 'match' || e.kind === 'over') matches++;
+    }
+    document.getElementById('traceMeta').textContent =
+      `${trace.length} rules evaluated · ${matches} match${matches === 1 ? '' : 'es'} · 1 winner`;
+
+    // Outcome
+    const w = winner ? winner.r : RULES[RULES.length - 1];
+    document.getElementById('outcomeTitle').textContent =
+      w.panes === 3 ? '3-pane · triage'
+      : w.mode === 'drawer' ? '2-pane + drawer'
+      : '2-pane · browse';
+    document.getElementById('outcomeWhy').innerHTML =
+      `because <b>${w.name}</b> ${winner && winner.kind === 'over' ? 'overrode the engine' : `matched at P${w.p}`}`;
+    document.getElementById('kMode').textContent  = `"${w.mode}"`;
+    document.getElementById('kPanes').textContent = w.panes;
+    document.getElementById('kRule').textContent  = w.id;
+    document.getElementById('kPri').textContent   = `P${w.p}`;
+    document.getElementById('kBadge').textContent = `"${w.name.split(':')[0]}"`;
+
+    // Layout preview
+    const lp = document.getElementById('layoutPreview');
+    if (w.panes === 3) {
+      lp.innerHTML =
+        `<div class="cell active">SIDEBAR</div>
+         <div class="cell active">TRIAGE</div>
+         <div class="cell active">READER</div>`;
+    } else if (w.mode === 'drawer') {
+      lp.innerHTML =
+        `<div class="cell active">SIDEBAR</div>
+         <div class="cell ghost">↗ DRAWER</div>
+         <div class="cell active">READER</div>`;
+    } else {
+      lp.innerHTML =
+        `<div class="cell active">SIDEBAR</div>
+         <div class="cell ghost">— hidden —</div>
+         <div class="cell active">READER</div>`;
+    }
+  }
+
+  renderInspector();
+
+  /* =========================================================
+   * Toasts
+   * ========================================================= */
+  function toast(title, desc) {
+    const wrap = document.getElementById('toasts');
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.style.pointerEvents = 'auto';
+    el.innerHTML = `<div class="ic">●</div><div><div class="t">${title}</div><div class="d">${desc}</div></div>`;
+    wrap.appendChild(el);
+    setTimeout(() => { el.style.transition = 'opacity .3s, transform .3s'; el.style.opacity = '0'; el.style.transform = 'translateY(8px)'; }, 2400);
+    setTimeout(() => el.remove(), 2800);
+  }
+
+  /* Cosmetic: drag handles do nothing real, but show grab cursor + a subtle pulse */
+  document.querySelectorAll('.drag-handle').forEach(h => {
+    h.addEventListener('mousedown', e => {
+      const row = h.closest('.rule');
+      if (!row) return;
+      row.style.transition = 'transform .12s';
+      row.style.transform = 'translateY(-1px) scale(1.005)';
+      const up = () => { row.style.transform = ''; document.removeEventListener('mouseup', up); };
+      document.addEventListener('mouseup', up);
+    });
+  });
+</script>
+</body>
+</html>
