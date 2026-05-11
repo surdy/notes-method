@@ -257,7 +257,7 @@ notifyError('Failed to route inbox notes.', cause);
 },
 {
 id: 'toggle-view',
-label: 'Toggle Reading/Editing View',
+label: 'Toggle View Mode',
 category: 'Navigation',
 shortcut: '⌘E',
 execute: () => {

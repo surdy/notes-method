@@ -50,7 +50,7 @@ console.error(`Failed to execute command: ${commandId}`, error);
 }
 
 async function handleToggleView() {
-if (vaultStore.activeViewMode === 'source') {
+if (vaultStore.activeViewMode === 'live-preview') {
 await noteEditorRef?.flushSave();
 }
 vaultStore.toggleViewMode();

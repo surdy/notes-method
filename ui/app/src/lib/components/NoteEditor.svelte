@@ -1,5 +1,5 @@
 <script lang="ts">
-import { EditorState } from '@codemirror/state';
+import { Compartment, EditorState } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import {
 EditorView,
@@ -25,6 +25,7 @@ type NoteDetail,
 type TaskMutationStatus
 } from '$lib/api';
 import { createAutoSave } from '$lib/editor/auto-save';
+import { createLivePreviewExtension } from '$lib/editor/live-preview';
 import { createOFMDecorations } from '$lib/editor/ofm-decorations';
 import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-blocks';
 import { notesmithTheme } from '$lib/editor/theme';
@@ -47,6 +48,8 @@ let conflictBanner = $state<{ show: boolean; path: string } | null>(null);
 let dirty = $state(false);
 let saveError = $state<string | null>(null);
 let ignoreExternalChange: { path: string; expiresAt: number } | null = null;
+
+const livePreviewCompartment = new Compartment();
 
 const autoSave = createAutoSave({
 delay: 1000,
@@ -167,6 +170,9 @@ taskHashes: () => currentTaskHashes,
 onNavigate: (path) => vaultStore.selectNote(path),
 onTaskToggle: handleTaskToggle
 }),
+livePreviewCompartment.of(
+	vaultStore.activeViewMode === 'live-preview' ? createLivePreviewExtension() : []
+),
 EditorView.updateListener.of((update) => {
 if (!update.docChanged) {
 return;
@@ -341,6 +347,18 @@ untrack(() => {
 	conflictBanner = null;
 	setDashboardMode(false);
 	}
+});
+});
+
+$effect(() => {
+const mode = vaultStore.activeViewMode;
+untrack(() => {
+	if (!view) return;
+	view.dispatch({
+		effects: livePreviewCompartment.reconfigure(
+			mode === 'live-preview' ? createLivePreviewExtension() : []
+		)
+	});
 });
 });
 

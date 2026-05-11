@@ -176,40 +176,37 @@ test('openTab defaults viewMode to source', () => {
 	assert.equal(state.tabs[0]?.viewMode, 'source');
 });
 
-test('toggleViewMode switches source to reading for active tab', () => {
-	const state = toggleViewMode({
+test('toggleViewMode cycles source → live-preview → reading → source', () => {
+	const base = {
 		tabs: [
-			{ path: 'Inbox/alpha.md', title: 'Alpha', dirty: false, viewMode: 'source' },
-			{ path: 'Inbox/beta.md', title: 'Beta', dirty: false, viewMode: 'source' }
+			{ path: 'Inbox/alpha.md', title: 'Alpha', dirty: false, viewMode: 'source' as const },
+			{ path: 'Inbox/beta.md', title: 'Beta', dirty: false, viewMode: 'source' as const }
 		],
 		activeTabIndex: 1,
 		selectedPath: 'Inbox/beta.md',
-		recentlyClosed: []
-	});
+		recentlyClosed: [] as string[]
+	};
 
-	assert.equal(state.tabs[0]?.viewMode, 'source');
-	assert.equal(state.tabs[1]?.viewMode, 'reading');
-});
+	// source → live-preview
+	const step1 = toggleViewMode(base);
+	assert.equal(step1.tabs[0]?.viewMode, 'source');
+	assert.equal(step1.tabs[1]?.viewMode, 'live-preview');
 
-test('toggleViewMode switches reading back to source', () => {
-	const state = toggleViewMode({
-		tabs: [
-			{ path: 'Inbox/alpha.md', title: 'Alpha', dirty: false, viewMode: 'reading' }
-		],
-		activeTabIndex: 0,
-		selectedPath: 'Inbox/alpha.md',
-		recentlyClosed: []
-	});
+	// live-preview → reading
+	const step2 = toggleViewMode(step1);
+	assert.equal(step2.tabs[1]?.viewMode, 'reading');
 
-	assert.equal(state.tabs[0]?.viewMode, 'source');
+	// reading → source
+	const step3 = toggleViewMode(step2);
+	assert.equal(step3.tabs[1]?.viewMode, 'source');
 });
 
 test('toggleViewMode is a no-op when no active tab', () => {
 	const original = {
-		tabs: [] as Array<{ path: string; title: string; dirty: boolean; viewMode: 'source' | 'reading' }>,
+		tabs: [] as Array<{ path: string; title: string; dirty: boolean; viewMode: 'source' | 'live-preview' | 'reading' }>,
 		activeTabIndex: -1,
 		selectedPath: null,
-		recentlyClosed: []
+		recentlyClosed: [] as string[]
 	};
 	const state = toggleViewMode(original);
 
@@ -240,4 +237,20 @@ test('restoreTabState defaults viewMode to source for legacy data without viewMo
 
 	const restored = restoreTabState(legacyJson);
 	assert.equal(restored?.tabs[0]?.viewMode, 'source');
+});
+
+test('serializeTabState and restoreTabState roundtrip live-preview viewMode', () => {
+	const serialized = serializeTabState({
+		tabs: [
+			{ path: 'Notes/a.md', title: 'A', dirty: false, viewMode: 'live-preview' },
+			{ path: 'Notes/b.md', title: 'B', dirty: false, viewMode: 'source' },
+			{ path: 'Notes/c.md', title: 'C', dirty: false, viewMode: 'reading' }
+		],
+		activeTabIndex: 0
+	});
+
+	const restored = restoreTabState(serialized);
+	assert.equal(restored?.tabs[0]?.viewMode, 'live-preview');
+	assert.equal(restored?.tabs[1]?.viewMode, 'source');
+	assert.equal(restored?.tabs[2]?.viewMode, 'reading');
 });

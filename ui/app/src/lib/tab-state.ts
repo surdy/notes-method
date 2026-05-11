@@ -1,6 +1,6 @@
 import type { NoteSummary } from './api';
 
-export type ViewMode = 'source' | 'reading';
+export type ViewMode = 'source' | 'live-preview' | 'reading';
 
 export interface Tab {
 	path: string;
@@ -149,10 +149,21 @@ export function toggleViewMode(state: TabState): TabState {
 		...state,
 		tabs: state.tabs.map((tab, index) =>
 			index === state.activeTabIndex
-				? { ...tab, viewMode: tab.viewMode === 'source' ? 'reading' : 'source' }
+				? { ...tab, viewMode: nextViewMode(tab.viewMode) }
 				: tab
 		)
 	};
+}
+
+function nextViewMode(current: ViewMode): ViewMode {
+	switch (current) {
+		case 'source':
+			return 'live-preview';
+		case 'live-preview':
+			return 'reading';
+		case 'reading':
+			return 'source';
+	}
 }
 
 export function serializeTabState(state: Pick<TabState, 'tabs' | 'activeTabIndex'>): string {
@@ -179,7 +190,7 @@ export function restoreTabState(stored: string | null): Omit<TabState, 'recently
 				path: tab.path,
 				title: tab.title,
 				dirty: false,
-				viewMode: (tab.viewMode === 'reading' ? 'reading' : 'source') as ViewMode
+				viewMode: restoreViewMode(tab.viewMode)
 			}));
 		const activeTabIndex =
 			typeof parsed.activeIndex === 'number' &&
@@ -196,6 +207,13 @@ export function restoreTabState(stored: string | null): Omit<TabState, 'recently
 	} catch {
 		return null;
 	}
+}
+
+function restoreViewMode(value: string | undefined): ViewMode {
+	if (value === 'reading' || value === 'live-preview') {
+		return value;
+	}
+	return 'source';
 }
 
 function resolveTabTitle(path: string, notes: NoteSummary[]): string {

@@ -144,6 +144,34 @@ accentColor: '#ffb347'
 },
 '.cm-sql-table tr:hover td': {
 	backgroundColor: 'var(--hover-bg, #2a2d2e)'
+},
+// Live preview mode styles
+'.cm-lp-h1': { fontSize: '1.8em', fontWeight: '700', lineHeight: '1.3' },
+'.cm-lp-h2': { fontSize: '1.5em', fontWeight: '700', lineHeight: '1.3' },
+'.cm-lp-h3': { fontSize: '1.25em', fontWeight: '600', lineHeight: '1.4' },
+'.cm-lp-h4': { fontSize: '1.1em', fontWeight: '600', lineHeight: '1.4' },
+'.cm-lp-h5': { fontSize: '1.0em', fontWeight: '600', lineHeight: '1.5' },
+'.cm-lp-h6': { fontSize: '0.9em', fontWeight: '600', lineHeight: '1.5', color: '#aaa' },
+'.cm-lp-bold': { fontWeight: 'bold' },
+'.cm-lp-italic': { fontStyle: 'italic' },
+'.cm-lp-strikethrough': { textDecoration: 'line-through', opacity: '0.7' },
+'.cm-lp-link-text': {
+	color: '#7ec8e3',
+	textDecoration: 'underline',
+	cursor: 'pointer'
+},
+'.cm-lp-inline-code': {
+	backgroundColor: '#2d2d2d',
+	padding: '1px 4px',
+	borderRadius: '3px',
+	fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace',
+	fontSize: '0.9em'
+},
+'.cm-lp-hr': {
+	border: 'none',
+	borderTop: '1px solid #444',
+	margin: '8px 0',
+	display: 'block'
 }
 },
 { dark: true }
