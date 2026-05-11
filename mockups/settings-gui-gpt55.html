@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Notesmith Settings Mockup — Sidebar & Triage Rules</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d12;
+      --panel: rgba(18, 22, 31, 0.88);
+      --panel-2: #151a24;
+      --panel-3: #1b2230;
+      --line: rgba(148, 163, 184, 0.16);
+      --line-strong: rgba(148, 163, 184, 0.28);
+      --text: #e5edf8;
+      --muted: #93a4ba;
+      --faint: #5f6f84;
+      --accent: #8b5cf6;
+      --accent-2: #38bdf8;
+      --good: #34d399;
+      --warn: #fbbf24;
+      --danger: #fb7185;
+      --shadow: 0 24px 70px rgba(0,0,0,.38);
+      --radius: 18px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(circle at 18% 8%, rgba(139, 92, 246, .28), transparent 32%),
+        radial-gradient(circle at 78% 14%, rgba(56, 189, 248, .18), transparent 30%),
+        linear-gradient(135deg, #080a0f 0%, #10131b 48%, #090b10 100%);
+      overflow: hidden;
+    }
+
+    .app {
+      width: min(1440px, calc(100vw - 48px));
+      height: min(920px, calc(100vh - 48px));
+      margin: 24px auto;
+      display: grid;
+      grid-template-columns: 264px 1fr 340px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: rgba(9, 12, 18, .76);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      backdrop-filter: blur(18px);
+    }
+
+    nav {
+      padding: 22px 16px;
+      border-right: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(20, 24, 34, .92), rgba(12, 15, 22, .92));
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; margin: 4px 8px 30px; }
+    .logo {
+      width: 38px; height: 38px; border-radius: 12px;
+      background: conic-gradient(from 140deg, var(--accent), var(--accent-2), var(--good), var(--accent));
+      box-shadow: 0 0 28px rgba(139, 92, 246, .4);
+    }
+    .brand strong { display: block; letter-spacing: -.02em; }
+    .brand span { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+    .nav-label { margin: 20px 10px 8px; color: var(--faint); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 12px;
+      border-radius: 14px;
+      color: var(--muted);
+      cursor: default;
+      margin-bottom: 4px;
+    }
+    .nav-item.active {
+      color: var(--text);
+      background: linear-gradient(135deg, rgba(139, 92, 246, .24), rgba(56, 189, 248, .12));
+      border: 1px solid rgba(139, 92, 246, .34);
+    }
+    .nav-item .dot { width: 8px; height: 8px; border-radius: 99px; background: currentColor; opacity: .75; }
+    .hint-card {
+      margin: 34px 8px 0;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255,255,255,.035);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    main {
+      overflow: auto;
+      padding: 28px;
+    }
+    main::-webkit-scrollbar, aside::-webkit-scrollbar { width: 10px; }
+    main::-webkit-scrollbar-thumb, aside::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, .22); border-radius: 99px; }
+
+    .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: 30px; letter-spacing: -.04em; }
+    .subtitle { margin: 8px 0 0; color: var(--muted); line-height: 1.45; max-width: 720px; }
+    .save { display: flex; gap: 10px; }
+    button, select, input[type="text"], input[type="number"] {
+      color: var(--text);
+      background: var(--panel-3);
+      border: 1px solid var(--line-strong);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font: inherit;
+      outline: none;
+    }
+    button { cursor: pointer; font-weight: 700; }
+    .primary { border: 0; background: linear-gradient(135deg, var(--accent), #4f46e5); box-shadow: 0 12px 32px rgba(79,70,229,.28); }
+    .ghost { color: var(--muted); background: rgba(255,255,255,.035); }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: 0 16px 42px rgba(0,0,0,.18);
+      overflow: hidden;
+    }
+    .card.full { grid-column: 1 / -1; }
+    .card-header { padding: 18px 18px 0; display:flex; align-items:flex-start; justify-content:space-between; gap: 16px; }
+    .card h2 { margin: 0; font-size: 17px; letter-spacing: -.02em; }
+    .card p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .card-body { padding: 18px; }
+
+    .field { display: grid; gap: 8px; margin-bottom: 15px; }
+    label { color: #c9d5e5; font-size: 13px; font-weight: 700; }
+    select, input[type="text"], input[type="number"] { width: 100%; background: rgba(7,10,16,.72); }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+    .row:first-child { border-top: 0; padding-top: 0; }
+    .row-title { font-weight: 700; font-size: 13px; }
+    .row-sub { margin-top: 3px; color: var(--muted); font-size: 12px; }
+
+    .switch { position: relative; width: 46px; height: 26px; flex: none; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0; border-radius: 99px;
+      background: #303747; border: 1px solid var(--line-strong); transition: .18s ease;
+    }
+    .slider:before {
+      content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px;
+      border-radius: 50%; background: #cbd5e1; transition: .18s ease;
+      box-shadow: 0 3px 10px rgba(0,0,0,.35);
+    }
+    .switch input:checked + .slider { background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+    .switch input:checked + .slider:before { transform: translateX(20px); background: white; }
+
+    .toggles { display: grid; gap: 0; }
+    .chips { display:flex; flex-wrap:wrap; gap: 8px; }
+    .chip {
+      padding: 7px 10px; border-radius: 999px; border: 1px solid var(--line);
+      color: var(--muted); background: rgba(255,255,255,.035); font-size: 12px;
+    }
+    .chip.good { color: #bcf7dd; border-color: rgba(52,211,153,.3); background: rgba(52,211,153,.09); }
+    .chip.warn { color: #fde68a; border-color: rgba(251,191,36,.32); background: rgba(251,191,36,.09); }
+
+    table { width: 100%; border-collapse: collapse; overflow: hidden; }
+    th, td { padding: 11px 10px; text-align: left; border-bottom: 1px solid var(--line); font-size: 13px; }
+    th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; background: rgba(255,255,255,.025); }
+    tr:hover td { background: rgba(255,255,255,.025); }
+    td input, td select { padding: 8px 9px; border-radius: 10px; min-width: 88px; }
+    td input[type="number"] { width: 74px; }
+    td:nth-child(3) input { min-width: 190px; }
+
+    .precedence { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 12px; }
+    .step {
+      position: relative;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255,255,255,.032);
+      min-height: 92px;
+    }
+    .step:not(:last-child)::after {
+      content: "›";
+      position: absolute; right: -9px; top: 30px;
+      color: var(--accent-2); font-size: 28px; z-index: 2;
+    }
+    .num { color: var(--accent-2); font: 700 11px var(--mono); margin-bottom: 8px; }
+    .step strong { display:block; font-size: 13px; margin-bottom: 4px; }
+    .step span { color: var(--muted); font-size: 12px; line-height: 1.35; }
+
+    .folder-overrides { display: grid; gap: 10px; }
+    .override {
+      display:grid; grid-template-columns: 1fr auto auto; align-items:center; gap: 10px;
+      padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.03);
+    }
+    .path { font-family: var(--mono); font-size: 12px; color: #d7e3f5; }
+    .badge { padding: 5px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+    .browse { color: #bae6fd; background: rgba(56,189,248,.13); border: 1px solid rgba(56,189,248,.28); }
+    .triage { color: #ddd6fe; background: rgba(139,92,246,.14); border: 1px solid rgba(139,92,246,.32); }
+
+    aside {
+      border-left: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(16, 20, 30, .96), rgba(9, 12, 18, .96));
+      padding: 22px;
+      overflow: auto;
+    }
+    .preview-shell { position: sticky; top: 22px; }
+    .preview-card { border: 1px solid var(--line); border-radius: 22px; background: rgba(255,255,255,.035); overflow: hidden; }
+    .preview-top { display:flex; align-items:center; justify-content:space-between; padding: 14px; border-bottom: 1px solid var(--line); }
+    .traffic { display:flex; gap: 6px; }
+    .traffic span { width: 10px; height: 10px; border-radius:50%; background: var(--danger); }
+    .traffic span:nth-child(2) { background: var(--warn); }
+    .traffic span:nth-child(3) { background: var(--good); }
+    .context-select { margin: 18px 0; }
+    .mock-layout { height: 280px; display:grid; grid-template-columns: 92px 1fr; gap: 1px; background: var(--line); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .mock-left, .mock-main { background: #10141d; padding: 12px; }
+    .mini-line { height: 9px; border-radius: 99px; background: rgba(148,163,184,.22); margin-bottom: 9px; }
+    .mini-line.accent { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+    .triage-panel { margin-top: 14px; border: 1px solid rgba(139,92,246,.35); background: rgba(139,92,246,.1); border-radius: 14px; padding: 12px; display:none; }
+    .triage-panel.visible { display:block; }
+    .tree-panel.hidden { opacity: .24; filter: grayscale(1); }
+    .result { padding: 16px; }
+    .result h3 { margin: 0 0 8px; font-size: 15px; }
+    .result p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .state-box {
+      margin-top: 14px; padding: 12px; border-radius: 14px;
+      background: #080b11; border: 1px solid var(--line); color: #a7f3d0;
+      font: 12px/1.5 var(--mono); white-space: pre-wrap;
+    }
+
+    @media (max-width: 1100px) {
+      body { overflow: auto; }
+      .app { height: auto; min-height: calc(100vh - 48px); grid-template-columns: 220px 1fr; }
+      aside { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
+      .preview-shell { position: static; }
+      .grid { grid-template-columns: 1fr; }
+      .precedence { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav aria-label="Settings categories">
+      <div class="brand">
+        <div class="logo" aria-hidden="true"></div>
+        <div><strong>Notesmith</strong><span>Settings</span></div>
+      </div>
+      <div class="nav-label">Workspace</div>
+      <div class="nav-item"><span class="dot"></span>General</div>
+      <div class="nav-item active"><span class="dot"></span>Sidebar Views</div>
+      <div class="nav-item active"><span class="dot"></span>Triage Pane Rules</div>
+      <div class="nav-label">Input</div>
+      <div class="nav-item"><span class="dot"></span>Keyboard</div>
+      <div class="nav-label">System</div>
+      <div class="nav-item"><span class="dot"></span>Advanced</div>
+      <div class="hint-card">
+        Rule changes are evaluated live. Higher-priority matches decide whether the sidebar opens as a browsing tree or a triage queue.
+      </div>
+    </nav>
+
+    <main>
+      <div class="topbar">
+        <div>
+          <h1>Sidebar Views & Triage Pane Rules</h1>
+          <p class="subtitle">Configure startup behavior, default layouts, and dynamic overrides that adapt the left sidebar to inbox review, task execution, customer folders, or normal browsing.</p>
+        </div>
+        <div class="save">
+          <button class="ghost">Reset</button>
+          <button class="primary">Save changes</button>
+        </div>
+      </div>
+
+      <section class="grid">
+        <article class="card">
+          <div class="card-header">
+            <div><h2>Sidebar defaults</h2><p>Global behavior used when no more specific rule matches.</p></div>
+          </div>
+          <div class="card-body">
+            <div class="field">
+              <label for="defaultView">Default view</label>
+              <select id="defaultView">
+                <option>File tree + outline</option>
+                <option selected>Adaptive: browse unless triage applies</option>
+                <option>Triage pane first</option>
+                <option>Minimal focus rail</option>
+              </select>
+            </div>
+            <div class="row">
+              <div><div class="row-title">Enable file tree on startup</div><div class="row-sub">Show the navigable vault tree before context rules run.</div></div>
+              <label class="switch"><input id="startupTree" type="checkbox" checked><span class="slider"></span></label>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-header">
+            <div><h2>Triage targets</h2><p>Fast toggles for folders that should prefer triage workflows.</p></div>
+          </div>
+          <div class="card-body toggles">
+            <div class="row">
+              <div><div class="row-title">Inbox</div><div class="row-sub">Capture notes, unprocessed imports, and daily dump zones.</div></div>
+              <label class="switch"><input data-target="inbox" type="checkbox" checked><span class="slider"></span></label>
+            </div>
+            <div class="row">
+              <div><div class="row-title">Tasks</div><div class="row-sub">Surface actionable items and next steps as lanes.</div></div>
+              <label class="switch"><input data-target="tasks" type="checkbox" checked><span class="slider"></span></label>
+            </div>
+            <div class="row">
+              <div><div class="row-title">Customers</div><div class="row-sub">Use triage only for account-info and open-decision sections.</div></div>
+              <label class="switch"><input data-target="customers" type="checkbox"><span class="slider"></span></label>
+            </div>
+          </div>
+        </article>
+
+        <article class="card full">
+          <div class="card-header">
+            <div><h2>Rule precedence</h2><p>Specific intent wins over general defaults, keeping emergency pins and local folder choices predictable.</p></div>
+          </div>
+          <div class="card-body">
+            <div class="precedence" aria-label="Precedence order">
+              <div class="step"><div class="num">01</div><strong>Pin override</strong><span>Manual pinned mode for current note or folder wins immediately.</span></div>
+              <div class="step"><div class="num">02</div><strong>Section override</strong><span>Frontmatter or heading-level hints choose browse or triage.</span></div>
+              <div class="step"><div class="num">03</div><strong>View default</strong><span>The active workspace view supplies its preferred sidebar mode.</span></div>
+              <div class="step"><div class="num">04</div><strong>Global default</strong><span>Fallback from Sidebar defaults when nothing else matches.</span></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card full">
+          <div class="card-header">
+            <div><h2>Editable dynamic rules</h2><p>Rules are evaluated from lowest priority number to highest; disabled rows are skipped.</p></div>
+            <button class="ghost" id="addRule">+ Add rule</button>
+          </div>
+          <div class="card-body" style="overflow:auto;">
+            <table>
+              <thead>
+                <tr><th>Priority</th><th>Scope</th><th>Match</th><th>Action</th><th>Enabled</th></tr>
+              </thead>
+              <tbody id="rulesBody">
+                <tr>
+                  <td><input type="number" value="10"></td>
+                  <td><select><option>View</option><option selected>Folder</option><option>Section</option></select></td>
+                  <td><input type="text" value="Inbox/**"></td>
+                  <td><select><option>Browse</option><option selected>Triage</option></select></td>
+                  <td><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td>
+                </tr>
+                <tr>
+                  <td><input type="number" value="20"></td>
+                  <td><select><option>View</option><option selected>Section</option><option>Folder</option></select></td>
+                  <td><input type="text" value="# Action Items"></td>
+                  <td><select><option>Browse</option><option selected>Triage</option></select></td>
+                  <td><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td>
+                </tr>
+                <tr>
+                  <td><input type="number" value="30"></td>
+                  <td><select><option>View</option><option>Section</option><option selected>Folder</option></select></td>
+                  <td><input type="text" value="Customers/*/Research/**"></td>
+                  <td><select><option selected>Browse</option><option>Triage</option></select></td>
+                  <td><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td>
+                </tr>
+                <tr>
+                  <td><input type="number" value="90"></td>
+                  <td><select><option selected>View</option><option>Section</option><option>Folder</option></select></td>
+                  <td><input type="text" value="Daily Review"></td>
+                  <td><select><option>Browse</option><option selected>Triage</option></select></td>
+                  <td><label class="switch"><input type="checkbox"><span class="slider"></span></label></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="card full">
+          <div class="card-header">
+            <div><h2>Per-folder override examples</h2><p>Folder-specific exceptions make the adaptive model legible without requiring users to think about the whole rule stack.</p></div>
+          </div>
+          <div class="card-body folder-overrides">
+            <div class="override"><span class="path">Inbox/Daily/**</span><span class="badge triage">Triage</span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+            <div class="override"><span class="path">Tasks/Open/**</span><span class="badge triage">Triage</span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+            <div class="override"><span class="path">Customers/*/Account Info.md</span><span class="badge triage">Triage</span><label class="switch"><input type="checkbox"><span class="slider"></span></label></div>
+            <div class="override"><span class="path">Customers/*/Research/**</span><span class="badge browse">Browse</span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <aside>
+      <div class="preview-shell">
+        <div class="preview-top">
+          <strong>Live preview</strong>
+          <div class="traffic" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+        <div class="context-select">
+          <label for="context">Selected context</label>
+          <select id="context">
+            <option value="Inbox/Daily/2026-05-11.md">Inbox/Daily/2026-05-11.md</option>
+            <option value="Tasks/Open/Renewal followup.md">Tasks/Open/Renewal followup.md</option>
+            <option value="Customers/Acme/Account Info.md">Customers/Acme/Account Info.md</option>
+            <option value="Customers/Acme/Research/Discovery.md">Customers/Acme/Research/Discovery.md</option>
+            <option value="Areas/Product/Notesmith Roadmap.md">Areas/Product/Notesmith Roadmap.md</option>
+          </select>
+        </div>
+
+        <div class="preview-card">
+          <div class="mock-layout">
+            <div class="mock-left tree-panel" id="treePanel">
+              <div class="mini-line accent"></div>
+              <div class="mini-line" style="width:82%"></div>
+              <div class="mini-line" style="width:58%"></div>
+              <div class="mini-line" style="width:74%"></div>
+              <div class="mini-line" style="width:46%"></div>
+            </div>
+            <div class="mock-main">
+              <div class="mini-line" style="width:42%"></div>
+              <div class="mini-line" style="width:70%"></div>
+              <div class="mini-line" style="width:63%"></div>
+              <div class="triage-panel" id="triagePanel">
+                <div class="chips"><span class="chip good">Ready</span><span class="chip warn">Needs routing</span><span class="chip">Later</span></div>
+                <div class="mini-line accent" style="margin-top:14px;width:86%"></div>
+                <div class="mini-line" style="width:64%"></div>
+                <div class="mini-line" style="width:72%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="result">
+            <h3 id="previewTitle">Triage pane enabled</h3>
+            <p id="previewText">Inbox rule matched. The file tree stays available, while the primary sidebar space becomes a triage queue.</p>
+            <div class="state-box" id="stateBox"></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const contextSelect = document.getElementById('context');
+    const triagePanel = document.getElementById('triagePanel');
+    const treePanel = document.getElementById('treePanel');
+    const previewTitle = document.getElementById('previewTitle');
+    const previewText = document.getElementById('previewText');
+    const stateBox = document.getElementById('stateBox');
+    const startupTree = document.getElementById('startupTree');
+
+    function toggleState(name) {
+      return document.querySelector(`[data-target="${name}"]`)?.checked ?? false;
+    }
+
+    function computeMode(path) {
+      if (path.startsWith('Inbox/')) return toggleState('inbox') ? ['Triage', 'Folder rule: Inbox/**'] : ['Browse', 'Inbox triage toggle is off'];
+      if (path.startsWith('Tasks/')) return toggleState('tasks') ? ['Triage', 'Folder rule: Tasks/Open/**'] : ['Browse', 'Tasks triage toggle is off'];
+      if (path.includes('/Account Info.md')) return toggleState('customers') ? ['Triage', 'Customer account override'] : ['Browse', 'Customers triage toggle is off'];
+      if (path.includes('/Research/')) return ['Browse', 'Folder override: Customers/*/Research/**'];
+      return ['Browse', 'Global default after no rule match'];
+    }
+
+    function updatePreview() {
+      const path = contextSelect.value;
+      const [mode, reason] = computeMode(path);
+      const tree = startupTree.checked;
+      const triage = mode === 'Triage';
+      triagePanel.classList.toggle('visible', triage);
+      treePanel.classList.toggle('hidden', !tree);
+      previewTitle.textContent = triage ? 'Triage pane enabled' : 'Browse mode enabled';
+      previewText.textContent = `${reason}. ${tree ? 'The file tree remains visible for navigation.' : 'The startup file tree is hidden until manually opened.'}`;
+      stateBox.textContent = JSON.stringify({ context: path, layoutMode: mode, fileTreeOnStartup: tree, matchedBy: reason }, null, 2);
+    }
+
+    document.querySelectorAll('input, select').forEach(el => el.addEventListener('change', updatePreview));
+    document.getElementById('addRule').addEventListener('click', () => {
+      const row = document.createElement('tr');
+      row.innerHTML = `<td><input type="number" value="40"></td><td><select><option>View</option><option>Section</option><option selected>Folder</option></select></td><td><input type="text" value="Projects/**"></td><td><select><option selected>Browse</option><option>Triage</option></select></td><td><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td>`;
+      document.getElementById('rulesBody').appendChild(row);
+      row.querySelectorAll('input, select').forEach(el => el.addEventListener('change', updatePreview));
+      updatePreview();
+    });
+    updatePreview();
+  </script>
+</body>
+</html>
