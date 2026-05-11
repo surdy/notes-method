@@ -44,6 +44,12 @@
 - When adding new styled components, always verify text visibility on the dark background (`--bg-primary: #1e1e1e`, `--sidebar-bg: #252526`). Use `var(--text-primary, #e0e0e0)` for primary text and `var(--text-muted, #888)` for secondary text.
 - Never leave a `<button>` or `<input>` without an explicit `color` declaration in its scoped CSS — the global reset is a safety net, not a substitute.
 
+## CodeMirror Decorations
+
+- Do not provide block decorations (`Decoration.widget({ block: true })`) from `ViewPlugin.decorations`; CodeMirror rejects them. Use a `StateField` with `EditorView.decorations.from(field)` and update it via state effects.
+- When building decoration sets from mixed line, mark, replace, or widget decorations, prefer `Decoration.set(ranges, true)` unless the ordering is proven valid. This avoids `Ranges must be added sorted by from position and startSide` crashes.
+- Validate CodeMirror decoration changes with a headless browser flow against notes containing the relevant syntax (SQL fences, frontmatter, tasks, callouts), not just TypeScript checks.
+
 ## Sub-Agent Delegation
 
 - Use sub-agents (via the `task` tool) to parallelize independent work and to delegate complex implementation that benefits from a focused context window.

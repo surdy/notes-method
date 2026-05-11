@@ -1,4 +1,4 @@
-import { RangeSetBuilder, type Extension } from '@codemirror/state';
+import { type Extension, type Range } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import type { NoteSummary, TaskMutationStatus } from '$lib/api';
 
@@ -104,7 +104,7 @@ return plugin;
 }
 
 function buildDecorations(view: EditorView, options: OFMDecorationOptions): DecorationSet {
-const builder = new RangeSetBuilder<Decoration>();
+const decorations: Range<Decoration>[] = [];
 const taskHashes = options.taskHashes();
 let inFrontmatter = false;
 let inCodeFence = false;
@@ -116,15 +116,15 @@ const trimmed = text.trimStart();
 
 if (lineNumber === 1 && text === '---') {
 inFrontmatter = true;
-addLineClass(builder, line.from, 'cm-frontmatter-line');
-addMark(builder, line.from, line.to, 'cm-frontmatter-delimiter');
+addLineClass(decorations, line.from, 'cm-frontmatter-line');
+addMark(decorations, line.from, line.to, 'cm-frontmatter-delimiter');
 continue;
 }
 
 if (inFrontmatter) {
-addLineClass(builder, line.from, 'cm-frontmatter-line');
+addLineClass(decorations, line.from, 'cm-frontmatter-line');
 if (text === '---') {
-addMark(builder, line.from, line.to, 'cm-frontmatter-delimiter');
+addMark(decorations, line.from, line.to, 'cm-frontmatter-delimiter');
 inFrontmatter = false;
 }
 continue;
@@ -144,12 +144,13 @@ const markerEnd = markerStart + 3;
 const taskHash = taskHashes.get(text) ?? null;
 const status = markerToStatus(taskMatch[2]);
 if (status) {
-builder.add(
-markerStart,
-markerEnd,
+decorations.push(
 Decoration.replace({
 widget: new TaskCheckboxWidget(status, taskHash, options.onTaskToggle)
-})
+}).range(
+markerStart,
+markerEnd
+)
 );
 }
 }
@@ -160,7 +161,7 @@ const prefix = text.indexOf('[!');
 if (prefix >= 0) {
 const calloutText = `[!${calloutMatch[1]}]`;
 const from = line.from + prefix;
-addMark(builder, from, from + calloutText.length, 'cm-ofm-callout');
+addMark(decorations, from, from + calloutText.length, 'cm-ofm-callout');
 }
 }
 
@@ -169,7 +170,7 @@ const raw = match[0];
 const target = match[1]?.trim();
 if (!target || match.index === undefined) continue;
 addMark(
-builder,
+decorations,
 line.from + match.index,
 line.from + match.index + raw.length,
 'cm-ofm-wikilink',
@@ -182,7 +183,7 @@ if (match.index === undefined) continue;
 const prefixLength = match[1]?.length ?? 0;
 const tagText = `#${match[2]}`;
 const from = line.from + match.index + prefixLength;
-addMark(builder, from, from + tagText.length, 'cm-ofm-tag');
+addMark(decorations, from, from + tagText.length, 'cm-ofm-tag');
 }
 
 for (const match of text.matchAll(INLINE_FIELD_RE)) {
@@ -190,9 +191,9 @@ if (match.index === undefined) continue;
 const leading = match[1]?.length ?? 0;
 const key = match[2];
 const keyFrom = line.from + match.index + leading;
-addMark(builder, keyFrom, keyFrom + key.length, 'cm-ofm-inline-field-key');
+addMark(decorations, keyFrom, keyFrom + key.length, 'cm-ofm-inline-field-key');
 addMark(
-builder,
+decorations,
 keyFrom + key.length,
 keyFrom + key.length + 2,
 'cm-ofm-inline-field-delimiter'
@@ -200,27 +201,28 @@ keyFrom + key.length + 2,
 }
 }
 
-return builder.finish();
+return Decoration.set(decorations, true);
 }
 
-function addLineClass(builder: RangeSetBuilder<Decoration>, at: number, className: string) {
-builder.add(at, at, Decoration.line({ class: className }));
+function addLineClass(decorations: Range<Decoration>[], at: number, className: string) {
+decorations.push(Decoration.line({ class: className }).range(at));
 }
 
 function addMark(
-builder: RangeSetBuilder<Decoration>,
+decorations: Range<Decoration>[],
 from: number,
 to: number,
 className: string,
 attributes?: Record<string, string>
 ) {
-builder.add(
-from,
-to,
+decorations.push(
 Decoration.mark({
 class: className,
 attributes
-})
+}).range(
+from,
+to
+)
 );
 }
 

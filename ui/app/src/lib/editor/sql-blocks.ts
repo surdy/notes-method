@@ -1,4 +1,4 @@
-import { RangeSetBuilder, StateEffect, type Extension } from '@codemirror/state';
+import { RangeSetBuilder, StateEffect, StateField, type Extension } from '@codemirror/state';
 import {
 	Decoration,
 	type DecorationSet,
@@ -18,17 +18,33 @@ interface SqlBlockQueryState {
 	token: number;
 }
 
-const sqlBlocksInvalidated = StateEffect.define<void>();
+const setSqlBlockDecorations = StateEffect.define<DecorationSet>();
 export const refreshSqlBlockResults = StateEffect.define<number>();
 
-export function createSqlBlockPlugin(vault: () => string): Extension {
-	return ViewPlugin.fromClass(
-		class {
-			decorations: DecorationSet = Decoration.none;
+const sqlBlockDecorationsField = StateField.define<DecorationSet>({
+	create() {
+		return Decoration.none;
+	},
+	update(decorations, transaction) {
+		for (const effect of transaction.effects) {
+			if (effect.is(setSqlBlockDecorations)) {
+				return effect.value;
+			}
+		}
+		return transaction.docChanged ? decorations.map(transaction.changes) : decorations;
+	},
+	provide: (field) => EditorView.decorations.from(field)
+});
 
+export function createSqlBlockPlugin(vault: () => string): Extension {
+	return [
+		sqlBlockDecorationsField,
+		ViewPlugin.fromClass(
+		class {
 			private blocks: SqlBlock[] = [];
 			private cache = new Map<string, SqlBlockQueryState>();
 			private debounceHandle: number | null = null;
+			private decorationHandle: number | null = null;
 			private requestToken = 0;
 			private destroyed = false;
 			private readonly view: EditorView;
@@ -36,7 +52,7 @@ export function createSqlBlockPlugin(vault: () => string): Extension {
 			constructor(view: EditorView) {
 				this.view = view;
 				this.blocks = findSqlBlocks(view.state.doc.toString());
-				this.decorations = this.buildDecorations();
+				this.scheduleDecorationUpdate();
 				this.scheduleQueries(true, 0);
 			}
 
@@ -44,26 +60,17 @@ export function createSqlBlockPlugin(vault: () => string): Extension {
 				const refreshRequested = update.transactions.some((transaction) =>
 					transaction.effects.some((effect) => effect.is(refreshSqlBlockResults))
 				);
-				const invalidateRequested = update.transactions.some((transaction) =>
-					transaction.effects.some((effect) => effect.is(sqlBlocksInvalidated))
-				);
-
 				if (update.docChanged) {
 					this.blocks = findSqlBlocks(update.state.doc.toString());
-					this.decorations = this.buildDecorations();
+					this.scheduleDecorationUpdate();
 					this.scheduleQueries(false, 500);
 					return;
 				}
 
 				if (refreshRequested) {
 					this.markActiveBlocksLoading();
-					this.decorations = this.buildDecorations();
+					this.scheduleDecorationUpdate();
 					this.scheduleQueries(true, 0);
-					return;
-				}
-
-				if (invalidateRequested) {
-					this.decorations = this.buildDecorations();
 				}
 			}
 
@@ -71,6 +78,9 @@ export function createSqlBlockPlugin(vault: () => string): Extension {
 				this.destroyed = true;
 				if (this.debounceHandle !== null) {
 					window.clearTimeout(this.debounceHandle);
+				}
+				if (this.decorationHandle !== null) {
+					window.clearTimeout(this.decorationHandle);
 				}
 			}
 
@@ -150,11 +160,26 @@ export function createSqlBlockPlugin(vault: () => string): Extension {
 			}
 
 			private invalidateDecorations() {
+				this.scheduleDecorationUpdate();
+			}
+
+			private scheduleDecorationUpdate() {
 				if (this.destroyed) {
 					return;
 				}
+				if (this.decorationHandle !== null) {
+					return;
+				}
 
-				this.view.dispatch({ effects: sqlBlocksInvalidated.of(undefined) });
+				this.decorationHandle = window.setTimeout(() => {
+					this.decorationHandle = null;
+					if (this.destroyed) {
+						return;
+					}
+					this.view.dispatch({
+						effects: setSqlBlockDecorations.of(this.buildDecorations())
+					});
+				}, 0);
 			}
 
 			private buildDecorations(): DecorationSet {
@@ -183,11 +208,9 @@ export function createSqlBlockPlugin(vault: () => string): Extension {
 
 				return builder.finish();
 			}
-		},
-		{
-			decorations: (plugin) => plugin.decorations
 		}
-	);
+		)
+	];
 }
 
 class SqlResultWidget extends WidgetType {
