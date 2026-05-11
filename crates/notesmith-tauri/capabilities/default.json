@@ -6,6 +6,26 @@
   "permissions": [
     "core:default",
     "shell:allow-open",
-    "deep-link:default"
+    "deep-link:default",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "binaries/notesmith",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    },
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/notesmith",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    }
   ]
 }

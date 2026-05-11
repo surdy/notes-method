@@ -1,4 +1,4 @@
-use std::{future::Future, io, process::Stdio, time::Duration};
+use std::{future::Future, io, path::PathBuf, process::Stdio, time::Duration};
 use tokio::time::Instant;
 
 pub type DynError = Box<dyn std::error::Error + Send + Sync>;
@@ -11,6 +11,9 @@ const START_COMMAND: [&str; 2] = ["daemon", "start"];
 pub struct DaemonSettings {
     pub daemon_url: String,
     pub daemon_bin: String,
+    /// When set, use this path instead of `daemon_bin` for spawning.
+    /// Populated from Tauri sidecar resolution at app startup.
+    pub sidecar_path: Option<PathBuf>,
     pub ping_timeout: Duration,
     pub startup_wait: Duration,
     pub startup_poll_interval: Duration,
@@ -23,6 +26,7 @@ impl Default for DaemonSettings {
                 .unwrap_or_else(|_| DEFAULT_DAEMON_URL.to_string()),
             daemon_bin: std::env::var("NOTESMITH_DESKTOP_DAEMON_BIN")
                 .unwrap_or_else(|_| DEFAULT_DAEMON_BIN.to_string()),
+            sidecar_path: None,
             ping_timeout: Duration::from_secs(2),
             startup_wait: Duration::from_secs(10),
             startup_poll_interval: Duration::from_millis(500),
@@ -33,6 +37,14 @@ impl Default for DaemonSettings {
 impl DaemonSettings {
     pub fn ping_url(&self) -> String {
         format!("{}/ping", self.daemon_url.trim_end_matches('/'))
+    }
+
+    /// Returns the program to execute: sidecar path if available, otherwise the bin name from PATH.
+    pub fn program(&self) -> &str {
+        self.sidecar_path
+            .as_deref()
+            .and_then(|p| p.to_str())
+            .unwrap_or(&self.daemon_bin)
     }
 }
 
@@ -95,7 +107,11 @@ pub async fn is_daemon_running() -> bool {
 }
 
 pub async fn ensure_daemon_running() -> Result<(), DynError> {
-    DaemonSupervisor::new(DaemonSettings::default(), probe_daemon, launch_daemon)
+    ensure_daemon_running_with(DaemonSettings::default()).await
+}
+
+pub async fn ensure_daemon_running_with(settings: DaemonSettings) -> Result<(), DynError> {
+    DaemonSupervisor::new(settings, probe_daemon, launch_daemon)
         .ensure_running()
         .await
 }
@@ -121,7 +137,9 @@ async fn probe_daemon(settings: DaemonSettings) -> bool {
 }
 
 async fn launch_daemon(settings: DaemonSettings) -> Result<(), DynError> {
-    let mut command = tokio::process::Command::new(&settings.daemon_bin);
+    let program = settings.program().to_string();
+    tracing::info!("launching daemon: {program} {:?}", START_COMMAND);
+    let mut command = tokio::process::Command::new(&program);
     command
         .args(START_COMMAND)
         .stdin(Stdio::null())
@@ -164,6 +182,7 @@ mod tests {
         DaemonSettings {
             daemon_url: "http://127.0.0.1:27183".into(),
             daemon_bin: "notesmith".into(),
+            sidecar_path: None,
             ping_timeout: std::time::Duration::from_millis(5),
             startup_wait: std::time::Duration::from_millis(30),
             startup_poll_interval: std::time::Duration::from_millis(5),
@@ -273,5 +292,23 @@ mod tests {
         assert!(error.to_string().contains("failed to start"));
         assert_eq!(launches.load(Ordering::SeqCst), 1);
         assert!(probe_calls.load(Ordering::SeqCst) > 1);
+    }
+
+    #[test]
+    fn program_returns_sidecar_path_when_set() {
+        let mut settings = test_settings();
+        settings.sidecar_path = Some(std::path::PathBuf::from(
+            "/app/bin/notesmith-aarch64-apple-darwin",
+        ));
+        assert_eq!(
+            settings.program(),
+            "/app/bin/notesmith-aarch64-apple-darwin"
+        );
+    }
+
+    #[test]
+    fn program_falls_back_to_daemon_bin_when_no_sidecar() {
+        let settings = test_settings();
+        assert_eq!(settings.program(), "notesmith");
     }
 }

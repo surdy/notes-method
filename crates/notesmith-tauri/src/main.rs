@@ -1,8 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use notesmith_tauri::daemon::{self, DynError};
+use notesmith_tauri::daemon::{self, DaemonSettings, DynError};
 use tauri::{
     AppHandle, Manager, RunEvent, Runtime, WebviewWindowBuilder,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
@@ -66,11 +67,43 @@ fn main() {
 }
 
 fn initialize_app<R: Runtime>(app: &tauri::App<R>) -> Result<(), DynError> {
-    tauri::async_runtime::block_on(daemon::ensure_daemon_running())?;
+    let settings = DaemonSettings {
+        sidecar_path: resolve_sidecar_path(),
+        ..Default::default()
+    };
+    tauri::async_runtime::block_on(daemon::ensure_daemon_running_with(settings))?;
     setup_tray(app.handle())?;
     setup_deep_links(app.handle())?;
     show_main_window(app.handle())?;
     Ok(())
+}
+
+/// Resolve the bundled notesmith sidecar binary path.
+///
+/// In a packaged app, the sidecar lives next to the main executable with a
+/// target-triple suffix (e.g. `notesmith-aarch64-apple-darwin`). In dev mode
+/// the sidecar won't exist, so we return `None` and fall back to `PATH`.
+fn resolve_sidecar_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let exe_dir = exe.parent()?;
+
+    let target_triple = option_env!("TAURI_ENV_TARGET_TRIPLE")
+        .or(option_env!("TARGET"))
+        .unwrap_or(env!("TARGET_TRIPLE"));
+
+    let extension = if cfg!(windows) { ".exe" } else { "" };
+    let sidecar = exe_dir.join(format!("notesmith-{target_triple}{extension}"));
+
+    if sidecar.exists() {
+        tracing::info!("resolved sidecar: {}", sidecar.display());
+        Some(sidecar)
+    } else {
+        tracing::info!(
+            "sidecar not found at {}; falling back to PATH",
+            sidecar.display()
+        );
+        None
+    }
 }
 
 fn setup_deep_links<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
@@ -111,7 +144,11 @@ fn handle_deep_link<R: Runtime>(app: &AppHandle<R>, parsed: notesmith_core::Note
         NotesmithUrl::Search { vault, query } => {
             navigate_webview(app, &format!("/vault/{vault}/search?q={query}"));
         }
-        NotesmithUrl::New { vault, template, folder } => {
+        NotesmithUrl::New {
+            vault,
+            template,
+            folder,
+        } => {
             let mut route = format!("/vault/{vault}/new");
             let mut params = Vec::new();
             if let Some(t) = template {
@@ -141,7 +178,12 @@ fn handle_deep_link<R: Runtime>(app: &AppHandle<R>, parsed: notesmith_core::Note
                 }
             });
         }
-        NotesmithUrl::Task { vault, path, line_hash, status } => {
+        NotesmithUrl::Task {
+            vault,
+            path,
+            line_hash,
+            status,
+        } => {
             let url = format!("{daemon_base}/api/v/{vault}/tasks/toggle");
             let body = serde_json::json!({
                 "path": path,
@@ -163,7 +205,10 @@ fn handle_deep_link<R: Runtime>(app: &AppHandle<R>, parsed: notesmith_core::Note
         NotesmithUrl::Command { command_name, .. } => {
             navigate_webview(app, &format!("/command/{command_name}"));
         }
-        NotesmithUrl::UserAction { action_name, params } => {
+        NotesmithUrl::UserAction {
+            action_name,
+            params,
+        } => {
             tracing::info!("user action: {action_name} (params: {params:?})");
             // User actions are best handled via the CLI; log and navigate to a status page
             navigate_webview(app, &format!("/action/{action_name}"));
