@@ -8,8 +8,10 @@ import {
 	restoreTabState,
 	serializeTabState,
 	switchToTab as switchToTabState,
+	toggleViewMode as toggleViewModeState,
 	type Tab,
-	type TabState
+	type TabState,
+	type ViewMode
 } from './tab-state';
 
 export interface FolderNode {
@@ -19,7 +21,7 @@ export interface FolderNode {
 	notes: NoteSummary[];
 }
 
-export type { Tab } from './tab-state';
+export type { Tab, ViewMode } from './tab-state';
 
 class VaultStore {
 	currentVault = $state('');
@@ -38,6 +40,10 @@ class VaultStore {
 
 	get activeTab(): Tab | null {
 		return this.tabs[this.activeTabIndex] ?? null;
+	}
+
+	get activeViewMode(): ViewMode {
+		return this.activeTab?.viewMode ?? 'source';
 	}
 
 	async loadNotes() {
@@ -86,6 +92,11 @@ class VaultStore {
 
 	moveTab(fromIndex: number, toIndex: number) {
 		this._applyTabState(moveTabState(this._tabState(), fromIndex, toIndex));
+		this._persistTabs();
+	}
+
+	toggleViewMode() {
+		this._applyTabState(toggleViewModeState(this._tabState()));
 		this._persistTabs();
 	}
 

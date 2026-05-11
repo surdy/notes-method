@@ -1,39 +1,47 @@
 <script lang="ts">
-	import { getNote, getNoteHtml } from '$lib/api';
+	import { getNote, getNoteHtml, toggleTaskStatus, type NoteTask, type TaskMutationStatus } from '$lib/api';
 	import { vaultStore } from '$lib/stores.svelte';
 
 	let html = $state('');
 	let frontmatter = $state<Record<string, unknown>>({});
+	let tasks = $state<NoteTask[]>([]);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 
+	interface Props {
+		path: string | null;
+	}
+
+	let { path }: Props = $props();
+
 	$effect(() => {
-		const path = vaultStore.selectedPath;
 		if (path) {
 			void loadNote(path);
 		} else {
 			html = '';
 			frontmatter = {};
+			tasks = [];
 		}
 	});
 
-	async function loadNote(path: string) {
+	async function loadNote(notePath: string) {
 		loading = true;
 		error = null;
 
 		try {
 			const [htmlRes, noteRes] = await Promise.all([
-				getNoteHtml(vaultStore.currentVault, path),
-				getNote(vaultStore.currentVault, path)
+				getNoteHtml(vaultStore.currentVault, notePath),
+				getNote(vaultStore.currentVault, notePath)
 			]);
-			if (vaultStore.selectedPath !== path) return;
+			if (path !== notePath) return;
 
 			html = htmlRes;
 			frontmatter = noteRes.frontmatter ?? {};
+			tasks = noteRes.tasks ?? [];
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Failed to load note';
 		} finally {
-			if (vaultStore.selectedPath === path) {
+			if (path === notePath) {
 				loading = false;
 			}
 		}
@@ -41,6 +49,15 @@
 
 	function handleClick(event: MouseEvent) {
 		const target = event.target as HTMLElement;
+
+		// Handle task checkbox clicks
+		if (target instanceof HTMLInputElement && target.type === 'checkbox') {
+			event.preventDefault();
+			void handleTaskToggle(target);
+			return;
+		}
+
+		// Handle wikilink clicks
 		const link = target.closest('a.wikilink') as HTMLAnchorElement | null;
 		if (!link) return;
 
@@ -58,10 +75,34 @@
 			vaultStore.selectNote(match.path);
 		}
 	}
+
+	async function handleTaskToggle(checkbox: HTMLInputElement) {
+		if (!path) return;
+
+		// Find this checkbox's index among all checkboxes in the rendered HTML
+		const container = checkbox.closest('.content');
+		if (!container) return;
+
+		const allCheckboxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
+		const checkboxIndex = allCheckboxes.indexOf(checkbox);
+		if (checkboxIndex < 0 || checkboxIndex >= tasks.length) return;
+
+		const task = tasks[checkboxIndex];
+		if (!task?.content_hash) return;
+
+		const newStatus: TaskMutationStatus = task.status === 'done' ? 'todo' : 'done';
+
+		try {
+			await toggleTaskStatus(vaultStore.currentVault, path, task.content_hash, newStatus);
+			await loadNote(path);
+		} catch (cause) {
+			console.error('Failed to toggle task', cause);
+		}
+	}
 </script>
 
 <div class="note-viewer">
-	{#if !vaultStore.selectedPath}
+	{#if !path}
 		<div class="empty-state">
 			<p>Select a note from the sidebar to view it</p>
 		</div>
@@ -196,6 +237,15 @@
 	.content :global(.callout-tip) {
 		border-color: #50c878;
 		background: #1a3d2a;
+	}
+
+	.content :global(input[type='checkbox']) {
+		cursor: pointer;
+		pointer-events: auto;
+	}
+
+	.content :global(li) {
+		color: var(--text-primary, #e0e0e0);
 	}
 
 	.loading,

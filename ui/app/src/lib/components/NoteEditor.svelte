@@ -288,6 +288,13 @@ if (!view) {
 view.dispatch({ effects: refreshSqlBlockResults.of(Date.now()) });
 }
 
+export async function flushSave() {
+if (!view || !dirty) {
+	return;
+}
+await autoSave.flush(view.state.doc.toString());
+}
+
 async function handleReload() {
 if (!currentPath) {
 return;

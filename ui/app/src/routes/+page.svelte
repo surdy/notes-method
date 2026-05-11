@@ -3,6 +3,8 @@ import { onMount } from 'svelte';
 import { buildCommands, OPEN_QUICK_SWITCHER_EVENT } from '$lib/commands';
 import CommandPalette from '$lib/components/CommandPalette.svelte';
 import NoteEditor from '$lib/components/NoteEditor.svelte';
+import NoteToolbar from '$lib/components/NoteToolbar.svelte';
+import NoteViewer from '$lib/components/NoteViewer.svelte';
 import QuickSwitcher from '$lib/components/QuickSwitcher.svelte';
 import RightRail from '$lib/components/RightRail.svelte';
 import SidebarViews from '$lib/components/SidebarViews.svelte';
@@ -18,7 +20,7 @@ let showQuickSwitcher = $state(false);
 let sseConnection: EventSource | null = null;
 let sidebarViewsRef: { refresh: () => void } | null = null;
 let noteEditorRef:
-	| { handleExternalChange: (path: string) => void; refreshSqlBlocks: () => void }
+	| { handleExternalChange: (path: string) => void; refreshSqlBlocks: () => void; flushSave: () => Promise<void> }
 	| null = null;
 let rightRailRef: { refresh: () => void; toggle: () => void } | null = null;
 
@@ -45,6 +47,13 @@ void Promise.resolve(command.execute()).catch((error) => {
 console.error(`Failed to execute command: ${commandId}`, error);
 });
 }
+}
+
+async function handleToggleView() {
+if (vaultStore.activeViewMode === 'source') {
+await noteEditorRef?.flushSave();
+}
+vaultStore.toggleViewMode();
 }
 
 onMount(() => {
@@ -100,6 +109,7 @@ const unregister = registerHotkeys([
 { key: 'i', meta: true, shift: true, action: () => runCommand('inbox-capture') },
 { key: 'n', meta: true, shift: true, action: () => runCommand('new-from-template') },
 { key: 's', meta: true, action: () => {} },
+{ key: 'e', meta: true, action: () => void handleToggleView() },
 { key: 't', meta: true, shift: true, action: () => vaultStore.reopenLastTab() },
 { key: '\\', meta: true, action: () => rightRailRef?.toggle() },
 { key: 'f', meta: true, shift: true, action: openQuickSwitcher }
@@ -131,7 +141,12 @@ unregister();
 
 <main class="content-area">
 <TabBar />
+<NoteToolbar />
+{#if vaultStore.activeViewMode === 'reading'}
+<NoteViewer path={vaultStore.selectedPath} />
+{:else}
 <NoteEditor bind:this={noteEditorRef} />
+{/if}
 </main>
 
 <aside class="right-rail-shell">

@@ -1,9 +1,12 @@
 import type { NoteSummary } from './api';
 
+export type ViewMode = 'source' | 'reading';
+
 export interface Tab {
 	path: string;
 	title: string;
 	dirty: boolean;
+	viewMode: ViewMode;
 }
 
 export interface TabState {
@@ -14,7 +17,7 @@ export interface TabState {
 }
 
 export interface PersistedTabState {
-	tabs: Array<Pick<Tab, 'path' | 'title'>>;
+	tabs: Array<Pick<Tab, 'path' | 'title'> & { viewMode?: ViewMode }>;
 	activeIndex: number;
 }
 
@@ -29,7 +32,7 @@ export function openTab(state: TabState, path: string, notes: NoteSummary[]): Ta
 	}
 
 	const title = resolveTabTitle(path, notes);
-	const tabs = [...state.tabs, { path, title, dirty: false }];
+	const tabs = [...state.tabs, { path, title, dirty: false, viewMode: 'source' as ViewMode }];
 
 	return {
 		...state,
@@ -137,9 +140,24 @@ export function moveTab(state: TabState, fromIndex: number, toIndex: number): Ta
 	};
 }
 
+export function toggleViewMode(state: TabState): TabState {
+	if (state.activeTabIndex < 0 || state.activeTabIndex >= state.tabs.length) {
+		return state;
+	}
+
+	return {
+		...state,
+		tabs: state.tabs.map((tab, index) =>
+			index === state.activeTabIndex
+				? { ...tab, viewMode: tab.viewMode === 'source' ? 'reading' : 'source' }
+				: tab
+		)
+	};
+}
+
 export function serializeTabState(state: Pick<TabState, 'tabs' | 'activeTabIndex'>): string {
 	return JSON.stringify({
-		tabs: state.tabs.map(({ path, title }) => ({ path, title })),
+		tabs: state.tabs.map(({ path, title, viewMode }) => ({ path, title, viewMode })),
 		activeIndex: state.activeTabIndex
 	} satisfies PersistedTabState);
 }
@@ -160,7 +178,8 @@ export function restoreTabState(stored: string | null): Omit<TabState, 'recently
 			.map((tab) => ({
 				path: tab.path,
 				title: tab.title,
-				dirty: false
+				dirty: false,
+				viewMode: (tab.viewMode === 'reading' ? 'reading' : 'source') as ViewMode
 			}));
 		const activeTabIndex =
 			typeof parsed.activeIndex === 'number' &&

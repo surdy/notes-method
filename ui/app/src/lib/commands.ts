@@ -254,6 +254,15 @@ await vaultStore.loadNotes();
 notifyError('Failed to route inbox notes.', cause);
 }
 }
+},
+{
+id: 'toggle-view',
+label: 'Toggle Reading/Editing View',
+category: 'Navigation',
+shortcut: '⌘E',
+execute: () => {
+vaultStore.toggleViewMode();
+}
 }
 ];
 }
