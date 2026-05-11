@@ -141,7 +141,7 @@ fn main() {
 SELECT path, title, type
 FROM v_notes
 WHERE type = 'stream'
-ORDER BY updated DESC
+ORDER BY updated_at DESC
 ```
 
 Inline code with OFM syntax that should be ignored: `[[not a link]]` and `#not-a-tag` and `[not:: a field]`.

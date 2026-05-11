@@ -18,7 +18,12 @@ SELECT COUNT(*) as inbox_count FROM v_notes WHERE path LIKE 'Inbox/%'
 ## Active Streams
 
 ```notesmith sql
-SELECT path, title, status, priority, customer
+SELECT
+  path,
+  title,
+  status,
+  json_extract(frontmatter_json, '$.priority') AS priority,
+  customer
 FROM v_notes
 WHERE type = 'stream' AND status = 'In Progress'
 ORDER BY priority
@@ -27,5 +32,8 @@ ORDER BY priority
 ## Recent Notes
 
 ```notesmith sql
-SELECT path, title, updated FROM v_notes ORDER BY updated DESC LIMIT 10
+SELECT path, title, updated_at
+FROM v_notes
+ORDER BY updated_at DESC
+LIMIT 10
 ```
