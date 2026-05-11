@@ -143,7 +143,7 @@ async fn set_cache_headers(
     } else if path.starts_with("/app") {
         response.headers_mut().insert(
             header::CACHE_CONTROL,
-            header::HeaderValue::from_static("no-cache"),
+            header::HeaderValue::from_static("no-cache, no-store, must-revalidate"),
         );
     }
     response
