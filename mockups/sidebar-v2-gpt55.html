@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Approach A — Contextual Pane Policy</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080b12;
+      --panel: #0e1420;
+      --panel-2: #121a29;
+      --panel-3: #162237;
+      --line: #253149;
+      --text: #e8edf7;
+      --muted: #8f9bb2;
+      --accent: #8b5cf6;
+      --accent-2: #22d3ee;
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --shadow: rgba(0,0,0,.35);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 20% 10%, rgba(139,92,246,.24), transparent 28rem),
+        radial-gradient(circle at 85% 0%, rgba(34,211,238,.16), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+      font: 14px/1.4 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button {
+      color: inherit;
+      font: inherit;
+    }
+
+    .app {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+      padding: 18px;
+      gap: 14px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 18px;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 18px;
+      background: rgba(14,20,32,.78);
+      box-shadow: 0 18px 50px var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: .01em;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin-top: 2px;
+      font-size: 12px;
+    }
+
+    .mode-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 250px;
+      justify-content: center;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 10px 14px;
+      background: rgba(18,26,41,.84);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+    }
+
+    .mode-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 24px var(--ok);
+    }
+
+    .mode-pill.triage .mode-dot {
+      background: var(--warn);
+      box-shadow: 0 0 24px var(--warn);
+    }
+
+    .mode-label { font-weight: 700; }
+    .mode-source { color: var(--muted); font-size: 12px; }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 300px 0 minmax(0, 1fr);
+      gap: 14px;
+      min-height: 0;
+      transition: grid-template-columns .26s ease;
+    }
+
+    .workspace.triage {
+      grid-template-columns: 300px 370px minmax(0, 1fr);
+    }
+
+    .pane {
+      min-height: 0;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 22px;
+      background: rgba(14,20,32,.84);
+      box-shadow: 0 24px 70px var(--shadow);
+    }
+
+    .sidebar, .triage-pane, .reader { display: flex; flex-direction: column; }
+
+    .pane-head {
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.02);
+    }
+
+    .pane-title {
+      margin: 0;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      color: var(--muted);
+    }
+
+    .content { padding: 14px; overflow: auto; }
+
+    .section + .section { margin-top: 18px; }
+
+    .section-label {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 11px;
+      margin: 5px 0;
+      border: 1px solid transparent;
+      border-radius: 13px;
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+      transition: background .18s ease, border-color .18s ease, transform .18s ease;
+    }
+
+    .item:hover { background: rgba(255,255,255,.05); transform: translateX(2px); }
+    .item.active { background: rgba(139,92,246,.18); border-color: rgba(139,92,246,.45); }
+
+    .item-main { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .icon { width: 22px; text-align: center; opacity: .94; }
+    .item small { color: var(--muted); white-space: nowrap; }
+
+    .tag {
+      border-radius: 999px;
+      padding: 3px 7px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .tag.triage { color: #fde68a; border-color: rgba(251,191,36,.35); background: rgba(251,191,36,.09); }
+    .tag.browse { color: #a7f3d0; border-color: rgba(52,211,153,.32); background: rgba(52,211,153,.08); }
+    .tag.override { color: #bfdbfe; border-color: rgba(96,165,250,.36); background: rgba(96,165,250,.08); }
+
+    .triage-pane {
+      opacity: 0;
+      transform: translateX(-10px);
+      pointer-events: none;
+      transition: opacity .2s ease, transform .2s ease;
+    }
+
+    .workspace.triage .triage-pane {
+      opacity: 1;
+      transform: translateX(0);
+      pointer-events: auto;
+    }
+
+    .lane-card {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--panel-2);
+      margin-bottom: 10px;
+    }
+
+    .lane-card strong { display: block; margin-bottom: 4px; }
+    .lane-card span { color: var(--muted); font-size: 12px; }
+
+    .doc-card {
+      padding: 20px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.015));
+      margin-bottom: 14px;
+    }
+
+    .doc-card h2 { margin: 0 0 8px; font-size: 26px; }
+    .doc-card p { color: var(--muted); max-width: 70ch; }
+
+    .config-preview {
+      margin: 0;
+      overflow: auto;
+      padding: 14px;
+      border-radius: 16px;
+      color: #c4b5fd;
+      background: #070a12;
+      border: 1px solid var(--line);
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .rule-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      color: var(--muted);
+    }
+
+    .rule-row b { color: var(--text); }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div>
+        <h1>Approach A — Contextual Pane Policy</h1>
+        <div class="subtitle">A stable sidebar controls whether the workspace opens as browse-first or triage-first per view/folder.</div>
+      </div>
+      <div id="modePill" class="mode-pill browse" aria-live="polite">
+        <span class="mode-dot"></span>
+        <span><span id="modeLabel" class="mode-label">Browse mode</span> <span id="modeSource" class="mode-source">view default</span></span>
+      </div>
+    </header>
+
+    <section id="workspace" class="workspace browse">
+      <aside class="pane sidebar">
+        <div class="pane-head"><p class="pane-title">Views + stacked sections</p></div>
+        <div class="content">
+          <section class="section">
+            <p class="section-label">View switcher</p>
+            <button class="item active" data-kind="view" data-id="notes"><span class="item-main"><span class="icon">✦</span>Notes</span><span class="tag browse">Browse</span></button>
+            <button class="item" data-kind="view" data-id="tasks"><span class="item-main"><span class="icon">✓</span>Tasks</span><span class="tag triage">Triage</span></button>
+            <button class="item" data-kind="view" data-id="calendar"><span class="item-main"><span class="icon">◷</span>Calendar</span><span class="tag browse">Browse</span></button>
+            <button class="item" data-kind="view" data-id="review"><span class="item-main"><span class="icon">◇</span>Review</span><span class="tag triage">Triage</span></button>
+          </section>
+
+          <section class="section">
+            <p class="section-label">Folders with overrides</p>
+            <button class="item" data-kind="folder" data-id="inbox"><span class="item-main"><span class="icon">↳</span>Inbox</span><span class="tag override">Force triage</span></button>
+            <button class="item" data-kind="folder" data-id="projects"><span class="item-main"><span class="icon">↳</span>Projects</span><span class="tag override">Force browse</span></button>
+            <button class="item" data-kind="folder" data-id="archive"><span class="item-main"><span class="icon">↳</span>Archive</span><small>inherit</small></button>
+          </section>
+
+          <section class="section">
+            <p class="section-label">Pinned stacks</p>
+            <button class="item" data-kind="folder" data-id="daily"><span class="item-main"><span class="icon">★</span>Daily notes</span><small>inherit</small></button>
+            <button class="item" data-kind="folder" data-id="sources"><span class="item-main"><span class="icon">★</span>Sources</span><small>inherit</small></button>
+          </section>
+        </div>
+      </aside>
+
+      <section class="pane triage-pane">
+        <div class="pane-head"><p class="pane-title">Middle triage pane</p></div>
+        <div class="content">
+          <div class="lane-card"><strong>Needs routing</strong><span>Unsorted notes, quick captures, and review cards appear here only in triage contexts.</span></div>
+          <div class="lane-card"><strong>Next action</strong><span>Keyboard-friendly queue for approve, defer, link, or file.</span></div>
+          <div class="lane-card"><strong>Context preview</strong><span>The reader stays open while the middle pane narrows the decision set.</span></div>
+        </div>
+      </section>
+
+      <section class="pane reader">
+        <div class="pane-head"><p class="pane-title">Reading / editor pane</p></div>
+        <div class="content">
+          <article class="doc-card">
+            <h2 id="contextTitle">Notes</h2>
+            <p id="contextCopy">Browse mode keeps the app calm: sidebar plus reader, no middle decision queue unless the context asks for it.</p>
+          </article>
+
+          <div class="rule-row"><b>Selected context</b><span id="selectedContext">View: Notes</span></div>
+          <div class="rule-row"><b>Pane decision</b><span id="decisionText">2-pane browse layout</span></div>
+          <div class="rule-row"><b>Decision source</b><span id="sourceText">view default</span></div>
+
+          <h3>Policy preview</h3>
+          <pre class="config-preview" id="configPreview"></pre>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const policy = {
+      views: {
+        notes: { label: 'Notes', mode: 'browse', copy: 'Browse mode keeps the app calm: sidebar plus reader, no middle decision queue unless the context asks for it.' },
+        tasks: { label: 'Tasks', mode: 'triage', copy: 'Tasks opens the decision queue because the primary action is sorting, prioritizing, and clearing.' },
+        calendar: { label: 'Calendar', mode: 'browse', copy: 'Calendar is a direct reading/planning surface, so it avoids the triage pane by default.' },
+        review: { label: 'Review', mode: 'triage', copy: 'Review is intentionally queue-shaped and activates the middle pane for fast decisions.' }
+      },
+      folders: {
+        inbox: { label: 'Inbox', mode: 'triage', source: 'folder override', copy: 'Inbox overrides any current view and forces triage because captures need routing.' },
+        projects: { label: 'Projects', mode: 'browse', source: 'folder override', copy: 'Projects overrides triage-capable views and returns to browse mode for focused reading.' },
+        archive: { label: 'Archive', mode: 'inherit', source: 'inherits selected view', copy: 'Archive inherits the selected view policy instead of owning a pane rule.' },
+        daily: { label: 'Daily notes', mode: 'inherit', source: 'inherits selected view', copy: 'Daily notes inherit the view policy so they can be read or triaged depending on where you are.' },
+        sources: { label: 'Sources', mode: 'inherit', source: 'inherits selected view', copy: 'Sources inherit the active view and stay browse-first unless the view is queue-oriented.' }
+      }
+    };
+
+    const state = { view: 'notes', folder: null };
+    const workspace = document.getElementById('workspace');
+    const modePill = document.getElementById('modePill');
+    const modeLabel = document.getElementById('modeLabel');
+    const modeSource = document.getElementById('modeSource');
+    const contextTitle = document.getElementById('contextTitle');
+    const contextCopy = document.getElementById('contextCopy');
+    const selectedContext = document.getElementById('selectedContext');
+    const decisionText = document.getElementById('decisionText');
+    const sourceText = document.getElementById('sourceText');
+    const configPreview = document.getElementById('configPreview');
+
+    function resolveMode() {
+      const view = policy.views[state.view];
+      const folder = state.folder ? policy.folders[state.folder] : null;
+      if (folder && folder.mode !== 'inherit') {
+        return { mode: folder.mode, source: folder.source, label: folder.label, copy: folder.copy, kind: 'Folder' };
+      }
+      if (folder) {
+        return { mode: view.mode, source: folder.source, label: folder.label, copy: folder.copy, kind: 'Folder' };
+      }
+      return { mode: view.mode, source: 'view default', label: view.label, copy: view.copy, kind: 'View' };
+    }
+
+    function render() {
+      const resolved = resolveMode();
+      const isTriage = resolved.mode === 'triage';
+      workspace.className = `workspace ${resolved.mode}`;
+      modePill.className = `mode-pill ${resolved.mode}`;
+      modeLabel.textContent = isTriage ? 'Triage mode' : 'Browse mode';
+      modeSource.textContent = resolved.source;
+      contextTitle.textContent = resolved.label;
+      contextCopy.textContent = resolved.copy;
+      selectedContext.textContent = `${resolved.kind}: ${resolved.label}`;
+      decisionText.textContent = isTriage ? '3-pane triage layout' : '2-pane browse layout';
+      sourceText.textContent = resolved.source;
+      configPreview.textContent = `views:\n  notes: browse\n  tasks: triage\n  calendar: browse\n  review: triage\nfolders:\n  Inbox: triage     # folder override\n  Projects: browse  # folder override\n  Archive: inherit  # uses selected view`;
+    }
+
+    document.querySelectorAll('.item').forEach(button => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll(`.item[data-kind="${button.dataset.kind}"]`).forEach(item => item.classList.remove('active'));
+        button.classList.add('active');
+        if (button.dataset.kind === 'view') {
+          state.view = button.dataset.id;
+          if (state.folder && policy.folders[state.folder].mode === 'inherit') state.folder = null;
+        } else {
+          state.folder = button.dataset.id;
+        }
+        render();
+      });
+    });
+
+    render();
+  </script>
+</body>
+</html>
