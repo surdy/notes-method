@@ -27,6 +27,7 @@
 - When adding or changing SQL views in the backend, verify that all frontend query builders (`right-rail.ts`, etc.) still reference valid columns. A grep for the view name across `ui/app/src/` is a quick sanity check.
 - When frontend components depend on API response shapes (column names, JSON field names), add at least one integration test that hits the HTTP endpoint and asserts on the response structure — not just status code.
 - When frontend code has loading-state guards (e.g., early returns during async fetches), ensure every exit path resets the loading flag. Prefer a `finally` block or equivalent pattern to guarantee cleanup.
+- For frontend loading/race bugs, validate with a headless browser flow that asserts the user-visible state and bounds duplicate API calls. Curl-only API checks and cache-header checks are not sufficient for Svelte reactive-loop failures.
 
 ## User-Facing Documentation
 

@@ -15,7 +15,7 @@ import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { bracketMatching, defaultHighlightStyle, indentOnInput, syntaxHighlighting } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
-import { onMount, tick } from 'svelte';
+import { onMount, tick, untrack } from 'svelte';
 import {
 ApiError,
 getNote,
@@ -28,6 +28,7 @@ import { createAutoSave } from '$lib/editor/auto-save';
 import { createOFMDecorations } from '$lib/editor/ofm-decorations';
 import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-blocks';
 import { notesmithTheme } from '$lib/editor/theme';
+import { shouldLoadSelectedNote } from '$lib/note-loading';
 import { isDashboardNote } from '$lib/right-rail';
 import { vaultStore } from '$lib/stores.svelte';
 
@@ -36,6 +37,8 @@ const TASK_LINE_RE = /^\s*[-*+]\s+\[[ xX/\-bwhBWH]\]/;
 let editorContainer = $state<HTMLDivElement | undefined>();
 let view: EditorView | null = null;
 let currentPath: string | null = null;
+let loadingPath = $state<string | null>(null);
+let activeLoadToken: symbol | null = null;
 let currentHash: string | null = null;
 let currentTaskHashes = new Map<string, string>();
 let loading = $state(false);
@@ -182,6 +185,9 @@ view = new EditorView({ state, parent: editorContainer });
 }
 
 async function loadNote(path: string) {
+const token = Symbol(path);
+activeLoadToken = token;
+loadingPath = path;
 autoSave.cancel();
 loading = true;
 error = null;
@@ -189,12 +195,15 @@ saveError = null;
 conflictBanner = null;
 dirty = false;
 destroyEditor();
+currentPath = null;
+currentHash = null;
+currentTaskHashes = new Map();
 setDashboardMode(false);
 
 try {
-const note = await getNote(vaultStore.currentVault, path);
-if (vaultStore.selectedPath !== path) {
-loading = false;
+const vault = vaultStore.currentVault;
+const note = await getNote(vault, path);
+if (activeLoadToken !== token || vaultStore.selectedPath !== path || vaultStore.currentVault !== vault) {
 return;
 }
 
@@ -203,12 +212,23 @@ currentHash = note.hash;
 currentTaskHashes = buildTaskHashes(note);
 loading = false;
 await tick();
+if (activeLoadToken !== token || vaultStore.selectedPath !== path || vaultStore.currentVault !== vault) {
+return;
+}
 setDashboardMode(isDashboardNote(note.frontmatter));
 createEditor(note);
 vaultStore.markDirty(path, false);
 } catch (cause) {
+if (activeLoadToken !== token) {
+return;
+}
 error = cause instanceof Error ? cause.message : 'Failed to load note';
 loading = false;
+} finally {
+if (activeLoadToken === token) {
+loadingPath = null;
+activeLoadToken = null;
+}
 }
 }
 
@@ -286,23 +306,35 @@ conflictBanner = null;
 
 $effect(() => {
 const path = vaultStore.selectedPath;
-if (path && (path !== currentPath || !view)) {
-void loadNote(path);
-return;
-}
+untrack(() => {
+	if (
+	path &&
+	shouldLoadSelectedNote({
+		selectedPath: path,
+		currentPath,
+		loadingPath
+	})
+	) {
+	void loadNote(path);
+	return;
+	}
 
-if (!path) {
-autoSave.cancel();
-destroyEditor();
-currentPath = null;
-currentHash = null;
-currentTaskHashes = new Map();
-dirty = false;
-error = null;
-saveError = null;
-conflictBanner = null;
-setDashboardMode(false);
-}
+	if (!path) {
+	autoSave.cancel();
+	destroyEditor();
+	currentPath = null;
+	currentHash = null;
+	currentTaskHashes = new Map();
+	dirty = false;
+	loading = false;
+	loadingPath = null;
+	activeLoadToken = null;
+	error = null;
+	saveError = null;
+	conflictBanner = null;
+	setDashboardMode(false);
+	}
+});
 });
 
 onMount(() => {
