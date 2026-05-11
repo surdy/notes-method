@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notesmith — Policy-driven layout (Approach C)</title>
+<style>
+  :root {
+    --bg: #1a1b1e;
+    --bg-2: #202125;
+    --bg-3: #26282d;
+    --bg-4: #2d3036;
+    --bg-hover: #2d3036;
+    --bg-active: #3a3f4b;
+    --border: #2f3239;
+    --border-strong: #3d4049;
+    --text: #e6e7ea;
+    --text-dim: #9ba0a8;
+    --text-faint: #6b7079;
+    --accent: #7aa2f7;
+    --accent-dim: #3d5a8a;
+    --green: #9ece6a;
+    --green-dim: #4a6b30;
+    --orange: #e0af68;
+    --red: #f7768e;
+    --purple: #bb9af7;
+    --yellow: #e0c068;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+  }
+
+  /* ── Layout: sidebar | (optional) triage | main ─────────────── */
+  .app {
+    display: grid;
+    grid-template-columns: 260px 0px 1fr;
+    transition: grid-template-columns 320ms cubic-bezier(0.4, 0, 0.2, 1);
+    height: 100vh;
+  }
+  .app.triage-on { grid-template-columns: 260px 320px 1fr; }
+
+  /* ── Sidebar ───────────────────────────────────────────────── */
+  .sidebar {
+    background: var(--bg-2);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    min-width: 0;
+  }
+  .brand {
+    padding: 14px 14px 6px;
+    font-weight: 600; font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em; text-transform: uppercase;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .brand .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+  }
+  .section-label {
+    padding: 12px 14px 4px;
+    font-size: 10.5px; font-weight: 600;
+    color: var(--text-faint);
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .nav { padding: 0 6px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 6px;
+    cursor: pointer; color: var(--text-dim);
+    user-select: none;
+    position: relative;
+  }
+  .nav-item:hover { background: var(--bg-hover); color: var(--text); }
+  .nav-item.active { background: var(--bg-active); color: var(--text); }
+  .nav-item .icon { width: 14px; text-align: center; opacity: 0.85; }
+  .nav-item .label { flex: 1; }
+  .nav-item .count {
+    font-size: 11px; color: var(--text-faint);
+    background: var(--bg-3); padding: 1px 6px; border-radius: 8px;
+  }
+  .nav-item.active .count { background: rgba(0,0,0,0.25); }
+  .triage-mark {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 4px var(--green);
+  }
+  .triage-mark.off { background: var(--text-faint); box-shadow: none; opacity: 0.5; }
+
+  .folder-tree { padding: 0 6px 8px; }
+  .folder {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 8px; border-radius: 6px;
+    cursor: pointer; color: var(--text-dim);
+    user-select: none;
+  }
+  .folder:hover { background: var(--bg-hover); color: var(--text); }
+  .folder.active { background: var(--bg-active); color: var(--text); }
+  .folder .chev { width: 10px; font-size: 10px; color: var(--text-faint); }
+  .folder .ficon { width: 12px; opacity: 0.85; }
+  .folder .label { flex: 1; }
+  .folder.indent-1 { padding-left: 22px; }
+  .folder.indent-2 { padding-left: 38px; }
+
+  /* ── Triage middle pane ───────────────────────────────────── */
+  .triage-pane {
+    background: var(--bg-2);
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    min-width: 0;
+    opacity: 0;
+    transition: opacity 220ms ease 100ms;
+  }
+  .app.triage-on .triage-pane { opacity: 1; }
+  .triage-header {
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .triage-header .title {
+    font-weight: 600; font-size: 12px;
+    color: var(--text);
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .triage-header .badge {
+    font-size: 10.5px;
+    padding: 2px 7px; border-radius: 10px;
+    background: var(--green-dim); color: var(--green);
+    font-weight: 600;
+  }
+  .triage-list { flex: 1; overflow-y: auto; padding: 6px; }
+  .triage-card {
+    padding: 10px 12px;
+    border-radius: 7px;
+    margin-bottom: 4px;
+    background: var(--bg-3);
+    cursor: pointer;
+    border-left: 2px solid transparent;
+  }
+  .triage-card:hover { background: var(--bg-4); border-left-color: var(--accent); }
+  .triage-card .t-title { font-weight: 500; color: var(--text); margin-bottom: 4px; }
+  .triage-card .t-meta { font-size: 11px; color: var(--text-faint); display: flex; gap: 8px; }
+  .triage-card .t-tag {
+    display: inline-block;
+    background: var(--bg-2); border-radius: 4px;
+    padding: 1px 5px; font-size: 10.5px;
+    color: var(--text-dim);
+  }
+  .triage-empty {
+    padding: 24px 16px;
+    color: var(--text-faint);
+    font-size: 12px; text-align: center;
+  }
+
+  /* ── Main pane ────────────────────────────────────────────── */
+  .main {
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .main-header {
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .crumb { color: var(--text-dim); font-size: 12px; }
+  .crumb .sep { margin: 0 6px; color: var(--text-faint); }
+  .crumb .here { color: var(--text); font-weight: 500; }
+
+  /* ── Rule inspector (the headline feature) ───────────────── */
+  .inspector {
+    margin: 16px 22px 0;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .insp-bar {
+    padding: 10px 14px;
+    display: flex; align-items: center; gap: 12px;
+    cursor: pointer;
+    user-select: none;
+    background: var(--bg-2);
+  }
+  .insp-bar:hover { background: var(--bg-3); }
+  .insp-state {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px; border-radius: 12px;
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .insp-state.on  { background: var(--green-dim); color: var(--green); }
+  .insp-state.off { background: #3a3a44; color: var(--text-dim); }
+  .insp-state .pulse {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor;
+  }
+  .insp-state.on .pulse { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse {
+    0%,100% { opacity: 0.6; transform: scale(1); }
+    50%     { opacity: 1;   transform: scale(1.3); }
+  }
+  .insp-summary { color: var(--text-dim); font-size: 12px; flex: 1; }
+  .insp-summary .rule {
+    color: var(--text); font-weight: 500;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    background: var(--bg-3);
+    padding: 1px 6px; border-radius: 4px;
+  }
+  .insp-toggle {
+    color: var(--text-faint); font-size: 11px;
+    transition: transform 200ms;
+  }
+  .insp.open .insp-toggle { transform: rotate(90deg); color: var(--text-dim); }
+  .insp-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 280ms cubic-bezier(0.4, 0, 0.2, 1);
+    border-top: 1px solid transparent;
+  }
+  .insp.open .insp-body {
+    max-height: 600px;
+    border-top-color: var(--border);
+  }
+  .insp-section {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .insp-section:last-child { border-bottom: none; }
+  .insp-section h4 {
+    margin: 0 0 8px;
+    font-size: 10.5px; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 600;
+  }
+  .rule-row {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    color: var(--text-dim);
+  }
+  .rule-row .marker {
+    width: 14px; flex-shrink: 0; text-align: center;
+    color: var(--text-faint);
+  }
+  .rule-row.matched {
+    background: rgba(158, 206, 106, 0.08);
+    color: var(--text);
+  }
+  .rule-row.matched .marker { color: var(--green); }
+  .rule-row.skipped { color: var(--text-faint); text-decoration: line-through; opacity: 0.7; }
+  .rule-row .rule-name { font-weight: 500; }
+  .rule-row .rule-cond {
+    color: var(--text-faint);
+    margin-left: 6px;
+  }
+  .rule-row.matched .rule-cond { color: var(--text-dim); }
+  .rule-row .rule-action {
+    margin-left: auto;
+    padding: 1px 6px; border-radius: 4px;
+    font-size: 10.5px; font-weight: 600;
+    background: var(--bg-3); color: var(--text-dim);
+  }
+  .rule-row.matched .rule-action.on  { background: var(--green-dim); color: var(--green); }
+  .rule-row.matched .rule-action.off { background: #3a3a44; color: var(--text-dim); }
+
+  .why {
+    color: var(--text);
+    font-size: 12.5px; line-height: 1.55;
+  }
+  .why .key { color: var(--accent); font-family: ui-monospace, monospace; font-size: 11.5px; }
+
+  /* ── Note view ────────────────────────────────────────────── */
+  .note {
+    flex: 1;
+    padding: 22px 22px 40px;
+    overflow-y: auto;
+    color: var(--text-dim);
+  }
+  .note h1 {
+    color: var(--text);
+    margin: 16px 0 8px;
+    font-size: 22px; font-weight: 600;
+  }
+  .note h2 {
+    color: var(--text);
+    margin: 22px 0 8px;
+    font-size: 15px; font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 4px;
+  }
+  .note p { margin: 8px 0; }
+
+  /* ── Status bar ───────────────────────────────────────────── */
+  .statusbar {
+    padding: 8px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-2);
+    color: var(--text-faint);
+    font-size: 11px;
+    display: flex; gap: 12px; align-items: center;
+  }
+  .statusbar .kbd {
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    padding: 1px 5px; border-radius: 3px;
+    font-family: ui-monospace, monospace;
+    font-size: 10.5px;
+    color: var(--text-dim);
+  }
+
+  /* sidebar transition mark when triage flips */
+  .flash {
+    animation: flash 0.6s ease;
+  }
+  @keyframes flash {
+    0%   { background: rgba(122, 162, 247, 0.25); }
+    100% { background: transparent; }
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <!-- ─── Sidebar ───────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span>Notesmith</span>
+      <span class="dot" title="Connected"></span>
+    </div>
+
+    <div class="section-label">Views</div>
+    <nav class="nav" id="nav-views"></nav>
+
+    <div class="section-label">Folders</div>
+    <div class="folder-tree" id="folder-tree"></div>
+
+    <div style="flex:1"></div>
+
+    <div class="section-label">Pinned</div>
+    <nav class="nav">
+      <div class="nav-item"><span class="icon">📌</span><span class="label">Weekly review template</span></div>
+      <div class="nav-item"><span class="icon">📌</span><span class="label">Reading list</span></div>
+    </nav>
+  </aside>
+
+  <!-- ─── Triage middle pane ───────────────────────────────── -->
+  <section class="triage-pane" id="triage-pane">
+    <div class="triage-header">
+      <span class="title">Triage</span>
+      <span class="badge" id="triage-count">0</span>
+    </div>
+    <div class="triage-list" id="triage-list"></div>
+  </section>
+
+  <!-- ─── Main pane ────────────────────────────────────────── -->
+  <section class="main">
+    <div class="main-header">
+      <div class="crumb" id="crumb"></div>
+    </div>
+
+    <!-- Rule inspector -->
+    <div class="inspector">
+      <div class="insp" id="insp">
+        <div class="insp-bar" onclick="toggleInsp()">
+          <span class="insp-state" id="insp-state">
+            <span class="pulse"></span>
+            <span id="insp-state-text">Triage ON</span>
+          </span>
+          <span class="insp-summary">
+            matched <span class="rule" id="insp-rule">—</span>
+          </span>
+          <span class="insp-toggle" id="insp-toggle">▶ explain</span>
+        </div>
+        <div class="insp-body">
+          <div class="insp-section">
+            <h4>Why this layout?</h4>
+            <div class="why" id="insp-why"></div>
+          </div>
+          <div class="insp-section">
+            <h4>Rules considered (first match wins)</h4>
+            <div id="insp-rules"></div>
+          </div>
+          <div class="insp-section">
+            <h4>Resolved policy</h4>
+            <div class="rule-row" style="background: var(--bg-3); color: var(--text);">
+              <pre style="margin:0; font-size: 11.5px;" id="insp-resolved"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note" id="note"></div>
+
+    <div class="statusbar">
+      <span>Press <span class="kbd">⌘ ⇧ E</span> to explain layout · <span class="kbd">⌘ ⇧ T</span> to override triage</span>
+      <span style="flex:1"></span>
+      <span id="status-context">—</span>
+    </div>
+  </section>
+</div>
+
+<script>
+  /* ──────────────────────────────────────────────────────────────
+     Policy engine — the heart of Approach C.
+
+     Each rule has:
+       id        : stable identifier
+       name      : human label
+       condition : function(ctx) → bool
+       condText  : human-readable expression
+       action    : { triage: bool, queue?: string }
+       reason    : plain-English explanation
+     Rules are evaluated top-down. First match wins.
+     ─────────────────────────────────────────────────────────── */
+  const RULES = [
+    {
+      id: 'inbox-needs-triage',
+      name: 'Inbox needs triage',
+      condText: 'view == "inbox" || path startsWith "Inbox/"',
+      condition: ctx => ctx.view === 'inbox' || (ctx.path || '').startsWith('Inbox/'),
+      action: { triage: true, queue: 'unprocessed' },
+      reason: 'Anything in Inbox is, by definition, unprocessed. Triage is the whole point of being there.'
+    },
+    {
+      id: 'archive-is-read-only',
+      name: 'Archive is read-only',
+      condText: 'path matches "**/Archive/**" || path startsWith "Archive/"',
+      condition: ctx => /(^|\/)Archive(\/|$)/.test(ctx.path || ''),
+      action: { triage: false },
+      reason: 'Archived content is preserved as-is. Surfacing triage here would invite churn on settled material.'
+    },
+    {
+      id: 'reference-is-read-only',
+      name: 'Reference material is read-only',
+      condText: 'path startsWith "Reference/"',
+      condition: ctx => (ctx.path || '').startsWith('Reference/'),
+      action: { triage: false },
+      reason: 'Reference notes (books, docs, specs) are looked up, not worked through.'
+    },
+    {
+      id: 'today-surfaces-followups',
+      name: 'Today surfaces follow-ups',
+      condText: 'view == "today"',
+      condition: ctx => ctx.view === 'today',
+      action: { triage: true, queue: 'due-today' },
+      reason: 'The Today view is the daily review surface — follow-ups belong front and center.'
+    },
+    {
+      id: 'active-projects-show-followups',
+      name: 'Active project folders show follow-ups',
+      condText: 'path startsWith "Projects/Active/"',
+      condition: ctx => (ctx.path || '').startsWith('Projects/Active/'),
+      action: { triage: true, queue: 'project-followups' },
+      reason: 'Active projects accumulate open loops worth surfacing alongside the note.'
+    },
+    {
+      id: 'search-is-passive',
+      name: 'Search is a passive lens',
+      condText: 'view == "search"',
+      condition: ctx => ctx.view === 'search',
+      action: { triage: false },
+      reason: 'Search results are an arbitrary slice; a triage queue here would be misleading.'
+    },
+    {
+      id: 'all-notes-is-read-only',
+      name: 'All Notes is browsing, not working',
+      condText: 'view == "all"',
+      condition: ctx => ctx.view === 'all',
+      action: { triage: false },
+      reason: 'All Notes is for browsing the full corpus. Triage is scoped to actionable surfaces.'
+    },
+    {
+      id: 'default',
+      name: 'Default — no triage',
+      condText: 'true (fallback)',
+      condition: () => true,
+      action: { triage: false },
+      reason: 'No rule asked for triage in this context, so we default to a calm two-pane layout.'
+    }
+  ];
+
+  function evaluate(ctx) {
+    const trace = [];
+    let matched = null;
+    for (const rule of RULES) {
+      const hit = rule.condition(ctx);
+      trace.push({ rule, hit, skipped: !!matched });
+      if (hit && !matched) matched = rule;
+    }
+    return { matched, trace };
+  }
+
+  /* ──────────────────────────────────────────────────────────────
+     Sample contexts — 8 to demonstrate mixed outcomes.
+     ─────────────────────────────────────────────────────────── */
+  const VIEWS = [
+    { id: 'inbox',  icon: '📥', label: 'Inbox',       count: 12, ctx: { view: 'inbox',  path: null } },
+    { id: 'today',  icon: '☀️', label: 'Today',        count: 5,  ctx: { view: 'today',  path: null } },
+    { id: 'all',    icon: '📚', label: 'All Notes',   count: 1284, ctx: { view: 'all',  path: null } },
+    { id: 'search', icon: '🔍', label: 'Search',       count: null, ctx: { view: 'search', path: null } }
+  ];
+  const FOLDERS = [
+    { id: 'inbox-quick', label: 'Inbox / Quick Capture',   indent: 1, ctx: { view: 'folder', path: 'Inbox/Quick Capture' } },
+    { id: 'proj-active', label: 'Projects / Active / Q2',   indent: 2, ctx: { view: 'folder', path: 'Projects/Active/Q2-launch' } },
+    { id: 'proj-arch',   label: 'Projects / Archive / 2024', indent: 2, ctx: { view: 'folder', path: 'Projects/Archive/2024' } },
+    { id: 'ref-books',   label: 'Reference / Books',        indent: 1, ctx: { view: 'folder', path: 'Reference/Books' } },
+    { id: 'arch-misc',   label: 'Archive / Misc',           indent: 1, ctx: { view: 'folder', path: 'Archive/Misc' } }
+  ];
+
+  /* Sample triage items for each "ON" context */
+  const TRIAGE_ITEMS = {
+    'inbox-needs-triage': [
+      { title: 'Voice memo: car repair quote', meta: '2 min · 14:02', tag: 'capture' },
+      { title: 'Screenshot: pricing page',     meta: '~/Downloads',   tag: 'image' },
+      { title: 'Forwarded: contract draft',    meta: 'from email',    tag: 'doc' },
+      { title: 'Meeting notes — Maya 1:1',     meta: 'yesterday',     tag: 'meeting' },
+      { title: 'Quick thought: name for the rebranded tool', meta: '3 days', tag: 'idea' }
+    ],
+    'today-surfaces-followups': [
+      { title: 'Reply to Priya re: API spec',  meta: 'due today',  tag: 'follow-up' },
+      { title: 'Confirm hotel for offsite',    meta: 'due today',  tag: 'task' },
+      { title: 'Decision: switch DB driver?',  meta: 'overdue',    tag: 'decision' }
+    ],
+    'active-projects-show-followups': [
+      { title: 'Spec review with platform team', meta: 'open',     tag: 'follow-up' },
+      { title: 'Launch checklist v3',            meta: 'in progress', tag: 'doc' },
+      { title: 'Open question: rollback path',   meta: 'no answer', tag: 'question' }
+    ]
+  };
+
+  /* ──────────────────────────────────────────────────────────────
+     Sample note bodies for each context.
+     ─────────────────────────────────────────────────────────── */
+  const NOTES = {
+    inbox:        { title: 'Inbox',           body: '<p>12 items waiting to be filed, named, or thrown away. The triage pane shows them in capture order — pick one and decide.</p>' },
+    today:        { title: 'Today',           body: '<p>Your daily review surface. Triage shows follow-ups due today and overdue decisions; the main pane shows your daily note template.</p>' },
+    all:          { title: 'All Notes',       body: '<p>1,284 notes across all folders. This is a browsing surface — no triage queue, just the corpus.</p>' },
+    search:       { title: 'Search',          body: '<p>Type to search. Results are a transient slice and don\'t carry a triage queue.</p>' },
+    'inbox-quick': { title: 'Quick Capture',  body: '<p>A subfolder inside Inbox. The Inbox rule fires here too — anything under <code>Inbox/</code> is unprocessed by definition.</p>' },
+    'proj-active': { title: 'Q2-launch',      body: '<p>Active project folder. Open loops and follow-ups live in the triage pane so they\'re visible while you work the note.</p>' },
+    'proj-arch':   { title: 'Projects / Archive / 2024', body: '<p>Archived project. Read-only; the layout collapses to a calm two-pane view.</p>' },
+    'ref-books':   { title: 'Books',          body: '<p>Reference notes — book summaries, highlights, citations. You look these up; you don\'t triage them.</p>' },
+    'arch-misc':   { title: 'Archive / Misc', body: '<p>Anything you\'ve archived. The Archive rule wins regardless of original folder type.</p>' }
+  };
+
+  /* ──────────────────────────────────────────────────────────────
+     Rendering.
+     ─────────────────────────────────────────────────────────── */
+  let currentId = 'inbox';
+  let inspOpen = false;
+
+  function renderSidebar() {
+    const navEl = document.getElementById('nav-views');
+    navEl.innerHTML = VIEWS.map(v => {
+      const result = evaluate(v.ctx);
+      const on = result.matched.action.triage;
+      const count = v.count != null ? `<span class="count">${v.count}</span>` : '';
+      return `
+        <div class="nav-item ${currentId === v.id ? 'active' : ''}" data-id="${v.id}">
+          <span class="icon">${v.icon}</span>
+          <span class="label">${v.label}</span>
+          ${count}
+          <span class="triage-mark ${on ? '' : 'off'}" title="${on ? 'Triage ON for this view' : 'Triage OFF for this view'}"></span>
+        </div>`;
+    }).join('');
+
+    const ftEl = document.getElementById('folder-tree');
+    ftEl.innerHTML = `
+      <div class="folder"><span class="chev">▾</span><span class="ficon">📁</span><span class="label">Inbox</span></div>
+      <div class="folder ${currentId === 'inbox-quick' ? 'active' : ''} indent-1" data-id="inbox-quick">
+        <span class="ficon">📁</span><span class="label">Quick Capture</span>
+        <span class="triage-mark"></span>
+      </div>
+      <div class="folder"><span class="chev">▾</span><span class="ficon">📁</span><span class="label">Projects</span></div>
+      <div class="folder indent-1"><span class="chev">▾</span><span class="ficon">📁</span><span class="label">Active</span></div>
+      <div class="folder ${currentId === 'proj-active' ? 'active' : ''} indent-2" data-id="proj-active">
+        <span class="ficon">📁</span><span class="label">Q2-launch</span>
+        <span class="triage-mark"></span>
+      </div>
+      <div class="folder indent-1"><span class="chev">▾</span><span class="ficon">📁</span><span class="label">Archive</span></div>
+      <div class="folder ${currentId === 'proj-arch' ? 'active' : ''} indent-2" data-id="proj-arch">
+        <span class="ficon">📁</span><span class="label">2024</span>
+        <span class="triage-mark off"></span>
+      </div>
+      <div class="folder"><span class="chev">▾</span><span class="ficon">📁</span><span class="label">Reference</span></div>
+      <div class="folder ${currentId === 'ref-books' ? 'active' : ''} indent-1" data-id="ref-books">
+        <span class="ficon">📁</span><span class="label">Books</span>
+        <span class="triage-mark off"></span>
+      </div>
+      <div class="folder"><span class="chev">▾</span><span class="ficon">📁</span><span class="label">Archive</span></div>
+      <div class="folder ${currentId === 'arch-misc' ? 'active' : ''} indent-1" data-id="arch-misc">
+        <span class="ficon">📁</span><span class="label">Misc</span>
+        <span class="triage-mark off"></span>
+      </div>
+    `;
+
+    document.querySelectorAll('[data-id]').forEach(el => {
+      el.addEventListener('click', () => select(el.dataset.id));
+    });
+  }
+
+  function getEntry(id) {
+    return VIEWS.find(v => v.id === id) || FOLDERS.find(f => f.id === id);
+  }
+
+  function renderTriage(matched) {
+    const items = TRIAGE_ITEMS[matched.id] || [];
+    document.getElementById('triage-count').textContent = items.length;
+    const listEl = document.getElementById('triage-list');
+    if (!items.length) {
+      listEl.innerHTML = `<div class="triage-empty">Queue is empty — caught up here. ✨</div>`;
+      return;
+    }
+    listEl.innerHTML = items.map(it => `
+      <div class="triage-card">
+        <div class="t-title">${it.title}</div>
+        <div class="t-meta">
+          <span class="t-tag">${it.tag}</span>
+          <span>${it.meta}</span>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function renderInspector(result, ctx) {
+    const m = result.matched;
+    const on = m.action.triage;
+
+    const stateEl = document.getElementById('insp-state');
+    stateEl.classList.toggle('on', on);
+    stateEl.classList.toggle('off', !on);
+    document.getElementById('insp-state-text').textContent = on ? 'Triage ON' : 'Triage OFF';
+
+    document.getElementById('insp-rule').textContent = m.id;
+
+    document.getElementById('insp-why').innerHTML = `
+      <p>${m.reason}</p>
+      <p style="margin-top:10px; color: var(--text-dim);">
+        Evaluated against context
+        <span class="key">${JSON.stringify(ctx)}</span>
+      </p>
+    `;
+
+    document.getElementById('insp-rules').innerHTML = result.trace.map(t => {
+      const cls = t.hit && !t.skipped ? 'matched' : (t.skipped && t.hit ? 'skipped' : (t.hit ? 'matched' : ''));
+      const marker = t.hit && !t.skipped ? '✓' : (t.hit && t.skipped ? '↓' : '·');
+      const actClass = t.rule.action.triage ? 'on' : 'off';
+      const actText = t.rule.action.triage ? 'triage ON' : 'triage OFF';
+      return `
+        <div class="rule-row ${cls}">
+          <span class="marker">${marker}</span>
+          <span class="rule-name">${t.rule.id}</span>
+          <span class="rule-cond">${t.rule.condText}</span>
+          <span class="rule-action ${actClass}">${actText}</span>
+        </div>`;
+    }).join('');
+
+    document.getElementById('insp-resolved').textContent = JSON.stringify({
+      matched_rule: m.id,
+      action: m.action
+    }, null, 2);
+  }
+
+  function renderMain(id, matched) {
+    const note = NOTES[id] || { title: id, body: '<p>—</p>' };
+    document.getElementById('note').innerHTML = `<h1>${note.title}</h1>${note.body}
+      <h2>Why does the layout look this way?</h2>
+      <p>The middle "Triage" pane is governed by a small policy engine. Click <em>explain</em> in the bar above to see the rule that fired and the rules that were skipped.</p>
+    `;
+    const entry = getEntry(id);
+    const ctx = entry?.ctx || {};
+    const path = ctx.path || `view:${ctx.view}`;
+    document.getElementById('crumb').innerHTML = `<span>${ctx.view === 'folder' ? 'Folder' : 'View'}</span><span class="sep">›</span><span class="here">${path}</span>`;
+    document.getElementById('status-context').textContent = `context = ${JSON.stringify(ctx)}`;
+  }
+
+  function select(id) {
+    currentId = id;
+    const entry = getEntry(id);
+    if (!entry) return;
+    const result = evaluate(entry.ctx);
+    const on = result.matched.action.triage;
+
+    const app = document.getElementById('app');
+    const wasOn = app.classList.contains('triage-on');
+    app.classList.toggle('triage-on', on);
+
+    /* Brief flash on the inspector when the layout flips */
+    if (wasOn !== on) {
+      const insp = document.querySelector('.inspector');
+      insp.classList.remove('flash'); void insp.offsetWidth;
+      insp.classList.add('flash');
+    }
+
+    renderSidebar();
+    renderTriage(result.matched);
+    renderInspector(result, entry.ctx);
+    renderMain(id, result.matched);
+  }
+
+  function toggleInsp() {
+    inspOpen = !inspOpen;
+    const insp = document.getElementById('insp');
+    insp.classList.toggle('open', inspOpen);
+    document.getElementById('insp-toggle').textContent = inspOpen ? '▼ collapse' : '▶ explain';
+  }
+
+  /* keyboard shortcut */
+  document.addEventListener('keydown', e => {
+    if (e.metaKey && e.shiftKey && e.key.toLowerCase() === 'e') {
+      e.preventDefault();
+      toggleInsp();
+    }
+  });
+
+  /* boot */
+  renderSidebar();
+  select('inbox');
+  /* open inspector on first load so the concept is visible */
+  toggleInsp();
+</script>
+</body>
+</html>

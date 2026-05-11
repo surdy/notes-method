@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notesmith — Dynamic Pane Policy Engine (Approach B)</title>
+<style>
+  :root {
+    --bg:        #121317;
+    --bg-side:   #16181d;
+    --bg-triage: #1a1d23;
+    --bg-editor: #1e2128;
+    --bg-hover:  #252830;
+    --bg-active: #2e3340;
+    --border:    #292c35;
+    --text:      #d8dae0;
+    --text-dim:  #8c919c;
+    --text-faint:#575c66;
+    --accent:    #6ea1f7;
+    --accent-bg: #253552;
+    --green:     #73c991;
+    --orange:    #d4a048;
+    --red:       #e55b6f;
+    --purple:    #b392e8;
+    --cyan:      #56c9c0;
+    --badge-2p:  #3a3e48;
+    --badge-3p:  #253552;
+    --pin-bg:    #3a2f18;
+    --pin-text:  #d4a048;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+
+  /* ── Layout ─────────────────────────────────── */
+  .app {
+    display: grid;
+    height: 100vh;
+    transition: grid-template-columns 0.22s cubic-bezier(.4,0,.2,1);
+  }
+  .app.three-pane { grid-template-columns: 220px 300px 1fr; }
+  .app.two-pane   { grid-template-columns: 220px 1fr; }
+
+  /* ── Sidebar ────────────────────────────────── */
+  .sidebar {
+    background: var(--bg-side);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .sidebar-brand {
+    padding: 14px 16px 6px;
+    font-size: 14px; font-weight: 700;
+    color: var(--text);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .sidebar-brand .logo { width: 18px; height: 18px; border-radius: 4px; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 10px; color: #fff; font-weight: 800; }
+
+  .sidebar-scroll { flex: 1; overflow-y: auto; padding-bottom: 20px; }
+
+  /* Section group */
+  .s-group { padding: 0 0 2px; }
+  .s-head {
+    display: flex; align-items: center; gap: 6px;
+    padding: 14px 14px 5px;
+    font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-faint);
+    cursor: default; user-select: none;
+  }
+  .s-head .policy-badge {
+    font-size: 9px; padding: 1px 5px; border-radius: 3px;
+    font-weight: 600; letter-spacing: 0.03em; text-transform: none;
+  }
+  .policy-badge.p3 { background: var(--badge-3p); color: var(--accent); }
+  .policy-badge.p2 { background: var(--badge-2p); color: var(--text-dim); }
+
+  .s-sep { height: 1px; background: var(--border); margin: 6px 14px; }
+
+  .s-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 14px 5px 18px;
+    cursor: pointer; border-radius: 0;
+    color: var(--text-dim);
+    position: relative;
+    transition: background 0.1s;
+  }
+  .s-item:hover { background: var(--bg-hover); color: var(--text); }
+  .s-item.active { background: var(--bg-active); color: var(--text); }
+  .s-item .icon { width: 16px; text-align: center; font-size: 14px; flex-shrink: 0; }
+  .s-item .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s-item .count {
+    font-size: 11px; color: var(--text-faint); font-variant-numeric: tabular-nums;
+    min-width: 18px; text-align: right;
+  }
+  .s-item .count.hot { color: var(--red); font-weight: 600; }
+  .s-item .pane-hint {
+    font-size: 9px; color: var(--text-faint); opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .s-item:hover .pane-hint { opacity: 1; }
+
+  /* ── Triage Pane ────────────────────────────── */
+  .triage {
+    background: var(--bg-triage);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .app.two-pane .triage { display: none; }
+
+  .triage-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    min-height: 40px;
+  }
+  .triage-title {
+    flex: 1; font-size: 12px; font-weight: 600; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .triage-count { font-size: 11px; color: var(--text-dim); }
+
+  .pin-toggle {
+    display: flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 600;
+    cursor: pointer; border: none;
+    transition: all 0.15s;
+    background: var(--bg-hover); color: var(--text-dim);
+  }
+  .pin-toggle.pinned { background: var(--pin-bg); color: var(--pin-text); }
+  .pin-toggle .pin-icon { font-size: 12px; }
+
+  .triage-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+
+  .t-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: background 0.1s;
+  }
+  .t-item:hover { background: var(--bg-hover); }
+  .t-item.active { background: var(--bg-active); border-left-color: var(--accent); }
+  .t-item .t-title { font-size: 13px; color: var(--text); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .t-item .t-meta { font-size: 11px; color: var(--text-faint); display: flex; gap: 8px; }
+  .t-item .t-tag { padding: 0 4px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .t-tag.urgent { background: #3a1c22; color: var(--red); }
+  .t-tag.waiting { background: #2e2a1a; color: var(--orange); }
+  .t-tag.new     { background: #1a2e2a; color: var(--green); }
+  .t-tag.ref     { background: #251a35; color: var(--purple); }
+
+  /* ── Editor Pane ────────────────────────────── */
+  .editor {
+    background: var(--bg-editor);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .editor-bar {
+    display: flex; align-items: center;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+  }
+  .editor-breadcrumb { font-size: 12px; color: var(--text-dim); flex: 1; }
+  .editor-breadcrumb span { color: var(--text-faint); }
+  .editor-body { flex: 1; overflow-y: auto; padding: 24px 32px; max-width: 720px; }
+  .editor-body h1 { font-size: 22px; font-weight: 700; margin-bottom: 12px; color: var(--text); }
+  .editor-body p  { color: var(--text-dim); margin-bottom: 10px; line-height: 1.6; }
+  .editor-body .prop { display: flex; gap: 12px; font-size: 12px; color: var(--text-faint); margin-bottom: 6px; }
+  .editor-body .prop .k { min-width: 70px; color: var(--text-faint); }
+  .editor-body .prop .v { color: var(--text-dim); }
+  .editor-body ul { padding-left: 20px; color: var(--text-dim); margin-bottom: 10px; }
+  .editor-body li { margin-bottom: 4px; }
+
+  /* ── Status bar ─────────────────────────────── */
+  .statusbar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--bg-side);
+    border-top: 1px solid var(--border);
+    padding: 4px 16px;
+    display: flex; align-items: center; gap: 16px;
+    font-size: 11px; color: var(--text-faint);
+    z-index: 10;
+  }
+  .statusbar .mode-pill {
+    padding: 1px 8px; border-radius: 3px;
+    font-weight: 600; font-size: 10px;
+  }
+  .mode-pill.m3 { background: var(--badge-3p); color: var(--accent); }
+  .mode-pill.m2 { background: var(--badge-2p); color: var(--text-dim); }
+  .mode-pill.mp { background: var(--pin-bg); color: var(--pin-text); }
+
+  /* ── Transition overlay hint ────────────────── */
+  .pane-toast {
+    position: fixed; top: 16px; right: 16px;
+    background: var(--bg-active); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 16px;
+    font-size: 12px; color: var(--text-dim);
+    opacity: 0; transform: translateY(-8px);
+    transition: all 0.25s;
+    pointer-events: none;
+    z-index: 100;
+  }
+  .pane-toast.show { opacity: 1; transform: translateY(0); }
+  .pane-toast .toast-key { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="app two-pane" id="app">
+
+  <!-- ── Sidebar ──────────────────────────────── -->
+  <div class="sidebar">
+    <div class="sidebar-brand"><div class="logo">N</div> Notesmith</div>
+    <div class="sidebar-scroll">
+
+      <!-- Inbox — 3-pane default -->
+      <div class="s-group" data-section="inbox" data-policy="3">
+        <div class="s-head">
+          <span>Inbox</span>
+          <span class="policy-badge p3" title="Opens triage pane">3-pane</span>
+        </div>
+        <div class="s-item active" data-item="inbox-all" data-pane="3" data-triage="inbox">
+          <span class="icon">📥</span><span class="label">All</span><span class="count hot">12</span>
+        </div>
+        <div class="s-item" data-item="inbox-unread" data-pane="3" data-triage="inbox">
+          <span class="icon">🔵</span><span class="label">Unread</span><span class="count hot">5</span>
+        </div>
+        <div class="s-item" data-item="inbox-flagged" data-pane="3" data-triage="inbox">
+          <span class="icon">🚩</span><span class="label">Flagged</span><span class="count">3</span>
+        </div>
+      </div>
+
+      <div class="s-sep"></div>
+
+      <!-- Tasks — 3-pane default -->
+      <div class="s-group" data-section="tasks" data-policy="3">
+        <div class="s-head">
+          <span>Tasks</span>
+          <span class="policy-badge p3">3-pane</span>
+        </div>
+        <div class="s-item" data-item="tasks-today" data-pane="3" data-triage="tasks">
+          <span class="icon">☀️</span><span class="label">Today</span><span class="count">4</span>
+        </div>
+        <div class="s-item" data-item="tasks-upcoming" data-pane="3" data-triage="tasks">
+          <span class="icon">📅</span><span class="label">Upcoming</span><span class="count">9</span>
+        </div>
+        <div class="s-item" data-item="tasks-someday" data-pane="3" data-triage="tasks">
+          <span class="icon">💭</span><span class="label">Someday</span><span class="count">17</span>
+        </div>
+      </div>
+
+      <div class="s-sep"></div>
+
+      <!-- Customers — 3-pane default -->
+      <div class="s-group" data-section="customers" data-policy="3">
+        <div class="s-head">
+          <span>Customers</span>
+          <span class="policy-badge p3">3-pane</span>
+        </div>
+        <div class="s-item" data-item="cust-acme" data-pane="3" data-triage="customers">
+          <span class="icon">🏢</span><span class="label">Acme Corp</span><span class="count">6</span>
+        </div>
+        <div class="s-item" data-item="cust-globex" data-pane="3" data-triage="customers">
+          <span class="icon">🏢</span><span class="label">Globex Inc</span><span class="count">3</span>
+        </div>
+        <div class="s-item" data-item="cust-initech" data-pane="3" data-triage="customers">
+          <span class="icon">🏢</span><span class="label">Initech Ltd</span><span class="count">2</span>
+        </div>
+      </div>
+
+      <div class="s-sep"></div>
+
+      <!-- Projects — 2-pane default (no triage) -->
+      <div class="s-group" data-section="projects" data-policy="2">
+        <div class="s-head">
+          <span>Projects</span>
+          <span class="policy-badge p2" title="Direct to editor">2-pane</span>
+        </div>
+        <div class="s-item" data-item="proj-notesmith" data-pane="2">
+          <span class="icon">🛠</span><span class="label">Notesmith</span>
+        </div>
+        <div class="s-item" data-item="proj-garden" data-pane="2">
+          <span class="icon">🌿</span><span class="label">Digital Garden</span>
+        </div>
+        <div class="s-item" data-item="proj-infra" data-pane="2">
+          <span class="icon">⚙️</span><span class="label">Infra Migration</span>
+        </div>
+      </div>
+
+      <div class="s-sep"></div>
+
+      <!-- Archive — 2-pane default -->
+      <div class="s-group" data-section="archive" data-policy="2">
+        <div class="s-head">
+          <span>Archive</span>
+          <span class="policy-badge p2">2-pane</span>
+        </div>
+        <div class="s-item" data-item="archive-all" data-pane="2">
+          <span class="icon">📦</span><span class="label">All Archived</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Triage Pane ──────────────────────────── -->
+  <div class="triage" id="triagePane">
+    <div class="triage-header">
+      <span class="triage-title" id="triageTitle">Inbox</span>
+      <span class="triage-count" id="triageCount">12 items</span>
+      <button class="pin-toggle" id="pinBtn" title="Pin triage pane open (P)">
+        <span class="pin-icon">📌</span><span class="pin-label">Pin</span>
+      </button>
+    </div>
+    <div class="triage-list" id="triageList"></div>
+  </div>
+
+  <!-- ── Editor Pane ──────────────────────────── -->
+  <div class="editor">
+    <div class="editor-bar">
+      <div class="editor-breadcrumb" id="editorBreadcrumb">
+        <span>Inbox</span> › All
+      </div>
+    </div>
+    <div class="editor-body" id="editorBody">
+      <h1>Welcome to Notesmith</h1>
+      <p>Select an item from the sidebar to begin. Sections marked <strong>3-pane</strong> will open a triage list; <strong>2-pane</strong> sections go straight to the editor.</p>
+      <p style="color:var(--text-faint); font-size:12px; margin-top:20px;">
+        <strong>Keyboard:</strong> <code style="background:var(--bg-active);padding:2px 5px;border-radius:3px;">P</code> toggle pin &nbsp;|&nbsp;
+        <code style="background:var(--bg-active);padding:2px 5px;border-radius:3px;">↑↓</code> navigate triage &nbsp;|&nbsp;
+        <code style="background:var(--bg-active);padding:2px 5px;border-radius:3px;">Esc</code> close triage
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- Status bar -->
+<div class="statusbar">
+  <span>Pane mode:</span>
+  <span class="mode-pill m2" id="modePill">2-pane</span>
+  <span id="statusText">Click a sidebar section to activate</span>
+</div>
+
+<!-- Toast -->
+<div class="pane-toast" id="toast"></div>
+
+<script>
+// ── Data ─────────────────────────────────────────
+const TRIAGE_DATA = {
+  inbox: [
+    { id:'i1', title:'Quarterly OKR draft feedback', meta:'10 min ago', tag:'new', tagLabel:'New' },
+    { id:'i2', title:'AWS cost alert — prod us-east-1', meta:'25 min ago', tag:'urgent', tagLabel:'Urgent' },
+    { id:'i3', title:'Meeting notes: API design review', meta:'1 hr ago', tag:'new', tagLabel:'New' },
+    { id:'i4', title:'PR #482 review requested', meta:'2 hr ago', tag:'waiting', tagLabel:'Waiting' },
+    { id:'i5', title:'Customer escalation — Acme SSO', meta:'3 hr ago', tag:'urgent', tagLabel:'Urgent' },
+    { id:'i6', title:'Weekly digest — eng metrics', meta:'4 hr ago', tag:'ref', tagLabel:'Reference' },
+    { id:'i7', title:'1:1 prep notes for Monday', meta:'5 hr ago', tag:'new', tagLabel:'New' },
+    { id:'i8', title:'Slack thread: DB migration timeline', meta:'6 hr ago', tag:'waiting', tagLabel:'Waiting' },
+    { id:'i9', title:'Offsite planning doc comments', meta:'Yesterday', tag:'new', tagLabel:'New' },
+    { id:'i10', title:'Security patch advisory v3.2.1', meta:'Yesterday', tag:'urgent', tagLabel:'Urgent' },
+    { id:'i11', title:'Design system color token update', meta:'2 days ago', tag:'ref', tagLabel:'Reference' },
+    { id:'i12', title:'Candidate feedback — backend role', meta:'2 days ago', tag:'waiting', tagLabel:'Waiting' },
+  ],
+  tasks: [
+    { id:'t1', title:'Ship triage pane MVP', meta:'Due today', tag:'urgent', tagLabel:'P0' },
+    { id:'t2', title:'Write ADR for pane policy engine', meta:'Due today', tag:'new', tagLabel:'P1' },
+    { id:'t3', title:'Review PR #479 — sidebar refactor', meta:'Due today', tag:'waiting', tagLabel:'Blocked' },
+    { id:'t4', title:'Update CI pipeline for arm64', meta:'Due today', tag:'new', tagLabel:'P1' },
+    { id:'t5', title:'Prep demo for stakeholder review', meta:'Due Tue', tag:'new', tagLabel:'P1' },
+    { id:'t6', title:'Audit npm dependencies', meta:'Due Wed', tag:'ref', tagLabel:'P2' },
+    { id:'t7', title:'Draft blog post on vault architecture', meta:'Due Fri', tag:'ref', tagLabel:'P2' },
+    { id:'t8', title:'Benchmark query engine on 10k notes', meta:'Due next Mon', tag:'new', tagLabel:'P1' },
+    { id:'t9', title:'Migrate user prefs to new schema', meta:'Someday', tag:'ref', tagLabel:'P3' },
+  ],
+  customers: [
+    { id:'c1', title:'Acme — SSO rollout tracking', meta:'Updated today', tag:'urgent', tagLabel:'Active' },
+    { id:'c2', title:'Acme — Q3 renewal prep', meta:'Updated yesterday', tag:'waiting', tagLabel:'Pending' },
+    { id:'c3', title:'Acme — Custom integration spec', meta:'3 days ago', tag:'ref', tagLabel:'Ref' },
+    { id:'c4', title:'Globex — Onboarding checklist', meta:'Updated today', tag:'new', tagLabel:'New' },
+    { id:'c5', title:'Globex — Data migration plan', meta:'1 week ago', tag:'ref', tagLabel:'Ref' },
+    { id:'c6', title:'Initech — Feature request: bulk export', meta:'2 days ago', tag:'new', tagLabel:'New' },
+  ],
+};
+
+const EDITOR_CONTENT = {
+  'inbox-all':      { bc: 'Inbox › All', title: 'AWS cost alert — prod us-east-1', props: [{k:'From', v:'CloudWatch'}, {k:'Received', v:'25 min ago'}, {k:'Priority', v:'High'}], body:'<p>Monthly spend for us-east-1 crossed the $12,400 threshold. Primary contributors: RDS Multi-AZ (+18%), ECS Fargate tasks (+9%). Recommend reviewing idle staging instances and right-sizing the prod read replicas.</p>' },
+  'inbox-unread':   { bc: 'Inbox › Unread', title: 'PR #482 review requested', props: [{k:'Author', v:'@mchen'}, {k:'Branch', v:'feat/pane-engine'}], body:'<p>Adds the pane policy resolution layer. 4 files changed, 220 insertions. Needs review from sidebar team.</p>' },
+  'inbox-flagged':  { bc: 'Inbox › Flagged', title: 'Customer escalation — Acme SSO', props: [{k:'Severity', v:'P1'}, {k:'Account', v:'Acme Corp'}], body:'<p>SAML assertion failing intermittently. Clock skew suspected. Customer impact: ~40 users locked out during peak hours.</p>' },
+  'tasks-today':    { bc: 'Tasks › Today', title: 'Ship triage pane MVP', props: [{k:'Due', v:'Today'}, {k:'Priority', v:'P0'}], body:'<p>Deliver the working mockup with dynamic pane switching, pin toggle, and keyboard nav. Verify transitions are smooth and status bar reflects current mode.</p><ul><li>Layout engine transitions</li><li>Pin/unpin persistence</li><li>Keyboard shortcuts (P, ↑↓, Esc)</li></ul>' },
+  'tasks-upcoming': { bc: 'Tasks › Upcoming', title: 'Prep demo for stakeholder review', props: [{k:'Due', v:'Tuesday'}, {k:'Assigned', v:'@surdy'}], body:'<p>Walk through the 2-pane vs 3-pane UX, demonstrate policy badges, and explain the override hierarchy. Prepare 3 scenarios: inbox triage, project deep-read, and pinned customer review.</p>' },
+  'tasks-someday':  { bc: 'Tasks › Someday', title: 'Migrate user prefs to new schema', props: [{k:'Priority', v:'P3'}], body:'<p>The current prefs blob is a single JSON column. Move to a normalized table with per-key rows, enabling partial updates and audit trail. Low urgency — current approach works fine under 10k users.</p>' },
+  'cust-acme':      { bc: 'Customers › Acme Corp', title: 'Acme — SSO rollout tracking', props: [{k:'Account', v:'Acme Corp'}, {k:'AE', v:'Jordan'}, {k:'Health', v:'⚠️ At Risk'}], body:'<p>SSO rollout is 60% complete. Remaining: configure group mapping for engineering org, test with Okta sandbox, schedule go-live window with IT. Clock skew issue must be resolved first.</p>' },
+  'cust-globex':    { bc: 'Customers › Globex Inc', title: 'Globex — Onboarding checklist', props: [{k:'Account', v:'Globex Inc'}, {k:'CSM', v:'Alex'}], body:'<p>New customer onboarding in progress. Data import complete, user provisioning at 80%. Next: configure SSO, schedule training sessions, establish success metrics.</p>' },
+  'cust-initech':   { bc: 'Customers › Initech Ltd', title: 'Initech — Feature request: bulk export', props: [{k:'Account', v:'Initech Ltd'}, {k:'Status', v:'Under Review'}], body:'<p>Customer requests ability to export all notes in a folder as a single ZIP. Currently possible via CLI but no UI path. Evaluate effort and prioritize for Q4.</p>' },
+  'proj-notesmith': { bc: 'Projects › Notesmith', title: 'Notesmith — Project Overview', props: [{k:'Status', v:'Active'}, {k:'Sprint', v:'2026-W20'}], body:'<p>Building the next-gen notes tool with Rust backend, SQLite storage, and a web-native UI. Current focus: sidebar navigation and pane management.</p><ul><li>Vault parser — done</li><li>Query engine — in progress</li><li>Sidebar UI — this sprint</li><li>Triage pane — this sprint</li></ul>' },
+  'proj-garden':    { bc: 'Projects › Digital Garden', title: 'Digital Garden — Design Doc', props: [{k:'Status', v:'Planning'}], body:'<p>Public-facing site generated from a curated subset of the vault. Uses wikilink resolution to build a navigable graph. Targeting a static-site-gen approach with incremental rebuilds.</p>' },
+  'proj-infra':     { bc: 'Projects › Infra Migration', title: 'Infra Migration — Runbook', props: [{k:'Status', v:'In Progress'}, {k:'ETA', v:'June 2026'}], body:'<p>Moving from Heroku to Fly.io. Phase 1 (API servers) complete. Phase 2 (background workers) in progress. Phase 3 (database) scheduled for June.</p>' },
+  'archive-all':    { bc: 'Archive › All', title: 'Archived Items', props: [{k:'Total', v:'342 notes'}], body:'<p>Browse and search archived notes. Items here are excluded from search results by default. Use the query <code>scope:archive</code> to include them.</p>' },
+};
+
+// ── State ─────────────────────────────────────────
+let currentItem = 'inbox-all';
+let currentTriageSource = 'inbox';
+let isPinned = false;
+let paneMode = 2;        // effective mode right now
+let triageActiveIdx = 0;
+
+// ── DOM refs ──────────────────────────────────────
+const app          = document.getElementById('app');
+const triagePane   = document.getElementById('triagePane');
+const triageTitle  = document.getElementById('triageTitle');
+const triageCount  = document.getElementById('triageCount');
+const triageList   = document.getElementById('triageList');
+const pinBtn       = document.getElementById('pinBtn');
+const editorBody   = document.getElementById('editorBody');
+const editorBC     = document.getElementById('editorBreadcrumb');
+const modePill     = document.getElementById('modePill');
+const statusText   = document.getElementById('statusText');
+const toast        = document.getElementById('toast');
+
+// ── Helpers ───────────────────────────────────────
+function showToast(msg) {
+  toast.innerHTML = msg;
+  toast.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => toast.classList.remove('show'), 1800);
+}
+
+function setPaneMode(mode, reason) {
+  paneMode = mode;
+  app.className = mode === 3 ? 'app three-pane' : 'app two-pane';
+  modePill.className = isPinned ? 'mode-pill mp' : (mode === 3 ? 'mode-pill m3' : 'mode-pill m2');
+  modePill.textContent = isPinned ? 'pinned 3-pane' : (mode === 3 ? '3-pane' : '2-pane');
+  statusText.textContent = reason || '';
+}
+
+function renderTriage(source) {
+  const items = TRIAGE_DATA[source] || [];
+  triageTitle.textContent = source.charAt(0).toUpperCase() + source.slice(1);
+  triageCount.textContent = items.length + ' items';
+  triageList.innerHTML = items.map((it, i) =>
+    `<div class="t-item${i === 0 ? ' active' : ''}" data-idx="${i}" data-editor-key="${source}">
+      <div class="t-title">${it.title}</div>
+      <div class="t-meta">
+        <span>${it.meta}</span>
+        <span class="t-tag ${it.tag}">${it.tagLabel}</span>
+      </div>
+    </div>`
+  ).join('');
+  triageActiveIdx = 0;
+  currentTriageSource = source;
+
+  // click handler on triage items
+  triageList.querySelectorAll('.t-item').forEach(el => {
+    el.addEventListener('click', () => {
+      triageList.querySelectorAll('.t-item').forEach(e => e.classList.remove('active'));
+      el.classList.add('active');
+      triageActiveIdx = parseInt(el.dataset.idx);
+      loadEditorForTriageItem(source, triageActiveIdx);
+    });
+  });
+}
+
+function loadEditorForTriageItem(source, idx) {
+  const items = TRIAGE_DATA[source];
+  if (!items || !items[idx]) return;
+  const it = items[idx];
+  editorBC.innerHTML = `<span>${source.charAt(0).toUpperCase() + source.slice(1)}</span> › ${it.title.substring(0, 30)}…`;
+  editorBody.innerHTML = `
+    <h1>${it.title}</h1>
+    <div class="prop"><span class="k">Source</span><span class="v">${source}</span></div>
+    <div class="prop"><span class="k">When</span><span class="v">${it.meta}</span></div>
+    <div class="prop"><span class="k">Status</span><span class="v">${it.tagLabel}</span></div>
+    <p style="margin-top:16px; color:var(--text-dim);">This is the full content view for "<strong>${it.title}</strong>". In production, this would render the note's markdown body, properties, backlinks, and related items.</p>
+  `;
+}
+
+function loadEditor(key) {
+  const content = EDITOR_CONTENT[key];
+  if (!content) return;
+  editorBC.innerHTML = content.bc.replace('›', '<span>›</span>');
+  editorBody.innerHTML = `
+    <h1>${content.title}</h1>
+    ${content.props.map(p => `<div class="prop"><span class="k">${p.k}</span><span class="v">${p.v}</span></div>`).join('')}
+    ${content.body}
+  `;
+}
+
+// ── Sidebar clicks ────────────────────────────────
+document.querySelectorAll('.s-item').forEach(el => {
+  el.addEventListener('click', () => {
+    const key = el.dataset.item;
+    const wantedPane = parseInt(el.dataset.pane);
+    const triageSource = el.dataset.triage;
+
+    // Update active state
+    document.querySelectorAll('.s-item').forEach(e => e.classList.remove('active'));
+    el.classList.add('active');
+    currentItem = key;
+
+    // Resolve effective pane mode: pinned overrides everything
+    let effectiveMode = isPinned ? 3 : wantedPane;
+
+    if (effectiveMode === 3 && triageSource) {
+      renderTriage(triageSource);
+      setPaneMode(3, `Section policy: 3-pane (${triageSource})`);
+      loadEditorForTriageItem(triageSource, 0);
+      showToast(`<span class="toast-key">3-pane</span> — triage list for ${triageSource}`);
+    } else if (effectiveMode === 3 && !triageSource && isPinned) {
+      // Pinned but section has no triage data — show empty triage
+      triageTitle.textContent = 'Pinned';
+      triageCount.textContent = 'No triage list';
+      triageList.innerHTML = '<div style="padding:20px;color:var(--text-faint);text-align:center;">This section has no triage items.<br>Unpin to use 2-pane.</div>';
+      setPaneMode(3, 'Pinned override on 2-pane section');
+      loadEditor(key);
+      showToast(`<span class="toast-key">Pinned</span> — forcing 3-pane on 2-pane section`);
+    } else {
+      setPaneMode(2, `Section policy: 2-pane (direct edit)`);
+      loadEditor(key);
+      showToast(`<span class="toast-key">2-pane</span> — direct to editor`);
+    }
+  });
+});
+
+// ── Pin toggle ────────────────────────────────────
+function togglePin() {
+  isPinned = !isPinned;
+  pinBtn.classList.toggle('pinned', isPinned);
+  pinBtn.querySelector('.pin-label').textContent = isPinned ? 'Unpin' : 'Pin';
+
+  if (isPinned) {
+    // If currently 2-pane, force 3-pane
+    if (paneMode === 2) {
+      const activeItem = document.querySelector('.s-item.active');
+      const triageSource = activeItem?.dataset.triage;
+      if (triageSource) {
+        renderTriage(triageSource);
+        setPaneMode(3, 'Manual pin override → 3-pane');
+      } else {
+        triageTitle.textContent = 'Pinned';
+        triageCount.textContent = 'No triage list';
+        triageList.innerHTML = '<div style="padding:20px;color:var(--text-faint);text-align:center;">This section has no triage items.</div>';
+        setPaneMode(3, 'Manual pin override → 3-pane (empty)');
+      }
+    }
+    showToast('<span class="toast-key">📌 Pinned</span> — triage pane stays open');
+  } else {
+    // Unpin: revert to section policy
+    const activeItem = document.querySelector('.s-item.active');
+    const wantedPane = parseInt(activeItem?.dataset.pane || '2');
+    if (wantedPane === 2) {
+      setPaneMode(2, 'Unpinned → reverted to section 2-pane policy');
+      showToast('<span class="toast-key">Unpinned</span> — reverted to 2-pane');
+    } else {
+      setPaneMode(3, 'Unpinned → section still wants 3-pane');
+      showToast('<span class="toast-key">Unpinned</span> — section keeps 3-pane');
+    }
+  }
+}
+pinBtn.addEventListener('click', togglePin);
+
+// ── Keyboard nav ──────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'p' || e.key === 'P') {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    e.preventDefault();
+    togglePin();
+    return;
+  }
+  if (e.key === 'Escape' && paneMode === 3 && !isPinned) {
+    setPaneMode(2, 'Esc pressed — closed triage pane');
+    showToast('<span class="toast-key">Esc</span> — triage closed');
+    return;
+  }
+  if (paneMode === 3 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+    e.preventDefault();
+    const items = triageList.querySelectorAll('.t-item');
+    if (!items.length) return;
+    items[triageActiveIdx]?.classList.remove('active');
+    if (e.key === 'ArrowDown') triageActiveIdx = Math.min(triageActiveIdx + 1, items.length - 1);
+    else triageActiveIdx = Math.max(triageActiveIdx - 1, 0);
+    items[triageActiveIdx]?.classList.add('active');
+    items[triageActiveIdx]?.scrollIntoView({ block: 'nearest' });
+    loadEditorForTriageItem(currentTriageSource, triageActiveIdx);
+  }
+});
+
+// ── Init ──────────────────────────────────────────
+// Start in the default Inbox view (3-pane)
+(function init() {
+  const firstItem = document.querySelector('.s-item.active');
+  if (firstItem) firstItem.click();
+})();
+</script>
+</body>
+</html>
