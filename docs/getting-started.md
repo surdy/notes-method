@@ -196,14 +196,14 @@ Use these docs as you go deeper:
 
 | Document | Description |
 |----------|-------------|
-| `app-guide.md` *(coming soon)* | Full guide to the desktop app interface |
+| [Desktop App Guide](app-guide.md) | Full guide to the desktop app interface |
 | [View Modes](view-modes.md) | Source, Live Preview, and Reading View details |
-| `keyboard-shortcuts.md` *(coming soon)* | All keyboard shortcuts |
+| [Keyboard Shortcuts](keyboard-shortcuts.md) | All keyboard shortcuts |
 | [CLI Reference](cli.md) | Command-line interface reference |
 | [HTTP API](http-api.md) | REST API endpoints |
 | [SQL Views](sql-views.md) | Queryable SQL views |
 | [MCP Adapter](mcp.md) | Model Context Protocol tools |
-| `vault-configuration.md` *(coming soon)* | Configuration files and options |
+| [Vault Configuration](vault-configuration.md) | Configuration files and options |
 
 ## Philosophy
 
