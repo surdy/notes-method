@@ -82,7 +82,16 @@ accentColor: '#7ec8e3',
 verticalAlign: 'middle',
 cursor: 'pointer'
 },
-'.cm-ofm-task-toggle.cancelled': {
+'.cm-ofm-task-toggle.status-blocked': {
+accentColor: '#ff6b6b'
+},
+'.cm-ofm-task-toggle.status-waiting': {
+accentColor: '#d7ba7d'
+},
+'.cm-ofm-task-toggle.status-on-hold': {
+accentColor: '#b180d7'
+},
+'.cm-ofm-task-toggle.status-cancelled': {
 opacity: '0.6',
 accentColor: '#ffb347'
 },

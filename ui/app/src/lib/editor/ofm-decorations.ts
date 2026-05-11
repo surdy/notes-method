@@ -1,12 +1,13 @@
 import { type Extension, type Range } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import type { NoteSummary, TaskMutationStatus } from '$lib/api';
+import { nextTaskStatus, TASK_MARKER_PATTERN, taskMarkerToStatus, taskStatusClass } from './task-markers';
 
 const WIKILINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
 const TAG_RE = /(^|[\s([{])#([A-Za-z0-9/_-]+)/g;
 const INLINE_FIELD_RE = /(^|\s)([A-Za-z][\w-]*)::(?=\s|\S)/g;
 const CALLOUT_RE = /^>\s+\[!([A-Za-z0-9_-]+)\]/;
-const TASK_RE = /^(\s*[-*+]\s+)\[([ xX/\-])\]/;
+const TASK_RE = new RegExp(`^(\\s*[-*+]\\s+)\\[([${TASK_MARKER_PATTERN}])\\]`);
 const FENCE_RE = /^(```|~~~)/;
 
 export interface OFMDecorationOptions {
@@ -34,13 +35,11 @@ const checkbox = document.createElement('input');
 checkbox.type = 'checkbox';
 checkbox.className = 'cm-ofm-task-toggle';
 checkbox.checked = this.status === 'done';
-checkbox.indeterminate = this.status === 'in_progress';
+checkbox.indeterminate = this.status === 'in_progress' || this.status === 'blocked' || this.status === 'waiting' || this.status === 'on_hold';
 checkbox.disabled = !this.taskHash;
-checkbox.title = this.taskHash ? 'Toggle task status' : 'Save note to refresh task anchor';
-checkbox.setAttribute('aria-label', 'Toggle task status');
-if (this.status === 'cancelled') {
-checkbox.classList.add('cancelled');
-}
+checkbox.title = this.taskHash ? `${taskStatusLabel(this.status)} — toggle task status` : 'Save note to refresh task anchor';
+checkbox.setAttribute('aria-label', `${taskStatusLabel(this.status)} task`);
+checkbox.classList.add(taskStatusClass(this.status));
 checkbox.addEventListener('mousedown', (event) => {
 event.preventDefault();
 });
@@ -142,7 +141,7 @@ if (taskMatch) {
 const markerStart = line.from + taskMatch[1].length;
 const markerEnd = markerStart + 3;
 const taskHash = taskHashes.get(text) ?? null;
-const status = markerToStatus(taskMatch[2]);
+const status = taskMarkerToStatus(taskMatch[2]);
 if (status) {
 decorations.push(
 Decoration.replace({
@@ -226,24 +225,23 @@ to
 );
 }
 
-function markerToStatus(marker: string): TaskMutationStatus | null {
-switch (marker) {
-case ' ':
-return 'todo';
-case '/':
-return 'in_progress';
-case 'x':
-case 'X':
-return 'done';
-case '-':
-return 'cancelled';
-default:
-return null;
+function taskStatusLabel(status: TaskMutationStatus): string {
+switch (status) {
+case 'todo':
+return 'To do';
+case 'in_progress':
+return 'In progress';
+case 'blocked':
+return 'Blocked';
+case 'waiting':
+return 'Waiting';
+case 'on_hold':
+return 'On hold';
+case 'done':
+return 'Done';
+case 'cancelled':
+return 'Cancelled';
 }
-}
-
-function nextTaskStatus(status: TaskMutationStatus): TaskMutationStatus {
-return status === 'done' ? 'todo' : 'done';
 }
 
 function resolveWikilink(target: string, notes: NoteSummary[]): string | null {
