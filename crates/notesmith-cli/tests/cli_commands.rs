@@ -2,10 +2,15 @@ use notesmith_config::{GlobalConfig, VaultConfig, VaultRegistration};
 use std::{
     collections::BTreeMap,
     fs,
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
     time::Duration,
 };
 use tempfile::TempDir;
+
+/// Maximum time to wait for the daemon to respond to /ping.
+/// Debug builds can take 2-3s to start (vault scan, index build, watcher setup).
+const DAEMON_READY_TIMEOUT: Duration = Duration::from_secs(10);
+const DAEMON_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 fn create_vault(root: &std::path::Path, name: &str) {
     let config = VaultConfig {
@@ -50,6 +55,35 @@ fn write_global_config(
     config
         .save_to(&config_root.join("notesmith").join("config.toml"))
         .unwrap();
+}
+
+/// Wait for a spawned daemon to respond to /ping, or panic with diagnostics.
+async fn wait_for_daemon(child: &mut Child, bind: &std::net::SocketAddr) {
+    let client = reqwest::Client::new();
+    let deadline = tokio::time::Instant::now() + DAEMON_READY_TIMEOUT;
+    let mut last_error = None;
+
+    while tokio::time::Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                panic!("daemon exited early with {status}");
+            }
+            Ok(None) => {}
+            Err(e) => panic!("failed to check daemon status: {e}"),
+        }
+        match client.get(format!("http://{bind}/ping")).send().await {
+            Ok(resp) if resp.status().is_success() => return,
+            Ok(resp) => last_error = Some(format!("unexpected status {}", resp.status())),
+            Err(e) => last_error = Some(e.to_string()),
+        }
+        tokio::time::sleep(DAEMON_POLL_INTERVAL).await;
+    }
+
+    let _ = child.kill();
+    panic!(
+        "daemon did not become ready within {DAEMON_READY_TIMEOUT:?}: {:?}",
+        last_error,
+    );
 }
 
 #[test]
@@ -107,33 +141,10 @@ async fn daemon_start_serves_ping_endpoint() {
         .spawn()
         .unwrap();
 
-    let client = reqwest::Client::new();
-    let mut last_error = None;
-    for _ in 0..20 {
-        match client.get(format!("http://{bind}/ping")).send().await {
-            Ok(response) if response.status().is_success() => {
-                child.kill().unwrap();
-                let _ = child.wait();
-                return;
-            }
-            Ok(response) => {
-                last_error = Some(format!("unexpected status {}", response.status()));
-            }
-            Err(error) => {
-                last_error = Some(error.to_string());
-            }
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    wait_for_daemon(&mut child, &bind).await;
 
     child.kill().unwrap();
-    let output = child.wait_with_output().unwrap();
-    panic!(
-        "daemon did not start: {:?}\nstdout: {}\nstderr: {}",
-        last_error,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let _ = child.wait();
 }
 
 #[tokio::test]
@@ -161,53 +172,35 @@ async fn query_sql_uses_http_daemon() {
         .spawn()
         .unwrap();
 
-    let client = reqwest::Client::new();
-    for _ in 0..20 {
-        if client
-            .get(format!("http://{bind}/ping"))
-            .send()
-            .await
-            .is_ok()
-        {
-            let output = Command::new(notesmith_bin())
-                .current_dir(&vault_root)
-                .env("XDG_CONFIG_HOME", &config_home)
-                .env("XDG_CACHE_HOME", &cache_home)
-                .args([
-                    "--format",
-                    "json",
-                    "query",
-                    "sql",
-                    "SELECT title FROM v_notes ORDER BY title LIMIT 1",
-                ])
-                .output()
-                .unwrap();
+    wait_for_daemon(&mut daemon, &bind).await;
 
-            daemon.kill().unwrap();
-            let _ = daemon.wait();
-
-            assert!(
-                output.status.success(),
-                "stdout: {}\nstderr: {}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-
-            let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-            assert_eq!(json["columns"], serde_json::json!(["title"]));
-            assert_eq!(json["row_count"], serde_json::json!(1));
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    let output = Command::new(notesmith_bin())
+        .current_dir(&vault_root)
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .args([
+            "--format",
+            "json",
+            "query",
+            "sql",
+            "SELECT title FROM v_notes ORDER BY title LIMIT 1",
+        ])
+        .output()
+        .unwrap();
 
     daemon.kill().unwrap();
-    let output = daemon.wait_with_output().unwrap();
-    panic!(
-        "daemon did not become ready\nstdout: {}\nstderr: {}",
+    let _ = daemon.wait();
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["columns"], serde_json::json!(["title"]));
+    assert_eq!(json["row_count"], serde_json::json!(1));
 }
 
 #[tokio::test]
@@ -239,45 +232,27 @@ async fn search_uses_http_daemon() {
         .spawn()
         .unwrap();
 
-    let client = reqwest::Client::new();
-    for _ in 0..20 {
-        if client
-            .get(format!("http://{bind}/ping"))
-            .send()
-            .await
-            .is_ok()
-        {
-            let output = Command::new(notesmith_bin())
-                .current_dir(&vault_root)
-                .env("XDG_CONFIG_HOME", &config_home)
-                .env("XDG_CACHE_HOME", &cache_home)
-                .args(["search", "searchonlyneedle"])
-                .output()
-                .unwrap();
+    wait_for_daemon(&mut daemon, &bind).await;
 
-            daemon.kill().unwrap();
-            let _ = daemon.wait();
-
-            assert!(
-                output.status.success(),
-                "stdout: {}\nstderr: {}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            assert!(stdout.contains("Home.md"));
-            assert!(stdout.contains("Home"));
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    let output = Command::new(notesmith_bin())
+        .current_dir(&vault_root)
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .args(["search", "searchonlyneedle"])
+        .output()
+        .unwrap();
 
     daemon.kill().unwrap();
-    let output = daemon.wait_with_output().unwrap();
-    panic!(
-        "daemon did not become ready\nstdout: {}\nstderr: {}",
+    let _ = daemon.wait();
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Home.md"));
+    assert!(stdout.contains("Home"));
 }
