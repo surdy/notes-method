@@ -1,5 +1,6 @@
 //! notesmith-http: Axum daemon, REST endpoints, SSE, and static app serving
 
+pub mod config_io;
 pub mod events;
 pub mod hooks;
 pub mod routes;
