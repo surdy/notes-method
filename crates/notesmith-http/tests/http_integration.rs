@@ -194,7 +194,7 @@ async fn execute_sql_returns_query_result_json() {
 }
 
 #[tokio::test]
-async fn get_sidebar_config_returns_empty_views_without_config_file() {
+async fn get_sidebar_config_returns_configured_views() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let root = golden_vault();
@@ -213,10 +213,8 @@ async fn get_sidebar_config_returns_empty_views_without_config_file() {
 
     let body = response.json::<serde_json::Value>().await.unwrap();
     let views = body["views"].as_array().unwrap();
-    assert!(
-        views.is_empty(),
-        "expected empty views when no sidebar.yaml exists"
-    );
+    assert_eq!(views.len(), 1, "expected one configured view (Triage)");
+    assert_eq!(views[0]["name"], "Triage");
 
     server.abort();
 }

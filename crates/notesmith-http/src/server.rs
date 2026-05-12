@@ -158,7 +158,11 @@ fn app_build_dir() -> PathBuf {
     // Resolve relative to the binary location so the daemon works regardless of CWD.
     // Binary is at <workspace>/target/{debug,release}/notesmith — walk up to workspace root.
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(exe_dir) = exe.canonicalize().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        if let Some(exe_dir) = exe
+            .canonicalize()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        {
             // Try <exe_dir>/../../ui/app/build (for target/release/notesmith)
             let candidate = exe_dir.join("../../ui/app/build");
             if let Ok(resolved) = candidate.canonicalize() {
