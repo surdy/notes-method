@@ -9,6 +9,7 @@ import {
 	type TemplatePrompt
 } from './api';
 import { goto } from '$app/navigation';
+import { base } from '$app/paths';
 import { vaultStore } from './stores.svelte';
 
 export interface Command {
@@ -271,7 +272,7 @@ label: 'Settings',
 category: 'Settings',
 shortcut: '⌘,',
 execute: () => {
-void goto(`/settings?vault=${encodeURIComponent(vault)}`);
+void goto(`${base}/settings?vault=${encodeURIComponent(vault)}`);
 }
 }
 ];

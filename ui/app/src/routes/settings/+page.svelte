@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import { settingsStore } from '$lib/settings.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 	import { registerHotkeys } from '$lib/hotkeys';
@@ -37,7 +38,7 @@
 			if (!discard) return;
 		}
 		settingsStore.resetState();
-		void goto(`/?vault=${encodeURIComponent(vault)}`);
+		void goto(`${base}/?vault=${encodeURIComponent(vault)}`);
 	}
 
 	function textField(

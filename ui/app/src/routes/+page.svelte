@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import { goto } from '$app/navigation';
+import { base } from '$app/paths';
 import type { CustomItem } from '$lib/api';
 import { buildCommands, OPEN_QUICK_SWITCHER_EVENT } from '$lib/commands';
 import CommandPalette from '$lib/components/CommandPalette.svelte';
@@ -158,7 +159,7 @@ const unregister = registerHotkeys([
 { key: 't', meta: true, shift: true, action: () => vaultStore.reopenLastTab() },
 { key: '\\', meta: true, action: () => rightRailRef?.toggle() },
 { key: 'f', meta: true, shift: true, action: openQuickSwitcher },
-{ key: ',', meta: true, action: () => void goto(`/settings?vault=${encodeURIComponent(vaultStore.currentVault)}`) }
+{ key: ',', meta: true, action: () => void goto(`${base}/settings?vault=${encodeURIComponent(vaultStore.currentVault)}`) }
 ]);
 
 return () => {
@@ -176,7 +177,7 @@ unregister();
 <aside class="sidebar">
 <div class="sidebar-header">
 <h1 class="app-title">📝 Notesmith</h1>
-<button class="gear-btn" type="button" onclick={() => void goto(`/settings?vault=${encodeURIComponent(vaultStore.currentVault)}`)} aria-label="Open settings" title="Settings (⌘,)">⚙</button>
+<button class="gear-btn" type="button" onclick={() => void goto(`${base}/settings?vault=${encodeURIComponent(vaultStore.currentVault)}`)} aria-label="Open settings" title="Settings (⌘,)">⚙</button>
 </div>
 
 {#if vaults.length > 1}
