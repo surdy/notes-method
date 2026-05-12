@@ -1,0 +1,35 @@
+views:
+  - id: triage
+    name: "Triage"
+    icon: "⚡"
+    badge_query: "SELECT count(*) FROM v_notes WHERE path LIKE 'Inbox/%' AND archived = 0"
+    sections:
+      - type: custom-items
+        label: "Triage"
+        items:
+          - name: "Inbox"
+            icon: "📥"
+            source:
+              folder: "Inbox"
+              recursive: true
+              sort: modified
+              sort_dir: desc
+          - name: "Tasks"
+            icon: "✅"
+            source:
+              query: >
+                SELECT text AS title, status AS subtitle, note_path AS path, ordinal AS line
+                FROM v_tasks
+                WHERE status NOT IN ('done', 'cancelled')
+                ORDER BY
+                  CASE status
+                    WHEN 'in_progress' THEN 1
+                    WHEN 'todo' THEN 2
+                    WHEN 'blocked' THEN 3
+                    WHEN 'awaiting_customer' THEN 4
+                    WHEN 'on_hold' THEN 5
+                  END,
+                  note_path, ordinal
+              title_column: "title"
+              subtitle_column: "subtitle"
+              badge_columns: ["subtitle"]
