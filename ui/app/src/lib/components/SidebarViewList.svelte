@@ -1,8 +1,14 @@
 <script lang="ts">
-	import type { SidebarViewConfig, SqlQueryResult } from '$lib/api';
+	import type { SqlQueryResult } from '$lib/api';
 	import { vaultStore } from '$lib/stores.svelte';
 
 	type Row = Record<string, unknown>;
+	type SidebarViewListConfig = {
+		id: string;
+		name: string;
+		icon: string;
+		group_by?: string;
+	};
 	type RowGroup = {
 		key: string;
 		label: string;
@@ -15,7 +21,7 @@
 		loading = false,
 		error = null
 	}: {
-		view: SidebarViewConfig;
+		view: SidebarViewListConfig;
 		result?: SqlQueryResult;
 		loading?: boolean;
 		error?: string | null;
