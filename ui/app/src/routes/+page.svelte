@@ -1,7 +1,9 @@
 <script lang="ts">
 import { onMount } from 'svelte';
+import type { CustomItem } from '$lib/api';
 import { buildCommands, OPEN_QUICK_SWITCHER_EVENT } from '$lib/commands';
 import CommandPalette from '$lib/components/CommandPalette.svelte';
+import MiddlePane from '$lib/components/MiddlePane.svelte';
 import NoteEditor from '$lib/components/NoteEditor.svelte';
 import NoteToolbar from '$lib/components/NoteToolbar.svelte';
 import NoteViewer from '$lib/components/NoteViewer.svelte';
@@ -18,11 +20,17 @@ let vaults = $state<string[]>([]);
 let showCommandPalette = $state(false);
 let showQuickSwitcher = $state(false);
 let sseConnection: EventSource | null = null;
-let sidebarViewsRef: { refresh: () => void } | null = null;
-let noteEditorRef:
-	| { handleExternalChange: (path: string) => void; refreshSqlBlocks: () => void; flushSave: () => Promise<void> }
-	| null = null;
-let rightRailRef: { refresh: () => void; toggle: () => void } | null = null;
+let sidebarViewsRef = $state<{ refresh: () => void } | null>(null);
+let noteEditorRef = $state<
+| {
+handleExternalChange: (path: string) => void;
+refreshSqlBlocks: () => void;
+flushSave: () => Promise<void>;
+  }
+| null
+>(null);
+let rightRailRef = $state<{ refresh: () => void; toggle: () => void } | null>(null);
+let activeMiddlePaneItem = $state<CustomItem | null>(null);
 
 let commands = $derived.by(() =>
 buildCommands(vaultStore.currentVault, (path) => {
@@ -59,9 +67,9 @@ vaultStore.toggleViewMode();
 onMount(() => {
 const handleOpenQuickSwitcher = () => openQuickSwitcher();
 const refreshContextPanels = () => {
-	sidebarViewsRef?.refresh();
-	rightRailRef?.refresh();
-	noteEditorRef?.refreshSqlBlocks();
+sidebarViewsRef?.refresh();
+rightRailRef?.refresh();
+noteEditorRef?.refreshSqlBlocks();
 };
 
 window.addEventListener(OPEN_QUICK_SWITCHER_EVENT, handleOpenQuickSwitcher as EventListener);
@@ -76,22 +84,22 @@ vaultStore.restoreTabs();
 await vaultStore.loadNotes();
 
 sseConnection = connectSSE(vault, (event) => {
-	const refreshNotes =
-		event.type.startsWith('note.') ||
-		event.type === 'inbox.added' ||
-		event.type === 'daily.created' ||
-		event.type === 'cache.rebuilt';
-	if (refreshNotes) {
-		void vaultStore.loadNotes().finally(() => {
-			refreshContextPanels();
-		});
-	}
-	if (event.type === 'note.updated' || event.type === 'note.created') {
-		noteEditorRef?.handleExternalChange(event.path);
-	}
-	if (!refreshNotes && event.type === 'task.updated') {
-		refreshContextPanels();
-	}
+const refreshNotes =
+event.type.startsWith('note.') ||
+event.type === 'inbox.added' ||
+event.type === 'daily.created' ||
+event.type === 'cache.rebuilt';
+if (refreshNotes) {
+void vaultStore.loadNotes().finally(() => {
+refreshContextPanels();
+});
+}
+if (event.type === 'note.updated' || event.type === 'note.created') {
+noteEditorRef?.handleExternalChange(event.path);
+}
+if (!refreshNotes && event.type === 'task.updated') {
+refreshContextPanels();
+}
 });
 } catch (error) {
 console.error('Failed to initialize Notesmith app shell', error);
@@ -136,8 +144,20 @@ unregister();
 <VaultSwitcher {vaults} />
 {/if}
 
-<SidebarViews bind:this={sidebarViewsRef} />
+<SidebarViews
+bind:this={sidebarViewsRef}
+onActivateMiddlePane={(item) => (activeMiddlePaneItem = item)}
+onDeactivateMiddlePane={() => (activeMiddlePaneItem = null)}
+/>
 </aside>
+
+{#if activeMiddlePaneItem}
+<MiddlePane
+item={activeMiddlePaneItem}
+vault={vaultStore.currentVault}
+onClose={() => (activeMiddlePaneItem = null)}
+/>
+{/if}
 
 <main class="content-area">
 <TabBar />
