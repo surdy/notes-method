@@ -55,6 +55,15 @@ For each customer there would be a folder containing:
 - When `.notesmith/sidebar.yaml` does not exist, the app behaves as a plain Files-only notes app.
 - The main note workspace should also include a contextual **right rail** for metadata, backlinks, and outgoing links on the active note.
 
+## Reactive Configuration
+
+- Changes to vault-local config files under `.notesmith/` should be reflected without restarting the daemon or reloading the app window.
+- The daemon should watch `.notesmith/sidebar.yaml` and `.notesmith/vault.toml` alongside note files, debounce rapid file-system events, and publish vault-scoped SSE events.
+- Sidebar config is already loaded from disk on each `GET /api/v/{vault}/sidebar-config`; a sidebar config change only needs a `config.changed` SSE event so the frontend can refetch it.
+- Vault config is cached in daemon state and must be reloaded in place after `.notesmith/vault.toml` changes. Invalid TOML should leave the last valid config active and publish a config error event.
+- Config events should include the config key (`sidebar` or `vault`), vault-relative path, status (`changed`, `removed`, or `error`), and an optional parse error message.
+- The frontend should handle config events from the existing `/api/v/{vault}/events` stream: refetch sidebar config for `sidebar`, refresh app state derived from vault config for `vault`, and show non-blocking feedback for invalid config.
+
 ## Editor Experience
 
 - The primary note surface should be an editable **CodeMirror 6** OFM editor, not a read-only HTML viewer.
