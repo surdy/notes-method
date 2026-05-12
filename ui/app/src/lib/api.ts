@@ -87,14 +87,49 @@ output_path: string;
 prompts: TemplatePrompt[];
 }
 
-export interface SidebarViewConfig {
+export interface SidebarConfig {
+views: SidebarView[];
+}
+
+export interface SidebarView {
 id: string;
 name: string;
 icon: string;
-data_source: string;
-group_by?: string;
-sort_by?: string;
+sections: SidebarSection[];
 badge_query?: string;
+}
+
+export type SidebarSection =
+	| { type: 'recently-viewed'; label: string; mode: 'viewed' | 'edited' | 'both'; limit: number }
+	| { type: 'custom-folders'; label: string; folders: string[] }
+	| { type: 'custom-items'; label: string; items: CustomItem[] };
+
+export interface CustomItem {
+name: string;
+icon: string;
+source: FolderSource | QuerySource;
+}
+
+export interface FolderSource {
+folder: string;
+recursive?: boolean;
+sort?: 'modified' | 'created' | 'name';
+sort_dir?: 'asc' | 'desc';
+}
+
+export interface QuerySource {
+query: string;
+title_column?: string;
+subtitle_column?: string;
+badge_columns?: string[];
+}
+
+export interface FolderNoteItem {
+path: string;
+title: string;
+snippet: string;
+modified_at?: string;
+created_at?: string;
 }
 
 export interface SqlQueryResult {
@@ -248,10 +283,31 @@ if (!res.ok) throw new Error(`Failed to instantiate template: ${res.status}`);
 return res.json();
 }
 
-export async function getSidebarViews(vault: string): Promise<SidebarViewConfig[]> {
-const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/sidebar-views`);
-if (!res.ok) throw new Error(`Failed to load sidebar views: ${res.status}`);
+export async function getSidebarConfig(vault: string): Promise<SidebarConfig> {
+const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/sidebar-config`);
+if (!res.ok) throw new Error(`Failed to load sidebar config: ${res.status}`);
 return res.json();
+}
+
+export async function getFolderNotes(
+	vault: string,
+	params: {
+		path: string;
+		recursive?: boolean;
+		limit?: number;
+		sort?: string;
+		sort_dir?: string;
+	}
+): Promise<FolderNoteItem[]> {
+	const qs = new URLSearchParams({ path: params.path });
+	if (params.recursive) qs.set('recursive', 'true');
+	if (params.limit) qs.set('limit', String(params.limit));
+	if (params.sort) qs.set('sort', params.sort);
+	if (params.sort_dir) qs.set('sort_dir', params.sort_dir);
+	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/folder-notes?${qs}`);
+	if (!res.ok) throw new Error(`Failed to load folder notes: ${res.status}`);
+	const data = (await res.json()) as { notes: FolderNoteItem[] };
+	return data.notes;
 }
 
 export async function executeSql(vault: string, sql: string): Promise<SqlQueryResult> {
