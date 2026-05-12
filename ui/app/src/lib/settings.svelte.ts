@@ -11,8 +11,6 @@ import {
 export type SettingsStatus = 'idle' | 'loading' | 'saving' | 'error';
 
 class SettingsStore {
-	open = $state(false);
-
 	capabilities = $state<Capabilities | null>(null);
 
 	serverConfig = $state<VaultConfigData | null>(null);
@@ -32,27 +30,7 @@ class SettingsStore {
 		return this.dirtySections.size > 0;
 	}
 
-	toggle() {
-		if (this.open) {
-			this.close();
-		} else {
-			this.open = true;
-		}
-	}
-
-	close() {
-		if (this.isDirty) {
-			const discard = window.confirm('You have unsaved settings changes. Discard them?');
-			if (!discard) return;
-		}
-		this.open = false;
-		this.conflict = null;
-		this.fieldErrors = {};
-		this.error = null;
-	}
-
-	forceClose() {
-		this.open = false;
+	resetState() {
 		this.conflict = null;
 		this.fieldErrors = {};
 		this.error = null;
@@ -175,7 +153,7 @@ class SettingsStore {
 	}
 
 	async handleExternalConfigChange(vault: string) {
-		if (this.open && this.status !== 'saving') {
+		if (this.status !== 'saving') {
 			await this.loadConfig(vault);
 		}
 	}

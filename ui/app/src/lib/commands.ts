@@ -1,14 +1,14 @@
 import {
-createNote,
-ensureDaily,
-getNoteHtmlInline,
-inboxCapture,
-instantiateTemplate,
-listTemplates,
-routeApply,
-type TemplatePrompt
+	createNote,
+	ensureDaily,
+	getNoteHtmlInline,
+	inboxCapture,
+	instantiateTemplate,
+	listTemplates,
+	routeApply,
+	type TemplatePrompt
 } from './api';
-import { settingsStore } from './settings.svelte';
+import { goto } from '$app/navigation';
 import { vaultStore } from './stores.svelte';
 
 export interface Command {
@@ -271,7 +271,7 @@ label: 'Settings',
 category: 'Settings',
 shortcut: '⌘,',
 execute: () => {
-settingsStore.toggle();
+void goto(`/settings?vault=${encodeURIComponent(vault)}`);
 }
 }
 ];
