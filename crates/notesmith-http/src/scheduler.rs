@@ -76,7 +76,7 @@ pub async fn start_daily_schedulers(state: SharedAppState) -> Vec<DailyScheduler
         state
             .vaults
             .iter()
-            .map(|(name, vs)| (name.clone(), vs.vault_config.daily.clone()))
+            .map(|(name, vs)| (name.clone(), vs.vault_config.load().daily.clone()))
             .collect()
     };
 
@@ -105,10 +105,11 @@ pub async fn start_daily_schedulers(state: SharedAppState) -> Vec<DailyScheduler
                 let today = Local::now().date_naive();
                 let state = state_clone.read().await;
                 if let Some(vault) = state.vaults.get(&vault_name_clone) {
+                    let daily_config = vault.vault_config.load();
                     if let Ok(Some(path)) = ensure_daily_note(
                         &vault.root,
-                        &vault.vault_config.daily.folder,
-                        &vault.vault_config.daily.template,
+                        &daily_config.daily.folder,
+                        &daily_config.daily.template,
                         today,
                         &vault.template_engine,
                         &vault.engine,
@@ -139,10 +140,11 @@ pub async fn start_daily_schedulers(state: SharedAppState) -> Vec<DailyScheduler
 async fn run_catch_up(state: &SharedAppState, vault_name: &str) {
     let state = state.read().await;
     if let Some(vault) = state.vaults.get(vault_name) {
+        let config = vault.vault_config.load();
         match catch_up_daily_notes(
             &vault.root,
-            &vault.vault_config.daily.folder,
-            &vault.vault_config.daily.template,
+            &config.daily.folder,
+            &config.daily.template,
             &vault.template_engine,
             &vault.engine,
         ) {

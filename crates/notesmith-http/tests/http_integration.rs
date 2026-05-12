@@ -41,7 +41,7 @@ fn build_test_state(root: &Path) -> AppState {
                 search_index,
                 engine,
                 root: root.to_path_buf(),
-                vault_config,
+                vault_config: arc_swap::ArcSwap::from_pointee(vault_config),
                 template_engine,
             },
         )]),
@@ -423,7 +423,7 @@ async fn hook_fires_on_note_create() {
         vec![notesmith_http::hooks::HookVaultContext {
             vault_name: "test-vault".to_string(),
             vault_root: vault.root.clone(),
-            hooks_config: vault.vault_config.hooks.clone(),
+            hooks_config: vault.vault_config.load().hooks.clone(),
         }],
         notesmith_hooks::HookRunner::default(),
     );

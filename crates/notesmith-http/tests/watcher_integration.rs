@@ -31,7 +31,7 @@ async fn watcher_indexes_new_markdown_files() {
                 search_index,
                 engine,
                 root: vault_root.clone(),
-                vault_config: VaultConfig {
+                vault_config: arc_swap::ArcSwap::from_pointee(VaultConfig {
                     name: "test-vault".to_string(),
                     inbox: Default::default(),
                     daily: Default::default(),
@@ -39,7 +39,7 @@ async fn watcher_indexes_new_markdown_files() {
                     git: Default::default(),
                     hooks: Default::default(),
                     homepage: None,
-                },
+                }),
                 template_engine: notesmith_templates::TemplateEngine::new(vault_root.clone(), None),
             },
         )]),

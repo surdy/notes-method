@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
+use arc_swap::ArcSwap;
 use axum::http::header;
 use axum::middleware;
 use axum::{
@@ -25,7 +26,7 @@ pub struct VaultState {
     pub search_index: SearchIndex,
     pub engine: NativeVaultEngine,
     pub root: PathBuf,
-    pub vault_config: VaultConfig,
+    pub vault_config: ArcSwap<VaultConfig>,
     pub template_engine: notesmith_templates::TemplateEngine,
 }
 
@@ -204,7 +205,7 @@ pub async fn serve_configured_vaults(
             .map(|(name, vault)| crate::hooks::HookVaultContext {
                 vault_name: name.clone(),
                 vault_root: vault.root.clone(),
-                hooks_config: vault.vault_config.hooks.clone(),
+                hooks_config: vault.vault_config.load().hooks.clone(),
             })
             .collect()
     };
@@ -224,11 +225,11 @@ pub async fn serve_configured_vaults(
         state
             .vaults
             .iter()
-            .filter(|(_, v)| v.vault_config.git.enabled)
+            .filter(|(_, v)| v.vault_config.load().git.enabled)
             .map(|(name, v)| notesmith_git::timers::GitTimerConfig {
                 vault_name: name.clone(),
                 vault_root: v.root.clone(),
-                config: v.vault_config.git.clone(),
+                config: v.vault_config.load().git.clone(),
             })
             .collect()
     };
@@ -275,7 +276,7 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
                 search_index,
                 engine,
                 root,
-                vault_config,
+                vault_config: ArcSwap::from_pointee(vault_config),
                 template_engine,
             },
         );

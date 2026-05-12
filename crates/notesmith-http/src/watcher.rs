@@ -12,6 +12,7 @@ use tokio::{sync::mpsc, task::JoinHandle, time::timeout};
 
 use crate::events::{ConfigDetail, EventType};
 use crate::server::SharedAppState;
+use notesmith_config::VaultConfig;
 
 const DEBOUNCE_WINDOW: Duration = Duration::from_millis(300);
 
@@ -200,7 +201,7 @@ async fn process_pending(
                 )?;
             }
             WatchTarget::Config(key) => {
-                handle_config_change(vault_name, &state.event_tx, root, key, action);
+                handle_config_change(vault, vault_name, &state.event_tx, root, key, action);
             }
         }
     }
@@ -259,6 +260,7 @@ fn handle_note_change(
 }
 
 fn handle_config_change(
+    vault: &crate::server::VaultState,
     vault_name: &str,
     event_tx: &crate::events::EventSender,
     root: &Path,
@@ -317,21 +319,39 @@ fn handle_config_change(
                     );
                 }
             },
-            ConfigKey::Vault => {
-                crate::events::emit(
-                    event_tx,
-                    crate::events::VaultEvent::config_event(
-                        vault_name,
-                        EventType::ConfigChanged,
-                        rel_path,
-                        ConfigDetail {
-                            key: key_str.to_string(),
-                            status: "changed".to_string(),
-                            error: None,
-                        },
-                    ),
-                );
-            }
+            ConfigKey::Vault => match VaultConfig::load_from_vault(root) {
+                Ok(new_config) => {
+                    vault.vault_config.store(std::sync::Arc::new(new_config));
+                    crate::events::emit(
+                        event_tx,
+                        crate::events::VaultEvent::config_event(
+                            vault_name,
+                            EventType::ConfigChanged,
+                            rel_path,
+                            ConfigDetail {
+                                key: key_str.to_string(),
+                                status: "changed".to_string(),
+                                error: None,
+                            },
+                        ),
+                    );
+                }
+                Err(err) => {
+                    crate::events::emit(
+                        event_tx,
+                        crate::events::VaultEvent::config_event(
+                            vault_name,
+                            EventType::ConfigError,
+                            rel_path,
+                            ConfigDetail {
+                                key: key_str.to_string(),
+                                status: "error".to_string(),
+                                error: Some(err.to_string()),
+                            },
+                        ),
+                    );
+                }
+            },
         },
     }
 }
@@ -437,5 +457,54 @@ mod tests {
             ".notesmith/sidebar.yaml"
         );
         assert_eq!(ConfigKey::Vault.relative_path(), ".notesmith/vault.toml");
+    }
+
+    #[test]
+    fn vault_config_store_updates_arcswap() {
+        use arc_swap::ArcSwap;
+        use std::sync::Arc;
+
+        let config = VaultConfig {
+            name: "test".to_string(),
+            inbox: Default::default(),
+            daily: Default::default(),
+            editor: Default::default(),
+            git: Default::default(),
+            hooks: Default::default(),
+            homepage: None,
+        };
+        let swappable = ArcSwap::from_pointee(config);
+        assert_eq!(swappable.load().name, "test");
+
+        let new_config = VaultConfig {
+            name: "updated".to_string(),
+            inbox: Default::default(),
+            daily: Default::default(),
+            editor: Default::default(),
+            git: Default::default(),
+            hooks: Default::default(),
+            homepage: None,
+        };
+        swappable.store(Arc::new(new_config));
+        assert_eq!(swappable.load().name, "updated");
+    }
+
+    #[test]
+    fn arcswap_preserves_value_when_not_stored() {
+        use arc_swap::ArcSwap;
+
+        let config = VaultConfig {
+            name: "original".to_string(),
+            inbox: Default::default(),
+            daily: Default::default(),
+            editor: Default::default(),
+            git: Default::default(),
+            hooks: Default::default(),
+            homepage: None,
+        };
+        let swappable = ArcSwap::from_pointee(config);
+
+        // Simulate error path: don't call store
+        assert_eq!(swappable.load().name, "original");
     }
 }

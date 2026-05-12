@@ -760,7 +760,8 @@ pub async fn inbox_capture(
         )
     })?;
 
-    let inbox_folder = &vault.vault_config.inbox.folder;
+    let config = vault.vault_config.load();
+    let inbox_folder = &config.inbox.folder;
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H-%M-%S").to_string();
 
     let slug = match &request.title {
@@ -798,7 +799,7 @@ pub async fn list_inbox(
         )
     })?;
 
-    let inbox_folder = &vault.vault_config.inbox.folder;
+    let inbox_folder = &vault.vault_config.load().inbox.folder;
     let like_pattern = format!("{inbox_folder}/%");
 
     let conn = vault.cache.connection();
@@ -1354,7 +1355,7 @@ pub async fn get_daily_note(
         )
     })?;
 
-    let daily_folder = &vault.vault_config.daily.folder;
+    let daily_folder = &vault.vault_config.load().daily.folder;
     let note_path = VaultPath::new(format!("{daily_folder}/{date}.md"));
 
     let content = vault
@@ -1390,10 +1391,11 @@ pub async fn create_daily_note(
         )
     })?;
 
+    let config = vault.vault_config.load();
     let result = crate::scheduler::ensure_daily_note(
         &vault.root,
-        &vault.vault_config.daily.folder,
-        &vault.vault_config.daily.template,
+        &config.daily.folder,
+        &config.daily.template,
         parsed_date,
         &vault.template_engine,
         &vault.engine,
@@ -1414,7 +1416,7 @@ pub async fn create_daily_note(
         None => Ok((
             StatusCode::OK,
             Json(json!({
-                "path": format!("{}/{}.md", vault.vault_config.daily.folder, date),
+                "path": format!("{}/{}.md", config.daily.folder, date),
                 "created": false,
             })),
         )),
@@ -1434,7 +1436,7 @@ pub async fn agent_create_daily(
         )
     })?;
     let (_, date_str) = parse_daily_date(request.date.as_deref())?;
-    let note_path = daily_note_path(&vault.vault_config.daily.folder, &date_str);
+    let note_path = daily_note_path(&vault.vault_config.load().daily.folder, &date_str);
 
     if let Some(content) = request.content {
         match vault.engine.read(&vault.root, &note_path) {
@@ -1693,7 +1695,7 @@ pub async fn route_apply(
         notesmith_routing::RoutingEngine::load(&vault.root).map_err(internal_error)?;
 
     if request.inbox {
-        let inbox_folder = &vault.vault_config.inbox.folder;
+        let inbox_folder = &vault.vault_config.load().inbox.folder;
         let results = routing_engine
             .apply_inbox(&vault.root, inbox_folder, &vault.engine)
             .map_err(internal_error)?;
