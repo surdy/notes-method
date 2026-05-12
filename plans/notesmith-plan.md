@@ -1148,34 +1148,74 @@ Tabs ship in v1. Split panes do not.
 
 ### 19.2 Sidebar views
 
-Sidebar views are user-defined in `.notesmith/sidebar-views.yaml` and support both requested modes:
+Sidebar views are user-defined in `.notesmith/sidebar.yaml`. By default (no YAML file), the sidebar shows only the Files tab — a standard file/folder tree with no tab bar.
 
-- **virtual folders**, and
-- **metadata-based grouping**.
+When ≥1 custom view is configured, a tab bar appears at the top of the sidebar. Files is always present and always first. Tabs use a **fixed 2-column grid** (icon + name), wrapping to additional rows as needed. Views support an optional `badge_query` for tab-level badge counts.
+
+Each view contains **sections** stacked vertically with horizontal separators. Sections are collapsible (state persisted in localStorage) and show item count badges on headers.
+
+#### Section types
+
+| Type | Behavior |
+|---|---|
+| `recently-viewed` | Shows recently viewed/edited notes. Mode: `viewed \| edited \| both`. Tracked by frontend (localStorage). Default limit: 10. |
+| `custom-folders` | Lists configured vault folders. Each renders its tree using the FileTree component, rooted at that folder (leaf name displayed, full path as tooltip). Fully expandable. |
+| `custom-items` | Each item has a name and icon (emoji). Clicking opens a **middle pane** between sidebar and reading pane. |
+
+#### Middle pane
+
+Custom items open a resizable middle pane (drag handle, default 300px, width persisted in localStorage per vault + item). Only one item is active at a time — clicking another replaces the content. An explicit close button dismisses the pane. Switching tabs closes it.
+
+Two source variants for custom items:
+
+- **Folder source**: lists notes in a folder (optionally recursive) with title + 2-line body snippet. Default sort: `modified_at DESC`, configurable.
+- **Query source**: executes a SQL query and renders results using column mapping (`title_column`, `subtitle_column`, `badge_columns`).
+
+Clicking a note in the middle pane opens it in the reading pane (respecting the user's current view mode). For query-backed items, the reading pane scrolls to the relevant line (requires `path` and `line` columns in the query).
+
+#### Config schema
 
 ```yaml
-version: 1
 views:
-  - id: inbox
-    title: Inbox
-    kind: virtual-folder
-    include:
-      - "Inbox/**"
+  - id: workflow
+    name: "Workflow"
+    icon: "⚡"
+    badge_query: "SELECT count(*) FROM v_notes WHERE path LIKE 'Inbox/%' AND archived = 0"
+    sections:
+      - type: recently-viewed
+        label: "Recent"
+        mode: both          # viewed | edited | both
+        limit: 10
 
-  - id: customers-by-state
-    title: Customers
-    kind: metadata-group
-    source: v_customers
-    group_by: state
-    order: ["Active", "On Hold", "Temp", "Inactive"]
+      - type: custom-folders
+        label: "Projects"
+        folders:
+          - "Projects/Active"
+          - "Customers"
 
-  - id: active-streams
-    title: Active Streams
-    kind: metadata-group
-    source: v_streams
-    where: "status != 'Done'"
-    group_by: customer
+      - type: custom-items
+        label: "Triage"
+        items:
+          - name: "Inbox"
+            icon: "📥"
+            source:
+              folder: "Inbox"
+              recursive: true
+          - name: "Tasks"
+            icon: "✅"
+            source:
+              query: "SELECT text as title, status, path, ordinal as line FROM v_tasks WHERE status IN ('todo','in_progress')"
+              title_column: "title"
+              subtitle_column: "status"
+              badge_columns: ["status"]
 ```
+
+#### Backend API
+
+Two endpoints support the sidebar:
+
+- `GET /api/v/{vault}/sidebar-config` — reads and parses `.notesmith/sidebar.yaml`, returns typed JSON. Returns empty config when file is absent.
+- `GET /api/v/{vault}/folder-notes?path=...&recursive=true&limit=50` — returns notes in a folder with title and body snippet for middle pane rendering.
 
 ### 19.3 Editor experience
 

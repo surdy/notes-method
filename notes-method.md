@@ -37,9 +37,22 @@ For each customer there would be a folder containing:
 
 ## Sidebar Views
 
-- The left sidebar should support both the file tree and YAML-driven smart views from `.notesmith/sidebar-views.yaml`.
-- Default smart views should cover **All Notes**, **Tasks**, **Recent**, and **Inbox**.
-- Smart views should be backed by read-only SQL over cached note/task views, with optional grouping and badge counts.
+- By default the sidebar shows only a **Files** tab (standard file/folder tree). No tab bar is rendered unless custom views are configured.
+- Custom views are defined in `.notesmith/sidebar.yaml`. When ≥1 custom view exists, a tab bar appears with Files always first.
+- Tabs are laid out in a **fixed 2-column grid** (icon + name per tab). Overflow wraps to additional rows.
+- Each custom view contains **sections** stacked vertically with horizontal separators. Sections are **collapsible** and show **item count badges** on their headers. Three section types:
+
+  1. **`recently-viewed`** — Shows recently viewed or edited notes. Mode (`viewed | edited | both`), tracked by the frontend (localStorage). Default limit: 10.
+  2. **`custom-folders`** — Lists configured vault folders. Each folder renders its tree using the same FileTree component as the Files tab, rooted at that folder (leaf name displayed, full path as tooltip).
+  3. **`custom-items`** — Each item has a name and icon (emoji). Clicking an item opens a **middle pane** between the sidebar and the reading pane. Two source variants:
+     - `folder` source: lists notes in a folder (optionally recursive) with title + 2-line preview snippet.
+     - `query` source: runs a SQL query and renders results using column mapping (`title_column`, `subtitle_column`, `badge_columns`).
+
+- The **middle pane** is resizable (drag handle, default 300px, width persisted in localStorage). Only one custom item is active at a time. Clicking another replaces the pane content. An explicit close button dismisses the pane. Switching tabs closes it.
+- Clicking a note in the middle pane opens it in the reading pane. For query-backed items (e.g., tasks), the reading pane scrolls to the relevant line.
+- Views support an optional `badge_query` for tab-level badge counts (SQL-driven).
+- Folder-backed items in the middle pane default to `modified_at DESC` sort, configurable via YAML.
+- When `.notesmith/sidebar.yaml` does not exist, the app behaves as a plain Files-only notes app.
 - The main note workspace should also include a contextual **right rail** for metadata, backlinks, and outgoing links on the active note.
 
 ## Editor Experience
