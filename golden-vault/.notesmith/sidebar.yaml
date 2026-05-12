@@ -4,6 +4,10 @@ views:
     icon: "⚡"
     badge_query: "SELECT count(*) FROM v_notes WHERE path LIKE 'Inbox/%' AND archived = 0"
     sections:
+      - type: recently-viewed
+        label: "Recent Notes"
+        max_items: 10
+        track: both
       - type: custom-items
         label: "Triage"
         items:
@@ -32,3 +36,8 @@ views:
                   note_path, ordinal
               title_column: "title"
               badge_columns: ["subtitle"]
+      - type: custom-folders
+        label: "Customers"
+        folders:
+          - "Customers/Acme"
+          - "Customers/Globex"
