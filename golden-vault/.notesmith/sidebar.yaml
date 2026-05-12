@@ -31,5 +31,4 @@ views:
                   END,
                   note_path, ordinal
               title_column: "title"
-              subtitle_column: "subtitle"
               badge_columns: ["subtitle"]
