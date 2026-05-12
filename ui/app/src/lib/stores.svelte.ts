@@ -1,4 +1,5 @@
 import { listNotes, type NoteSummary } from './api';
+import { recordView } from './recently-viewed';
 import {
 	closeTab as closeTabState,
 	markTabDirty as markTabDirtyState,
@@ -63,6 +64,14 @@ class VaultStore {
 	selectNote(path: string) {
 		this._applyTabState(openTab(this._tabState(), path, this.notes));
 		this._persistTabs();
+		const note = this.notes.find((candidate) => candidate.path === path);
+		if (note && this.currentVault) {
+			recordView(
+				this.currentVault,
+				path,
+				note.title || path.split('/').pop()?.replace(/\.md$/, '') || path
+			);
+		}
 	}
 
 	closeTab(index: number) {
