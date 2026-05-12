@@ -338,33 +338,88 @@ See [SQL Views Reference](sql-views.md) for available views.
 
 ---
 
-## Sidebar Views
+## Sidebar Config
 
-### `GET /api/v/{vault}/sidebar-views`
+### `GET /api/v/{vault}/sidebar-config`
 
-Load sidebar view definitions for a vault. Notesmith reads `.notesmith/sidebar-views.yaml` from the vault root and falls back to built-in defaults when the file is missing.
+Load sidebar view configuration from `.notesmith/sidebar.yaml`. Returns empty views when the file is absent (Files-only mode).
 
 **Response:** `200 OK`
 ```json
-[
-  {
-    "id": "all-notes",
-    "name": "All Notes",
-    "icon": "📄",
-    "data_source": "SELECT path, title, type FROM v_notes ORDER BY path",
-    "group_by": null,
-    "sort_by": null,
-    "badge_query": null
-  }
-]
+{
+  "views": [
+    {
+      "id": "workflow",
+      "name": "Workflow",
+      "icon": "⚡",
+      "badge_query": "SELECT count(*) FROM v_notes WHERE path LIKE 'Inbox/%'",
+      "sections": [
+        {
+          "type": "recently-viewed",
+          "label": "Recent",
+          "mode": "both",
+          "limit": 10
+        },
+        {
+          "type": "custom-folders",
+          "label": "Projects",
+          "folders": ["Projects/Active", "Customers"]
+        },
+        {
+          "type": "custom-items",
+          "label": "Triage",
+          "items": [
+            {
+              "name": "Inbox",
+              "icon": "📥",
+              "source": { "folder": "Inbox", "recursive": true }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
 ```
 
 **Example:**
 ```bash
-curl http://127.0.0.1:27183/api/v/work/sidebar-views
+curl http://127.0.0.1:27183/api/v/work/sidebar-config
 ```
 
-Use each view's `data_source` and optional `badge_query` with `POST /api/v/{vault}/query/sql`.
+### `GET /api/v/{vault}/folder-notes`
+
+List notes in a folder with title and body snippet, for use by the sidebar middle pane.
+
+**Query parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `path` | Folder path within the vault (required) |
+| `recursive` | Include subfolders (default: `false`) |
+| `limit` | Maximum results (default: 50) |
+| `sort` | Sort field: `modified`, `created`, or `name` (default: `modified`) |
+| `sort_dir` | Sort direction: `asc` or `desc` (default: `desc`) |
+
+**Response:** `200 OK`
+```json
+{
+  "notes": [
+    {
+      "path": "Inbox/meeting-notes.md",
+      "title": "Meeting Notes",
+      "snippet": "First two lines of the note body...",
+      "modified_at": "2026-05-11T10:00:00",
+      "created_at": "2026-05-10T08:00:00"
+    }
+  ]
+}
+```
+
+**Example:**
+```bash
+curl "http://127.0.0.1:27183/api/v/work/folder-notes?path=Inbox&recursive=true&limit=20"
+```
 
 ---
 

@@ -1,0 +1,876 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Focus Queue — Notes Sidebar Concept</title>
+<style>
+  :root {
+    --bg-0: #0e1014;
+    --bg-1: #14171d;
+    --bg-2: #1a1e26;
+    --bg-3: #232833;
+    --bg-hover: #1f2530;
+    --bg-active: #2a3142;
+    --border: #2a2f3a;
+    --border-strong: #353c4a;
+    --text-0: #e7ebf2;
+    --text-1: #b6bcc8;
+    --text-2: #7a8190;
+    --text-3: #555c6a;
+    --accent: #7c9cff;
+    --accent-soft: rgba(124,156,255,0.14);
+    --warn: #ffb454;
+    --good: #6cd39a;
+    --danger: #ff7a7a;
+    --tag-bg: #232833;
+    --shadow: 0 1px 0 rgba(255,255,255,0.02) inset;
+    --radius: 6px;
+    --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg-0);
+    color: var(--text-0);
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  .app {
+    display: grid;
+    grid-template-columns: 240px 380px 1fr;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  /* ---------- Left Sidebar ---------- */
+  .sidebar {
+    background: var(--bg-1);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 14px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand-mark {
+    width: 22px; height: 22px; border-radius: 6px;
+    background: linear-gradient(135deg, #7c9cff 0%, #b56cff 100%);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset;
+  }
+  .brand-name { font-weight: 600; letter-spacing: 0.2px; }
+  .brand-sub  { color: var(--text-2); font-size: 11px; margin-left: auto; }
+
+  .view-switcher {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .view-tab {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-2);
+    padding: 6px 4px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    text-align: center;
+    transition: background .12s, color .12s, border-color .12s;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+  }
+  .view-tab .icon { font-size: 14px; line-height: 1; }
+  .view-tab:hover { background: var(--bg-hover); color: var(--text-0); }
+  .view-tab.active {
+    background: var(--accent-soft);
+    color: var(--text-0);
+    border-color: rgba(124,156,255,0.3);
+  }
+
+  .sections {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 0 14px;
+  }
+  .section {
+    padding: 10px 6px 4px;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    color: var(--text-2);
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .section-header .chev {
+    display: inline-block;
+    width: 10px;
+    transition: transform .15s;
+    color: var(--text-3);
+  }
+  .section.collapsed .chev { transform: rotate(-90deg); }
+  .section.collapsed .section-body { display: none; }
+  .section-header .count {
+    margin-left: auto;
+    color: var(--text-3);
+    font-weight: 500;
+  }
+  .section-header .add {
+    color: var(--text-3);
+    font-weight: 400;
+    padding: 0 2px;
+  }
+  .section-header .add:hover { color: var(--text-0); }
+
+  .section-body { margin-top: 2px; }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px 5px 22px;
+    color: var(--text-1);
+    border-radius: 4px;
+    margin: 1px 4px;
+    cursor: pointer;
+    font-size: 12.5px;
+    position: relative;
+  }
+  .nav-item:hover { background: var(--bg-hover); color: var(--text-0); }
+  .nav-item.active {
+    background: var(--bg-active);
+    color: var(--text-0);
+  }
+  .nav-item .dot {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-3);
+  }
+  .nav-item.active .dot { background: var(--accent); }
+  .nav-item .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-item .badge {
+    background: var(--bg-3);
+    color: var(--text-1);
+    font-size: 10.5px;
+    padding: 1px 6px;
+    border-radius: 9px;
+    font-variant-numeric: tabular-nums;
+  }
+  .nav-item .badge.accent { background: var(--accent-soft); color: var(--accent); }
+  .nav-item .badge.warn   { background: rgba(255,180,84,0.16); color: var(--warn); }
+
+  .footer {
+    padding: 8px 10px;
+    border-top: 1px solid var(--border);
+    color: var(--text-3);
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .footer .who { color: var(--text-1); }
+  .footer .pulse {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--good); box-shadow: 0 0 0 3px rgba(108,211,154,0.18);
+  }
+
+  /* ---------- Middle Pane (Triage list) ---------- */
+  .triage {
+    background: var(--bg-1);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .triage-head {
+    padding: 10px 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .triage-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .triage-title h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .triage-title .meta {
+    color: var(--text-2);
+    font-size: 11.5px;
+  }
+  .triage-tabs {
+    display: flex;
+    gap: 14px;
+    margin-top: 10px;
+  }
+  .triage-tab {
+    background: none;
+    border: none;
+    color: var(--text-2);
+    padding: 8px 0;
+    cursor: pointer;
+    font-size: 12.5px;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .triage-tab .pill {
+    background: var(--bg-3);
+    color: var(--text-1);
+    font-size: 10.5px;
+    padding: 1px 6px;
+    border-radius: 9px;
+    font-variant-numeric: tabular-nums;
+  }
+  .triage-tab:hover { color: var(--text-0); }
+  .triage-tab.active {
+    color: var(--text-0);
+    border-bottom-color: var(--accent);
+  }
+  .triage-tab.active .pill { background: var(--accent-soft); color: var(--accent); }
+
+  .triage-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-1);
+  }
+  .chip {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-1);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 12px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .chip:hover { color: var(--text-0); border-color: var(--border-strong); }
+  .chip.active { background: var(--accent-soft); border-color: rgba(124,156,255,0.35); color: var(--accent); }
+  .triage-toolbar .spacer { flex: 1; }
+  .triage-toolbar .sort {
+    color: var(--text-2);
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .list {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .group-label {
+    padding: 10px 14px 4px;
+    color: var(--text-3);
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    background: var(--bg-1);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .item {
+    padding: 9px 14px 10px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    display: grid;
+    grid-template-columns: 16px 1fr auto;
+    column-gap: 10px;
+    row-gap: 2px;
+    position: relative;
+  }
+  .item:hover { background: var(--bg-hover); }
+  .item.active {
+    background: var(--bg-active);
+  }
+  .item.active::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 2px; background: var(--accent);
+  }
+  .item .check {
+    grid-column: 1; grid-row: 1 / span 2;
+    margin-top: 2px;
+    width: 14px; height: 14px;
+    border: 1.5px solid var(--text-3);
+    border-radius: 3px;
+    background: transparent;
+    cursor: pointer;
+    transition: background .12s, border-color .12s;
+  }
+  .item.done .check {
+    background: var(--good);
+    border-color: var(--good);
+  }
+  .item.done .title { text-decoration: line-through; color: var(--text-2); }
+  .item .title {
+    grid-column: 2;
+    grid-row: 1;
+    font-weight: 500;
+    color: var(--text-0);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .item .right {
+    grid-column: 3;
+    grid-row: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-2);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .item .preview {
+    grid-column: 2 / span 2;
+    grid-row: 2;
+    color: var(--text-2);
+    font-size: 11.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .item .tags {
+    grid-column: 2 / span 2;
+    grid-row: 3;
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .tag {
+    font-size: 10.5px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--tag-bg);
+    color: var(--text-1);
+    font-family: var(--mono);
+  }
+  .tag.due  { background: rgba(255,180,84,0.14);  color: var(--warn); }
+  .tag.today{ background: rgba(124,156,255,0.16); color: var(--accent); }
+  .tag.over { background: rgba(255,122,122,0.16); color: var(--danger); }
+  .tag.proj { background: rgba(108,211,154,0.14); color: var(--good); }
+
+  /* ---------- Right Reading Pane ---------- */
+  .reader {
+    background: var(--bg-0);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .reader-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-2);
+    font-size: 11.5px;
+  }
+  .reader-toolbar .crumbs span + span::before {
+    content: "›";
+    margin: 0 6px;
+    color: var(--text-3);
+  }
+  .reader-toolbar .actions {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+  }
+  .icon-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-2);
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .icon-btn:hover { background: var(--bg-2); color: var(--text-0); border-color: var(--border); }
+
+  .reader-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 28px 40px 60px;
+  }
+  .reader-empty {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-2);
+    text-align: center;
+    gap: 10px;
+  }
+  .reader-empty .glyph {
+    font-size: 38px;
+    opacity: 0.5;
+  }
+
+  .doc h1 {
+    font-size: 22px;
+    margin: 0 0 6px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+  }
+  .doc .meta-row {
+    display: flex;
+    gap: 10px;
+    color: var(--text-2);
+    font-size: 11.5px;
+    margin-bottom: 18px;
+  }
+  .doc p { color: var(--text-1); margin: 10px 0; }
+  .doc ul { padding-left: 20px; margin: 10px 0; color: var(--text-1); }
+  .doc li { margin: 4px 0; }
+  .doc code {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .doc .callout {
+    border-left: 2px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 10px 14px;
+    border-radius: 4px;
+    color: var(--text-0);
+    margin: 14px 0;
+    font-size: 12.5px;
+  }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: #2a3040; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a4254; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============= LEFT SIDEBAR ============= -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-name">Notesmith</div>
+      <div class="brand-sub">Focus Queue</div>
+    </div>
+
+    <div class="view-switcher" id="viewSwitcher">
+      <button class="view-tab active" data-view="queue">
+        <span class="icon">⚡</span><span>Queue</span>
+      </button>
+      <button class="view-tab" data-view="vault">
+        <span class="icon">🗂</span><span>Vault</span>
+      </button>
+      <button class="view-tab" data-view="search">
+        <span class="icon">🔍</span><span>Search</span>
+      </button>
+      <button class="view-tab" data-view="graph">
+        <span class="icon">◇</span><span>Graph</span>
+      </button>
+    </div>
+
+    <div class="sections" id="sections">
+
+      <div class="section">
+        <div class="section-header"><span class="chev">▾</span> Queues <span class="count">3</span></div>
+        <div class="section-body">
+          <div class="nav-item active" data-list="inbox">
+            <span class="dot"></span>
+            <span class="label">Inbox</span>
+            <span class="badge accent">12</span>
+          </div>
+          <div class="nav-item" data-list="tasks">
+            <span class="dot"></span>
+            <span class="label">Tasks</span>
+            <span class="badge warn">5</span>
+          </div>
+          <div class="nav-item" data-list="today">
+            <span class="dot"></span>
+            <span class="label">Today</span>
+            <span class="badge">3</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header"><span class="chev">▾</span> Pinned <span class="add">+</span></div>
+        <div class="section-body">
+          <div class="nav-item"><span class="dot"></span><span class="label">Weekly review</span></div>
+          <div class="nav-item"><span class="dot"></span><span class="label">Reading list</span><span class="badge">8</span></div>
+          <div class="nav-item"><span class="dot"></span><span class="label">Decisions log</span></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header"><span class="chev">▾</span> Projects <span class="add">+</span></div>
+        <div class="section-body">
+          <div class="nav-item"><span class="dot"></span><span class="label">Notesmith v0.2</span><span class="badge">4</span></div>
+          <div class="nav-item"><span class="dot"></span><span class="label">House move</span><span class="badge">2</span></div>
+          <div class="nav-item"><span class="dot"></span><span class="label">Q4 planning</span></div>
+        </div>
+      </div>
+
+      <div class="section collapsed">
+        <div class="section-header"><span class="chev">▾</span> Saved searches</div>
+        <div class="section-body">
+          <div class="nav-item"><span class="dot"></span><span class="label">tag:#followup</span></div>
+          <div class="nav-item"><span class="dot"></span><span class="label">due:&lt;7d</span></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header"><span class="chev">▾</span> Tags <span class="add">+</span></div>
+        <div class="section-body">
+          <div class="nav-item"><span class="dot"></span><span class="label">#idea</span><span class="badge">21</span></div>
+          <div class="nav-item"><span class="dot"></span><span class="label">#followup</span><span class="badge">7</span></div>
+          <div class="nav-item"><span class="dot"></span><span class="label">#reference</span><span class="badge">14</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="footer">
+      <span class="pulse"></span>
+      <span class="who">surdy</span>
+      <span style="margin-left:auto">v0.1.0</span>
+    </div>
+  </aside>
+
+  <!-- ============= MIDDLE TRIAGE PANE ============= -->
+  <section class="triage">
+    <div class="triage-head">
+      <div class="triage-title">
+        <h2 id="triageTitle">Inbox</h2>
+        <span class="meta" id="triageMeta">12 items · sorted by recent</span>
+      </div>
+      <div class="triage-tabs" id="triageTabs">
+        <button class="triage-tab active" data-tab="inbox">
+          Inbox <span class="pill">12</span>
+        </button>
+        <button class="triage-tab" data-tab="tasks">
+          Tasks <span class="pill">5</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="triage-toolbar">
+      <span class="chip active">All</span>
+      <span class="chip">Unread</span>
+      <span class="chip">Flagged</span>
+      <span class="chip">@me</span>
+      <span class="spacer"></span>
+      <span class="sort">Sort: Recent ▾</span>
+    </div>
+
+    <div class="list" id="list">
+      <!-- Lists are rendered by JS -->
+    </div>
+  </section>
+
+  <!-- ============= RIGHT READING PANE ============= -->
+  <section class="reader">
+    <div class="reader-toolbar">
+      <div class="crumbs" id="crumbs">
+        <span>Inbox</span><span id="crumbItem">Meeting with Priya — handoff notes</span>
+      </div>
+      <div class="actions">
+        <button class="icon-btn" title="Snooze">⏱</button>
+        <button class="icon-btn" title="Move">↪</button>
+        <button class="icon-btn" title="Convert to task">✓</button>
+        <button class="icon-btn" title="Open">↗</button>
+      </div>
+    </div>
+    <div class="reader-body" id="readerBody">
+      <!-- Filled by JS -->
+    </div>
+  </section>
+
+</div>
+
+<script>
+  // ---------- Mock data ----------
+  const data = {
+    inbox: {
+      title: "Inbox",
+      meta: "12 items · sorted by recent",
+      groups: [
+        {
+          label: "Today",
+          items: [
+            { id: "i1", title: "Meeting with Priya — handoff notes", preview: "Captured during 1:1; needs to be split into action items and reference.", tags: [{t:"#followup",cls:""}, {t:"capture",cls:"proj"}], right: "9:42" },
+            { id: "i2", title: "Article: Zettelkasten in practice", preview: "Saved from web · re-read intro and decide if it joins reading list.", tags: [{t:"#reference",cls:""}], right: "8:10" },
+            { id: "i3", title: "Voice memo — commute idea", preview: "Transcribed: \"What if focus queue had a snooze-until-context option?\"", tags: [{t:"#idea",cls:""}], right: "7:55" },
+          ]
+        },
+        {
+          label: "Yesterday",
+          items: [
+            { id: "i4", title: "Slack thread w/ infra team", preview: "Pinned messages about the new build runner — convert key points to a note.", tags: [{t:"#followup",cls:""}], right: "Mon" },
+            { id: "i5", title: "Photo: whiteboard from planning", preview: "Architecture sketch — needs OCR pass and a project link.", tags: [{t:"capture",cls:"proj"}], right: "Mon" },
+          ]
+        },
+        {
+          label: "Earlier this week",
+          items: [
+            { id: "i6", title: "Email digest: weekly research links", preview: "Triage 7 links; most are reference, two might be actionable.", tags: [], right: "Sun" },
+            { id: "i7", title: "Quote from book — \"systems vs goals\"", preview: "Highlight from Kindle; assign to #reference and link to Decisions log.", tags: [{t:"#reference",cls:""}], right: "Sat" },
+          ]
+        }
+      ]
+    },
+    tasks: {
+      title: "Tasks",
+      meta: "5 open · 1 overdue",
+      groups: [
+        {
+          label: "Overdue",
+          items: [
+            { id: "t1", title: "Reply to landlord about renewal", preview: "Decision needed before Friday; draft sits in Inbox item i4.", tags: [{t:"overdue 2d",cls:"over"}, {t:"House move",cls:"proj"}], right: "!" },
+          ]
+        },
+        {
+          label: "Today",
+          items: [
+            { id: "t2", title: "Write ADR-004: queue vs. folders", preview: "Sketch trade-offs; reference the whiteboard photo (i5).", tags: [{t:"due today",cls:"today"}, {t:"Notesmith v0.2",cls:"proj"}], right: "·" },
+            { id: "t3", title: "Run weekly review template", preview: "10-min pass over Pinned · Queues · Projects.", tags: [{t:"due today",cls:"today"}], right: "·" },
+          ]
+        },
+        {
+          label: "This week",
+          items: [
+            { id: "t4", title: "Cut v0.2 milestone scope", preview: "Drop graph view; keep focus queue + triage list.", tags: [{t:"due Thu",cls:"due"}, {t:"Notesmith v0.2",cls:"proj"}], right: "·" },
+            { id: "t5", title: "Schedule dentist", preview: "Boring but real — block 15 min on Wednesday.", tags: [{t:"due Fri",cls:"due"}], right: "·" },
+          ]
+        }
+      ]
+    }
+  };
+
+  const readers = {
+    i1: {
+      crumb: "Meeting with Priya — handoff notes",
+      html: `
+        <div class="doc">
+          <h1>Meeting with Priya — handoff notes</h1>
+          <div class="meta-row">
+            <span>Captured · today 9:42</span><span>·</span><span>Source: 1:1</span><span>·</span><span>Status: <strong style="color:var(--text-0)">unprocessed</strong></span>
+          </div>
+          <div class="callout">This note is in the <strong>Inbox</strong>. Decide: <em>reference</em>, <em>task</em>, or <em>archive</em>. Use the toolbar above.</div>
+          <p>Priya is rolling off the platform team next sprint. We walked through the open threads:</p>
+          <ul>
+            <li>Build runner migration — needs an owner by end of week.</li>
+            <li>Docs for the new auth flow — half-written in <code>docs/auth.md</code>.</li>
+            <li>Two flaky tests in <code>notes-method-core</code> — bisect candidates.</li>
+          </ul>
+          <p>Action candidates (drag to Tasks, or press <code>⌘⇧T</code>):</p>
+          <ul>
+            <li>Find owner for build runner migration.</li>
+            <li>Finish auth flow doc — short, two diagrams.</li>
+            <li>File issues for the two flaky tests with repro steps.</li>
+          </ul>
+        </div>`
+    },
+    i2: { crumb: "Article: Zettelkasten in practice", html: docStub("Article: Zettelkasten in practice", "Web clip", "Decide whether this joins the reading list or the reference vault.") },
+    i3: { crumb: "Voice memo — commute idea", html: docStub("Voice memo — commute idea", "Voice (transcribed)", "Idea about snooze-until-context. Promote to a note in #idea, or discard.") },
+    i4: { crumb: "Slack thread w/ infra team", html: docStub("Slack thread w/ infra team", "Slack import", "Extract the 3 key points and link them to the Notesmith v0.2 project.") },
+    i5: { crumb: "Photo: whiteboard from planning", html: docStub("Photo: whiteboard from planning", "Image · OCR pending", "Run OCR, then attach to ADR-004 draft.") },
+    i6: { crumb: "Email digest: weekly research links", html: docStub("Email digest: weekly research links", "Email", "7 links to triage. Most are reference.") },
+    i7: { crumb: "Quote from book — systems vs goals", html: docStub("Quote from book — \"systems vs goals\"", "Kindle highlight", "File under #reference; link from Decisions log.") },
+
+    t1: {
+      crumb: "Reply to landlord about renewal",
+      html: `
+        <div class="doc">
+          <h1>Reply to landlord about renewal</h1>
+          <div class="meta-row">
+            <span>Task</span><span>·</span><span style="color:var(--danger)">Overdue 2d</span><span>·</span><span>Project: House move</span>
+          </div>
+          <div class="callout">Linked from Inbox item <code>i4</code>. Draft is half-written there.</div>
+          <p>Decisions needed before replying:</p>
+          <ul>
+            <li>Are we renewing for 12 or 24 months?</li>
+            <li>Counter-offer on rent increase — anchor at +3%.</li>
+            <li>Ask for the bike storage clause to be removed.</li>
+          </ul>
+        </div>`
+    },
+    t2: { crumb: "Write ADR-004: queue vs. folders", html: docStub("Write ADR-004: queue vs. folders", "Task · due today · Notesmith v0.2", "Reference the whiteboard photo and the Slack thread.") },
+    t3: { crumb: "Run weekly review template", html: docStub("Run weekly review template", "Task · due today", "10-minute pass over Pinned · Queues · Projects.") },
+    t4: { crumb: "Cut v0.2 milestone scope", html: docStub("Cut v0.2 milestone scope", "Task · due Thu · Notesmith v0.2", "Drop graph view; keep focus queue + triage list.") },
+    t5: { crumb: "Schedule dentist", html: docStub("Schedule dentist", "Task · due Fri", "Block 15 min on Wednesday.") },
+  };
+
+  function docStub(title, meta, body) {
+    return `
+      <div class="doc">
+        <h1>${escapeHtml(title)}</h1>
+        <div class="meta-row"><span>${escapeHtml(meta)}</span></div>
+        <p>${escapeHtml(body)}</p>
+        <p>Use the toolbar above to snooze, move, convert to a task, or open in full editor.</p>
+      </div>`;
+  }
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+
+  // ---------- Rendering ----------
+  const listEl   = document.getElementById("list");
+  const titleEl  = document.getElementById("triageTitle");
+  const metaEl   = document.getElementById("triageMeta");
+  const crumbsEl = document.getElementById("crumbs");
+  const crumbItemEl = document.getElementById("crumbItem");
+  const readerBody  = document.getElementById("readerBody");
+
+  let currentTab = "inbox";
+  let currentItemId = "i1";
+
+  function renderList(tab) {
+    const ds = data[tab];
+    titleEl.textContent = ds.title;
+    metaEl.textContent  = ds.meta;
+
+    let html = "";
+    ds.groups.forEach(g => {
+      html += `<div class="group-label">${g.label}</div>`;
+      g.items.forEach(it => {
+        const tags = (it.tags || []).map(t => `<span class="tag ${t.cls}">${t.t}</span>`).join("");
+        html += `
+          <div class="item ${it.id === currentItemId ? "active" : ""}" data-id="${it.id}">
+            <div class="check" data-check></div>
+            <div class="title">${escapeHtml(it.title)}</div>
+            <div class="right">${escapeHtml(it.right)}</div>
+            <div class="preview">${escapeHtml(it.preview)}</div>
+            ${tags ? `<div class="tags">${tags}</div>` : ""}
+          </div>`;
+      });
+    });
+    listEl.innerHTML = html;
+
+    listEl.querySelectorAll(".item").forEach(el => {
+      el.addEventListener("click", (e) => {
+        if (e.target.matches("[data-check]")) {
+          el.classList.toggle("done");
+          e.stopPropagation();
+          return;
+        }
+        listEl.querySelectorAll(".item.active").forEach(x => x.classList.remove("active"));
+        el.classList.add("active");
+        currentItemId = el.dataset.id;
+        renderReader(currentItemId);
+      });
+    });
+  }
+
+  function renderReader(id) {
+    const r = readers[id];
+    if (!r) {
+      readerBody.innerHTML = `<div class="reader-empty"><div class="glyph">◌</div><div>Select an item to read.</div></div>`;
+      crumbItemEl.textContent = "";
+      return;
+    }
+    crumbItemEl.textContent = r.crumb;
+    crumbsEl.firstElementChild.textContent = data[currentTab].title;
+    readerBody.innerHTML = r.html;
+  }
+
+  // ---------- Wire up tabs / nav ----------
+  document.getElementById("triageTabs").addEventListener("click", (e) => {
+    const btn = e.target.closest(".triage-tab");
+    if (!btn) return;
+    document.querySelectorAll("#triageTabs .triage-tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentTab = btn.dataset.tab;
+    currentItemId = data[currentTab].groups[0].items[0].id;
+    syncSidebarToTab(currentTab);
+    renderList(currentTab);
+    renderReader(currentItemId);
+  });
+
+  document.getElementById("sections").addEventListener("click", (e) => {
+    const header = e.target.closest(".section-header");
+    if (header) {
+      header.parentElement.classList.toggle("collapsed");
+      return;
+    }
+    const item = e.target.closest(".nav-item");
+    if (!item) return;
+    document.querySelectorAll("#sections .nav-item.active").forEach(x => x.classList.remove("active"));
+    item.classList.add("active");
+    const list = item.dataset.list;
+    if (list === "inbox" || list === "tasks") {
+      currentTab = list;
+      currentItemId = data[currentTab].groups[0].items[0].id;
+      syncTabsToSidebar(list);
+      renderList(currentTab);
+      renderReader(currentItemId);
+    }
+  });
+
+  document.getElementById("viewSwitcher").addEventListener("click", (e) => {
+    const t = e.target.closest(".view-tab");
+    if (!t) return;
+    document.querySelectorAll("#viewSwitcher .view-tab").forEach(b => b.classList.remove("active"));
+    t.classList.add("active");
+  });
+
+  function syncTabsToSidebar(tab) {
+    document.querySelectorAll("#triageTabs .triage-tab").forEach(b => {
+      b.classList.toggle("active", b.dataset.tab === tab);
+    });
+  }
+  function syncSidebarToTab(tab) {
+    document.querySelectorAll("#sections .nav-item").forEach(b => {
+      if (b.dataset.list === "inbox" || b.dataset.list === "tasks") {
+        b.classList.toggle("active", b.dataset.list === tab);
+      }
+    });
+  }
+
+  // Initial render
+  renderList(currentTab);
+  renderReader(currentItemId);
+</script>
+</body>
+</html>

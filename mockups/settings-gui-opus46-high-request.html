@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notesmith Settings — Sidebar Views & Triage Pane</title>
+<style>
+  :root {
+    --bg-body: #1a1b1e;
+    --bg-sidebar: #141517;
+    --bg-card: #23252a;
+    --bg-card-hover: #292b31;
+    --bg-input: #1a1b1e;
+    --border: #333640;
+    --border-focus: #5b8def;
+    --text-primary: #e1e3e8;
+    --text-secondary: #8b8f99;
+    --text-muted: #5c5f69;
+    --accent: #5b8def;
+    --accent-hover: #7aa3f5;
+    --accent-bg: rgba(91,141,239,0.12);
+    --green: #3fb950;
+    --green-bg: rgba(63,185,80,0.12);
+    --red: #f85149;
+    --red-bg: rgba(248,81,73,0.12);
+    --yellow: #d29922;
+    --yellow-bg: rgba(210,153,34,0.12);
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow: 0 2px 8px rgba(0,0,0,0.3);
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font); background: var(--bg-body); color: var(--text-primary); display: flex; height: 100vh; overflow: hidden; }
+
+  /* ── Sidebar Nav ── */
+  .sidebar { width: 240px; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+  .sidebar-header { padding: 20px 16px 12px; border-bottom: 1px solid var(--border); }
+  .sidebar-header h2 { font-size: 14px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+  .sidebar-nav { flex: 1; padding: 8px; overflow-y: auto; }
+  .nav-section { margin-bottom: 16px; }
+  .nav-section-title { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; padding: 8px 12px 4px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text-secondary); transition: all 0.15s; }
+  .nav-item:hover { background: var(--bg-card); color: var(--text-primary); }
+  .nav-item.active { background: var(--accent-bg); color: var(--accent); font-weight: 500; }
+  .nav-item .icon { width: 18px; text-align: center; font-size: 14px; }
+  .nav-item .badge { margin-left: auto; background: var(--accent-bg); color: var(--accent); font-size: 10px; padding: 2px 6px; border-radius: 10px; font-weight: 600; }
+
+  /* ── Main content ── */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Breadcrumb */
+  .breadcrumb { padding: 12px 32px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); flex-shrink: 0; }
+  .breadcrumb a { color: var(--text-secondary); text-decoration: none; }
+  .breadcrumb a:hover { color: var(--text-primary); }
+  .breadcrumb .sep { color: var(--text-muted); }
+  .breadcrumb .current { color: var(--text-primary); font-weight: 500; }
+
+  /* Content scroll area */
+  .content { flex: 1; overflow-y: auto; padding: 24px 32px 100px; }
+
+  .page-title { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+  .page-desc { font-size: 14px; color: var(--text-secondary); margin-bottom: 28px; line-height: 1.5; }
+
+  /* ── Wizard Cards ── */
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); margin-bottom: 20px; overflow: hidden; }
+  .card-header { display: flex; align-items: center; gap: 14px; padding: 18px 24px; border-bottom: 1px solid var(--border); }
+  .step-badge { width: 32px; height: 32px; border-radius: 50%; background: var(--accent-bg); color: var(--accent); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+  .step-badge.done { background: var(--green-bg); color: var(--green); }
+  .card-header-text h3 { font-size: 15px; font-weight: 600; }
+  .card-header-text p { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+  .card-body { padding: 20px 24px; }
+
+  /* ── Form elements ── */
+  .form-group { margin-bottom: 18px; }
+  .form-group:last-child { margin-bottom: 0; }
+  label.field-label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--text-primary); }
+  label.field-label .hint { font-weight: 400; color: var(--text-secondary); margin-left: 4px; }
+  select, input[type="text"] {
+    width: 100%; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text-primary); font-size: 13px; font-family: var(--font); outline: none; transition: border-color 0.15s;
+    appearance: none; -webkit-appearance: none;
+  }
+  select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%238b8f99' stroke-width='1.5' fill='none'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px; cursor: pointer; }
+  select:focus, input:focus { border-color: var(--border-focus); }
+  .inline-fields { display: flex; gap: 12px; align-items: end; }
+  .inline-fields .form-group { flex: 1; margin-bottom: 0; }
+
+  /* Toggle */
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-row .toggle-info { }
+  .toggle-row .toggle-title { font-size: 13px; font-weight: 500; }
+  .toggle-row .toggle-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+  .toggle { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider { position: absolute; inset: 0; background: var(--border); border-radius: 11px; cursor: pointer; transition: 0.2s; }
+  .toggle .slider::before { content: ''; position: absolute; width: 16px; height: 16px; left: 3px; bottom: 3px; background: var(--text-primary); border-radius: 50%; transition: 0.2s; }
+  .toggle input:checked + .slider { background: var(--accent); }
+  .toggle input:checked + .slider::before { transform: translateX(18px); }
+
+  /* ── Rules builder ── */
+  .rules-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+  .rule-row { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); }
+  .rule-row select { width: auto; flex-shrink: 0; }
+  .rule-row .rule-select-wide { min-width: 140px; }
+  .rule-row .rule-then { color: var(--text-secondary); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; }
+  .rule-row .rule-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; padding: 4px 6px; border-radius: 4px; flex-shrink: 0; }
+  .rule-row .rule-remove:hover { color: var(--red); background: var(--red-bg); }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid transparent; transition: all 0.15s; font-family: var(--font); }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .btn-ghost { background: transparent; border-color: var(--border); color: var(--text-secondary); }
+  .btn-ghost:hover { border-color: var(--text-muted); color: var(--text-primary); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-danger { background: transparent; border-color: var(--border); color: var(--red); }
+  .btn-danger:hover { background: var(--red-bg); }
+  .btn-success { background: var(--green); color: #fff; }
+  .btn-success:hover { background: #46c258; }
+
+  /* ── YAML collapsible ── */
+  .collapsible { margin-top: 14px; }
+  .collapsible-trigger { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--text-secondary); font-size: 12px; cursor: pointer; padding: 4px 0; font-family: var(--font); }
+  .collapsible-trigger:hover { color: var(--text-primary); }
+  .collapsible-trigger .arrow { transition: transform 0.2s; font-size: 10px; }
+  .collapsible-trigger.open .arrow { transform: rotate(90deg); }
+  .collapsible-body { display: none; margin-top: 8px; }
+  .collapsible-body.open { display: block; }
+  .yaml-editor { width: 100%; min-height: 140px; padding: 14px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); color: var(--green); font-family: var(--mono); font-size: 12px; line-height: 1.6; resize: vertical; outline: none; }
+  .yaml-editor:focus { border-color: var(--border-focus); }
+
+  /* ── Test simulator ── */
+  .simulator { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .sim-inputs { display: flex; flex-direction: column; gap: 12px; }
+  .sim-result { background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 160px; }
+  .sim-result .result-icon { font-size: 36px; margin-bottom: 10px; }
+  .sim-result .result-label { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .sim-result .result-reason { font-size: 12px; color: var(--text-secondary); line-height: 1.5; max-width: 260px; }
+  .sim-result.show-pane { border-color: var(--green); }
+  .sim-result.hide-pane { border-color: var(--yellow); }
+
+  /* ── Action bar ── */
+  .action-bar { position: fixed; bottom: 0; left: 240px; right: 0; background: var(--bg-sidebar); border-top: 1px solid var(--border); padding: 12px 32px; display: flex; align-items: center; gap: 10px; z-index: 100; }
+  .action-bar .spacer { flex: 1; }
+  .action-bar .status { font-size: 12px; color: var(--text-muted); }
+  .action-bar .status.dirty { color: var(--yellow); }
+
+  /* ── Toast ── */
+  .toast { position: fixed; bottom: 80px; right: 32px; padding: 12px 20px; border-radius: var(--radius); font-size: 13px; font-weight: 500; box-shadow: var(--shadow); transform: translateY(20px); opacity: 0; transition: all 0.3s ease; pointer-events: none; z-index: 200; }
+  .toast.visible { transform: translateY(0); opacity: 1; }
+  .toast.success { background: var(--green); color: #fff; }
+  .toast.error { background: var(--red); color: #fff; }
+  .toast.info { background: var(--accent); color: #fff; }
+</style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<aside class="sidebar">
+  <div class="sidebar-header"><h2>⚙ Settings</h2></div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">
+      <div class="nav-section-title">General</div>
+      <div class="nav-item"><span class="icon">🎨</span> Appearance</div>
+      <div class="nav-item"><span class="icon">⌨</span> Keybindings</div>
+      <div class="nav-item"><span class="icon">📁</span> Vault paths</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-title">Views</div>
+      <div class="nav-item active"><span class="icon">📊</span> Sidebar views <span class="badge">3 rules</span></div>
+      <div class="nav-item"><span class="icon">📋</span> Triage pane</div>
+      <div class="nav-item"><span class="icon">🔖</span> Tag explorer</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-title">Advanced</div>
+      <div class="nav-item"><span class="icon">🔌</span> Integrations</div>
+      <div class="nav-item"><span class="icon">📦</span> Import / Export</div>
+    </div>
+  </nav>
+</aside>
+
+<!-- ── Main ── -->
+<div class="main">
+  <!-- Breadcrumb -->
+  <div class="breadcrumb">
+    <a href="#">Settings</a> <span class="sep">›</span>
+    <a href="#">Views</a> <span class="sep">›</span>
+    <span class="current">Sidebar views & Triage pane</span>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+    <h1 class="page-title">Sidebar Views & Triage Pane</h1>
+    <p class="page-desc">Configure which views appear in the sidebar and when the triage pane shows up. Work through each step below, then test your configuration with the simulator.</p>
+
+    <!-- ── STEP 1: Defaults ── -->
+    <div class="card">
+      <div class="card-header">
+        <div class="step-badge done">1</div>
+        <div class="card-header-text">
+          <h3>Choose defaults</h3>
+          <p>Set baseline sidebar layout and triage pane visibility</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="toggle-title">Show triage pane by default</div>
+            <div class="toggle-desc">When enabled, the triage pane appears in every sidebar view unless overridden below.</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="triageDefault" checked><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="toggle-title">Show file tree</div>
+            <div class="toggle-desc">Display the folder-based file tree in the sidebar.</div>
+          </div>
+          <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="toggle-title">Show recent files</div>
+            <div class="toggle-desc">Show a "Recently edited" section at the top of the sidebar.</div>
+          </div>
+          <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="toggle-title">Show tag groups</div>
+            <div class="toggle-desc">Group notes by tag in a dedicated sidebar section.</div>
+          </div>
+          <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── STEP 2: Override rules ── -->
+    <div class="card">
+      <div class="card-header">
+        <div class="step-badge">2</div>
+        <div class="card-header-text">
+          <h3>Add overrides</h3>
+          <p>Create rules that show or hide the triage pane in specific contexts</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <label class="field-label">Conditional rules <span class="hint">— evaluated top-to-bottom, first match wins</span></label>
+        <div class="rules-list" id="rulesList">
+          <div class="rule-row" data-rule="0">
+            <span style="color:var(--text-muted);font-size:12px;font-weight:600;width:28px">IF</span>
+            <select class="rule-select-wide" data-field="condition">
+              <option value="view">View is</option>
+              <option value="folder">Folder is</option>
+              <option value="section" selected>Section is</option>
+              <option value="tag">Tag contains</option>
+            </select>
+            <select class="rule-select-wide" data-field="value">
+              <option value="inbox">Inbox</option>
+              <option value="archive" selected>Archive</option>
+              <option value="projects">Projects</option>
+              <option value="daily">Daily notes</option>
+              <option value="reference">Reference</option>
+            </select>
+            <span class="rule-then">then</span>
+            <select data-field="action">
+              <option value="hide" selected>Hide triage pane</option>
+              <option value="show">Show triage pane</option>
+            </select>
+            <button class="rule-remove" onclick="removeRule(this)" title="Remove rule">✕</button>
+          </div>
+          <div class="rule-row" data-rule="1">
+            <span style="color:var(--text-muted);font-size:12px;font-weight:600;width:28px">IF</span>
+            <select class="rule-select-wide" data-field="condition">
+              <option value="view">View is</option>
+              <option value="folder" selected>Folder is</option>
+              <option value="section">Section is</option>
+              <option value="tag">Tag contains</option>
+            </select>
+            <select class="rule-select-wide" data-field="value">
+              <option value="inbox" selected>Inbox</option>
+              <option value="archive">Archive</option>
+              <option value="projects">Projects</option>
+              <option value="daily">Daily notes</option>
+              <option value="reference">Reference</option>
+            </select>
+            <span class="rule-then">then</span>
+            <select data-field="action">
+              <option value="hide">Hide triage pane</option>
+              <option value="show" selected>Show triage pane</option>
+            </select>
+            <button class="rule-remove" onclick="removeRule(this)" title="Remove rule">✕</button>
+          </div>
+          <div class="rule-row" data-rule="2">
+            <span style="color:var(--text-muted);font-size:12px;font-weight:600;width:28px">IF</span>
+            <select class="rule-select-wide" data-field="condition">
+              <option value="view">View is</option>
+              <option value="folder">Folder is</option>
+              <option value="section">Section is</option>
+              <option value="tag" selected>Tag contains</option>
+            </select>
+            <select class="rule-select-wide" data-field="value">
+              <option value="inbox">Inbox</option>
+              <option value="archive">Archive</option>
+              <option value="projects">Projects</option>
+              <option value="daily">Daily notes</option>
+              <option value="reference" selected>Reference</option>
+            </select>
+            <span class="rule-then">then</span>
+            <select data-field="action">
+              <option value="hide" selected>Hide triage pane</option>
+              <option value="show">Show triage pane</option>
+            </select>
+            <button class="rule-remove" onclick="removeRule(this)" title="Remove rule">✕</button>
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="addRule()">+ Add rule</button>
+
+        <!-- YAML collapsible -->
+        <div class="collapsible">
+          <button class="collapsible-trigger" onclick="toggleYaml(this)">
+            <span class="arrow">▶</span> Advanced: edit as YAML
+          </button>
+          <div class="collapsible-body" id="yamlBody">
+            <textarea class="yaml-editor" id="yamlEditor" spellcheck="false">triage_pane:
+  default: show
+  rules:
+    - when:
+        section: Archive
+      then: hide
+    - when:
+        folder: Inbox
+      then: show
+    - when:
+        tag_contains: Reference
+      then: hide</textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── STEP 3: Test ── -->
+    <div class="card">
+      <div class="card-header">
+        <div class="step-badge">3</div>
+        <div class="card-header-text">
+          <h3>Test contexts</h3>
+          <p>Simulate different navigation contexts to preview triage pane behavior</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="simulator">
+          <div class="sim-inputs">
+            <div class="form-group">
+              <label class="field-label">Sidebar view</label>
+              <select id="simView">
+                <option value="file-tree">File tree</option>
+                <option value="recent">Recent files</option>
+                <option value="tag-explorer">Tag explorer</option>
+                <option value="search-results">Search results</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="field-label">Current folder</label>
+              <select id="simFolder">
+                <option value="none">— none —</option>
+                <option value="inbox">Inbox</option>
+                <option value="projects">Projects</option>
+                <option value="daily">Daily notes</option>
+                <option value="archive">Archive</option>
+                <option value="reference">Reference</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="field-label">Active section</label>
+              <select id="simSection">
+                <option value="none">— none —</option>
+                <option value="inbox">Inbox</option>
+                <option value="archive">Archive</option>
+                <option value="projects">Projects</option>
+                <option value="daily">Daily notes</option>
+                <option value="reference">Reference</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="field-label">Tag on note</label>
+              <select id="simTag">
+                <option value="none">— none —</option>
+                <option value="inbox">#inbox</option>
+                <option value="archive">#archive</option>
+                <option value="projects">#projects</option>
+                <option value="daily">#daily</option>
+                <option value="reference">#reference</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" onclick="runSimulation()" style="align-self:start;margin-top:4px">▶ Run test</button>
+          </div>
+          <div class="sim-result" id="simResult">
+            <div class="result-icon">🧪</div>
+            <div class="result-label">Pick a context and run test</div>
+            <div class="result-reason">Select values on the left, then click "Run test" to see if the triage pane would appear.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /content -->
+
+  <!-- ── Action bar ── -->
+  <div class="action-bar">
+    <span class="status dirty" id="statusText">● Unsaved changes</span>
+    <div class="spacer"></div>
+    <button class="btn btn-danger btn-sm" onclick="doAction('reset')">Reset to defaults</button>
+    <button class="btn btn-ghost btn-sm" onclick="doAction('discard')">Discard</button>
+    <button class="btn btn-success btn-sm" onclick="doAction('save')">Save changes</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  // ── Toast ──
+  function showToast(msg, type = 'success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast ' + type + ' visible';
+    clearTimeout(t._tid);
+    t._tid = setTimeout(() => t.classList.remove('visible'), 2400);
+  }
+
+  // ── Action bar ──
+  function doAction(action) {
+    const status = document.getElementById('statusText');
+    if (action === 'save') {
+      status.textContent = '✓ All changes saved';
+      status.className = 'status';
+      showToast('Settings saved successfully', 'success');
+    } else if (action === 'discard') {
+      status.textContent = '✓ Changes discarded';
+      status.className = 'status';
+      showToast('Changes discarded', 'info');
+    } else if (action === 'reset') {
+      status.textContent = '● Unsaved changes';
+      status.className = 'status dirty';
+      document.getElementById('triageDefault').checked = true;
+      showToast('Reset to defaults — save to confirm', 'info');
+    }
+  }
+
+  // Mark dirty on any input change
+  document.addEventListener('change', () => {
+    const s = document.getElementById('statusText');
+    s.textContent = '● Unsaved changes';
+    s.className = 'status dirty';
+  });
+
+  // ── Rules ──
+  function removeRule(btn) {
+    btn.closest('.rule-row').remove();
+    updateRuleCount();
+  }
+  function addRule() {
+    const list = document.getElementById('rulesList');
+    const idx = list.children.length;
+    const row = document.createElement('div');
+    row.className = 'rule-row';
+    row.dataset.rule = idx;
+    row.innerHTML = `
+      <span style="color:var(--text-muted);font-size:12px;font-weight:600;width:28px">IF</span>
+      <select class="rule-select-wide" data-field="condition">
+        <option value="view">View is</option><option value="folder">Folder is</option>
+        <option value="section">Section is</option><option value="tag">Tag contains</option>
+      </select>
+      <select class="rule-select-wide" data-field="value">
+        <option value="inbox">Inbox</option><option value="archive">Archive</option>
+        <option value="projects">Projects</option><option value="daily">Daily notes</option>
+        <option value="reference">Reference</option>
+      </select>
+      <span class="rule-then">then</span>
+      <select data-field="action">
+        <option value="hide">Hide triage pane</option><option value="show">Show triage pane</option>
+      </select>
+      <button class="rule-remove" onclick="removeRule(this)" title="Remove rule">✕</button>`;
+    list.appendChild(row);
+    updateRuleCount();
+  }
+  function updateRuleCount() {
+    const badge = document.querySelector('.nav-item.active .badge');
+    const count = document.getElementById('rulesList').children.length;
+    if (badge) badge.textContent = count + ' rule' + (count !== 1 ? 's' : '');
+  }
+
+  // ── YAML toggle ──
+  function toggleYaml(btn) {
+    btn.classList.toggle('open');
+    document.getElementById('yamlBody').classList.toggle('open');
+  }
+
+  // ── Simulator ──
+  function runSimulation() {
+    const folder = document.getElementById('simFolder').value;
+    const section = document.getElementById('simSection').value;
+    const tag = document.getElementById('simTag').value;
+    const defaultShow = document.getElementById('triageDefault').checked;
+
+    // Gather rules from the DOM
+    const rules = [];
+    document.querySelectorAll('#rulesList .rule-row').forEach(row => {
+      const cond = row.querySelector('[data-field="condition"]').value;
+      const val = row.querySelector('[data-field="value"]').value;
+      const act = row.querySelector('[data-field="action"]').value;
+      rules.push({ condition: cond, value: val, action: act });
+    });
+
+    // Evaluate first-match
+    let result = defaultShow ? 'show' : 'hide';
+    let reason = 'No rule matched — using default (' + (defaultShow ? 'show' : 'hide') + ').';
+    const contextMap = { folder, section, tag, view: document.getElementById('simView').value };
+
+    for (let i = 0; i < rules.length; i++) {
+      const r = rules[i];
+      const contextVal = contextMap[r.condition] || 'none';
+      if (contextVal === r.value) {
+        result = r.action;
+        const condLabels = { view: 'View', folder: 'Folder', section: 'Section', tag: 'Tag' };
+        reason = `Rule ${i + 1} matched: ${condLabels[r.condition]} = "${r.value}" → ${r.action} triage pane.`;
+        break;
+      }
+    }
+
+    const el = document.getElementById('simResult');
+    if (result === 'show') {
+      el.className = 'sim-result show-pane';
+      el.innerHTML = `<div class="result-icon">✅</div>
+        <div class="result-label" style="color:var(--green)">Triage pane visible</div>
+        <div class="result-reason">${reason}</div>`;
+    } else {
+      el.className = 'sim-result hide-pane';
+      el.innerHTML = `<div class="result-icon">🚫</div>
+        <div class="result-label" style="color:var(--yellow)">Triage pane hidden</div>
+        <div class="result-reason">${reason}</div>`;
+    }
+  }
+</script>
+</body>
+</html>

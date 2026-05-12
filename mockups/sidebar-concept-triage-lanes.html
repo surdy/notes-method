@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Notesmith — Triage Lanes</title>
+<style>
+  :root {
+    --bg: #1a1b1e;
+    --bg-sidebar: #141518;
+    --bg-list: #1c1d21;
+    --bg-read: #1a1b1e;
+    --panel: #1f2024;
+    --border: #2a2c31;
+    --border-soft: #232428;
+    --text: #e6e6e6;
+    --text-dim: #9094a0;
+    --text-mute: #6a6e78;
+    --accent: #7aa2f7;
+    --accent-soft: #2d3142;
+    --warn: #e0af68;
+    --danger: #f7768e;
+    --ok: #9ece6a;
+    --tag: #bb9af7;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  .app { display: grid; grid-template-columns: 240px 360px 1fr; height: 100vh; }
+
+  /* ---------- Sidebar ---------- */
+  aside.sidebar {
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .brand { padding: 14px 14px 8px; font-weight: 600; letter-spacing: .2px;
+    color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .brand .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .views { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;
+    padding: 4px 8px 10px; }
+  .view-tab {
+    background: transparent; color: var(--text-dim); border: 1px solid transparent;
+    padding: 6px 0; border-radius: 6px; font-size: 11px; cursor: pointer;
+    text-align: center; transition: background .12s, color .12s;
+  }
+  .view-tab:hover { color: var(--text); background: #1d1e22; }
+  .view-tab.active { color: var(--accent); background: var(--accent-soft);
+    border-color: #3a4060; }
+  .view-tab .icon { display: block; font-size: 14px; margin-bottom: 2px; }
+
+  .sidebar-body { flex: 1; overflow-y: auto; padding: 4px 0 16px; }
+  .section { padding: 10px 12px 8px; }
+  .section + .section { border-top: 1px solid var(--border-soft); }
+  .section h4 {
+    margin: 0 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .8px;
+    text-transform: uppercase; color: var(--text-mute);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .section h4 .count { color: var(--text-mute); font-weight: 500; }
+  .lane {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; border-radius: 5px; cursor: pointer;
+    color: var(--text-dim); font-size: 12.5px;
+  }
+  .lane:hover { background: #1d1e22; color: var(--text); }
+  .lane.active { background: var(--accent-soft); color: var(--text); }
+  .lane .glyph { width: 16px; text-align: center; opacity: .85; }
+  .lane .badge {
+    margin-left: auto; font-size: 10.5px; color: var(--text-mute);
+    background: #25262b; padding: 1px 6px; border-radius: 9px;
+  }
+  .lane.active .badge { background: #3a4060; color: var(--text); }
+
+  /* file tree */
+  .tree { font-size: 12.5px; }
+  .tree-node { padding: 3px 8px 3px 12px; color: var(--text-dim); cursor: pointer;
+    border-radius: 4px; display: flex; gap: 6px; align-items: center; }
+  .tree-node:hover { background: #1d1e22; color: var(--text); }
+  .tree-node.folder::before { content: "▸"; font-size: 9px; color: var(--text-mute); width: 8px; }
+  .tree-node.folder.open::before { content: "▾"; }
+  .tree-node.file::before { content: "·"; color: var(--text-mute); width: 8px; text-align: center; }
+  .tree-children { padding-left: 12px; }
+  .tree-children.hidden { display: none; }
+
+  /* ---------- Middle list pane ---------- */
+  section.list {
+    background: var(--bg-list);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .list-header {
+    padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .list-header h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  .list-header .scope {
+    font-size: 11px; color: var(--text-mute); padding: 2px 7px;
+    background: #25262b; border-radius: 9px;
+  }
+  .list-tools { margin-left: auto; display: flex; gap: 6px; }
+  .list-tools button {
+    background: transparent; color: var(--text-dim); border: 1px solid var(--border);
+    border-radius: 5px; padding: 3px 8px; font-size: 11px; cursor: pointer;
+  }
+  .list-tools button:hover { color: var(--text); background: #25262b; }
+
+  .list-body { flex: 1; overflow-y: auto; }
+  .group-head {
+    padding: 10px 16px 4px; font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .8px; color: var(--text-mute);
+    background: var(--bg-list); position: sticky; top: 0;
+  }
+
+  .row {
+    padding: 10px 16px; border-bottom: 1px solid var(--border-soft);
+    cursor: pointer; display: flex; flex-direction: column; gap: 4px;
+  }
+  .row:hover { background: #22232800; background: #202126; }
+  .row.selected { background: var(--accent-soft); border-left: 2px solid var(--accent); padding-left: 14px; }
+  .row .row-top { display: flex; align-items: center; gap: 8px; }
+  .row .title { font-weight: 600; color: var(--text); flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .meta { font-size: 11px; color: var(--text-mute); white-space: nowrap; }
+  .row .snippet { font-size: 12px; color: var(--text-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill { font-size: 10.5px; padding: 1px 7px; border-radius: 9px;
+    background: #25262b; color: var(--text-dim); }
+  .pill.tag { color: var(--tag); background: #2a2438; }
+  .pill.due { color: var(--warn); background: #2e2820; }
+  .pill.overdue { color: var(--danger); background: #321f24; }
+  .pill.src { color: var(--accent); background: var(--accent-soft); }
+
+  /* task row */
+  .row.task { flex-direction: row; align-items: flex-start; gap: 10px; }
+  .row.task input[type="checkbox"] {
+    margin-top: 2px; accent-color: var(--accent);
+  }
+  .row.task .task-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .row.task .task-title { color: var(--text); }
+  .row.task .from { font-size: 11px; color: var(--text-mute); }
+  .row.task .from a { color: var(--accent); text-decoration: none; }
+
+  /* ---------- Reading pane ---------- */
+  section.read {
+    background: var(--bg-read);
+    overflow-y: auto;
+  }
+  .read-header {
+    padding: 14px 24px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .read-header .crumbs { font-size: 11.5px; color: var(--text-mute); }
+  .read-header .crumbs span { color: var(--text-dim); }
+  .read-header .actions { margin-left: auto; display: flex; gap: 6px; }
+  .read-header button {
+    background: transparent; color: var(--text-dim); border: 1px solid var(--border);
+    border-radius: 5px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  }
+  .read-header button:hover { color: var(--text); background: #25262b; }
+  .read-body { padding: 24px 32px; max-width: 760px; }
+  .read-body h1 { margin: 0 0 8px; font-size: 22px; }
+  .frontmatter { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+  .read-body p { color: #cfd2da; }
+  .read-body code { background: #25262b; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .read-body blockquote {
+    border-left: 3px solid var(--accent); margin: 0; padding: 4px 14px;
+    color: var(--text-dim); background: #1c1f2a;
+  }
+
+  /* view panels */
+  .view-panel { display: none; }
+  .view-panel.active { display: block; }
+
+  /* scrollbars */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #2a2c31; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: #36393f; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- =================== SIDEBAR =================== -->
+  <aside class="sidebar">
+    <div class="brand"><span class="dot"></span> Notesmith</div>
+
+    <div class="views">
+      <button class="view-tab" data-view="files"><span class="icon">📁</span>Files</button>
+      <button class="view-tab active" data-view="inbox"><span class="icon">📥</span>Inbox</button>
+      <button class="view-tab" data-view="tasks"><span class="icon">✓</span>Tasks</button>
+      <button class="view-tab" data-view="today"><span class="icon">☀</span>Today</button>
+    </div>
+
+    <div class="sidebar-body">
+
+      <!-- FILES VIEW -->
+      <div class="view-panel" data-panel="files">
+        <div class="section">
+          <h4>Vault</h4>
+          <div class="tree">
+            <div class="tree-node folder open">notes</div>
+            <div class="tree-children">
+              <div class="tree-node folder open">projects</div>
+              <div class="tree-children">
+                <div class="tree-node file">notesmith.md</div>
+                <div class="tree-node file">triage-lanes.md</div>
+              </div>
+              <div class="tree-node folder">daily</div>
+              <div class="tree-node folder">reference</div>
+              <div class="tree-node file">readme.md</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- INBOX VIEW: stacked lane sections -->
+      <div class="view-panel active" data-panel="inbox">
+        <div class="section">
+          <h4>Inbox <span class="count">22</span></h4>
+          <div class="lane active" data-lane="inbox-all">
+            <span class="glyph">📥</span> All unsorted <span class="badge">22</span>
+          </div>
+          <div class="lane" data-lane="inbox-web">
+            <span class="glyph">🌐</span> Web clips <span class="badge">12</span>
+          </div>
+          <div class="lane" data-lane="inbox-voice">
+            <span class="glyph">🎙</span> Voice memos <span class="badge">5</span>
+          </div>
+          <div class="lane" data-lane="inbox-email">
+            <span class="glyph">✉</span> Forwarded email <span class="badge">3</span>
+          </div>
+          <div class="lane" data-lane="inbox-share">
+            <span class="glyph">📲</span> iOS share sheet <span class="badge">2</span>
+          </div>
+        </div>
+
+        <div class="section">
+          <h4>Folders matching</h4>
+          <!-- folders that matched a condition: shown WITHOUT parent path -->
+          <div class="lane"><span class="glyph">📁</span> _inbox <span class="badge">14</span></div>
+          <div class="lane"><span class="glyph">📁</span> clippings <span class="badge">8</span></div>
+        </div>
+
+        <div class="section">
+          <h4>Pinned</h4>
+          <div class="lane"><span class="glyph">📌</span> Triage rules</div>
+          <div class="lane"><span class="glyph">📌</span> Inbox zero log</div>
+        </div>
+      </div>
+
+      <!-- TASKS VIEW -->
+      <div class="view-panel" data-panel="tasks">
+        <div class="section">
+          <h4>Tasks <span class="count">52</span></h4>
+          <div class="lane"><span class="glyph">🔥</span> Overdue <span class="badge">3</span></div>
+          <div class="lane active"><span class="glyph">📅</span> Today <span class="badge">7</span></div>
+          <div class="lane"><span class="glyph">📆</span> This week <span class="badge">14</span></div>
+          <div class="lane"><span class="glyph">💭</span> Someday <span class="badge">28</span></div>
+        </div>
+        <div class="section">
+          <h4>By tag</h4>
+          <div class="lane"><span class="glyph">#</span> #work <span class="badge">19</span></div>
+          <div class="lane"><span class="glyph">#</span> #home <span class="badge">11</span></div>
+          <div class="lane"><span class="glyph">#</span> #reading <span class="badge">6</span></div>
+        </div>
+      </div>
+
+      <!-- TODAY VIEW -->
+      <div class="view-panel" data-panel="today">
+        <div class="section">
+          <h4>Today</h4>
+          <div class="lane active"><span class="glyph">☀</span> Daily note</div>
+          <div class="lane"><span class="glyph">✓</span> Tasks due today <span class="badge">7</span></div>
+          <div class="lane"><span class="glyph">📥</span> New in inbox <span class="badge">4</span></div>
+          <div class="lane"><span class="glyph">📝</span> Edited today <span class="badge">9</span></div>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- =================== MIDDLE LIST PANE =================== -->
+  <section class="list">
+    <div class="list-header">
+      <h2 id="list-title">Inbox</h2>
+      <span class="scope" id="list-scope">All unsorted · 22</span>
+      <div class="list-tools">
+        <button>Sort: Newest</button>
+        <button>Group</button>
+        <button>⋯</button>
+      </div>
+    </div>
+
+    <div class="list-body" id="list-body">
+
+      <!-- INBOX LIST (Outlook-like) -->
+      <div class="list-content" data-list="inbox">
+        <div class="group-head">Today</div>
+        <div class="row selected">
+          <div class="row-top">
+            <span class="title">Triage lanes — sketch from chat</span>
+            <span class="meta">11:42</span>
+          </div>
+          <div class="snippet">Middle pane appears only for triage-style views; sidebar sections act as saved…</div>
+          <div class="pills">
+            <span class="pill src">🌐 web clip</span>
+            <span class="pill">unsorted</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="row-top">
+            <span class="title">Voice memo — Tuesday walk</span>
+            <span class="meta">09:18</span>
+          </div>
+          <div class="snippet">Idea about merging the inbox and tasks list pane into one component…</div>
+          <div class="pills">
+            <span class="pill src">🎙 voice</span>
+            <span class="pill">3:21</span>
+          </div>
+        </div>
+
+        <div class="group-head">Yesterday</div>
+        <div class="row">
+          <div class="row-top">
+            <span class="title">Article: Information foraging in note apps</span>
+            <span class="meta">Mon</span>
+          </div>
+          <div class="snippet">Patches of information; the cost of switching patches; scent…</div>
+          <div class="pills">
+            <span class="pill src">🌐 web clip</span>
+            <span class="pill tag">#reading</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="row-top">
+            <span class="title">Fwd: Q3 planning notes</span>
+            <span class="meta">Mon</span>
+          </div>
+          <div class="snippet">From: anna@… — attached the deck and the meeting transcript…</div>
+          <div class="pills">
+            <span class="pill src">✉ email</span>
+            <span class="pill">attachment</span>
+          </div>
+        </div>
+
+        <div class="group-head">Last week</div>
+        <div class="row">
+          <div class="row-top">
+            <span class="title">iOS share — tweet from @maggieappleton</span>
+            <span class="meta">May 4</span>
+          </div>
+          <div class="snippet">"A note app's sidebar is the ambient peripheral vision of your knowledge…"</div>
+          <div class="pills">
+            <span class="pill src">📲 share</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="row-top">
+            <span class="title">Web clip: SQLite FTS5 tokenizers</span>
+            <span class="meta">May 3</span>
+          </div>
+          <div class="snippet">trigram tokenizer is great for substring matching but bigger index…</div>
+          <div class="pills">
+            <span class="pill src">🌐 web clip</span>
+            <span class="pill tag">#sqlite</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- TASKS LIST (also Outlook-like, different row template) -->
+      <div class="list-content" data-list="tasks" style="display:none;">
+        <div class="group-head">Overdue</div>
+        <div class="row task">
+          <input type="checkbox" />
+          <div class="task-body">
+            <div class="task-title">Reply to Ana about renewal terms</div>
+            <div class="from">in <a>projects/customer-x.md</a></div>
+            <div class="pills">
+              <span class="pill overdue">2 days overdue</span>
+              <span class="pill tag">#work</span>
+            </div>
+          </div>
+        </div>
+        <div class="row task">
+          <input type="checkbox" />
+          <div class="task-body">
+            <div class="task-title">Submit conference talk abstract</div>
+            <div class="from">in <a>daily/2026-05-08.md</a></div>
+            <div class="pills">
+              <span class="pill overdue">1 day overdue</span>
+              <span class="pill tag">#writing</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="group-head">Today</div>
+        <div class="row task selected">
+          <input type="checkbox" checked />
+          <div class="task-body">
+            <div class="task-title">Sketch the Triage Lanes prototype</div>
+            <div class="from">in <a>projects/notesmith.md</a></div>
+            <div class="pills">
+              <span class="pill due">due today</span>
+              <span class="pill tag">#design</span>
+            </div>
+          </div>
+        </div>
+        <div class="row task">
+          <input type="checkbox" />
+          <div class="task-body">
+            <div class="task-title">Buy groceries for the week</div>
+            <div class="from">in <a>daily/2026-05-11.md</a></div>
+            <div class="pills">
+              <span class="pill due">due today</span>
+              <span class="pill tag">#home</span>
+            </div>
+          </div>
+        </div>
+        <div class="row task">
+          <input type="checkbox" />
+          <div class="task-body">
+            <div class="task-title">Review PR #214 (sidebar refactor)</div>
+            <div class="from">in <a>projects/notesmith.md</a></div>
+            <div class="pills">
+              <span class="pill due">due today</span>
+              <span class="pill tag">#work</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="group-head">This week</div>
+        <div class="row task">
+          <input type="checkbox" />
+          <div class="task-body">
+            <div class="task-title">Draft ADR for triage view contract</div>
+            <div class="from">in <a>docs/adr/0007-triage-lanes.md</a></div>
+            <div class="pills">
+              <span class="pill">Thu</span>
+              <span class="pill tag">#design</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TODAY LIST -->
+      <div class="list-content" data-list="today" style="display:none;">
+        <div class="group-head">Daily note</div>
+        <div class="row selected">
+          <div class="row-top">
+            <span class="title">2026-05-11 · Monday</span>
+            <span class="meta">today</span>
+          </div>
+          <div class="snippet">3 tasks · 4 inbox arrivals · 9 notes edited</div>
+        </div>
+      </div>
+
+      <!-- FILES LIST: collapses (hidden) so reading pane gets the space -->
+      <div class="list-content" data-list="files" style="display:none;">
+        <div class="group-head">projects/</div>
+        <div class="row selected">
+          <div class="row-top">
+            <span class="title">notesmith.md</span>
+            <span class="meta">today</span>
+          </div>
+          <div class="snippet">Project hub for the Notesmith sidebar redesign.</div>
+        </div>
+        <div class="row">
+          <div class="row-top">
+            <span class="title">triage-lanes.md</span>
+            <span class="meta">today</span>
+          </div>
+          <div class="snippet">Concept doc — sidebar lanes scope a contextual middle list pane.</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- =================== READING PANE =================== -->
+  <section class="read">
+    <div class="read-header">
+      <div class="crumbs">inbox / web clip · <span>Triage lanes — sketch from chat</span></div>
+      <div class="actions">
+        <button>Move…</button>
+        <button>Tag</button>
+        <button>Open file</button>
+      </div>
+    </div>
+    <div class="read-body">
+      <h1>Triage lanes — sketch from chat</h1>
+      <div class="frontmatter">
+        <span class="pill src">source: web clip</span>
+        <span class="pill">captured 11:42</span>
+        <span class="pill tag">#design</span>
+        <span class="pill">unsorted</span>
+      </div>
+      <p>
+        The sidebar holds <strong>views</strong>. Each view contains
+        vertically stacked <strong>sections</strong> separated by horizontal
+        rules. Sections show files and folders that match a condition.
+        When a folder matches, it appears <em>without</em> its parent path —
+        the section header carries the context.
+      </p>
+      <blockquote>
+        For triage-style views (Inbox, Tasks, Today) a contextual middle
+        <em>list pane</em> appears between the sidebar and the reading pane.
+        Sidebar lanes scope the list. Selecting a row opens it on the right.
+      </blockquote>
+      <p>
+        For the regular <code>Files</code> view the list pane collapses, so the
+        reading pane gets the full width — the three-column layout is contextual,
+        not always-on.
+      </p>
+      <p>
+        Tasks reuse the same list-pane component as Inbox; only the row
+        template differs (checkbox + due-date pill instead of source + snippet).
+        That keeps one mental model: <em>lanes scope a list, the list
+        feeds the reader</em>.
+      </p>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  // View switcher: swap sidebar panel + the matching middle-pane list
+  const tabs = document.querySelectorAll('.view-tab');
+  const panels = document.querySelectorAll('.view-panel');
+  const lists = document.querySelectorAll('.list-content');
+  const listTitle = document.getElementById('list-title');
+  const listScope = document.getElementById('list-scope');
+
+  const titles = {
+    files: ['Files', 'projects/ · 2 notes'],
+    inbox: ['Inbox', 'All unsorted · 22'],
+    tasks: ['Tasks', 'Today · 7'],
+    today: ['Today', '2026-05-11'],
+  };
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const v = tab.dataset.view;
+      tabs.forEach(t => t.classList.toggle('active', t === tab));
+      panels.forEach(p => p.classList.toggle('active', p.dataset.panel === v));
+      lists.forEach(l => l.style.display = (l.dataset.list === v ? '' : 'none'));
+      const [t, s] = titles[v];
+      listTitle.textContent = t;
+      listScope.textContent = s;
+    });
+  });
+
+  // Lane click: just visually toggle active state within the open panel
+  document.addEventListener('click', e => {
+    const lane = e.target.closest('.lane');
+    if (!lane) return;
+    const panel = lane.closest('.view-panel');
+    panel.querySelectorAll('.lane').forEach(l => l.classList.remove('active'));
+    lane.classList.add('active');
+  });
+
+  // Row click: visually select
+  document.addEventListener('click', e => {
+    const row = e.target.closest('.row');
+    if (!row) return;
+    row.parentElement.querySelectorAll('.row').forEach(r => r.classList.remove('selected'));
+    row.classList.add('selected');
+  });
+</script>
+</body>
+</html>

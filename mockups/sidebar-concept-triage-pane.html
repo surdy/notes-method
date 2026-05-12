@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notesmith — Triage Pane concept</title>
+<style>
+  :root {
+    --bg: #1a1b1e;
+    --bg-2: #202125;
+    --bg-3: #26282d;
+    --bg-hover: #2d3036;
+    --bg-active: #3a3f4b;
+    --border: #2f3239;
+    --text: #e6e7ea;
+    --text-dim: #9ba0a8;
+    --text-faint: #6b7079;
+    --accent: #7aa2f7;
+    --accent-dim: #3d5a8a;
+    --green: #9ece6a;
+    --orange: #e0af68;
+    --red: #f7768e;
+    --purple: #bb9af7;
+    --sep: #2a2c32;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+  }
+  .app { display: grid; grid-template-columns: 240px auto 1fr; height: 100vh; }
+  .app.no-list { grid-template-columns: 240px 1fr; }
+  .app.no-list .listpane { display: none; }
+
+  /* ── Sidebar ───────────────────────────────────── */
+  .sidebar {
+    background: var(--bg-2);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    min-width: 0;
+  }
+  .brand {
+    padding: 12px 14px 8px;
+    font-weight: 600; font-size: 13px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .switcher {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 4px; padding: 0 10px 10px;
+  }
+  .switcher button {
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 8px; font: inherit; cursor: pointer;
+    display: flex; align-items: center; gap: 6px; justify-content: center;
+  }
+  .switcher button:hover { background: var(--bg-hover); color: var(--text); }
+  .switcher button.active {
+    background: var(--accent-dim); border-color: var(--accent);
+    color: var(--text);
+  }
+  .switcher .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .dot.in { background: var(--accent); }
+  .dot.tk { background: var(--orange); }
+  .dot.fl { background: var(--text-faint); }
+  .dot.cs { background: var(--purple); }
+
+  .view { flex: 1; overflow: auto; padding: 4px 0 16px; }
+  .section-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px 4px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-faint);
+  }
+  .section-head .count { color: var(--text-faint); font-variant-numeric: tabular-nums; }
+  .sep { height: 1px; background: var(--sep); margin: 8px 12px; }
+
+  .row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 14px; cursor: pointer; user-select: none;
+    color: var(--text);
+    border-left: 2px solid transparent;
+  }
+  .row:hover { background: var(--bg-hover); }
+  .row.selected { background: var(--bg-active); border-left-color: var(--accent); }
+  .row .ico { width: 14px; text-align: center; color: var(--text-faint); flex: none; }
+  .row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .meta { margin-left: auto; color: var(--text-faint); font-size: 11px; }
+  .indent-1 { padding-left: 28px; }
+  .indent-2 { padding-left: 42px; }
+  .folder-pill {
+    display: inline-block; font-size: 10px; color: var(--text-faint);
+    background: var(--bg-3); border-radius: 3px; padding: 1px 5px; margin-left: 6px;
+  }
+
+  /* ── List pane (Outlook style) ─────────────────── */
+  .listpane {
+    width: 360px;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    min-width: 0;
+  }
+  .listhead {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .listhead h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  .listhead .sub { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+  .toolbar {
+    display: flex; gap: 4px; padding: 6px 10px;
+    border-bottom: 1px solid var(--border); background: var(--bg-2);
+  }
+  .toolbar button {
+    background: transparent; color: var(--text-dim);
+    border: 1px solid transparent; border-radius: 5px;
+    padding: 4px 8px; font: inherit; cursor: pointer; font-size: 11px;
+  }
+  .toolbar button:hover { background: var(--bg-hover); color: var(--text); border-color: var(--border); }
+  .listbody { flex: 1; overflow: auto; }
+
+  .item {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--sep);
+    cursor: pointer;
+    border-left: 3px solid transparent;
+  }
+  .item:hover { background: var(--bg-2); }
+  .item.selected { background: var(--bg-3); border-left-color: var(--accent); }
+  .item .check {
+    width: 14px; height: 14px; border: 1px solid var(--text-faint);
+    border-radius: 3px; margin-top: 2px;
+  }
+  .item.done .check {
+    background: var(--green); border-color: var(--green);
+    position: relative;
+  }
+  .item.done .check::after {
+    content: "✓"; color: #1a1b1e; font-size: 11px; line-height: 14px;
+    position: absolute; inset: 0; text-align: center;
+  }
+  .item.done .title { color: var(--text-faint); text-decoration: line-through; }
+  .item .title {
+    font-weight: 500; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .item .snippet {
+    grid-column: 2; color: var(--text-dim); font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .item .right { text-align: right; color: var(--text-faint); font-size: 11px; }
+  .item .tags { grid-column: 2; display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+  .tag {
+    font-size: 10px; padding: 1px 6px; border-radius: 10px;
+    background: var(--bg-3); color: var(--text-dim);
+  }
+  .tag.src { background: #1d2a3d; color: var(--accent); }
+  .tag.prio { background: #3d2a1d; color: var(--orange); }
+  .tag.ctx { background: #2a1d3d; color: var(--purple); }
+
+  /* ── Reading pane ──────────────────────────────── */
+  .reader {
+    background: var(--bg);
+    overflow: auto;
+    padding: 32px 48px;
+  }
+  .reader .crumbs {
+    color: var(--text-faint); font-size: 11px; margin-bottom: 8px;
+  }
+  .reader h1 { margin: 0 0 8px; font-size: 22px; font-weight: 600; }
+  .reader .props {
+    display: flex; gap: 16px; color: var(--text-dim); font-size: 12px;
+    margin-bottom: 24px; padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .reader p { color: var(--text); max-width: 64ch; }
+  .reader .placeholder {
+    color: var(--text-faint); font-style: italic;
+    border: 1px dashed var(--border); padding: 24px;
+    border-radius: 6px; max-width: 64ch;
+  }
+
+  .kbd {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 10px;
+    padding: 1px 5px; border-radius: 3px;
+    background: var(--bg-3); border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ── Sidebar ───────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="brand">Notesmith</div>
+    <div class="switcher" role="tablist">
+      <button data-view="files"><span class="dot fl"></span>Files</button>
+      <button data-view="custom"><span class="dot cs"></span>Custom</button>
+      <button data-view="inbox" class="active"><span class="dot in"></span>Inbox</button>
+      <button data-view="tasks"><span class="dot tk"></span>Tasks</button>
+    </div>
+
+    <!-- Files view -->
+    <div class="view" data-view-body="files" hidden>
+      <div class="section-head">Vault</div>
+      <div class="row"><span class="ico">▾</span><span class="name">📁 Projects</span></div>
+      <div class="row indent-1"><span class="ico">▾</span><span class="name">📁 Notesmith</span></div>
+      <div class="row indent-2"><span class="ico">📄</span><span class="name">Architecture.md</span></div>
+      <div class="row indent-2 selected"><span class="ico">📄</span><span class="name">Sidebar concepts.md</span></div>
+      <div class="row indent-1"><span class="ico">▸</span><span class="name">📁 Vault Sync</span></div>
+      <div class="row"><span class="ico">▸</span><span class="name">📁 Daily</span></div>
+      <div class="row"><span class="ico">▸</span><span class="name">📁 Reference</span></div>
+      <div class="row"><span class="ico">📄</span><span class="name">README.md</span></div>
+    </div>
+
+    <!-- Custom view (stacked sections) -->
+    <div class="view" data-view-body="custom" hidden>
+      <div class="section-head">📌 Pinned <span class="count">3</span></div>
+      <div class="row"><span class="ico">📄</span><span class="name">Weekly review template</span></div>
+      <div class="row"><span class="ico">📄</span><span class="name">Now</span></div>
+      <div class="row"><span class="ico">📄</span><span class="name">Triage rules</span></div>
+
+      <div class="sep"></div>
+
+      <div class="section-head">🕒 Recently edited <span class="count">5</span></div>
+      <div class="row"><span class="ico">📄</span><span class="name">Sidebar concepts</span><span class="meta">2m</span></div>
+      <div class="row"><span class="ico">📄</span><span class="name">2026-05-11</span><span class="meta">1h</span></div>
+      <div class="row"><span class="ico">📄</span><span class="name">Routing decisions</span><span class="meta">3h</span></div>
+      <div class="row"><span class="ico">📄</span><span class="name">Vault sync notes</span><span class="meta">y'day</span></div>
+      <div class="row"><span class="ico">📄</span><span class="name">Inbox triage flow</span><span class="meta">y'day</span></div>
+
+      <div class="sep"></div>
+
+      <!-- Folder match: shown without parents -->
+      <div class="section-head">🗂 Active projects <span class="count">2</span></div>
+      <div class="row"><span class="ico">▾</span><span class="name">📁 Notesmith</span><span class="folder-pill">Projects/</span></div>
+      <div class="row indent-1"><span class="ico">📄</span><span class="name">Architecture.md</span></div>
+      <div class="row indent-1"><span class="ico">📄</span><span class="name">Sidebar concepts.md</span></div>
+      <div class="row indent-1"><span class="ico">📄</span><span class="name">Roadmap.md</span></div>
+      <div class="row"><span class="ico">▸</span><span class="name">📁 Vault Sync</span><span class="folder-pill">Projects/</span></div>
+
+      <div class="sep"></div>
+
+      <div class="section-head">🏷 #now <span class="count">4</span></div>
+      <div class="row"><span class="ico">📄</span><span class="name">Triage Pane prototype</span></div>
+      <div class="row"><span class="ico">📄</span><span class="name">Inbox capture sources</span></div>
+      <div class="row"><span class="ico">📄</span><span class="name">Tasks aggregate spec</span></div>
+      <div class="row"><span class="ico">📄</span><span class="name">Custom view DSL</span></div>
+    </div>
+
+    <!-- Inbox sidebar context (sources/filters) -->
+    <div class="view" data-view-body="inbox">
+      <div class="section-head">Sources</div>
+      <div class="row selected"><span class="ico">📥</span><span class="name">All inbox</span><span class="meta">12</span></div>
+      <div class="row"><span class="ico">✉️</span><span class="name">Email forward</span><span class="meta">5</span></div>
+      <div class="row"><span class="ico">📱</span><span class="name">Quick capture</span><span class="meta">4</span></div>
+      <div class="row"><span class="ico">🌐</span><span class="name">Web clipper</span><span class="meta">2</span></div>
+      <div class="row"><span class="ico">🎙</span><span class="name">Voice memo</span><span class="meta">1</span></div>
+
+      <div class="sep"></div>
+
+      <div class="section-head">Filters</div>
+      <div class="row"><span class="ico">⏳</span><span class="name">Older than 7d</span><span class="meta">3</span></div>
+      <div class="row"><span class="ico">🔗</span><span class="name">Has links</span><span class="meta">6</span></div>
+      <div class="row"><span class="ico">🖼</span><span class="name">Has attachments</span><span class="meta">2</span></div>
+    </div>
+
+    <!-- Tasks sidebar context (saved triage queries) -->
+    <div class="view" data-view-body="tasks" hidden>
+      <div class="section-head">Triage queries</div>
+      <div class="row selected"><span class="ico">🔥</span><span class="name">Today</span><span class="meta">7</span></div>
+      <div class="row"><span class="ico">📅</span><span class="name">Scheduled</span><span class="meta">14</span></div>
+      <div class="row"><span class="ico">⏰</span><span class="name">Overdue</span><span class="meta">3</span></div>
+      <div class="row"><span class="ico">📥</span><span class="name">Untriaged</span><span class="meta">9</span></div>
+      <div class="row"><span class="ico">✅</span><span class="name">Done today</span><span class="meta">4</span></div>
+
+      <div class="sep"></div>
+
+      <div class="section-head">By context</div>
+      <div class="row"><span class="ico">💻</span><span class="name">@computer</span><span class="meta">11</span></div>
+      <div class="row"><span class="ico">📞</span><span class="name">@calls</span><span class="meta">2</span></div>
+      <div class="row"><span class="ico">🛒</span><span class="name">@errands</span><span class="meta">5</span></div>
+
+      <div class="sep"></div>
+
+      <div class="section-head">By project</div>
+      <div class="row"><span class="ico">📁</span><span class="name">Notesmith</span><span class="meta">8</span></div>
+      <div class="row"><span class="ico">📁</span><span class="name">Vault Sync</span><span class="meta">3</span></div>
+    </div>
+  </aside>
+
+  <!-- ── List pane (Outlook style — only for Inbox & Tasks) ──── -->
+  <section class="listpane" id="listpane">
+    <div class="listhead">
+      <div>
+        <h2 id="list-title">Inbox · All</h2>
+        <div class="sub" id="list-sub">12 items · sorted by captured ↓</div>
+      </div>
+      <div>
+        <span class="kbd">j</span> <span class="kbd">k</span> <span class="kbd">e</span>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button>↻ Refresh</button>
+      <button>✓ Triage</button>
+      <button>↳ Move to…</button>
+      <button>⌫ Archive</button>
+      <button style="margin-left:auto;">⇅ Sort</button>
+    </div>
+    <div class="listbody" id="listbody">
+      <!-- filled by JS -->
+    </div>
+  </section>
+
+  <!-- ── Reading pane ───────────────────────────────────────── -->
+  <section class="reader" id="reader">
+    <div class="crumbs">Inbox › Email forward</div>
+    <h1>Re: Q3 review notes from Anya</h1>
+    <div class="props">
+      <span>📥 captured 2h ago</span>
+      <span>✉️ from anya@…</span>
+      <span>🏷 untagged</span>
+    </div>
+    <p>Selected inbox item renders here. From the list pane, <span class="kbd">⏎</span> opens it in place; <span class="kbd">o</span> opens it as a full note in a new tab. <span class="kbd">e</span> archives, <span class="kbd">t</span> opens the triage menu (move, tag, convert to task, schedule).</p>
+    <div class="placeholder">Reading pane placeholder — full note body, backlinks, and outgoing links would render here.</div>
+  </section>
+
+</div>
+
+<script>
+  const inboxItems = [
+    {src:"Email", title:"Re: Q3 review notes from Anya", snippet:"…happy to share the deck once it's polished, but the headline is that we hit 92%…", time:"2h", tags:[["src","✉️ email"]]},
+    {src:"Web", title:"Building a Personal Knowledge Graph", snippet:"andymatuschak.org · clipped via Reader extension", time:"4h", tags:[["src","🌐 web"],["ctx","#reading"]]},
+    {src:"Quick", title:"Idea: vault-wide #now query as a sidebar section", snippet:"could just be a saved search; share the DSL with custom views", time:"y'day", tags:[["src","📱 quick"]]},
+    {src:"Voice", title:"Voice memo · 0:47", snippet:"reminder to ask Sam about the sync conflict edge case", time:"y'day", tags:[["src","🎙 voice"]]},
+    {src:"Email", title:"Invoice — Hetzner April", snippet:"€48.20 · attached PDF", time:"2d", tags:[["src","✉️ email"],["ctx","#admin"]]},
+    {src:"Quick", title:"Try Triage Pane vs Spotlight Hub for sidebar", snippet:"draft both, pick after a week of using them", time:"3d", tags:[["src","📱 quick"]]},
+    {src:"Web", title:"Outlook's reading-pane keyboard model", snippet:"docs.microsoft.com · for inspiration on default shortcuts", time:"4d", tags:[["src","🌐 web"]]},
+  ];
+
+  const taskItems = [
+    {done:false, title:"Decide Inbox treatment (list pane vs tree)",  snippet:"pick one; both make sense, just commit", time:"today", tags:[["prio","P1"],["ctx","@computer"]]},
+    {done:false, title:"Decide Tasks treatment (triage vs dashboard)", snippet:"recommendation: triage list, mirror Inbox", time:"today", tags:[["prio","P1"],["ctx","@computer"]]},
+    {done:false, title:"Sketch custom-view DSL grammar",              snippet:"folder match w/o parents, tag match, recency, saved search", time:"today", tags:[["ctx","@computer"]]},
+    {done:false, title:"Call Sam re: sync conflict edge case",        snippet:"voice memo from yesterday", time:"today", tags:[["ctx","@calls"]]},
+    {done:true,  title:"File Hetzner invoice",                        snippet:"moved to Reference/Receipts/2026", time:"today", tags:[["ctx","@admin"]]},
+    {done:false, title:"Pick groceries up after standup",             snippet:"olives, bread, the good cheese", time:"today", tags:[["ctx","@errands"]]},
+    {done:false, title:"Refactor sidebar router to data-driven view", snippet:"Notesmith · blocked on DSL grammar", time:"tomorrow", tags:[["prio","P2"],["ctx","@computer"]]},
+  ];
+
+  const filesReader = {
+    crumbs: "Projects › Notesmith",
+    title: "Sidebar concepts.md",
+    props: ["📄 file note", "📁 Projects/Notesmith", "✏️ edited 2m ago"],
+    body: "When a regular file is selected, the reading pane is the whole right side — no list pane in between. This is the 'thinking mode' layout."
+  };
+  const customReader = {
+    crumbs: "Custom › Pinned",
+    title: "Weekly review template",
+    props: ["📌 pinned", "🏷 #template", "✏️ edited last week"],
+    body: "Custom views show stacked sections in the sidebar. Selecting an entry opens it directly in the reading pane — no list pane needed because each section is already a small, scannable list."
+  };
+
+  function renderInbox() {
+    document.getElementById("list-title").textContent = "Inbox · All";
+    document.getElementById("list-sub").textContent = inboxItems.length + " items · sorted by captured ↓";
+    const body = document.getElementById("listbody");
+    body.innerHTML = "";
+    inboxItems.forEach((it, i) => {
+      const el = document.createElement("div");
+      el.className = "item" + (i === 0 ? " selected" : "");
+      el.innerHTML = `
+        <div class="check"></div>
+        <div class="title">${it.title}</div>
+        <div class="right">${it.time}</div>
+        <div class="snippet">${it.snippet}</div>
+        <div class="tags">${it.tags.map(([k,v]) => `<span class="tag ${k}">${v}</span>`).join("")}</div>
+      `;
+      el.addEventListener("click", () => {
+        body.querySelectorAll(".item").forEach(n => n.classList.remove("selected"));
+        el.classList.add("selected");
+        renderReader({
+          crumbs: "Inbox › " + it.src,
+          title: it.title,
+          props: ["📥 captured " + it.time + " ago", "🏷 untagged"],
+          body: it.snippet
+        });
+      });
+      body.appendChild(el);
+    });
+  }
+
+  function renderTasks() {
+    document.getElementById("list-title").textContent = "Tasks · Today";
+    document.getElementById("list-sub").textContent = taskItems.length + " items · sorted by priority ↓";
+    const body = document.getElementById("listbody");
+    body.innerHTML = "";
+    taskItems.forEach((it, i) => {
+      const el = document.createElement("div");
+      el.className = "item" + (it.done ? " done" : "") + (i === 0 ? " selected" : "");
+      el.innerHTML = `
+        <div class="check"></div>
+        <div class="title">${it.title}</div>
+        <div class="right">${it.time}</div>
+        <div class="snippet">${it.snippet}</div>
+        <div class="tags">${it.tags.map(([k,v]) => `<span class="tag ${k}">${v}</span>`).join("")}</div>
+      `;
+      el.addEventListener("click", (e) => {
+        if (e.target.classList.contains("check")) {
+          it.done = !it.done; renderTasks(); return;
+        }
+        body.querySelectorAll(".item").forEach(n => n.classList.remove("selected"));
+        el.classList.add("selected");
+        renderReader({
+          crumbs: "Tasks › Today",
+          title: it.title,
+          props: ["⏰ due " + it.time, ...it.tags.map(([,v]) => v)],
+          body: it.snippet + " — task notes/subtasks render here."
+        });
+      });
+      body.appendChild(el);
+    });
+  }
+
+  function renderReader(r) {
+    const el = document.getElementById("reader");
+    el.innerHTML = `
+      <div class="crumbs">${r.crumbs}</div>
+      <h1>${r.title}</h1>
+      <div class="props">${r.props.map(p => `<span>${p}</span>`).join("")}</div>
+      <p>${r.body}</p>
+      <div class="placeholder">Reading pane placeholder — full note body, backlinks, and outgoing links would render here.</div>
+    `;
+  }
+
+  function setView(v) {
+    document.querySelectorAll(".switcher button").forEach(b => {
+      b.classList.toggle("active", b.dataset.view === v);
+    });
+    document.querySelectorAll("[data-view-body]").forEach(n => {
+      n.hidden = n.dataset.viewBody !== v;
+    });
+    const app = document.getElementById("app");
+    if (v === "inbox") { app.classList.remove("no-list"); renderInbox(); renderReader({crumbs:"Inbox › Email forward", title: inboxItems[0].title, props:["📥 captured "+inboxItems[0].time+" ago","🏷 untagged"], body: inboxItems[0].snippet}); }
+    else if (v === "tasks") { app.classList.remove("no-list"); renderTasks(); renderReader({crumbs:"Tasks › Today", title: taskItems[0].title, props:["⏰ due today","P1","@computer"], body: taskItems[0].snippet}); }
+    else if (v === "files") { app.classList.add("no-list"); renderReader(filesReader); }
+    else if (v === "custom") { app.classList.add("no-list"); renderReader(customReader); }
+  }
+
+  document.querySelectorAll(".switcher button").forEach(b => {
+    b.addEventListener("click", () => setView(b.dataset.view));
+  });
+  setView("inbox");
+</script>
+</body>
+</html>
