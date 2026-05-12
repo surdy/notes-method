@@ -130,6 +130,23 @@ void loadBadge(vault, view);
 }
 }
 }
+
+export function reloadConfig() {
+const vault = vaultStore.currentVault;
+if (!vault) return;
+
+const previousActiveViewId = activeViewId;
+void loadConfig(vault).then(() => {
+// Preserve the active tab if it still exists after reload.
+const viewIds = ['files', ...views.map((v) => v.id)];
+if (viewIds.includes(previousActiveViewId)) {
+activeViewId = previousActiveViewId;
+} else {
+activeViewId = 'files';
+onDeactivateMiddlePane();
+}
+});
+}
 </script>
 
 <div class="sidebar-views">

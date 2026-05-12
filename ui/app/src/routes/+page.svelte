@@ -3,6 +3,7 @@ import { onMount } from 'svelte';
 import type { CustomItem } from '$lib/api';
 import { buildCommands, OPEN_QUICK_SWITCHER_EVENT } from '$lib/commands';
 import CommandPalette from '$lib/components/CommandPalette.svelte';
+import ConfigToast from '$lib/components/ConfigToast.svelte';
 import MiddlePane from '$lib/components/MiddlePane.svelte';
 import NoteEditor from '$lib/components/NoteEditor.svelte';
 import NoteToolbar from '$lib/components/NoteToolbar.svelte';
@@ -20,7 +21,7 @@ let vaults = $state<string[]>([]);
 let showCommandPalette = $state(false);
 let showQuickSwitcher = $state(false);
 let sseConnection: EventSource | null = null;
-let sidebarViewsRef = $state<{ refresh: () => void } | null>(null);
+let sidebarViewsRef = $state<{ refresh: () => void; reloadConfig: () => void } | null>(null);
 let noteEditorRef = $state<
 | {
 handleExternalChange: (path: string) => void;
@@ -31,6 +32,13 @@ flushSave: () => Promise<void>;
 >(null);
 let rightRailRef = $state<{ refresh: () => void; toggle: () => void } | null>(null);
 let activeMiddlePaneItem = $state<CustomItem | null>(null);
+let configToastRef = $state<{ show: (message: string, type: 'info' | 'error') => void } | null>(
+	null
+);
+
+function showConfigToast(message: string, type: 'info' | 'error') {
+	configToastRef?.show(message, type);
+}
 
 let commands = $derived.by(() =>
 buildCommands(vaultStore.currentVault, (path) => {
@@ -83,7 +91,9 @@ vaultStore.currentVault = vault;
 vaultStore.restoreTabs();
 await vaultStore.loadNotes();
 
-sseConnection = connectSSE(vault, (event) => {
+sseConnection = connectSSE(
+vault,
+(event) => {
 const refreshNotes =
 event.type.startsWith('note.') ||
 event.type === 'inbox.added' ||
@@ -91,7 +101,7 @@ event.type === 'daily.created' ||
 event.type === 'cache.rebuilt';
 if (refreshNotes) {
 void vaultStore.loadNotes().finally(() => {
-refreshContextPanels();
+	refreshContextPanels();
 });
 }
 if (event.type === 'note.updated' || event.type === 'note.created') {
@@ -100,7 +110,34 @@ noteEditorRef?.handleExternalChange(event.path);
 if (!refreshNotes && event.type === 'task.updated') {
 refreshContextPanels();
 }
-});
+// Config change events
+if (event.type.startsWith('config.')) {
+if (event.config?.key === 'sidebar') {
+	if (event.config.status === 'error') {
+		showConfigToast(
+			`Sidebar config error: ${event.config.error ?? 'unknown error'}`,
+			'error'
+		);
+	} else {
+		sidebarViewsRef?.reloadConfig();
+	}
+}
+if (event.config?.key === 'vault') {
+	if (event.config.status === 'error') {
+		showConfigToast(
+			`Vault config error: ${event.config.error ?? 'unknown error'}`,
+			'error'
+		);
+	}
+	// vault.toml hot-swap will be handled in issue #41
+}
+}
+},
+() => {
+// Defensive refetch on SSE reconnect — events may have been missed.
+sidebarViewsRef?.reloadConfig();
+}
+);
 } catch (error) {
 console.error('Failed to initialize Notesmith app shell', error);
 }
@@ -181,6 +218,8 @@ onClose={() => (activeMiddlePaneItem = null)}
 {#if showQuickSwitcher}
 <QuickSwitcher onClose={() => (showQuickSwitcher = false)} />
 {/if}
+
+<ConfigToast bind:this={configToastRef} />
 
 <style>
 .app-layout {
