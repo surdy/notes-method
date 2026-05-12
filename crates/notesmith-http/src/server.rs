@@ -151,9 +151,24 @@ async fn set_cache_headers(
 }
 
 fn app_build_dir() -> PathBuf {
-    std::env::var_os("NOTESMITH_APP_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("ui/app/build"))
+    if let Some(dir) = std::env::var_os("NOTESMITH_APP_DIR") {
+        return PathBuf::from(dir);
+    }
+
+    // Resolve relative to the binary location so the daemon works regardless of CWD.
+    // Binary is at <workspace>/target/{debug,release}/notesmith — walk up to workspace root.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.canonicalize().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+            // Try <exe_dir>/../../ui/app/build (for target/release/notesmith)
+            let candidate = exe_dir.join("../../ui/app/build");
+            if let Ok(resolved) = candidate.canonicalize() {
+                return resolved;
+            }
+        }
+    }
+
+    // Fallback to relative path (works when CWD is workspace root)
+    PathBuf::from("ui/app/build")
 }
 
 pub async fn serve_with_listener(listener: TcpListener, state: AppState) -> anyhow::Result<()> {
