@@ -22,46 +22,77 @@ In practice, that means:
 
 ## 2. Sidebar
 
-The sidebar shows vault views configured in `.notesmith/sidebar-views.yaml`.
+The sidebar provides two kinds of navigation:
 
-Out of the box, the default views are:
+- **Files tab** — always present; shows the full vault as a collapsible file tree
+- **Custom views** — defined in `.notesmith/sidebar.yaml`; appear as additional tabs
 
-- **All Notes**
-- **Tasks**
-- **Recent**
-- **Inbox**
+When no `sidebar.yaml` exists, only the Files tab is shown (no tab bar at all).
 
-These views are powered by SQL queries defined in each view's `data_source` field. In practice, those queries usually read from:
+### Configuring sidebar views
 
-- `v_notes`
-- `v_tasks`
-
-Typical behavior:
-
-- **All Notes** shows the full note set
-- **Tasks** groups results by task status
-- **Recent** surfaces recently updated notes
-- **Inbox** shows an unread/unprocessed badge count
-
-Click any item in a sidebar view to open that note in a tab.
-
-Example view definition:
+Create `.notesmith/sidebar.yaml` in your vault:
 
 ```yaml
 views:
-  - id: inbox
-    name: Inbox
-    data_source: |
-      SELECT path, title, updated_at
-      FROM v_notes
-      WHERE path LIKE 'Inbox/%'
-      ORDER BY updated_at DESC
-    badge_query: |
-      SELECT COUNT(*) FROM v_notes
-      WHERE path LIKE 'Inbox/%'
+  - id: workflow
+    name: Workflow
+    icon: "⚡"
+    badge_query: "SELECT count(*) FROM v_notes WHERE path LIKE 'Inbox/%'"
+    sections:
+      - type: recently-viewed
+        label: Recent
+        mode: both      # 'viewed' | 'edited' | 'both'
+        limit: 10
+
+      - type: custom-folders
+        label: Projects
+        folders:
+          - Projects/Active
+          - Customers
+
+      - type: custom-items
+        label: Triage
+        items:
+          - name: Inbox
+            icon: "��"
+            source:
+              folder: Inbox
+              recursive: true
+              sort: modified
+              sort_dir: desc
+          - name: Tasks
+            icon: "✅"
+            source:
+              query: |
+                SELECT text as title, status, path, ordinal as line
+                FROM v_tasks WHERE status IN ('todo','in_progress')
+              title_column: title
+              subtitle_column: status
+              badge_columns: [status]
 ```
 
-Use sidebar views when you want task-oriented navigation instead of browsing folders manually.
+### Section types
+
+**`recently-viewed`** — shows notes you have recently opened or edited.
+- `mode: viewed` — from localStorage (notes you clicked on)
+- `mode: edited` — from the database (`v_notes` ordered by `mtime_unix`)
+- `mode: both` — merge of both, deduplicated
+
+**`custom-folders`** — renders subtrees of the vault file tree rooted at named folder paths.
+
+**`custom-items`** — a list of named items (with icons) that each open a **middle pane** when clicked.
+
+### Middle pane
+
+Clicking a `custom-items` item opens a scrollable middle pane between the sidebar and the editor. The pane shows the item's contents:
+
+- **Folder source** — lists notes from a folder (title + snippet)
+- **Query source** — runs a SQL query against the vault database; supports title, subtitle, and badge columns
+
+The middle pane is resizable by dragging its right edge. Width is persisted per vault + item name.
+
+Click the ✕ button or click the same item again to close the middle pane.
 
 ## 3. File Tree / Note Navigation
 
