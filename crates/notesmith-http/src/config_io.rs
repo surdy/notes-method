@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs, io::ErrorKind, path::Path};
 use notesmith_config::VaultConfig;
 use serde::{Deserialize, Serialize};
 
-use crate::routes::SidebarConfig;
+use crate::routes::{SidebarConfig, SidebarSection};
 
 // ── Sidebar config ───────────────────────────────────────────────────────────
 
@@ -12,6 +12,30 @@ pub fn load_sidebar_config_from_root(root: &Path) -> anyhow::Result<SidebarConfi
     match fs::read_to_string(&path) {
         Ok(raw) => Ok(serde_yaml::from_str::<SidebarConfig>(&raw)?),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(SidebarConfig { views: vec![] }),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub fn compute_sidebar_config_hash(vault_root: &Path) -> anyhow::Result<String> {
+    let path = vault_root.join(".notesmith").join("sidebar.yaml");
+    match fs::read(&path) {
+        Ok(content) => Ok(blake3::hash(&content).to_hex().to_string()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub fn load_sidebar_config_with_hash(vault_root: &Path) -> anyhow::Result<(SidebarConfig, String)> {
+    let path = vault_root.join(".notesmith").join("sidebar.yaml");
+    match fs::read_to_string(&path) {
+        Ok(content) => {
+            let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+            let config: SidebarConfig = serde_yaml::from_str(&content)?;
+            Ok((config, hash))
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            Ok((SidebarConfig { views: vec![] }, String::new()))
+        }
         Err(error) => Err(error.into()),
     }
 }
@@ -135,6 +159,84 @@ pub fn validate_vault_config(
     (errors, warnings)
 }
 
+/// Returns `(errors, warnings)` for a sidebar config.
+pub fn validate_sidebar_config(
+    config: &SidebarConfig,
+    vault_root: &Path,
+) -> (HashMap<String, String>, HashMap<String, String>) {
+    let mut errors = HashMap::new();
+    let mut warnings = HashMap::new();
+    let mut seen_ids = HashMap::new();
+
+    for (view_index, view) in config.views.iter().enumerate() {
+        let view_id_key = format!("views[{view_index}].id");
+        let view_name_key = format!("views[{view_index}].name");
+
+        if view.id.trim().is_empty() {
+            errors.insert(view_id_key.clone(), "View ID cannot be empty".into());
+        } else if let Some(previous_index) = seen_ids.insert(view.id.clone(), view_index) {
+            errors.insert(
+                view_id_key,
+                format!(
+                    "Duplicate view ID '{}' also used by views[{previous_index}]",
+                    view.id
+                ),
+            );
+        }
+
+        if view.name.trim().is_empty() {
+            errors.insert(view_name_key, "View name cannot be empty".into());
+        }
+
+        for (section_index, section) in view.sections.iter().enumerate() {
+            match section {
+                SidebarSection::RecentlyViewed { label, limit, .. } => {
+                    let label_key = format!("views[{view_index}].sections[{section_index}].label");
+                    if label.trim().is_empty() {
+                        errors.insert(label_key, "Section label cannot be empty".into());
+                    }
+                    if *limit == 0 {
+                        errors.insert(
+                            format!("views[{view_index}].sections[{section_index}].limit"),
+                            "Recently viewed limit must be greater than 0".into(),
+                        );
+                    }
+                }
+                SidebarSection::CustomFolders { label, folders } => {
+                    let label_key = format!("views[{view_index}].sections[{section_index}].label");
+                    if label.trim().is_empty() {
+                        errors.insert(label_key, "Section label cannot be empty".into());
+                    }
+                    if folders.is_empty() {
+                        errors.insert(
+                            format!("views[{view_index}].sections[{section_index}].folders"),
+                            "Custom folders section must include at least one folder".into(),
+                        );
+                    }
+                    for (folder_index, folder) in folders.iter().enumerate() {
+                        if !vault_root.join(folder).exists() {
+                            warnings.insert(
+                                format!(
+                                    "views[{view_index}].sections[{section_index}].folders[{folder_index}]"
+                                ),
+                                format!("Folder '{folder}' does not exist"),
+                            );
+                        }
+                    }
+                }
+                SidebarSection::CustomItems { label, .. } => {
+                    let label_key = format!("views[{view_index}].sections[{section_index}].label");
+                    if label.trim().is_empty() {
+                        errors.insert(label_key, "Section label cannot be empty".into());
+                    }
+                }
+            }
+        }
+    }
+
+    (errors, warnings)
+}
+
 fn is_valid_time_format(s: &str) -> bool {
     let parts: Vec<&str> = s.split(':').collect();
     if parts.len() != 2 {
@@ -163,9 +265,34 @@ fn parse_duration_str(s: &str) -> Option<std::time::Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::routes::{FolderSort, ItemSource, RecentlyViewedMode, SidebarSection, SortDir};
+    use crate::routes::{
+        FolderSort, ItemSource, RecentlyViewedMode, SidebarConfig, SidebarSection, SidebarView,
+        SortDir,
+    };
     use std::fs;
     use tempfile::TempDir;
+
+    fn sample_sidebar_config() -> SidebarConfig {
+        SidebarConfig {
+            views: vec![SidebarView {
+                id: "work".into(),
+                name: "Work".into(),
+                icon: "💼".into(),
+                sections: vec![
+                    SidebarSection::RecentlyViewed {
+                        label: "Recent".into(),
+                        mode: RecentlyViewedMode::Both,
+                        limit: 5,
+                    },
+                    SidebarSection::CustomFolders {
+                        label: "Folders".into(),
+                        folders: vec!["Inbox".into()],
+                    },
+                ],
+                badge_query: None,
+            }],
+        }
+    }
 
     #[test]
     fn load_sidebar_config_returns_empty_when_file_missing() {
@@ -350,6 +477,104 @@ mod tests {
 
         let result = load_sidebar_config_from_root(temp_dir.path());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn compute_sidebar_config_hash_returns_hash() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_dir = temp_dir.path().join(".notesmith");
+        fs::create_dir_all(&config_dir).unwrap();
+        let content = "views:\n  - id: work\n    name: Work\n    icon: \"💼\"\n";
+        fs::write(config_dir.join("sidebar.yaml"), content).unwrap();
+
+        let hash = compute_sidebar_config_hash(temp_dir.path()).unwrap();
+
+        assert_eq!(hash, blake3::hash(content.as_bytes()).to_hex().to_string());
+    }
+
+    #[test]
+    fn compute_sidebar_config_hash_returns_empty_when_missing() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let hash = compute_sidebar_config_hash(temp_dir.path()).unwrap();
+
+        assert_eq!(hash, "");
+    }
+
+    #[test]
+    fn load_sidebar_config_with_hash_returns_config_and_hash() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_dir = temp_dir.path().join(".notesmith");
+        fs::create_dir_all(&config_dir).unwrap();
+        let content = "views:\n  - id: work\n    name: Work\n    icon: \"💼\"\n";
+        fs::write(config_dir.join("sidebar.yaml"), content).unwrap();
+
+        let (config, hash) = load_sidebar_config_with_hash(temp_dir.path()).unwrap();
+
+        assert_eq!(config.views.len(), 1);
+        assert_eq!(config.views[0].id, "work");
+        assert_eq!(hash, blake3::hash(content.as_bytes()).to_hex().to_string());
+    }
+
+    #[test]
+    fn load_sidebar_config_with_hash_returns_empty_when_missing() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let (config, hash) = load_sidebar_config_with_hash(temp_dir.path()).unwrap();
+
+        assert_eq!(config, SidebarConfig { views: vec![] });
+        assert_eq!(hash, "");
+    }
+
+    #[test]
+    fn validate_sidebar_config_passes_for_valid_config() {
+        let temp_dir = TempDir::new().unwrap();
+        fs::create_dir_all(temp_dir.path().join("Inbox")).unwrap();
+        let config = sample_sidebar_config();
+
+        let (errors, warnings) = validate_sidebar_config(&config, temp_dir.path());
+
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert!(warnings.is_empty(), "warnings: {warnings:?}");
+    }
+
+    #[test]
+    fn validate_sidebar_config_rejects_duplicate_view_ids() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut config = sample_sidebar_config();
+        config.views.push(SidebarView {
+            id: "work".into(),
+            name: "Another".into(),
+            icon: "📌".into(),
+            sections: vec![],
+            badge_query: None,
+        });
+
+        let (errors, _) = validate_sidebar_config(&config, temp_dir.path());
+
+        assert!(errors.contains_key("views[1].id"));
+    }
+
+    #[test]
+    fn validate_sidebar_config_rejects_empty_view_id() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut config = sample_sidebar_config();
+        config.views[0].id = "   ".into();
+
+        let (errors, _) = validate_sidebar_config(&config, temp_dir.path());
+
+        assert!(errors.contains_key("views[0].id"));
+    }
+
+    #[test]
+    fn validate_sidebar_config_warns_missing_folders() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = sample_sidebar_config();
+
+        let (errors, warnings) = validate_sidebar_config(&config, temp_dir.path());
+
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert!(warnings.contains_key("views[0].sections[1].folders[0]"));
     }
 
     // ── Vault config validation tests ────────────────────────────────────────

@@ -44,6 +44,7 @@ async fn watcher_indexes_new_markdown_files() {
             },
         )]),
         event_tx,
+        global_config_path: vault_root.join(".notesmith-http-test-config.toml"),
     }));
 
     let _watcher = watch_vault(state.clone(), "test-vault".to_string())

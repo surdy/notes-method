@@ -1,6 +1,6 @@
-use std::{collections::HashMap, fs, net::SocketAddr, path::Path, path::PathBuf};
+use std::{collections::BTreeMap, fs, net::SocketAddr, path::Path, path::PathBuf};
 
-use notesmith_config::VaultConfig;
+use notesmith_config::{GlobalConfig, VaultConfig, VaultRegistration};
 use notesmith_core::VaultEngine;
 use notesmith_http::{AppState, VaultState, serve_with_listener};
 use notesmith_index::{SearchIndex, VaultCache};
@@ -11,16 +11,16 @@ fn golden_vault() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../golden-vault")
 }
 
-fn build_test_state(root: &Path) -> AppState {
+fn build_vault_state(vault_name: &str, root: &Path) -> VaultState {
     let engine = NativeVaultEngine;
     let notes = engine.scan(root).unwrap();
     let cache = VaultCache::open_in_memory().unwrap();
-    cache.reindex("test-vault", &notes).unwrap();
+    cache.reindex(vault_name, &notes).unwrap();
     let search_index = SearchIndex::open_in_memory().unwrap();
-    search_index.reindex("test-vault", &notes).unwrap();
+    search_index.reindex(vault_name, &notes).unwrap();
 
     let vault_config = VaultConfig::load_from_vault(root).unwrap_or_else(|_| VaultConfig {
-        name: "test-vault".to_string(),
+        name: vault_name.to_string(),
         inbox: Default::default(),
         daily: Default::default(),
         editor: Default::default(),
@@ -31,22 +31,55 @@ fn build_test_state(root: &Path) -> AppState {
 
     let template_engine = notesmith_templates::TemplateEngine::new(root.to_path_buf(), None);
 
+    VaultState {
+        cache,
+        search_index,
+        engine,
+        root: root.to_path_buf(),
+        vault_config: arc_swap::ArcSwap::from_pointee(vault_config),
+        template_engine,
+    }
+}
+
+fn build_test_state(root: &Path) -> AppState {
+    build_test_state_with_vaults(
+        &[("test-vault".to_string(), root.to_path_buf())],
+        root.join(".notesmith-http-test-config.toml"),
+    )
+}
+
+fn build_test_state_with_vaults(
+    vaults: &[(String, PathBuf)],
+    global_config_path: PathBuf,
+) -> AppState {
+    let vaults = vaults
+        .iter()
+        .map(|(name, root)| (name.clone(), build_vault_state(name, root)))
+        .collect();
+
     let (event_tx, _) = notesmith_http::create_event_channel();
 
     AppState {
-        vaults: HashMap::from([(
-            "test-vault".to_string(),
-            VaultState {
-                cache,
-                search_index,
-                engine,
-                root: root.to_path_buf(),
-                vault_config: arc_swap::ArcSwap::from_pointee(vault_config),
-                template_engine,
-            },
-        )]),
+        vaults,
         event_tx,
+        global_config_path,
     }
+}
+
+fn write_global_config(
+    config_path: &Path,
+    vaults: &[(String, PathBuf)],
+    default_vault: Option<&str>,
+) {
+    let config = GlobalConfig {
+        daemon: Default::default(),
+        default_vault: default_vault.map(str::to_string),
+        vaults: vaults
+            .iter()
+            .map(|(name, path)| (name.clone(), VaultRegistration { path: path.clone() }))
+            .collect::<BTreeMap<_, _>>(),
+    };
+    config.save_to(config_path).unwrap();
 }
 
 fn write_note(root: &Path, relative_path: &str, content: &str) {
@@ -133,6 +166,132 @@ async fn get_ping_returns_ok_status() {
 }
 
 #[tokio::test]
+async fn list_vaults_returns_all_registered_vaults() {
+    let temp_dir = TempDir::new().unwrap();
+    let first_root = temp_dir.path().join("alpha");
+    let second_root = temp_dir.path().join("beta");
+    fs::create_dir_all(&first_root).unwrap();
+    fs::create_dir_all(&second_root).unwrap();
+
+    let vaults = vec![
+        ("alpha".to_string(), first_root.clone()),
+        ("beta".to_string(), second_root.clone()),
+    ];
+    let config_path = temp_dir.path().join("config/notesmith/config.toml");
+    write_global_config(&config_path, &vaults, Some("beta"));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = build_test_state_with_vaults(&vaults, config_path);
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, state).await.unwrap();
+    });
+
+    let response = reqwest::get(format!("http://{address}/api/app/vaults"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        response.json::<serde_json::Value>().await.unwrap(),
+        serde_json::json!([
+            {
+                "name": "alpha",
+                "path": first_root.to_string_lossy(),
+                "is_default": false
+            },
+            {
+                "name": "beta",
+                "path": second_root.to_string_lossy(),
+                "is_default": true
+            }
+        ])
+    );
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn add_vault_with_valid_path_succeeds() {
+    let temp_dir = TempDir::new().unwrap();
+    let existing_root = temp_dir.path().join("alpha");
+    let new_root = temp_dir.path().join("beta");
+    fs::create_dir_all(&existing_root).unwrap();
+    fs::create_dir_all(&new_root).unwrap();
+
+    let registered_vaults = vec![("alpha".to_string(), existing_root.clone())];
+    let config_path = temp_dir.path().join("config/notesmith/config.toml");
+    write_global_config(&config_path, &registered_vaults, Some("alpha"));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = build_test_state_with_vaults(&registered_vaults, config_path.clone());
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, state).await.unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("http://{address}/api/app/vaults"))
+        .json(&serde_json::json!({
+            "name": "beta",
+            "path": new_root,
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+
+    let config = GlobalConfig::load_from(&config_path).unwrap();
+    assert_eq!(
+        config
+            .vault("beta")
+            .map(|registration| registration.path.clone()),
+        Some(temp_dir.path().join("beta"))
+    );
+    assert!(temp_dir.path().join("beta/.notesmith").exists());
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn add_vault_with_duplicate_name_returns_conflict() {
+    let temp_dir = TempDir::new().unwrap();
+    let existing_root = temp_dir.path().join("alpha");
+    fs::create_dir_all(&existing_root).unwrap();
+
+    let registered_vaults = vec![("alpha".to_string(), existing_root.clone())];
+    let config_path = temp_dir.path().join("config/notesmith/config.toml");
+    write_global_config(&config_path, &registered_vaults, Some("alpha"));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = build_test_state_with_vaults(&registered_vaults, config_path);
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, state).await.unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("http://{address}/api/app/vaults"))
+        .json(&serde_json::json!({
+            "name": "alpha",
+            "path": existing_root,
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
+
+    server.abort();
+}
+
+#[tokio::test]
 async fn list_notes_returns_cached_notes_for_vault() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -211,10 +370,22 @@ async fn get_sidebar_config_returns_configured_views() {
 
     assert_eq!(response.status(), reqwest::StatusCode::OK);
 
+    let etag = response
+        .headers()
+        .get("etag")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(etag.starts_with('"') && etag.ends_with('"'));
+
     let body = response.json::<serde_json::Value>().await.unwrap();
-    let views = body["views"].as_array().unwrap();
+    let views = body["config"]["views"].as_array().unwrap();
     assert_eq!(views.len(), 1, "expected one configured view (Triage)");
     assert_eq!(views[0]["name"], "Triage");
+    assert_eq!(body["path"], ".notesmith/sidebar.yaml");
+    assert!(body["warnings"].is_object());
+    assert!(body["hash"].as_str().unwrap().len() > 10);
 
     server.abort();
 }
@@ -240,13 +411,293 @@ async fn get_sidebar_config_returns_empty_views_without_config_file() {
     assert_eq!(response.status(), reqwest::StatusCode::OK);
 
     let body = response.json::<serde_json::Value>().await.unwrap();
-    let views = body["views"].as_array().unwrap();
+    let views = body["config"]["views"].as_array().unwrap();
     assert!(
         views.is_empty(),
         "expected empty views when no sidebar.yaml exists"
     );
+    assert_eq!(body["hash"], "");
+    assert_eq!(body["path"], ".notesmith/sidebar.yaml");
+    assert!(body["warnings"].is_object());
 
     server.abort();
+}
+
+#[tokio::test]
+async fn put_sidebar_config_succeeds_with_correct_if_match() {
+    let server = TestServer::empty().await;
+    write_sidebar_config(
+        &server.root,
+        "views:\n  - id: work\n    name: Work\n    icon: \"💼\"\n",
+    );
+
+    let get_response = reqwest::get(server.url("/api/v/test-vault/sidebar-config"))
+        .await
+        .unwrap();
+    let get_body = get_response.json::<serde_json::Value>().await.unwrap();
+    let hash = get_body["hash"].as_str().unwrap();
+
+    let client = reqwest::Client::new();
+    let new_config = serde_json::json!({
+        "views": [
+            {
+                "id": "customers",
+                "name": "Customers",
+                "icon": "🏢",
+                "sections": [
+                    {
+                        "type": "custom-folders",
+                        "label": "Key Accounts",
+                        "folders": ["Customers"]
+                    }
+                ],
+                "badge_query": "SELECT COUNT(*) FROM v_customers"
+            }
+        ]
+    });
+
+    let response = client
+        .put(server.url("/api/v/test-vault/sidebar-config"))
+        .header("if-match", format!("\"{hash}\""))
+        .json(&new_config)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let etag = response
+        .headers()
+        .get("etag")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(etag.starts_with('"') && etag.ends_with('"'));
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["config"]["views"][0]["name"], "Customers");
+    assert_eq!(body["path"], ".notesmith/sidebar.yaml");
+    assert!(body["warnings"].is_object());
+    assert!(body["hash"].as_str().unwrap().len() > 10);
+
+    let saved = fs::read_to_string(server.root.join(".notesmith/sidebar.yaml")).unwrap();
+    assert!(saved.contains("id: customers"));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn put_sidebar_config_returns_409_on_stale_if_match() {
+    let server = TestServer::empty().await;
+    write_sidebar_config(
+        &server.root,
+        "views:\n  - id: work\n    name: Work\n    icon: \"💼\"\n",
+    );
+
+    let client = reqwest::Client::new();
+    let new_config = serde_json::json!({
+        "views": [
+            {
+                "id": "customers",
+                "name": "Customers",
+                "icon": "🏢",
+                "sections": [],
+                "badge_query": null
+            }
+        ]
+    });
+
+    let response = client
+        .put(server.url("/api/v/test-vault/sidebar-config"))
+        .header("if-match", "\"stale-hash-value\"")
+        .json(&new_config)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["error"], "conflict");
+    assert!(body["config"].is_object());
+    assert!(body["hash"].as_str().is_some());
+    assert!(body["warnings"].is_object());
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn put_sidebar_config_returns_428_without_if_match() {
+    let server = TestServer::empty().await;
+    write_sidebar_config(
+        &server.root,
+        "views:\n  - id: work\n    name: Work\n    icon: \"💼\"\n",
+    );
+
+    let client = reqwest::Client::new();
+    let new_config = serde_json::json!({
+        "views": [
+            {
+                "id": "customers",
+                "name": "Customers",
+                "icon": "🏢",
+                "sections": [],
+                "badge_query": null
+            }
+        ]
+    });
+
+    let response = client
+        .put(server.url("/api/v/test-vault/sidebar-config"))
+        .json(&new_config)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::PRECONDITION_REQUIRED
+    );
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["error"], "if_match_required");
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn put_sidebar_config_returns_422_with_invalid_data() {
+    let server = TestServer::empty().await;
+    write_sidebar_config(
+        &server.root,
+        "views:\n  - id: work\n    name: Work\n    icon: \"💼\"\n",
+    );
+
+    let get_response = reqwest::get(server.url("/api/v/test-vault/sidebar-config"))
+        .await
+        .unwrap();
+    let get_body = get_response.json::<serde_json::Value>().await.unwrap();
+    let hash = get_body["hash"].as_str().unwrap();
+
+    let client = reqwest::Client::new();
+    let bad_config = serde_json::json!({
+        "views": [
+            {
+                "id": "work",
+                "name": "Work",
+                "icon": "💼",
+                "sections": [
+                    {
+                        "type": "recently-viewed",
+                        "label": "",
+                        "limit": 0,
+                        "mode": "both"
+                    }
+                ],
+                "badge_query": null
+            },
+            {
+                "id": "work",
+                "name": "Duplicate",
+                "icon": "📌",
+                "sections": [
+                    {
+                        "type": "custom-folders",
+                        "label": "Folders",
+                        "folders": []
+                    }
+                ],
+                "badge_query": null
+            }
+        ]
+    });
+
+    let response = client
+        .put(server.url("/api/v/test-vault/sidebar-config"))
+        .header("if-match", format!("\"{hash}\""))
+        .json(&bad_config)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["error"], "validation_failed");
+    let errors = body["errors"].as_object().unwrap();
+    assert!(errors.contains_key("views[0].sections[0].label"));
+    assert!(errors.contains_key("views[0].sections[0].limit"));
+    assert!(errors.contains_key("views[1].id"));
+    assert!(errors.contains_key("views[1].sections[0].folders"));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn put_sidebar_config_rejects_disallowed_origin() {
+    let server = TestServer::empty().await;
+    write_sidebar_config(
+        &server.root,
+        "views:\n  - id: work\n    name: Work\n    icon: \"💼\"\n",
+    );
+
+    let client = reqwest::Client::new();
+    let config = serde_json::json!({
+        "views": [
+            {
+                "id": "customers",
+                "name": "Customers",
+                "icon": "🏢",
+                "sections": [],
+                "badge_query": null
+            }
+        ]
+    });
+
+    let response = client
+        .put(server.url("/api/v/test-vault/sidebar-config"))
+        .header("origin", "https://evil.example.com")
+        .header("if-match", "\"somehash\"")
+        .json(&config)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["error"], "origin_not_allowed");
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn get_folders_returns_sorted_relative_paths_without_hidden_directories() {
+    let server = TestServer::empty().await;
+    fs::create_dir_all(server.root.join("Customers/Acme")).unwrap();
+    fs::create_dir_all(server.root.join("Projects/Active")).unwrap();
+    fs::create_dir_all(server.root.join(".notesmith/private")).unwrap();
+    fs::create_dir_all(server.root.join("Customers/.secret")).unwrap();
+
+    let response = reqwest::get(server.url("/api/v/test-vault/folders"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.json::<Vec<String>>().await.unwrap();
+    assert_eq!(
+        body,
+        vec![
+            "Customers".to_string(),
+            "Customers/Acme".to_string(),
+            "Projects".to_string(),
+            "Projects/Active".to_string(),
+        ]
+    );
+
+    server.server.abort();
 }
 
 #[tokio::test]
@@ -1711,6 +2162,12 @@ fn write_vault_config(root: &Path, toml_content: &str) {
     let config_dir = root.join(".notesmith");
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("vault.toml"), toml_content).unwrap();
+}
+
+fn write_sidebar_config(root: &Path, yaml_content: &str) {
+    let config_dir = root.join(".notesmith");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(config_dir.join("sidebar.yaml"), yaml_content).unwrap();
 }
 
 #[tokio::test]

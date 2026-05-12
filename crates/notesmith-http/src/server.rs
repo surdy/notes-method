@@ -33,6 +33,7 @@ pub struct VaultState {
 pub struct AppState {
     pub vaults: HashMap<String, VaultState>,
     pub event_tx: events::EventSender,
+    pub global_config_path: PathBuf,
 }
 
 impl Default for AppState {
@@ -41,6 +42,7 @@ impl Default for AppState {
         Self {
             vaults: HashMap::new(),
             event_tx,
+            global_config_path: default_global_config_path(),
         }
     }
 }
@@ -69,6 +71,22 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
         .route("/ping", get(routes::ping))
         .route("/api/capabilities", get(routes::get_capabilities))
         .route(
+            "/api/app/vaults",
+            get(routes::list_vaults).post(routes::add_vault),
+        )
+        .route(
+            "/api/app/vaults/{name}",
+            axum::routing::put(routes::update_vault).delete(routes::remove_vault),
+        )
+        .route(
+            "/api/app/default-vault",
+            axum::routing::put(routes::set_default_vault),
+        )
+        .route(
+            "/api/app/vaults/{name}/reindex",
+            post(routes::reindex_vault),
+        )
+        .route(
             "/api/v/{vault}/notes",
             get(routes::list_notes).post(routes::create_note),
         )
@@ -92,12 +110,13 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
         .route("/api/v/{vault}/search", get(routes::search_notes))
         .route(
             "/api/v/{vault}/sidebar-config",
-            get(routes::get_sidebar_config),
+            get(routes::get_sidebar_config).put(routes::put_sidebar_config),
         )
         .route(
             "/api/v/{vault}/config",
             get(routes::get_vault_config).put(routes::put_vault_config),
         )
+        .route("/api/v/{vault}/folders", get(routes::get_folders))
         .route("/api/v/{vault}/folder-notes", get(routes::get_folder_notes))
         .route("/api/v/{vault}/query/sql", post(routes::execute_sql_query))
         .route(
@@ -287,7 +306,11 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
         );
     }
 
-    Ok(AppState { vaults, event_tx })
+    Ok(AppState {
+        vaults,
+        event_tx,
+        global_config_path: default_global_config_path(),
+    })
 }
 
 pub fn cache_dir_for_vault(vault_name: &str) -> anyhow::Result<PathBuf> {
@@ -316,6 +339,10 @@ fn sanitize_vault_name(vault_name: &str) -> String {
             _ => ch,
         })
         .collect()
+}
+
+fn default_global_config_path() -> PathBuf {
+    GlobalConfig::default_path().unwrap_or_else(|| PathBuf::from(".config/notesmith/config.toml"))
 }
 
 #[cfg(test)]
