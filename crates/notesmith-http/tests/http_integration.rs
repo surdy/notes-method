@@ -1685,3 +1685,314 @@ async fn sse_filters_events_by_vault() {
     sse_task.abort();
     server.server.abort();
 }
+
+// ── Capabilities API tests ─────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn get_capabilities_returns_expected_fields() {
+    let server = TestServer::empty().await;
+
+    let response = reqwest::get(server.url("/api/capabilities")).await.unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["deployment_mode"], "desktop");
+    assert_eq!(body["can_edit_global_config"], true);
+    assert_eq!(body["can_edit_vault_config"], true);
+    assert_eq!(body["can_open_local_paths"], true);
+    assert!(body["restart_required_fields"].as_array().unwrap().len() >= 1);
+
+    server.server.abort();
+}
+
+// ── Vault config API tests ─────────────────────────────────────────────────────
+
+fn write_vault_config(root: &Path, toml_content: &str) {
+    let config_dir = root.join(".notesmith");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(config_dir.join("vault.toml"), toml_content).unwrap();
+}
+
+#[tokio::test]
+async fn get_vault_config_returns_config_with_etag() {
+    let server = TestServer::empty().await;
+    let toml_content = "name = \"test-vault\"\n";
+    write_vault_config(&server.root, toml_content);
+
+    let response = reqwest::get(server.url("/api/v/test-vault/config"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let etag = response
+        .headers()
+        .get("etag")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(etag.starts_with('"') && etag.ends_with('"'));
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["config"]["name"], "test-vault");
+    assert!(body["hash"].as_str().unwrap().len() > 10);
+    assert_eq!(body["path"], ".notesmith/vault.toml");
+    assert!(body["warnings"].is_object());
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn get_vault_config_returns_404_for_unknown_vault() {
+    let server = TestServer::empty().await;
+
+    let response = reqwest::get(server.url("/api/v/nonexistent/config"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn put_vault_config_succeeds_with_correct_if_match() {
+    let server = TestServer::empty().await;
+    let toml_content = "name = \"test-vault\"\n";
+    write_vault_config(&server.root, toml_content);
+
+    // First GET to obtain the hash
+    let get_response = reqwest::get(server.url("/api/v/test-vault/config"))
+        .await
+        .unwrap();
+    let get_body = get_response.json::<serde_json::Value>().await.unwrap();
+    let hash = get_body["hash"].as_str().unwrap();
+
+    // PUT with correct If-Match
+    let client = reqwest::Client::new();
+    let new_config = serde_json::json!({
+        "name": "test-vault",
+        "inbox": { "folder": "MyInbox", "template": "generic-note" },
+        "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
+        "editor": { "live_preview": true, "default_mode": "source" },
+        "git": { "enabled": false },
+        "hooks": {}
+    });
+
+    let response = client
+        .put(server.url("/api/v/test-vault/config"))
+        .header("if-match", format!("\"{hash}\""))
+        .json(&new_config)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let etag = response
+        .headers()
+        .get("etag")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(etag.starts_with('"') && etag.ends_with('"'));
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["config"]["inbox"]["folder"], "MyInbox");
+    assert!(body["hash"].as_str().unwrap().len() > 10);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn put_vault_config_returns_409_on_stale_if_match() {
+    let server = TestServer::empty().await;
+    let toml_content = "name = \"test-vault\"\n";
+    write_vault_config(&server.root, toml_content);
+
+    let client = reqwest::Client::new();
+    let new_config = serde_json::json!({
+        "name": "test-vault",
+        "inbox": { "folder": "Inbox", "template": "generic-note" },
+        "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
+        "editor": { "live_preview": true, "default_mode": "source" },
+        "git": { "enabled": false },
+        "hooks": {}
+    });
+
+    let response = client
+        .put(server.url("/api/v/test-vault/config"))
+        .header("if-match", "\"stale-hash-value\"")
+        .json(&new_config)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["error"], "conflict");
+    assert!(body["config"].is_object());
+    assert!(body["hash"].as_str().is_some());
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn put_vault_config_returns_428_without_if_match() {
+    let server = TestServer::empty().await;
+    write_vault_config(&server.root, "name = \"test-vault\"\n");
+
+    let client = reqwest::Client::new();
+    let new_config = serde_json::json!({
+        "name": "test-vault",
+        "inbox": { "folder": "Inbox", "template": "generic-note" },
+        "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
+        "editor": { "live_preview": true, "default_mode": "source" },
+        "git": { "enabled": false },
+        "hooks": {}
+    });
+
+    let response = client
+        .put(server.url("/api/v/test-vault/config"))
+        .json(&new_config)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::PRECONDITION_REQUIRED
+    );
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["error"], "if_match_required");
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn put_vault_config_returns_422_with_invalid_data() {
+    let server = TestServer::empty().await;
+    let toml_content = "name = \"test-vault\"\n";
+    write_vault_config(&server.root, toml_content);
+
+    let get_response = reqwest::get(server.url("/api/v/test-vault/config"))
+        .await
+        .unwrap();
+    let get_body = get_response.json::<serde_json::Value>().await.unwrap();
+    let hash = get_body["hash"].as_str().unwrap();
+
+    let client = reqwest::Client::new();
+    let bad_config = serde_json::json!({
+        "name": "test-vault",
+        "inbox": { "folder": "Inbox", "template": "generic-note" },
+        "daily": {
+            "folder": "Inbox/Daily",
+            "template": "daily-note",
+            "generate_at": "25:99",
+            "timezone": "Mars/Olympus",
+            "catch_up": false
+        },
+        "editor": { "live_preview": true, "default_mode": "source" },
+        "git": { "enabled": false, "auto_commit_every": "banana" },
+        "hooks": {}
+    });
+
+    let response = client
+        .put(server.url("/api/v/test-vault/config"))
+        .header("if-match", format!("\"{hash}\""))
+        .json(&bad_config)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["error"], "validation_failed");
+    let errors = body["errors"].as_object().unwrap();
+    assert!(errors.contains_key("daily.generate_at"));
+    assert!(errors.contains_key("daily.timezone"));
+    assert!(errors.contains_key("git.auto_commit_every"));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn put_vault_config_rejects_disallowed_origin() {
+    let server = TestServer::empty().await;
+    write_vault_config(&server.root, "name = \"test-vault\"\n");
+
+    let client = reqwest::Client::new();
+    let config = serde_json::json!({
+        "name": "test-vault",
+        "inbox": { "folder": "Inbox", "template": "generic-note" },
+        "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
+        "editor": { "live_preview": true, "default_mode": "source" },
+        "git": { "enabled": false },
+        "hooks": {}
+    });
+
+    let response = client
+        .put(server.url("/api/v/test-vault/config"))
+        .header("origin", "https://evil.example.com")
+        .header("if-match", "\"somehash\"")
+        .json(&config)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["error"], "origin_not_allowed");
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn get_after_put_reflects_changes() {
+    let server = TestServer::empty().await;
+    write_vault_config(&server.root, "name = \"test-vault\"\n");
+
+    // GET to obtain hash
+    let get_response = reqwest::get(server.url("/api/v/test-vault/config"))
+        .await
+        .unwrap();
+    let get_body = get_response.json::<serde_json::Value>().await.unwrap();
+    let hash = get_body["hash"].as_str().unwrap();
+
+    // PUT with new inbox folder
+    let client = reqwest::Client::new();
+    let new_config = serde_json::json!({
+        "name": "test-vault",
+        "inbox": { "folder": "CustomInbox", "template": "generic-note" },
+        "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
+        "editor": { "live_preview": true, "default_mode": "source" },
+        "git": { "enabled": false },
+        "hooks": {}
+    });
+
+    let put_response = client
+        .put(server.url("/api/v/test-vault/config"))
+        .header("if-match", format!("\"{hash}\""))
+        .json(&new_config)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(put_response.status(), reqwest::StatusCode::OK);
+
+    // GET again — should reflect changes
+    let get_response2 = reqwest::get(server.url("/api/v/test-vault/config"))
+        .await
+        .unwrap();
+    assert_eq!(get_response2.status(), reqwest::StatusCode::OK);
+
+    let body2 = get_response2.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body2["config"]["inbox"]["folder"], "CustomInbox");
+
+    server.server.abort();
+}

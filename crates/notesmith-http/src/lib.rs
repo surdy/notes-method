@@ -7,6 +7,7 @@ pub mod routes;
 pub mod scheduler;
 pub mod server;
 pub mod watcher;
+pub mod write_guard;
 
 pub use events::{EventSender, EventType, VaultEvent, create_event_channel};
 pub use hooks::{HookVaultContext, start_hook_listener};
@@ -19,3 +20,4 @@ pub use server::{
     serve_with_listener,
 };
 pub use watcher::{VaultWatcher, watch_all_vaults, watch_vault};
+pub use write_guard::WriteGuard;

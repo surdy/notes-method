@@ -30,6 +30,7 @@ dirs = { workspace = true }
 notify = { workspace = true }
 notesmith-tasks = { workspace = true }
 serde_yaml = { workspace = true }
+toml = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
 tokio-stream = { workspace = true }

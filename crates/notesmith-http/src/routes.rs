@@ -9,6 +9,7 @@ use axum::{
 };
 use chrono;
 use futures::stream::Stream;
+use notesmith_config::VaultConfig;
 use notesmith_core::{
     Note, NotesmithError, TaskStatus, VaultEngine, VaultName, VaultPath, WriteResult,
 };
@@ -23,8 +24,10 @@ use serde_yaml::{Mapping, Value as YamlValue};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
+use crate::config_io::{compute_config_hash, load_vault_config_with_hash, validate_vault_config};
 use crate::events::{self, EventType, VaultEvent};
 use crate::server::SharedAppState;
+use crate::write_guard::WriteGuard;
 
 #[derive(Debug, Serialize)]
 pub struct NoteSummary {
@@ -1787,6 +1790,164 @@ pub async fn git_sync(
         "pull": pull_result,
         "push": push_result,
     })))
+}
+
+// ── Capabilities ─────────────────────────────────────────────────────────────
+
+pub async fn get_capabilities() -> Json<Value> {
+    Json(json!({
+        "deployment_mode": "desktop",
+        "can_edit_global_config": true,
+        "can_edit_vault_config": true,
+        "can_open_local_paths": true,
+        "restart_required_fields": ["daemon.bind"]
+    }))
+}
+
+// ── Vault config endpoints ───────────────────────────────────────────────────
+
+pub async fn get_vault_config(
+    State(state): State<SharedAppState>,
+    Path(vault_name): Path<String>,
+) -> Result<axum::response::Response, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "vault_not_found" })),
+        )
+    })?;
+
+    let (config, hash) = load_vault_config_with_hash(&vault.root).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    let (_, warnings) = validate_vault_config(&config, &vault.root);
+
+    let body = json!({
+        "config": config,
+        "hash": hash,
+        "path": ".notesmith/vault.toml",
+        "warnings": warnings
+    });
+
+    let mut response = axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .header("etag", format!("\"{hash}\""))
+        .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+
+    // Ensure the response is well-formed
+    let _ = &mut response;
+    Ok(response)
+}
+
+pub async fn put_vault_config(
+    State(state): State<SharedAppState>,
+    Path(vault_name): Path<String>,
+    _guard: WriteGuard,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<VaultConfig>,
+) -> Result<axum::response::Response, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "vault_not_found" })),
+        )
+    })?;
+
+    // Require If-Match header
+    let if_match = headers
+        .get("if-match")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim_matches('"'))
+        .ok_or_else(|| {
+            (
+                StatusCode::PRECONDITION_REQUIRED,
+                Json(json!({
+                    "error": "if_match_required",
+                    "message": "PUT requires If-Match header with config hash"
+                })),
+            )
+        })?;
+
+    // Compute current hash for conflict detection
+    let current_hash = compute_config_hash(&vault.root).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    if if_match != current_hash {
+        let (config, new_hash) = load_vault_config_with_hash(&vault.root).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
+        let (_, warnings) = validate_vault_config(&config, &vault.root);
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "conflict",
+                "message": "Config was modified externally",
+                "config": config,
+                "hash": new_hash,
+                "warnings": warnings
+            })),
+        ));
+    }
+
+    // Validate the incoming config
+    let (errors, warnings) = validate_vault_config(&body, &vault.root);
+    if !errors.is_empty() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({
+                "error": "validation_failed",
+                "errors": errors
+            })),
+        ));
+    }
+
+    // Write config to disk
+    let config_path = vault.root.join(".notesmith").join("vault.toml");
+    body.save_to(&config_path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    // Read back with new hash
+    let (saved_config, new_hash) = load_vault_config_with_hash(&vault.root).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    let response_body = json!({
+        "config": saved_config,
+        "hash": new_hash,
+        "path": ".notesmith/vault.toml",
+        "warnings": warnings
+    });
+
+    Ok(axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .header("etag", format!("\"{new_hash}\""))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&response_body).unwrap(),
+        ))
+        .unwrap())
 }
 
 #[cfg(test)]

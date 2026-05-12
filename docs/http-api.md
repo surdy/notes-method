@@ -19,7 +19,126 @@ Health check.
 
 ---
 
-## Notes
+## Capabilities
+
+### `GET /api/capabilities`
+
+Returns server capabilities and deployment mode. Used by the frontend to determine which settings are available.
+
+**Response:** `200 OK`
+```json
+{
+  "deployment_mode": "desktop",
+  "can_edit_global_config": true,
+  "can_edit_vault_config": true,
+  "can_open_local_paths": true,
+  "restart_required_fields": ["daemon.bind"]
+}
+```
+
+**Example:**
+```bash
+curl http://127.0.0.1:27183/api/capabilities
+```
+
+---
+
+## Vault Config
+
+### `GET /api/v/{vault}/config`
+
+Read the vault configuration from `.notesmith/vault.toml`. Returns the parsed config, a blake3 hash for ETag-based conflict detection, and any validation warnings.
+
+The response includes an `ETag` header with the config hash for use with `PUT` requests.
+
+**Response:** `200 OK`
+```json
+{
+  "config": {
+    "name": "work",
+    "inbox": { "folder": "Inbox", "template": "generic-note" },
+    "daily": { "folder": "Inbox/Daily", "template": "daily-note", "generate_at": "06:00", "timezone": "America/Los_Angeles", "catch_up": false },
+    "editor": { "live_preview": true, "default_mode": "source" },
+    "git": { "enabled": true, "auto_commit_every": "5m", "auto_pull_every": "10m", "auto_push_every": "10m" },
+    "hooks": {}
+  },
+  "hash": "a1b2c3d4...",
+  "path": ".notesmith/vault.toml",
+  "warnings": {
+    "inbox.folder": "Folder 'Inbox' does not exist"
+  }
+}
+```
+
+**Headers:**
+- `ETag: "a1b2c3d4..."` — blake3 hash of the raw TOML file
+
+**Errors:**
+- `404` — vault not found
+- `500` — config file missing or unreadable
+
+**Example:**
+```bash
+curl -i http://127.0.0.1:27183/api/v/work/config
+```
+
+### `PUT /api/v/{vault}/config`
+
+Update the vault configuration. Requires an `If-Match` header with the current config hash (from a prior `GET`) for optimistic concurrency control. The `WriteGuard` extractor checks the `Origin` header — only `tauri://localhost`, `http://localhost`, and `http://127.0.0.1` origins are allowed for writes. Requests with no `Origin` header (curl, CLI) are permitted.
+
+**Request headers:**
+- `If-Match: "a1b2c3d4..."` — required, config hash from prior GET
+- `Origin` — optional, checked against allowed origins
+
+**Request body:** Full `VaultConfig` object:
+```json
+{
+  "name": "work",
+  "inbox": { "folder": "Inbox", "template": "generic-note" },
+  "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
+  "editor": { "live_preview": true, "default_mode": "source" },
+  "git": { "enabled": false },
+  "hooks": {}
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "config": { "..." },
+  "hash": "e5f6a7b8...",
+  "path": ".notesmith/vault.toml",
+  "warnings": {}
+}
+```
+
+**Headers:**
+- `ETag: "e5f6a7b8..."` — new hash after write
+
+**Validation rules:**
+- `daily.generate_at` must be `HH:MM` format (00:00–23:59)
+- `daily.timezone` must be a valid IANA timezone
+- `git.auto_commit_every`, `git.auto_pull_every`, `git.auto_push_every` must be duration strings like `5m`, `1h`, `30s`
+- Missing inbox/daily folders produce warnings (non-blocking)
+
+**Errors:**
+- `403` — origin not allowed (cross-origin write attempt)
+- `404` — vault not found
+- `409` — conflict (config was modified externally since your GET; response includes current config and hash)
+- `422` — validation failed (response includes `errors` map)
+- `428` — `If-Match` header missing
+
+**Example:**
+```bash
+# 1. GET current config and hash
+RESPONSE=$(curl -s http://127.0.0.1:27183/api/v/work/config)
+HASH=$(echo "$RESPONSE" | jq -r .hash)
+
+# 2. PUT with If-Match
+curl -X PUT http://127.0.0.1:27183/api/v/work/config \
+  -H "Content-Type: application/json" \
+  -H "If-Match: \"$HASH\"" \
+  -d '{"name":"work","inbox":{"folder":"Inbox","template":"generic-note"},"daily":{"folder":"Inbox/Daily","template":"daily-note","catch_up":false},"editor":{"live_preview":true,"default_mode":"source"},"git":{"enabled":false},"hooks":{}}'
 
 ### `GET /api/v/{vault}/notes`
 

@@ -67,6 +67,7 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
 
     Router::new()
         .route("/ping", get(routes::ping))
+        .route("/api/capabilities", get(routes::get_capabilities))
         .route(
             "/api/v/{vault}/notes",
             get(routes::list_notes).post(routes::create_note),
@@ -92,6 +93,10 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
         .route(
             "/api/v/{vault}/sidebar-config",
             get(routes::get_sidebar_config),
+        )
+        .route(
+            "/api/v/{vault}/config",
+            get(routes::get_vault_config).put(routes::put_vault_config),
         )
         .route("/api/v/{vault}/folder-notes", get(routes::get_folder_notes))
         .route("/api/v/{vault}/query/sql", post(routes::execute_sql_query))
