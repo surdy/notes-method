@@ -130,20 +130,143 @@ pub struct SqlQueryRequest {
     pub sql: String,
 }
 
+// ── Sidebar config types ──────────────────────────────────────
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SidebarViewConfig {
+pub struct SidebarConfig {
+    #[serde(default)]
+    pub views: Vec<SidebarView>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SidebarView {
     pub id: String,
     pub name: String,
     pub icon: String,
-    pub data_source: String,
-    pub group_by: Option<String>,
-    pub sort_by: Option<String>,
+    #[serde(default)]
+    pub sections: Vec<SidebarSection>,
     pub badge_query: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SidebarViewsFile {
-    pub views: Vec<SidebarViewConfig>,
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum SidebarSection {
+    RecentlyViewed {
+        label: String,
+        #[serde(default = "default_recently_viewed_mode")]
+        mode: RecentlyViewedMode,
+        #[serde(default = "default_section_limit")]
+        limit: usize,
+    },
+    CustomFolders {
+        label: String,
+        folders: Vec<String>,
+    },
+    CustomItems {
+        label: String,
+        items: Vec<CustomItem>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RecentlyViewedMode {
+    Viewed,
+    Edited,
+    Both,
+}
+
+fn default_recently_viewed_mode() -> RecentlyViewedMode {
+    RecentlyViewedMode::Both
+}
+
+fn default_section_limit() -> usize {
+    10
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CustomItem {
+    pub name: String,
+    pub icon: String,
+    pub source: ItemSource,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum ItemSource {
+    Folder(FolderSource),
+    Query(QuerySource),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FolderSource {
+    pub folder: String,
+    #[serde(default)]
+    pub recursive: bool,
+    #[serde(default = "default_sort")]
+    pub sort: FolderSort,
+    #[serde(default = "default_sort_dir")]
+    pub sort_dir: SortDir,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum FolderSort {
+    Modified,
+    Created,
+    Name,
+}
+
+fn default_sort() -> FolderSort {
+    FolderSort::Modified
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SortDir {
+    Asc,
+    Desc,
+}
+
+fn default_sort_dir() -> SortDir {
+    SortDir::Desc
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QuerySource {
+    pub query: String,
+    pub title_column: Option<String>,
+    pub subtitle_column: Option<String>,
+    #[serde(default)]
+    pub badge_columns: Vec<String>,
+}
+
+// ── Folder notes types ───────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct FolderNotesQuery {
+    pub path: String,
+    #[serde(default)]
+    pub recursive: bool,
+    #[serde(default = "default_folder_notes_limit")]
+    pub limit: Option<usize>,
+    #[serde(default = "default_sort")]
+    pub sort: FolderSort,
+    #[serde(default = "default_sort_dir")]
+    pub sort_dir: SortDir,
+}
+
+fn default_folder_notes_limit() -> Option<usize> {
+    Some(50)
+}
+
+#[derive(Debug, Serialize)]
+pub struct FolderNoteItem {
+    pub path: String,
+    pub title: String,
+    pub snippet: String,
+    pub modified_at: Option<String>,
+    pub created_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -241,10 +364,10 @@ pub async fn execute_sql_query(
         .map_err(query_error)
 }
 
-pub async fn get_sidebar_views(
+pub async fn get_sidebar_config(
     State(state): State<SharedAppState>,
     Path(vault_name): Path<String>,
-) -> Result<Json<Vec<SidebarViewConfig>>, (StatusCode, Json<Value>)> {
+) -> Result<Json<SidebarConfig>, (StatusCode, Json<Value>)> {
     let state = state.read().await;
     let vault = state.vaults.get(&vault_name).ok_or_else(|| {
         (
@@ -253,9 +376,79 @@ pub async fn get_sidebar_views(
         )
     })?;
 
-    load_sidebar_views_from_root(&vault.root)
+    load_sidebar_config_from_root(&vault.root)
         .map(Json)
         .map_err(internal_error)
+}
+
+pub async fn get_folder_notes(
+    State(state): State<SharedAppState>,
+    Path(vault_name): Path<String>,
+    Query(params): Query<FolderNotesQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    let folder = params.path.trim_end_matches('/');
+    let path_filter = format!("{folder}/%");
+
+    let sort_column = match params.sort {
+        FolderSort::Modified => "updated_at",
+        FolderSort::Created => "created_at",
+        FolderSort::Name => "path",
+    };
+    let sort_direction = match params.sort_dir {
+        SortDir::Asc => "ASC",
+        SortDir::Desc => "DESC",
+    };
+
+    let non_recursive_filter = if params.recursive {
+        String::new()
+    } else {
+        let depth_prefix = format!("{folder}/%/%");
+        format!(" AND path NOT LIKE '{depth_prefix}'")
+    };
+
+    let limit_clause = match params.limit {
+        Some(n) => format!(" LIMIT {n}"),
+        None => String::new(),
+    };
+
+    let sql = format!(
+        "SELECT path, title, body_excerpt, updated_at, created_at \
+         FROM notes \
+         WHERE vault_name = '{vault_name}' AND path LIKE '{path_filter}'{non_recursive_filter} \
+         ORDER BY {sort_column} {sort_direction}{limit_clause}"
+    );
+
+    let result = execute_sql(&vault.cache, &sql).map_err(query_error)?;
+
+    let notes: Vec<FolderNoteItem> = result
+        .rows
+        .into_iter()
+        .map(|row| {
+            let path = row[0].as_str().unwrap_or("").to_string();
+            let title = row[1].as_str().unwrap_or("").to_string();
+            let body_excerpt = row[2].as_str().unwrap_or("");
+            let snippet = extract_snippet(body_excerpt);
+            let modified_at = row[3].as_str().map(|s| s.to_string());
+            let created_at = row[4].as_str().map(|s| s.to_string());
+            FolderNoteItem {
+                path,
+                title,
+                snippet,
+                modified_at,
+                created_at,
+            }
+        })
+        .collect();
+
+    Ok(Json(json!({ "notes": notes })))
 }
 
 pub async fn search_notes(
@@ -1343,61 +1536,23 @@ fn parse_daily_date(
     Ok((parsed, date_str))
 }
 
-fn load_sidebar_views_from_root(root: &StdPath) -> anyhow::Result<Vec<SidebarViewConfig>> {
-    let path = root.join(".notesmith").join("sidebar-views.yaml");
+fn load_sidebar_config_from_root(root: &StdPath) -> anyhow::Result<SidebarConfig> {
+    let path = root.join(".notesmith").join("sidebar.yaml");
     match fs::read_to_string(&path) {
-        Ok(raw) => Ok(serde_yaml::from_str::<SidebarViewsFile>(&raw)?.views),
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(default_sidebar_views()),
+        Ok(raw) => Ok(serde_yaml::from_str::<SidebarConfig>(&raw)?),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(SidebarConfig { views: vec![] }),
         Err(error) => Err(error.into()),
     }
 }
 
-fn default_sidebar_views() -> Vec<SidebarViewConfig> {
-    vec![
-        SidebarViewConfig {
-            id: "all-notes".to_string(),
-            name: "All Notes".to_string(),
-            icon: "📄".to_string(),
-            data_source: "SELECT path, title, type FROM v_notes ORDER BY path".to_string(),
-            group_by: None,
-            sort_by: None,
-            badge_query: None,
-        },
-        SidebarViewConfig {
-            id: "tasks".to_string(),
-            name: "Tasks".to_string(),
-            icon: "✅".to_string(),
-            data_source:
-                "SELECT note_path AS path, text AS title, status FROM v_tasks ORDER BY status, note_path, ordinal"
-                    .to_string(),
-            group_by: Some("status".to_string()),
-            sort_by: None,
-            badge_query: None,
-        },
-        SidebarViewConfig {
-            id: "recent".to_string(),
-            name: "Recent".to_string(),
-            icon: "🕐".to_string(),
-            data_source:
-                "SELECT path, title, type, updated_at FROM v_notes ORDER BY mtime_unix DESC LIMIT 30"
-                    .to_string(),
-            group_by: None,
-            sort_by: None,
-            badge_query: None,
-        },
-        SidebarViewConfig {
-            id: "inbox".to_string(),
-            name: "Inbox".to_string(),
-            icon: "📥".to_string(),
-            data_source:
-                "SELECT path, title FROM v_notes WHERE path LIKE 'Inbox/%' ORDER BY path".to_string(),
-            group_by: None,
-            sort_by: None,
-            badge_query: Some(
-                "SELECT COUNT(*) as count FROM v_notes WHERE path LIKE 'Inbox/%'".to_string(),
-            ),
-        },
-    ]
+fn extract_snippet(body_excerpt: &str) -> String {
+    let trimmed = if body_excerpt.len() > 200 {
+        &body_excerpt[..200]
+    } else {
+        body_excerpt
+    };
+    let lines: Vec<&str> = trimmed.lines().take(2).collect();
+    lines.join("\n").trim().to_string()
 }
 
 fn daily_note_path(daily_folder: &str, date: &str) -> VaultPath {
@@ -1705,47 +1860,210 @@ context_queries:
     }
 
     #[test]
-    fn load_sidebar_views_returns_defaults_when_file_missing() {
+    fn load_sidebar_config_returns_empty_when_file_missing() {
         let temp_dir = TempDir::new().unwrap();
 
-        let views = load_sidebar_views_from_root(temp_dir.path()).unwrap();
+        let config = load_sidebar_config_from_root(temp_dir.path()).unwrap();
 
-        assert_eq!(views, default_sidebar_views());
+        assert_eq!(config, SidebarConfig { views: vec![] });
     }
 
     #[test]
-    fn load_sidebar_views_parses_custom_yaml() {
+    fn load_sidebar_config_parses_full_yaml() {
         let temp_dir = TempDir::new().unwrap();
         let config_dir = temp_dir.path().join(".notesmith");
         fs::create_dir_all(&config_dir).unwrap();
         fs::write(
-            config_dir.join("sidebar-views.yaml"),
+            config_dir.join("sidebar.yaml"),
             r#"views:
   - id: customers
     name: Customers
-    icon: 🏢
-    data_source: "SELECT path, title, state FROM v_customers ORDER BY title"
-    group_by: state
-    sort_by: title
-    badge_query: "SELECT COUNT(*) as count FROM v_customers"
+    icon: "🏢"
+    badge_query: "SELECT COUNT(*) FROM v_customers"
+    sections:
+      - type: recently-viewed
+        label: Recent
+        mode: edited
+        limit: 5
+      - type: custom-folders
+        label: Key Folders
+        folders:
+          - Customers
+          - Projects
+      - type: custom-items
+        label: Dashboards
+        items:
+          - name: Pipeline
+            icon: "📊"
+            source:
+              query: "SELECT path, title FROM v_notes WHERE type = 'dashboard'"
+              title_column: title
 "#,
         )
         .unwrap();
 
-        let views = load_sidebar_views_from_root(temp_dir.path()).unwrap();
+        let config = load_sidebar_config_from_root(temp_dir.path()).unwrap();
+
+        assert_eq!(config.views.len(), 1);
+        let view = &config.views[0];
+        assert_eq!(view.id, "customers");
+        assert_eq!(view.name, "Customers");
+        assert_eq!(view.icon, "🏢");
+        assert_eq!(
+            view.badge_query,
+            Some("SELECT COUNT(*) FROM v_customers".to_string())
+        );
+        assert_eq!(view.sections.len(), 3);
+
+        match &view.sections[0] {
+            SidebarSection::RecentlyViewed { label, mode, limit } => {
+                assert_eq!(label, "Recent");
+                assert_eq!(*mode, RecentlyViewedMode::Edited);
+                assert_eq!(*limit, 5);
+            }
+            other => panic!("expected RecentlyViewed, got {other:?}"),
+        }
+
+        match &view.sections[1] {
+            SidebarSection::CustomFolders { label, folders } => {
+                assert_eq!(label, "Key Folders");
+                assert_eq!(folders, &["Customers", "Projects"]);
+            }
+            other => panic!("expected CustomFolders, got {other:?}"),
+        }
+
+        match &view.sections[2] {
+            SidebarSection::CustomItems { label, items } => {
+                assert_eq!(label, "Dashboards");
+                assert_eq!(items.len(), 1);
+                assert_eq!(items[0].name, "Pipeline");
+            }
+            other => panic!("expected CustomItems, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_sidebar_config_handles_folder_source() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_dir = temp_dir.path().join(".notesmith");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(
+            config_dir.join("sidebar.yaml"),
+            r#"views:
+  - id: work
+    name: Work
+    icon: "💼"
+    sections:
+      - type: custom-items
+        label: Active Projects
+        items:
+          - name: Projects
+            icon: "📁"
+            source:
+              folder: Projects/Active
+              recursive: true
+              sort: name
+              sort_dir: asc
+"#,
+        )
+        .unwrap();
+
+        let config = load_sidebar_config_from_root(temp_dir.path()).unwrap();
+
+        let view = &config.views[0];
+        match &view.sections[0] {
+            SidebarSection::CustomItems { items, .. } => match &items[0].source {
+                ItemSource::Folder(fs) => {
+                    assert_eq!(fs.folder, "Projects/Active");
+                    assert!(fs.recursive);
+                    assert_eq!(fs.sort, FolderSort::Name);
+                    assert_eq!(fs.sort_dir, SortDir::Asc);
+                }
+                other => panic!("expected FolderSource, got {other:?}"),
+            },
+            other => panic!("expected CustomItems, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_sidebar_config_handles_query_source() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_dir = temp_dir.path().join(".notesmith");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(
+            config_dir.join("sidebar.yaml"),
+            r#"views:
+  - id: metrics
+    name: Metrics
+    icon: "📈"
+    sections:
+      - type: custom-items
+        label: Reports
+        items:
+          - name: Weekly
+            icon: "📅"
+            source:
+              query: "SELECT path, title, status FROM v_reports"
+              title_column: title
+              subtitle_column: status
+              badge_columns:
+                - status
+"#,
+        )
+        .unwrap();
+
+        let config = load_sidebar_config_from_root(temp_dir.path()).unwrap();
+
+        let view = &config.views[0];
+        match &view.sections[0] {
+            SidebarSection::CustomItems { items, .. } => match &items[0].source {
+                ItemSource::Query(qs) => {
+                    assert_eq!(qs.query, "SELECT path, title, status FROM v_reports");
+                    assert_eq!(qs.title_column, Some("title".to_string()));
+                    assert_eq!(qs.subtitle_column, Some("status".to_string()));
+                    assert_eq!(qs.badge_columns, vec!["status"]);
+                }
+                other => panic!("expected QuerySource, got {other:?}"),
+            },
+            other => panic!("expected CustomItems, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_sidebar_config_returns_error_on_invalid_yaml() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_dir = temp_dir.path().join(".notesmith");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(
+            config_dir.join("sidebar.yaml"),
+            "views:\n  - id: [invalid yaml\n",
+        )
+        .unwrap();
+
+        let result = load_sidebar_config_from_root(temp_dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn snippet_extraction() {
+        assert_eq!(extract_snippet(""), "");
+
+        assert_eq!(extract_snippet("Short text"), "Short text");
 
         assert_eq!(
-            views,
-            vec![SidebarViewConfig {
-                id: "customers".to_string(),
-                name: "Customers".to_string(),
-                icon: "🏢".to_string(),
-                data_source: "SELECT path, title, state FROM v_customers ORDER BY title"
-                    .to_string(),
-                group_by: Some("state".to_string()),
-                sort_by: Some("title".to_string()),
-                badge_query: Some("SELECT COUNT(*) as count FROM v_customers".to_string()),
-            }]
+            extract_snippet("Line one\nLine two\nLine three"),
+            "Line one\nLine two"
         );
+
+        let long = "a".repeat(300);
+        let snippet = extract_snippet(&long);
+        assert!(snippet.len() <= 200);
+
+        assert_eq!(
+            extract_snippet("First line\nSecond line\nThird line\nFourth line"),
+            "First line\nSecond line"
+        );
+
+        assert_eq!(extract_snippet("  \n  \n  "), "");
     }
 }
