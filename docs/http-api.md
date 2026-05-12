@@ -775,6 +775,9 @@ Server-Sent Events (SSE) stream for real-time vault change notifications. Each c
 | `daily.created` | Daily note created |
 | `cache.rebuilt` | Cache rebuild completed |
 | `search.reindexed` | Search index rebuilt |
+| `config.changed` | Config file modified and parsed successfully |
+| `config.removed` | Config file deleted |
+| `config.error` | Config file has a parse error |
 
 **Payload (JSON in `data:` field):**
 ```json
@@ -785,6 +788,55 @@ Server-Sent Events (SSE) stream for real-time vault change notifications. Each c
   "timestamp": "2026-05-09T16:30:00.123-0700"
 }
 ```
+
+**Config event payloads:**
+
+`config.changed` — Config file modified successfully:
+```json
+{
+  "vault": "work",
+  "type": "config.changed",
+  "path": ".notesmith/sidebar.yaml",
+  "timestamp": "2026-05-11T19:44:23.865-0700",
+  "config": {
+    "key": "sidebar",
+    "status": "changed",
+    "error": null
+  }
+}
+```
+
+`config.removed` — Config file deleted:
+```json
+{
+  "vault": "work",
+  "type": "config.removed",
+  "path": ".notesmith/sidebar.yaml",
+  "timestamp": "2026-05-11T19:44:23.865-0700",
+  "config": {
+    "key": "sidebar",
+    "status": "removed",
+    "error": null
+  }
+}
+```
+
+`config.error` — Config file has a parse error:
+```json
+{
+  "vault": "work",
+  "type": "config.error",
+  "path": ".notesmith/sidebar.yaml",
+  "timestamp": "2026-05-11T19:44:23.865-0700",
+  "config": {
+    "key": "sidebar",
+    "status": "error",
+    "error": "expected ',' or ']' at line 5 column 3"
+  }
+}
+```
+
+Config keys are `sidebar` (for `.notesmith/sidebar.yaml`) and `vault` (for `.notesmith/vault.toml`).
 
 **Example:**
 ```bash
