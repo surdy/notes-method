@@ -4,6 +4,8 @@
 	import { settingsStore } from '$lib/settings.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 	import { registerHotkeys } from '$lib/hotkeys';
+	import SidebarSettings from '$lib/components/SidebarSettings.svelte';
+	import VaultsSettings from '$lib/components/VaultsSettings.svelte';
 
 	type Section = 'general' | 'inbox' | 'daily' | 'editor' | 'sidebar' | 'git' | 'hooks' | 'vaults';
 
@@ -371,15 +373,7 @@
 					</section>
 				{:else if selectedSection === 'sidebar'}
 					<section class="config-section">
-						<p class="section-hint">
-							Sidebar views are configured in <code>.notesmith/sidebar.yaml</code>.
-							{#if caps?.can_open_local_paths}
-								Edit the file directly in your editor.
-							{/if}
-						</p>
-						<p class="section-hint muted">
-							Full sidebar editing will be available in a future update.
-						</p>
+						<SidebarSettings {vault} />
 					</section>
 				{:else if selectedSection === 'git'}
 					<section class="config-section">
@@ -495,9 +489,7 @@
 					</section>
 				{:else if selectedSection === 'vaults'}
 					<section class="config-section">
-						<p class="section-hint">
-							Multi-vault management will be available in a future update.
-						</p>
+						<VaultsSettings capabilities={caps} />
 					</section>
 				{/if}
 			</div>

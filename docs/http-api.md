@@ -32,7 +32,9 @@ Returns server capabilities and deployment mode. Used by the frontend to determi
   "can_edit_global_config": true,
   "can_edit_vault_config": true,
   "can_open_local_paths": true,
-  "restart_required_fields": ["daemon.bind"]
+  "restart_required_fields": ["daemon.bind"],
+  "folder_picker": false,
+  "vaults_root": null
 }
 ```
 
@@ -1025,4 +1027,152 @@ If pull conflicts, push is skipped:
 
 **Errors:**
 - `400` — vault is not a git repository
+- `404` — vault not found
+---
+
+## Sidebar Config
+
+### `GET /api/v/{vault}/sidebar-config`
+
+Returns the sidebar configuration with hash for conflict detection.
+
+**Response:** `200 OK`
+```json
+{
+  "config": { "views": [...] },
+  "hash": "abc123",
+  "path": ".notesmith/sidebar.yaml",
+  "warnings": {}
+}
+```
+
+**Headers:** `ETag: "abc123"`
+
+### `PUT /api/v/{vault}/sidebar-config`
+
+Updates the sidebar configuration. Requires `If-Match` header with the current config hash.
+
+**Headers:** `If-Match: "abc123"`, `Content-Type: application/json`
+
+**Body:** `SidebarConfig` object
+```json
+{
+  "views": [
+    {
+      "id": "inbox",
+      "name": "Inbox",
+      "icon": "inbox",
+      "sections": [
+        { "type": "custom-folders", "label": "Inbox", "folders": ["Inbox"] }
+      ]
+    }
+  ]
+}
+```
+
+**Response:** `200 OK` — same shape as GET
+
+**Errors:**
+- `409` — config was modified externally (conflict); response includes current config
+- `422` — validation failed; response includes field-level errors
+- `428` — missing `If-Match` header
+
+### `GET /api/v/{vault}/folders`
+
+Returns a sorted list of all visible folders in the vault. Used for folder autocomplete.
+
+**Response:** `200 OK`
+```json
+["Archive", "Daily", "Inbox", "Projects", "Projects/Alpha"]
+```
+
+---
+
+## Vault Management
+
+### `GET /api/app/vaults`
+
+Lists all registered vaults with default indicator.
+
+**Response:** `200 OK`
+```json
+[
+  { "name": "work", "path": "/home/user/vaults/work", "is_default": true },
+  { "name": "personal", "path": "/home/user/vaults/personal", "is_default": false }
+]
+```
+
+### `POST /api/app/vaults`
+
+Registers a new vault.
+
+**Body:**
+```json
+{ "name": "personal", "path": "/home/user/vaults/personal" }
+```
+
+**Response:** `201 Created`
+```json
+{ "name": "personal", "status": "registered" }
+```
+
+**Errors:**
+- `409` — vault name already registered
+- `422` — path does not exist
+
+### `PUT /api/app/vaults/{name}`
+
+Updates a vault (rename).
+
+**Body:**
+```json
+{ "name": "new-name" }
+```
+
+**Response:** `200 OK`
+```json
+{ "name": "new-name", "status": "updated" }
+```
+
+**Errors:**
+- `404` — vault not found
+- `409` — new name conflicts with existing vault
+
+### `DELETE /api/app/vaults/{name}`
+
+Unregisters a vault. Does not delete files.
+
+**Response:** `204 No Content`
+
+**Errors:**
+- `404` — vault not found
+- `422` — cannot remove the default vault
+
+### `PUT /api/app/default-vault`
+
+Sets the default vault.
+
+**Body:**
+```json
+{ "name": "work" }
+```
+
+**Response:** `200 OK`
+```json
+{ "default_vault": "work" }
+```
+
+**Errors:**
+- `404` — vault not found
+
+### `POST /api/app/vaults/{name}/reindex`
+
+Triggers a full reindex of the vault cache and search index.
+
+**Response:** `200 OK`
+```json
+{ "vault": "work", "status": "reindexed", "notes": 142 }
+```
+
+**Errors:**
 - `404` — vault not found

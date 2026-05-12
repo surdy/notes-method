@@ -283,10 +283,75 @@ if (!res.ok) throw new Error(`Failed to instantiate template: ${res.status}`);
 return res.json();
 }
 
+export interface SidebarConfigResponse {
+	config: SidebarConfig;
+	hash: string;
+	path: string;
+	warnings: Record<string, string>;
+	etag: string;
+}
+
+export interface SidebarConfigConflictError {
+	error: 'conflict';
+	message: string;
+	config: SidebarConfig;
+	hash: string;
+	warnings: Record<string, string>;
+}
+
 export async function getSidebarConfig(vault: string): Promise<SidebarConfig> {
-const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/sidebar-config`);
-if (!res.ok) throw new Error(`Failed to load sidebar config: ${res.status}`);
-return res.json();
+	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/sidebar-config`);
+	if (!res.ok) throw new Error(`Failed to load sidebar config: ${res.status}`);
+	const data = await res.json();
+	return data.config ?? data;
+}
+
+export async function getSidebarConfigWithHash(
+	vault: string
+): Promise<SidebarConfigResponse> {
+	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/sidebar-config`);
+	if (!res.ok) throw new Error(`Failed to load sidebar config: ${res.status}`);
+	const data = await res.json();
+	const etag = res.headers.get('etag')?.replace(/"/g, '') ?? data.hash;
+	return { ...data, etag };
+}
+
+export async function putSidebarConfig(
+	vault: string,
+	config: SidebarConfig,
+	etag: string
+): Promise<SidebarConfigResponse> {
+	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/sidebar-config`, {
+		method: 'PUT',
+		headers: {
+			'Content-Type': 'application/json',
+			'If-Match': `"${etag}"`
+		},
+		body: JSON.stringify(config)
+	});
+
+	if (res.status === 409) {
+		const data: SidebarConfigConflictError = await res.json();
+		throw Object.assign(new ApiError('Sidebar config conflict', 409), { conflict: data });
+	}
+	if (res.status === 422) {
+		const data = await res.json();
+		throw Object.assign(new ApiError('Validation failed', 422), { validation: data });
+	}
+	if (res.status === 428) {
+		throw new ApiError('If-Match header required', 428);
+	}
+	if (!res.ok) throw new ApiError(`Failed to save sidebar config: ${res.status}`, res.status);
+
+	const saved = await res.json();
+	const newEtag = res.headers.get('etag')?.replace(/"/g, '') ?? saved.hash;
+	return { ...saved, etag: newEtag };
+}
+
+export async function getVaultFolders(vault: string): Promise<string[]> {
+	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/folders`);
+	if (!res.ok) throw new Error(`Failed to load folders: ${res.status}`);
+	return res.json();
 }
 
 export async function getFolderNotes(
@@ -333,6 +398,8 @@ export interface Capabilities {
 	can_edit_vault_config: boolean;
 	can_open_local_paths: boolean;
 	restart_required_fields: string[];
+	folder_picker: boolean;
+	vaults_root: string | null;
 }
 
 export interface VaultConfigData {
@@ -427,4 +494,87 @@ export async function putVaultConfig(
 	const data: ConfigResponse = await res.json();
 	const newEtag = res.headers.get('etag')?.replace(/"/g, '') ?? data.hash;
 	return { ...data, etag: newEtag };
+}
+
+// ── Vault management API ────────────────────────────────────────────────────
+
+export interface VaultInfo {
+	name: string;
+	path: string;
+	is_default: boolean;
+}
+
+export async function listVaults(): Promise<VaultInfo[]> {
+	const res = await fetch(`${API_BASE}/api/app/vaults`);
+	if (!res.ok) throw new Error(`Failed to list vaults: ${res.status}`);
+	return res.json();
+}
+
+export async function addVault(name: string, path: string): Promise<void> {
+	const res = await fetch(`${API_BASE}/api/app/vaults`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name, path })
+	});
+	if (res.status === 409) {
+		const data = await res.json();
+		throw new ApiError(data.message ?? 'Vault already exists', 409);
+	}
+	if (res.status === 422) {
+		const data = await res.json();
+		throw new ApiError(data.message ?? 'Invalid path', 422);
+	}
+	if (!res.ok) throw new ApiError(`Failed to add vault: ${res.status}`, res.status);
+}
+
+export async function updateVault(
+	name: string,
+	newName?: string
+): Promise<void> {
+	const body: Record<string, string> = {};
+	if (newName) body.name = newName;
+	const res = await fetch(`${API_BASE}/api/app/vaults/${encodeURIComponent(name)}`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body)
+	});
+	if (res.status === 409) {
+		const data = await res.json();
+		throw new ApiError(data.message ?? 'Vault name conflict', 409);
+	}
+	if (res.status === 404) {
+		throw new ApiError('Vault not found', 404);
+	}
+	if (!res.ok) throw new ApiError(`Failed to update vault: ${res.status}`, res.status);
+}
+
+export async function removeVault(name: string): Promise<void> {
+	const res = await fetch(`${API_BASE}/api/app/vaults/${encodeURIComponent(name)}`, {
+		method: 'DELETE'
+	});
+	if (res.status === 422) {
+		const data = await res.json();
+		throw new ApiError(data.message ?? 'Cannot remove default vault', 422);
+	}
+	if (res.status === 404) {
+		throw new ApiError('Vault not found', 404);
+	}
+	if (!res.ok) throw new ApiError(`Failed to remove vault: ${res.status}`, res.status);
+}
+
+export async function setDefaultVault(name: string): Promise<void> {
+	const res = await fetch(`${API_BASE}/api/app/default-vault`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name })
+	});
+	if (!res.ok) throw new ApiError(`Failed to set default vault: ${res.status}`, res.status);
+}
+
+export async function reindexVault(name: string): Promise<{ notes: number }> {
+	const res = await fetch(`${API_BASE}/api/app/vaults/${encodeURIComponent(name)}/reindex`, {
+		method: 'POST'
+	});
+	if (!res.ok) throw new ApiError(`Failed to reindex vault: ${res.status}`, res.status);
+	return res.json();
 }
