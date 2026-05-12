@@ -1,0 +1,94 @@
+# Notesmith Domain Glossary
+
+This file defines the domain vocabulary used throughout the Notesmith codebase. Use these terms consistently in code, comments, issues, and architectural discussions.
+
+---
+
+## Vault & Notes
+
+- **Vault** — A rooted directory of markdown notes with a `.notesmith/` config folder. A user may have multiple vaults (e.g. `work`, `personal`). Each vault is independently configured and indexed.
+- **Note** — A single markdown file in a vault. The canonical parsed representation including frontmatter, body, tasks, links, inline fields, and blocks. (`notesmith-core::Note`)
+- **VaultPath** — A vault-relative path to a note, e.g. `Inbox/Daily/2025-01-15.md`. Never absolute. (`notesmith-core::VaultPath`)
+- **VaultName** — A short identifier for a vault, e.g. `work`. Used in API paths and config. (`notesmith-core::VaultName`)
+- **VaultEngine** — The filesystem abstraction trait for scanning, reading, writing, deleting, and moving notes. (`notesmith-core::VaultEngine`)
+
+## Frontmatter & Note Types
+
+- **Frontmatter** — YAML metadata at the top of a note, delimited by `---`. Typed by a `type` field that determines the struct variant. (`notesmith-core::Frontmatter`)
+- **NoteType** — The discriminator for frontmatter: `note`, `daily`, `meeting`, `stream`, `customer`, `account-info`, `glossary`, `milestones`, `dashboard`, `contact`.
+- **CommonMeta** — Shared frontmatter fields across all note types: `tags`, `created`, `updated`, `archived`, `archived-at`.
+
+## Customer Domain
+
+- **Customer** — An external entity with its own folder containing meetings, account info, and streams. Customer state (Active, On Hold, Temp, Inactive) lives in the Customer Index note's frontmatter.
+- **Stream** — A stream of work for a customer. Has status (In Progress, Blocked, Done, Awaiting Customer, On Hold) and priority (P0–P3). Tasks may be associated with a stream.
+- **Meeting** — A customer interaction note, classified as internal or external (`MeetingKind`).
+
+## Tasks
+
+- **Task** — A checkbox item extracted from note content. Has status, priority, content, and a source position linking back to the note.
+- **TaskStatus** — Seven states: Todo (`[ ]`), InProgress (`[/]`), Blocked (`[!]`), Waiting (`[>]`), OnHold (`[-]`), Done (`[x]`), Cancelled (`[~]`).
+- **TaskPriority** — Lowest to Highest, parsed from task metadata.
+
+## Links & Blocks
+
+- **Link** — A parsed reference from one note to another. Types: wiki (`[[target]]`), embed (`![[target]]`), heading ref, block ref, anchor, markdown link, external.
+- **InlineField** — A `key:: value` pair embedded in note text, used for metadata that doesn't belong in frontmatter.
+- **Block** — A content block with an optional block ID (`^block-id`) for block-level references.
+- **SourcePosition** — Line/column/offset/length anchor for any parsed syntax element back to its source location.
+- **Backlink** — An inverse link: "which notes link to this note?"
+
+## Indexing & Search
+
+- **NoteIndex** — The in-memory SQLite cache of all parsed notes, tasks, links, and frontmatter. Rebuilt on startup, incrementally updated on file changes. (`notesmith-index`)
+- **SearchIndex** — The Tantivy full-text search index alongside the NoteIndex. (`notesmith-index`)
+
+## Configuration
+
+- **VaultConfig** — Per-vault settings in `.notesmith/vault.toml`. Sections: inbox, daily, editor, git, hooks.
+- **GlobalConfig** — App-wide settings in `~/.config/notesmith/config.toml`. Contains daemon bind address, auto-start, and vault registry.
+- **SidebarConfig** — Per-vault sidebar view definitions in `.notesmith/sidebar.yaml`. Defines custom views with sections (recently-viewed, custom-folders, custom-items).
+
+## Inbox & Routing
+
+- **Inbox** — The entry point for all new notes. Default folder: `Inbox/`.
+- **Routing** — Rule-based note filing from Inbox to destination folders. Rules match on frontmatter fields (type, customer, meeting-kind, stream). Defined in `.notesmith/routing.yaml`.
+- **Archive** — The act of routing a note: stamping `archived: true` and `archived-at` in frontmatter, then moving to the destination folder.
+
+## Templates
+
+- **Template** — A Minijinja-based file in `.notesmith/templates/` with metadata (name, description, output path pattern) and prompt specs. (`notesmith-templates::TemplateEngine`)
+- **PromptSpec** — A named parameter a template requires at instantiation time (e.g. "customer name", "meeting date").
+- **RenderedTemplate** — The output of template instantiation: a resolved path and rendered content.
+
+## Daily Notes
+
+- **Daily Note** — A date-stamped note generated into the daily folder (default: `Inbox/Daily/`). Can be created by the scheduler, CLI, API, or an external agent.
+- **Catch-up** — Backfilling missing daily notes for recent days when `catch_up: true` in DailyConfig.
+- **DailyScheduler** — Background task that auto-generates daily notes at a configured time.
+
+## Runtime & Events
+
+- **Daemon** — The HTTP server process (`notesmith daemon start`) that serves the API, SSE events, and static frontend.
+- **VaultState** — Per-vault runtime state held by the daemon: cache, search index, engine, root path, config (ArcSwap), template engine.
+- **AppState** — Global daemon state containing all VaultStates and shared config.
+- **VaultEvent** — An SSE event broadcast when something changes in a vault: note CRUD, task updates, config changes, cache rebuilds.
+- **VaultWatcher** — A filesystem watcher (notify crate) that detects file changes, classifies them (note vs config), debounces, and emits VaultEvents.
+
+## Save Pipeline
+
+- **SavePipeline** — Pre-write normalization applied to note content: frontmatter stamping (created/updated timestamps), YAML key sorting, trailing whitespace cleanup. (`notesmith-vault::apply_save_pipeline`)
+
+## Security & Conflict Detection
+
+- **WriteGuard** — An Axum extractor that checks the `Origin` header on write requests. Allows localhost and Tauri origins; rejects foreign origins.
+- **ETag** — A BLAKE3 hash of config file content used for optimistic concurrency. GET returns it; PUT requires `If-Match`.
+- **Capabilities** — A server-driven feature flags endpoint (`GET /api/capabilities`) that tells the frontend what the deployment supports (desktop vs hosted, config editing, local path opening).
+
+## Frontend
+
+- **Settings Panel** — A right-edge slide-over panel for editing vault config in-app. Auto-save for toggles, explicit save for text fields.
+- **Right Rail** — A collapsible panel showing metadata, backlinks, and outgoing links for the active note.
+- **Middle Pane** — A resizable panel between sidebar and editor, opened by custom sidebar items to show folder listings or query results.
+- **Command Palette** — A fuzzy-searchable overlay for executing commands (⌘K / ⌘P).
+- **Quick Switcher** — A fuzzy note search overlay for rapid navigation (⌘O).
