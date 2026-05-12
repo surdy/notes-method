@@ -20,16 +20,44 @@ pub fn load_sidebar_config_from_root(root: &Path) -> anyhow::Result<SidebarConfi
 
 pub fn compute_config_hash(vault_root: &Path) -> anyhow::Result<String> {
     let path = vault_root.join(".notesmith").join("vault.toml");
-    let content = fs::read(&path)?;
-    Ok(blake3::hash(&content).to_hex().to_string())
+    match fs::read(&path) {
+        Ok(content) => Ok(blake3::hash(&content).to_hex().to_string()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e.into()),
+    }
 }
 
 pub fn load_vault_config_with_hash(vault_root: &Path) -> anyhow::Result<(VaultConfig, String)> {
     let path = vault_root.join(".notesmith").join("vault.toml");
-    let content = fs::read_to_string(&path)?;
-    let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
-    let config: VaultConfig = toml::from_str(&content)?;
-    Ok((config, hash))
+    match fs::read_to_string(&path) {
+        Ok(content) => {
+            let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+            let config: VaultConfig = toml::from_str(&content)?;
+            Ok((config, hash))
+        }
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            let config = default_vault_config(vault_root);
+            Ok((config, String::new()))
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn default_vault_config(vault_root: &Path) -> VaultConfig {
+    let name = vault_root
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("vault")
+        .to_string();
+    VaultConfig {
+        name,
+        homepage: None,
+        inbox: Default::default(),
+        daily: Default::default(),
+        editor: Default::default(),
+        git: Default::default(),
+        hooks: Default::default(),
+    }
 }
 
 // ── Vault config validation ──────────────────────────────────────────────────
@@ -474,6 +502,14 @@ mod tests {
     }
 
     #[test]
+    fn compute_config_hash_returns_empty_when_file_missing() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let hash = compute_config_hash(temp_dir.path()).unwrap();
+        assert_eq!(hash, "");
+    }
+
+    #[test]
     fn load_vault_config_with_hash_returns_config_and_hash() {
         let temp_dir = TempDir::new().unwrap();
         let config_dir = temp_dir.path().join(".notesmith");
@@ -484,5 +520,15 @@ mod tests {
         let (config, hash) = load_vault_config_with_hash(temp_dir.path()).unwrap();
         assert_eq!(config.name, "my-vault");
         assert_eq!(hash, blake3::hash(content.as_bytes()).to_hex().to_string());
+    }
+
+    #[test]
+    fn load_vault_config_with_hash_returns_defaults_when_file_missing() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let (config, hash) = load_vault_config_with_hash(temp_dir.path()).unwrap();
+        assert_eq!(hash, "");
+        assert_eq!(config.inbox.folder, "Inbox");
+        assert_eq!(config.daily.folder, "Inbox/Daily");
     }
 }
