@@ -220,6 +220,36 @@ async fn get_sidebar_config_returns_configured_views() {
 }
 
 #[tokio::test]
+async fn get_sidebar_config_returns_empty_views_without_config_file() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path().to_path_buf();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, build_test_state(&root))
+            .await
+            .unwrap();
+    });
+
+    let response = reqwest::get(format!("http://{address}/api/v/test-vault/sidebar-config"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    let views = body["views"].as_array().unwrap();
+    assert!(
+        views.is_empty(),
+        "expected empty views when no sidebar.yaml exists"
+    );
+
+    server.abort();
+}
+
+#[tokio::test]
 async fn get_note_returns_full_note_metadata() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
