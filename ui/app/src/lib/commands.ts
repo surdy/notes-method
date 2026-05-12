@@ -8,12 +8,13 @@ listTemplates,
 routeApply,
 type TemplatePrompt
 } from './api';
+import { settingsStore } from './settings.svelte';
 import { vaultStore } from './stores.svelte';
 
 export interface Command {
 id: string;
 label: string;
-category: 'Notes' | 'Tasks' | 'Templates' | 'Navigation' | 'Vault';
+category: 'Notes' | 'Tasks' | 'Templates' | 'Navigation' | 'Vault' | 'Settings';
 shortcut?: string;
 execute: () => void | Promise<void>;
 }
@@ -262,6 +263,15 @@ category: 'Navigation',
 shortcut: '⌘E',
 execute: () => {
 vaultStore.toggleViewMode();
+}
+},
+{
+id: 'open-settings',
+label: 'Settings',
+category: 'Settings',
+shortcut: '⌘,',
+execute: () => {
+settingsStore.toggle();
 }
 }
 ];

@@ -10,10 +10,12 @@ import NoteToolbar from '$lib/components/NoteToolbar.svelte';
 import NoteViewer from '$lib/components/NoteViewer.svelte';
 import QuickSwitcher from '$lib/components/QuickSwitcher.svelte';
 import RightRail from '$lib/components/RightRail.svelte';
+import SettingsPanel from '$lib/components/SettingsPanel.svelte';
 import SidebarViews from '$lib/components/SidebarViews.svelte';
 import TabBar from '$lib/components/TabBar.svelte';
 import VaultSwitcher from '$lib/components/VaultSwitcher.svelte';
 import { registerHotkeys } from '$lib/hotkeys';
+import { settingsStore } from '$lib/settings.svelte';
 import { connectSSE } from '$lib/sse';
 import { vaultStore } from '$lib/stores.svelte';
 
@@ -128,8 +130,9 @@ if (event.config?.key === 'vault') {
 			`Vault config error: ${event.config.error ?? 'unknown error'}`,
 			'error'
 		);
+	} else {
+		void settingsStore.handleExternalConfigChange(vault);
 	}
-	// vault.toml hot-swap will be handled in issue #41
 }
 }
 },
@@ -157,7 +160,8 @@ const unregister = registerHotkeys([
 { key: 'e', meta: true, action: () => void handleToggleView() },
 { key: 't', meta: true, shift: true, action: () => vaultStore.reopenLastTab() },
 { key: '\\', meta: true, action: () => rightRailRef?.toggle() },
-{ key: 'f', meta: true, shift: true, action: openQuickSwitcher }
+{ key: 'f', meta: true, shift: true, action: openQuickSwitcher },
+{ key: ',', meta: true, action: () => settingsStore.toggle() }
 ]);
 
 return () => {
@@ -175,6 +179,7 @@ unregister();
 <aside class="sidebar">
 <div class="sidebar-header">
 <h1 class="app-title">📝 Notesmith</h1>
+<button class="gear-btn" type="button" onclick={() => settingsStore.toggle()} aria-label="Open settings" title="Settings (⌘,)">⚙</button>
 </div>
 
 {#if vaults.length > 1}
@@ -221,6 +226,8 @@ onClose={() => (activeMiddlePaneItem = null)}
 
 <ConfigToast bind:this={configToastRef} />
 
+<SettingsPanel />
+
 <style>
 .app-layout {
 display: flex;
@@ -241,12 +248,30 @@ overflow: hidden;
 .sidebar-header {
 padding: 12px 16px;
 border-bottom: 1px solid var(--border-color, #333);
+display: flex;
+align-items: center;
+justify-content: space-between;
 }
 
 .app-title {
 margin: 0;
 font-size: 16px;
 font-weight: 600;
+}
+
+.gear-btn {
+background: none;
+border: none;
+color: var(--text-muted, #888);
+font-size: 16px;
+cursor: pointer;
+padding: 2px 6px;
+border-radius: 4px;
+}
+
+.gear-btn:hover {
+background: var(--hover-bg, #2a2d2e);
+color: var(--text-primary, #e0e0e0);
 }
 
 .content-area {
