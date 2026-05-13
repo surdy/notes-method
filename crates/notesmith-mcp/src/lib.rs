@@ -333,7 +333,7 @@ impl NotesmithMcp {
     }
 
     pub fn inbox_add(&self, content: &str, title: Option<&str>) -> anyhow::Result<Value> {
-        let inbox_folder = &self.vault_config.inbox.folder;
+        let capture_folder = &self.vault_config.capture.folder;
         let timestamp = Local::now().format("%Y-%m-%d %H-%M-%S").to_string();
         let slug = match title {
             Some(title) => sanitize_slug(title),
@@ -344,7 +344,11 @@ impl NotesmithMcp {
         } else {
             format!("{timestamp} - {slug}.md")
         };
-        let note_path = VaultPath::new(format!("{inbox_folder}/{filename}"));
+        let note_path = if capture_folder.is_empty() {
+            VaultPath::new(filename)
+        } else {
+            VaultPath::new(format!("{capture_folder}/{filename}"))
+        };
         let hash = self.write_content(&note_path, None, content)?;
         self.refresh_indexes(&note_path)?;
 
@@ -950,7 +954,10 @@ mod tests {
         VaultConfig {
             name: "test-vault".to_string(),
             homepage: None,
-            inbox: Default::default(),
+            capture: notesmith_config::CaptureConfig {
+                folder: "Inbox".to_string(),
+                template: "generic-note".to_string(),
+            },
             daily: Default::default(),
             editor: Default::default(),
             git: Default::default(),

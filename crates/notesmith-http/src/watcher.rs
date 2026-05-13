@@ -466,7 +466,7 @@ mod tests {
 
         let config = VaultConfig {
             name: "test".to_string(),
-            inbox: Default::default(),
+            capture: Default::default(),
             daily: Default::default(),
             editor: Default::default(),
             git: Default::default(),
@@ -478,7 +478,7 @@ mod tests {
 
         let new_config = VaultConfig {
             name: "updated".to_string(),
-            inbox: Default::default(),
+            capture: Default::default(),
             daily: Default::default(),
             editor: Default::default(),
             git: Default::default(),
@@ -495,7 +495,7 @@ mod tests {
 
         let config = VaultConfig {
             name: "original".to_string(),
-            inbox: Default::default(),
+            capture: Default::default(),
             daily: Default::default(),
             editor: Default::default(),
             git: Default::default(),

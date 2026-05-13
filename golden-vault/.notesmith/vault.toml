@@ -1,0 +1,9 @@
+name = "golden-vault"
+
+[capture]
+folder = "Inbox"
+template = "generic-note"
+
+[daily]
+folder = "Inbox/Daily"
+template = "daily-note"

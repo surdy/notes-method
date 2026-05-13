@@ -283,7 +283,7 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
         search_index.reindex(vault_name, &notes)?;
         let vault_config = VaultConfig::load_from_vault(&root).unwrap_or_else(|_| VaultConfig {
             name: vault_name.clone(),
-            inbox: Default::default(),
+            capture: Default::default(),
             daily: Default::default(),
             editor: Default::default(),
             git: Default::default(),

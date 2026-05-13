@@ -738,8 +738,14 @@ pub async fn create_note(
         )
     })?;
 
-    let folder = request.folder.as_deref().unwrap_or("Inbox");
-    let note_path = VaultPath::new(format!("{folder}/{}.md", request.title));
+    let config = vault.vault_config.load();
+    let default_folder = &config.capture.folder;
+    let folder = request.folder.as_deref().unwrap_or(default_folder);
+    let note_path = if folder.is_empty() {
+        VaultPath::new(format!("{}.md", request.title))
+    } else {
+        VaultPath::new(format!("{folder}/{}.md", request.title))
+    };
     match vault.engine.read(&vault.root, &note_path) {
         Ok(_) => {
             return Err((
@@ -1015,7 +1021,7 @@ pub async fn inbox_capture(
     })?;
 
     let config = vault.vault_config.load();
-    let inbox_folder = &config.inbox.folder;
+    let capture_folder = &config.capture.folder;
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H-%M-%S").to_string();
 
     let slug = match &request.title {
@@ -1029,7 +1035,11 @@ pub async fn inbox_capture(
         format!("{timestamp} - {slug}.md")
     };
 
-    let note_path = VaultPath::new(format!("{inbox_folder}/{filename}"));
+    let note_path = if capture_folder.is_empty() {
+        VaultPath::new(filename)
+    } else {
+        VaultPath::new(format!("{capture_folder}/{filename}"))
+    };
     let content = request.text.clone();
     let response = write_note(&vault.engine, &vault.root, &note_path, None, &content)?;
 
@@ -1053,7 +1063,7 @@ pub async fn list_inbox(
         )
     })?;
 
-    let inbox_folder = &vault.vault_config.load().inbox.folder;
+    let inbox_folder = &vault.vault_config.load().capture.folder;
     let like_pattern = format!("{inbox_folder}/%");
 
     let conn = vault.cache.connection();
@@ -1974,7 +1984,7 @@ pub async fn route_apply(
         notesmith_routing::RoutingEngine::load(&vault.root).map_err(internal_error)?;
 
     if request.inbox {
-        let inbox_folder = &vault.vault_config.load().inbox.folder;
+        let inbox_folder = &vault.vault_config.load().capture.folder;
         let results = routing_engine
             .apply_inbox(&vault.root, inbox_folder, &vault.engine)
             .map_err(internal_error)?;

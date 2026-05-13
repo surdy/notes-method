@@ -76,7 +76,7 @@ fn default_vault_config(vault_root: &Path) -> VaultConfig {
     VaultConfig {
         name,
         homepage: None,
-        inbox: Default::default(),
+        capture: Default::default(),
         daily: Default::default(),
         editor: Default::default(),
         git: Default::default(),
@@ -141,15 +141,15 @@ pub fn validate_vault_config(
     }
 
     // Warn if folders don't exist (non-blocking)
-    let inbox_path = vault_root.join(&config.inbox.folder);
-    if !inbox_path.exists() {
+    let capture_path = vault_root.join(&config.capture.folder);
+    if !config.capture.folder.is_empty() && !capture_path.exists() {
         warnings.insert(
-            "inbox.folder".into(),
-            format!("Folder '{}' does not exist", config.inbox.folder),
+            "capture.folder".into(),
+            format!("Folder '{}' does not exist", config.capture.folder),
         );
     }
     let daily_path = vault_root.join(&config.daily.folder);
-    if !daily_path.exists() {
+    if !config.daily.folder.is_empty() && !daily_path.exists() {
         warnings.insert(
             "daily.folder".into(),
             format!("Folder '{}' does not exist", config.daily.folder),
@@ -587,7 +587,7 @@ mod tests {
 
         let config = VaultConfig {
             name: "test".into(),
-            inbox: Default::default(),
+            capture: Default::default(),
             daily: Default::default(),
             editor: Default::default(),
             git: Default::default(),
@@ -605,7 +605,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mut config = VaultConfig {
             name: "test".into(),
-            inbox: Default::default(),
+            capture: Default::default(),
             daily: Default::default(),
             editor: Default::default(),
             git: Default::default(),
@@ -623,7 +623,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mut config = VaultConfig {
             name: "test".into(),
-            inbox: Default::default(),
+            capture: Default::default(),
             daily: Default::default(),
             editor: Default::default(),
             git: Default::default(),
@@ -641,7 +641,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mut config = VaultConfig {
             name: "test".into(),
-            inbox: Default::default(),
+            capture: Default::default(),
             daily: Default::default(),
             editor: Default::default(),
             git: Default::default(),
@@ -659,7 +659,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = VaultConfig {
             name: "test".into(),
-            inbox: Default::default(),
+            capture: Default::default(),
             daily: Default::default(),
             editor: Default::default(),
             git: Default::default(),
@@ -669,8 +669,9 @@ mod tests {
 
         let (errors, warnings) = validate_vault_config(&config, temp_dir.path());
         assert!(errors.is_empty());
-        assert!(warnings.contains_key("inbox.folder"));
-        assert!(warnings.contains_key("daily.folder"));
+        // Empty folder defaults ("") don't trigger warnings
+        assert!(!warnings.contains_key("capture.folder"));
+        assert!(!warnings.contains_key("daily.folder"));
     }
 
     #[test]
@@ -753,7 +754,7 @@ mod tests {
 
         let (config, hash) = load_vault_config_with_hash(temp_dir.path()).unwrap();
         assert_eq!(hash, "");
-        assert_eq!(config.inbox.folder, "Inbox");
-        assert_eq!(config.daily.folder, "Inbox/Daily");
+        assert_eq!(config.capture.folder, "");
+        assert_eq!(config.daily.folder, "");
     }
 }

@@ -46,7 +46,7 @@ async fn cmd_start(
         VaultConfig::load_from_vault(&detected.root).unwrap_or_else(|_| VaultConfig {
             name: detected.name.clone(),
             homepage: None,
-            inbox: Default::default(),
+            capture: Default::default(),
             daily: Default::default(),
             editor: Default::default(),
             git: Default::default(),

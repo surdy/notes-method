@@ -122,7 +122,7 @@ fn vault_config_full_example() {
 name = "work"
 homepage = "Dashboards/Home.md"
 
-[inbox]
+[capture]
 folder = "Inbox"
 template = "generic-note"
 
@@ -153,7 +153,7 @@ on_daily_create = "Assets/scripts/on-daily-create.py"
     let config = VaultConfig::load_from(&path).unwrap();
     assert_eq!(config.name, "work");
     assert_eq!(config.homepage.as_deref(), Some("Dashboards/Home.md"));
-    assert_eq!(config.inbox.folder, "Inbox");
+    assert_eq!(config.capture.folder, "Inbox");
     assert_eq!(config.daily.folder, "Inbox/Daily");
     assert_eq!(config.daily.generate_at.as_deref(), Some("06:30"));
     assert!(config.daily.catch_up);
@@ -173,8 +173,8 @@ fn vault_config_minimal() {
     let config = VaultConfig::load_from(&path).unwrap();
     assert_eq!(config.name, "personal");
     assert!(config.homepage.is_none());
-    assert_eq!(config.inbox.folder, "Inbox");
-    assert_eq!(config.daily.folder, "Inbox/Daily");
+    assert_eq!(config.capture.folder, "");
+    assert_eq!(config.daily.folder, "");
     assert!(config.editor.live_preview);
     assert!(!config.git.enabled);
 }
@@ -199,7 +199,7 @@ fn vault_config_roundtrip() {
     let config = VaultConfig {
         name: "roundtrip".to_string(),
         homepage: Some("Home.md".to_string()),
-        inbox: InboxConfig::default(),
+        capture: CaptureConfig::default(),
         daily: DailyConfig::default(),
         editor: EditorConfig::default(),
         git: GitConfig::default(),

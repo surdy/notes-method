@@ -21,7 +21,7 @@ fn build_vault_state(vault_name: &str, root: &Path) -> VaultState {
 
     let vault_config = VaultConfig::load_from_vault(root).unwrap_or_else(|_| VaultConfig {
         name: vault_name.to_string(),
-        inbox: Default::default(),
+        capture: Default::default(),
         daily: Default::default(),
         editor: Default::default(),
         git: Default::default(),
@@ -116,7 +116,13 @@ impl TestServer {
     async fn with_files(files: &[(&str, &str)]) -> Self {
         let temp_dir = TempDir::new().unwrap();
         let root = temp_dir.path().join("vault");
-        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(root.join(".notesmith")).unwrap();
+        // Provide explicit capture.folder so tests have a predictable default
+        fs::write(
+            root.join(".notesmith/vault.toml"),
+            "name = \"test-vault\"\n\n[capture]\nfolder = \"Inbox\"\n\n[daily]\nfolder = \"Inbox/Daily\"\n",
+        )
+        .unwrap();
         for (path, content) in files {
             write_note(&root, path, content);
         }
@@ -860,7 +866,7 @@ async fn hook_fires_on_note_create() {
     fs::create_dir_all(root.join(".notesmith")).unwrap();
     fs::write(
         root.join(".notesmith").join("vault.toml"),
-        "name = \"test-vault\"\n\n[hooks]\non_note_create = \"hook.sh\"\n",
+        "name = \"test-vault\"\n\n[capture]\nfolder = \"Inbox\"\n\n[hooks]\non_note_create = \"hook.sh\"\n",
     )
     .unwrap();
 
@@ -2230,7 +2236,7 @@ async fn put_vault_config_succeeds_with_correct_if_match() {
     let client = reqwest::Client::new();
     let new_config = serde_json::json!({
         "name": "test-vault",
-        "inbox": { "folder": "MyInbox", "template": "generic-note" },
+        "capture": { "folder": "MyInbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
         "editor": { "live_preview": true, "default_mode": "source" },
         "git": { "enabled": false },
@@ -2257,7 +2263,7 @@ async fn put_vault_config_succeeds_with_correct_if_match() {
     assert!(etag.starts_with('"') && etag.ends_with('"'));
 
     let body = response.json::<serde_json::Value>().await.unwrap();
-    assert_eq!(body["config"]["inbox"]["folder"], "MyInbox");
+    assert_eq!(body["config"]["capture"]["folder"], "MyInbox");
     assert!(body["hash"].as_str().unwrap().len() > 10);
 
     server.server.abort();
@@ -2272,7 +2278,7 @@ async fn put_vault_config_returns_409_on_stale_if_match() {
     let client = reqwest::Client::new();
     let new_config = serde_json::json!({
         "name": "test-vault",
-        "inbox": { "folder": "Inbox", "template": "generic-note" },
+        "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
         "editor": { "live_preview": true, "default_mode": "source" },
         "git": { "enabled": false },
@@ -2305,7 +2311,7 @@ async fn put_vault_config_returns_428_without_if_match() {
     let client = reqwest::Client::new();
     let new_config = serde_json::json!({
         "name": "test-vault",
-        "inbox": { "folder": "Inbox", "template": "generic-note" },
+        "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
         "editor": { "live_preview": true, "default_mode": "source" },
         "git": { "enabled": false },
@@ -2345,7 +2351,7 @@ async fn put_vault_config_returns_422_with_invalid_data() {
     let client = reqwest::Client::new();
     let bad_config = serde_json::json!({
         "name": "test-vault",
-        "inbox": { "folder": "Inbox", "template": "generic-note" },
+        "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": {
             "folder": "Inbox/Daily",
             "template": "daily-note",
@@ -2386,7 +2392,7 @@ async fn put_vault_config_rejects_disallowed_origin() {
     let client = reqwest::Client::new();
     let config = serde_json::json!({
         "name": "test-vault",
-        "inbox": { "folder": "Inbox", "template": "generic-note" },
+        "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
         "editor": { "live_preview": true, "default_mode": "source" },
         "git": { "enabled": false },
@@ -2422,11 +2428,11 @@ async fn get_after_put_reflects_changes() {
     let get_body = get_response.json::<serde_json::Value>().await.unwrap();
     let hash = get_body["hash"].as_str().unwrap();
 
-    // PUT with new inbox folder
+    // PUT with new capture folder
     let client = reqwest::Client::new();
     let new_config = serde_json::json!({
         "name": "test-vault",
-        "inbox": { "folder": "CustomInbox", "template": "generic-note" },
+        "capture": { "folder": "CustomInbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
         "editor": { "live_preview": true, "default_mode": "source" },
         "git": { "enabled": false },
@@ -2449,7 +2455,7 @@ async fn get_after_put_reflects_changes() {
     assert_eq!(get_response2.status(), reqwest::StatusCode::OK);
 
     let body2 = get_response2.json::<serde_json::Value>().await.unwrap();
-    assert_eq!(body2["config"]["inbox"]["folder"], "CustomInbox");
+    assert_eq!(body2["config"]["capture"]["folder"], "CustomInbox");
 
     server.server.abort();
 }

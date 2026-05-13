@@ -11,4 +11,4 @@ pub use detection::{
 };
 pub use error::ConfigError;
 pub use global::{DaemonConfig, GlobalConfig, VaultRegistration};
-pub use vault::{DailyConfig, EditorConfig, GitConfig, HooksConfig, InboxConfig, VaultConfig};
+pub use vault::{CaptureConfig, DailyConfig, EditorConfig, GitConfig, HooksConfig, VaultConfig};

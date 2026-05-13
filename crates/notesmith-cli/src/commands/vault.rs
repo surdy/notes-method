@@ -147,9 +147,9 @@ fn cmd_info(
                 println!("Homepage: {homepage}");
             }
             println!();
-            println!("[inbox]");
-            println!("  folder:   {}", vault_config.inbox.folder);
-            println!("  template: {}", vault_config.inbox.template);
+            println!("[capture]");
+            println!("  folder:   {}", vault_config.capture.folder);
+            println!("  template: {}", vault_config.capture.template);
             println!();
             println!("[daily]");
             println!("  folder:   {}", vault_config.daily.folder);
@@ -176,9 +176,9 @@ fn cmd_info(
                     "name": vault_config.name,
                     "root": detected.root,
                     "homepage": vault_config.homepage,
-                    "inbox": {
-                        "folder": vault_config.inbox.folder,
-                        "template": vault_config.inbox.template,
+                    "capture": {
+                        "folder": vault_config.capture.folder,
+                        "template": vault_config.capture.template,
                     },
                     "daily": {
                         "folder": vault_config.daily.folder,

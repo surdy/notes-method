@@ -33,7 +33,7 @@ async fn watcher_indexes_new_markdown_files() {
                 root: vault_root.clone(),
                 vault_config: arc_swap::ArcSwap::from_pointee(VaultConfig {
                     name: "test-vault".to_string(),
-                    inbox: Default::default(),
+                    capture: Default::default(),
                     daily: Default::default(),
                     editor: Default::default(),
                     git: Default::default(),

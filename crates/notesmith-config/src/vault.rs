@@ -8,7 +8,7 @@ pub struct VaultConfig {
     #[serde(default)]
     pub homepage: Option<String>,
     #[serde(default)]
-    pub inbox: InboxConfig,
+    pub capture: CaptureConfig,
     #[serde(default)]
     pub daily: DailyConfig,
     #[serde(default)]
@@ -20,26 +20,22 @@ pub struct VaultConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct InboxConfig {
-    #[serde(default = "default_inbox_folder")]
+pub struct CaptureConfig {
+    #[serde(default)]
     pub folder: String,
-    #[serde(default = "default_inbox_template")]
+    #[serde(default = "default_capture_template")]
     pub template: String,
 }
 
-fn default_inbox_folder() -> String {
-    "Inbox".to_string()
-}
-
-fn default_inbox_template() -> String {
+fn default_capture_template() -> String {
     "generic-note".to_string()
 }
 
-impl Default for InboxConfig {
+impl Default for CaptureConfig {
     fn default() -> Self {
         Self {
-            folder: default_inbox_folder(),
-            template: default_inbox_template(),
+            folder: String::new(),
+            template: default_capture_template(),
         }
     }
 }
@@ -59,7 +55,7 @@ pub struct DailyConfig {
 }
 
 fn default_daily_folder() -> String {
-    "Inbox/Daily".to_string()
+    String::new()
 }
 
 fn default_daily_template() -> String {

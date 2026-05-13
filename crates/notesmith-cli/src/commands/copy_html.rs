@@ -44,7 +44,7 @@ mod tests {
         let config = VaultConfig {
             name: name.to_string(),
             homepage: None,
-            inbox: Default::default(),
+            capture: Default::default(),
             daily: Default::default(),
             editor: Default::default(),
             git: Default::default(),
