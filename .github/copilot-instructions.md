@@ -29,6 +29,16 @@
 - When frontend code has loading-state guards (e.g., early returns during async fetches), ensure every exit path resets the loading flag. Prefer a `finally` block or equivalent pattern to guarantee cleanup.
 - For frontend loading/race bugs, validate with a headless browser flow that asserts the user-visible state and bounds duplicate API calls. Curl-only API checks and cache-header checks are not sufficient for Svelte reactive-loop failures.
 
+## Keeping Architectural Documents in Sync
+
+- `CONTEXT.md`, `plans/notesmith-plan.md`, and `docs/adr/` are the authoritative architecture references. They must stay consistent with the codebase.
+- When a change renames concepts, adds/removes features, changes API surfaces, or alters configuration, update **all three** in the same commit (or the same PR):
+  - `CONTEXT.md` — domain glossary entries and definitions.
+  - `plans/notesmith-plan.md` — the definitive architectural blueprint (sections, examples, tables).
+  - `docs/adr/` — create a new ADR when making a significant architectural decision; update existing ADRs if a decision is superseded.
+- After completing a batch of changes, grep these files for stale terminology before considering the work done.
+- Preserve existing structure and intent — update surgically, do not rewrite sections unnecessarily.
+
 ## User-Facing Documentation
 
 - When completing an issue that adds or changes CLI commands, HTTP endpoints, or SQL views, update the corresponding doc file in `docs/`.
