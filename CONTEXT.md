@@ -87,7 +87,7 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 ## Frontend
 
-- **Settings Panel** — A right-edge slide-over panel for editing vault config in-app. Auto-save for toggles, explicit save for text fields.
+- **Settings Page** — A dedicated `/settings` route with left sidebar navigation and right content area for editing vault config in-app. Sections: General (name, homepage, capture folder/template), Daily Notes, Editor, Git, Hooks. Per-section Save/Revert with ETag-based conflict detection.
 - **Right Rail** — A collapsible panel showing metadata, backlinks, and outgoing links for the active note.
 - **Middle Pane** — A resizable panel between sidebar and editor, opened by custom sidebar items to show folder listings or query results.
 - **Command Palette** — A fuzzy-searchable overlay for executing commands (⌘K / ⌘P).
