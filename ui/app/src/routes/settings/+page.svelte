@@ -8,7 +8,7 @@
 	import SidebarSettings from '$lib/components/SidebarSettings.svelte';
 	import VaultsSettings from '$lib/components/VaultsSettings.svelte';
 
-	type Section = 'general' | 'inbox' | 'daily' | 'editor' | 'sidebar' | 'git' | 'hooks' | 'vaults';
+	type Section = 'general' | 'daily' | 'editor' | 'sidebar' | 'git' | 'hooks' | 'vaults';
 
 	let selectedSection = $state<Section>('general');
 	let vault = $derived(vaultStore.currentVault);
@@ -22,7 +22,6 @@
 
 	const vaultSections: { id: Section; label: string }[] = [
 		{ id: 'general', label: 'General' },
-		{ id: 'inbox', label: 'Inbox' },
 		{ id: 'daily', label: 'Daily Notes' },
 		{ id: 'editor', label: 'Editor' },
 		{ id: 'sidebar', label: 'Sidebar' },
@@ -192,7 +191,7 @@
 			<div class="settings-body">
 				{#if selectedSection === 'general'}
 					<section class="config-section">
-						{#if sectionIsDirty('name') || sectionIsDirty('homepage')}
+						{#if sectionIsDirty('name') || sectionIsDirty('homepage') || sectionIsDirty('capture')}
 							<div class="section-actions">
 								<button
 									type="button"
@@ -205,6 +204,7 @@
 									onclick={() => {
 										revert('name');
 										revert('homepage');
+										revert('capture');
 									}}>Revert</button
 								>
 							</div>
@@ -230,44 +230,27 @@
 								})}
 							/>
 						</label>
-					</section>
-				{:else if selectedSection === 'inbox'}
-					<section class="config-section">
-						{#if sectionIsDirty('inbox')}
-							<div class="section-actions">
-								<button
-									type="button"
-									class="btn-save"
-									onclick={() => void saveSection('inbox')}>Save</button
-								>
-								<button
-									type="button"
-									class="btn-revert"
-									onclick={() => revert('inbox')}>Revert</button
-								>
-							</div>
-						{/if}
 						<label class="field">
-							<span class="field-label">Folder</span>
+							<span class="field-label">Default capture folder</span>
 							<input
 								type="text"
-								{...textField('inbox', cfg.inbox.folder, (v) => {
-									if (cfg) cfg.inbox.folder = v;
+								{...textField('capture', cfg.capture.folder, (v) => {
+									if (cfg) cfg.capture.folder = v;
 								})}
 							/>
-							{#if fieldError('inbox.folder')}<span class="field-error"
-									>{fieldError('inbox.folder')}</span
+							{#if fieldError('capture.folder')}<span class="field-error"
+									>{fieldError('capture.folder')}</span
 								>{/if}
-							{#if fieldWarning('inbox.folder')}<span class="field-warning"
-									>{fieldWarning('inbox.folder')}</span
+							{#if fieldWarning('capture.folder')}<span class="field-warning"
+									>{fieldWarning('capture.folder')}</span
 								>{/if}
 						</label>
 						<label class="field">
-							<span class="field-label">Template</span>
+							<span class="field-label">Capture template</span>
 							<input
 								type="text"
-								{...textField('inbox', cfg.inbox.template, (v) => {
-									if (cfg) cfg.inbox.template = v;
+								{...textField('capture', cfg.capture.template, (v) => {
+									if (cfg) cfg.capture.template = v;
 								})}
 							/>
 						</label>

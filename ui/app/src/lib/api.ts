@@ -226,17 +226,17 @@ export async function toggleTaskStatus(
 	return res.json();
 }
 
-export async function inboxCapture(
+export async function capture(
 vault: string,
 content: string,
 title?: string
 ): Promise<WriteNoteResponse> {
-const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/inbox`, {
+const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/capture`, {
 method: 'POST',
 headers: { 'Content-Type': 'application/json' },
 body: JSON.stringify({ text: content, title })
 });
-if (!res.ok) throw new Error(`Failed to capture to inbox: ${res.status}`);
+if (!res.ok) throw new Error(`Failed to capture note: ${res.status}`);
 return res.json();
 }
 
@@ -252,12 +252,11 @@ if (!res.ok) throw new Error(`Failed to ensure daily: ${res.status}`);
 return res.json();
 }
 
-export async function routeApply(vault: string, paths?: string[]): Promise<RouteApplyResponse> {
-const body = paths && paths.length > 0 ? { paths } : { inbox: true };
+export async function routeApply(vault: string, paths: string[]): Promise<RouteApplyResponse> {
 const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/route/apply`, {
 method: 'POST',
 headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify(body)
+body: JSON.stringify({ paths })
 });
 if (!res.ok) throw new Error(`Failed to route: ${res.status}`);
 return res.json();
@@ -405,7 +404,7 @@ export interface Capabilities {
 export interface VaultConfigData {
 	name: string;
 	homepage?: string | null;
-	inbox: { folder: string; template: string };
+	capture: { folder: string; template: string };
 	daily: {
 		folder: string;
 		template: string;

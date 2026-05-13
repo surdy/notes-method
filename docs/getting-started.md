@@ -120,7 +120,7 @@ The basic Notesmith loop is:
 | Action | In the app | In the CLI |
 |--------|------------|------------|
 | Create a note | `⌘N` → enter a title → choose a folder | `notesmith note create "My First Note" --folder Inbox` |
-| Quick capture to inbox | `⌘⇧I` → enter the note text | `notesmith inbox add "Remember to call Sarah"` |
+| Quick capture | `⌘⇧N` → enter the note text | `notesmith inbox add "Remember to call Sarah"` |
 | Create today's daily note | `⌘D` | `notesmith daily ensure` |
 | Search notes | `⌘O` → type your query | `notesmith search "meeting notes"` |
 

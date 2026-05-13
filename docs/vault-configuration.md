@@ -68,9 +68,9 @@ Main vault config file. `name` identifies the vault. All sections are optional w
 name = "work"
 homepage = "Home.md"
 
-[inbox]
-folder = "Inbox"              # Default inbox folder
-template = "generic-note"     # Default template for inbox captures
+[capture]
+folder = "Inbox"              # Default capture folder
+template = "generic-note"     # Default template for captured notes
 
 [daily]
 folder = "Inbox/Daily"        # Where daily notes are created
@@ -99,9 +99,9 @@ Top-level fields:
 - `name` — vault identifier used in CLI and API output
 - `homepage` — vault-relative path to the home note
 
-`[inbox]`:
-- `folder` — default inbox folder (default: `Inbox`)
-- `template` — default template for inbox captures (default: `generic-note`)
+`[capture]`:
+- `folder` — default capture folder (default: `Inbox`)
+- `template` — default template for captured notes (default: `generic-note`)
 
 `[daily]`:
 - `folder` — where daily notes are created (default: `Inbox/Daily`)

@@ -1,8 +1,8 @@
 import {
+	capture,
 	createNote,
 	ensureDaily,
 	getNoteHtmlInline,
-	inboxCapture,
 	instantiateTemplate,
 	listTemplates,
 	routeApply,
@@ -94,10 +94,10 @@ notifyError('Failed to create note.', cause);
 }
 },
 {
-id: 'inbox-capture',
-label: 'Quick Capture to Inbox',
+id: 'capture',
+label: 'Quick Capture',
 category: 'Notes',
-shortcut: '⌘⇧I',
+shortcut: '⌘⇧N',
 execute: async () => {
 const currentVault = requireVault();
 if (!currentVault) return;
@@ -107,7 +107,7 @@ if (!content?.trim()) return;
 
 const title = promptValue('Title (optional):')?.trim();
 try {
-const created = await inboxCapture(currentVault, content.trim(), title || undefined);
+const created = await capture(currentVault, content.trim(), title || undefined);
 await reloadAndNavigate(created.path, onNavigate);
 } catch (cause) {
 notifyError('Failed to capture note.', cause);
@@ -182,7 +182,6 @@ notifyError('Failed to open today\'s daily note.', cause);
 id: 'new-from-template',
 label: 'New Note from Template',
 category: 'Templates',
-shortcut: '⌘⇧N',
 execute: async () => {
 const currentVault = requireVault();
 if (!currentVault) return;
@@ -238,22 +237,6 @@ try {
 await vaultStore.loadNotes();
 } catch (cause) {
 notifyError('Failed to reload the vault.', cause);
-}
-}
-},
-{
-id: 'route-inbox',
-label: 'Route All Inbox Notes',
-category: 'Vault',
-execute: async () => {
-const currentVault = requireVault();
-if (!currentVault) return;
-
-try {
-await routeApply(currentVault);
-await vaultStore.loadNotes();
-} catch (cause) {
-notifyError('Failed to route inbox notes.', cause);
 }
 }
 },

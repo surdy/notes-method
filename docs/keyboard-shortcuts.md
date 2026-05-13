@@ -12,8 +12,7 @@ Reference for Notesmith keyboard shortcuts in the macOS-first desktop app.
 | **Notes** | — | — |
 | ⌘N | New Note | Create a new note with title and folder |
 | ⌘D | Daily Note | Create or open today's daily note |
-| ⌘⇧N | New from Template | Create a note from a template |
-| ⌘⇧I | Inbox Capture | Quick capture text to the inbox |
+| ⌘⇧N | Quick Capture | Quick capture text to the default capture folder |
 | ⌘⇧A | Archive Note | Route the current note to its archive destination |
 | ⌘S | Save | Save the current note (auto-save handles this, but available for explicit save) |
 | **Tabs** | — | — |
