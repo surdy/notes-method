@@ -999,18 +999,18 @@ pub async fn move_note(
     }))
 }
 
-// ── Inbox routes ──────────────────────────────────────────────────────────────
+// ── Capture routes ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
-pub struct InboxCaptureRequest {
+pub struct CaptureNoteRequest {
     pub text: String,
     pub title: Option<String>,
 }
 
-pub async fn inbox_capture(
+pub async fn capture_note(
     State(state): State<SharedAppState>,
     Path(vault_name): Path<String>,
-    Json(request): Json<InboxCaptureRequest>,
+    Json(request): Json<CaptureNoteRequest>,
 ) -> Result<(StatusCode, Json<WriteNoteResponse>), (StatusCode, Json<Value>)> {
     let state = state.read().await;
     let vault = state.vaults.get(&vault_name).ok_or_else(|| {
@@ -1045,61 +1045,10 @@ pub async fn inbox_capture(
 
     events::emit(
         &state.event_tx,
-        VaultEvent::new(&vault_name, EventType::InboxAdded, note_path.as_str()),
+        VaultEvent::new(&vault_name, EventType::NoteCaptured, note_path.as_str()),
     );
 
     Ok((StatusCode::CREATED, Json(response)))
-}
-
-pub async fn list_inbox(
-    State(state): State<SharedAppState>,
-    Path(vault_name): Path<String>,
-) -> Result<Json<Vec<NoteSummary>>, (StatusCode, Json<Value>)> {
-    let state = state.read().await;
-    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": format!("vault not found: {vault_name}") })),
-        )
-    })?;
-
-    let inbox_folder = &vault.vault_config.load().capture.folder;
-    let like_pattern = format!("{inbox_folder}/%");
-
-    let conn = vault.cache.connection();
-    let mut statement = conn
-        .prepare(
-            "SELECT path, title, type, customer, stream, state, status, date, created_at, updated_at, archived, mtime_unix, frontmatter_json
-             FROM v_notes
-             WHERE path LIKE ?1 AND archived = 0
-             ORDER BY path DESC
-             LIMIT 100",
-        )
-        .map_err(internal_error)?;
-    let rows = statement
-        .query_map([&like_pattern], |row| {
-            let frontmatter_json: String = row.get(12)?;
-            Ok(NoteSummary {
-                path: row.get(0)?,
-                title: row.get(1)?,
-                note_type: row.get(2)?,
-                customer: row.get(3)?,
-                stream: row.get(4)?,
-                state: row.get(5)?,
-                status: row.get(6)?,
-                date: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                archived: row.get::<_, i64>(10)? != 0,
-                mtime_unix: row.get(11)?,
-                frontmatter: serde_json::from_str(&frontmatter_json).unwrap_or(Value::Null),
-            })
-        })
-        .map_err(internal_error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(internal_error)?;
-
-    Ok(Json(rows))
 }
 
 fn sanitize_slug(input: &str) -> String {
@@ -1910,8 +1859,6 @@ pub struct RoutePreviewRequest {
 #[derive(Debug, Deserialize)]
 pub struct RouteApplyRequest {
     pub paths: Option<Vec<String>>,
-    #[serde(default)]
-    pub inbox: bool,
 }
 
 pub async fn route_preview(
@@ -1982,20 +1929,6 @@ pub async fn route_apply(
 
     let routing_engine =
         notesmith_routing::RoutingEngine::load(&vault.root).map_err(internal_error)?;
-
-    if request.inbox {
-        let inbox_folder = &vault.vault_config.load().capture.folder;
-        let results = routing_engine
-            .apply_inbox(&vault.root, inbox_folder, &vault.engine)
-            .map_err(internal_error)?;
-        for r in &results {
-            events::emit(
-                &state.event_tx,
-                VaultEvent::new(&vault_name, EventType::NoteMoved, &r.to),
-            );
-        }
-        return Ok(Json(json!({ "routed": results.len(), "results": results })));
-    }
 
     let paths = request.paths.unwrap_or_default();
     let mut results = Vec::new();

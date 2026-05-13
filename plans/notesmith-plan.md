@@ -967,7 +967,7 @@ note.updated
 note.moved
 note.deleted
 task.updated
-inbox.added
+note.captured
 daily.created
 cache.rebuilt
 search.reindexed

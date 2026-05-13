@@ -98,7 +98,7 @@ vault,
 (event) => {
 const refreshNotes =
 event.type.startsWith('note.') ||
-event.type === 'inbox.added' ||
+event.type === 'note.captured' ||
 event.type === 'daily.created' ||
 event.type === 'cache.rebuilt';
 if (refreshNotes) {

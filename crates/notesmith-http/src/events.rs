@@ -35,8 +35,8 @@ pub enum EventType {
     NoteDeleted,
     #[serde(rename = "task.updated")]
     TaskUpdated,
-    #[serde(rename = "inbox.added")]
-    InboxAdded,
+    #[serde(rename = "note.captured")]
+    NoteCaptured,
     #[serde(rename = "daily.created")]
     DailyCreated,
     #[serde(rename = "cache.rebuilt")]
@@ -59,7 +59,7 @@ impl EventType {
             EventType::NoteMoved => "note.moved",
             EventType::NoteDeleted => "note.deleted",
             EventType::TaskUpdated => "task.updated",
-            EventType::InboxAdded => "inbox.added",
+            EventType::NoteCaptured => "note.captured",
             EventType::DailyCreated => "daily.created",
             EventType::CacheRebuilt => "cache.rebuilt",
             EventType::SearchReindexed => "search.reindexed",
@@ -141,10 +141,10 @@ mod tests {
     #[test]
     fn broadcast_channel_delivers_events() {
         let (tx, mut rx) = create_event_channel();
-        let event = VaultEvent::new("v", EventType::InboxAdded, "Inbox/test.md");
+        let event = VaultEvent::new("v", EventType::NoteCaptured, "Inbox/test.md");
         emit(&tx, event);
         let received = rx.try_recv().unwrap();
-        assert_eq!(received.event_type, EventType::InboxAdded);
+        assert_eq!(received.event_type, EventType::NoteCaptured);
         assert_eq!(received.path, "Inbox/test.md");
     }
 

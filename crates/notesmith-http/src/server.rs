@@ -103,10 +103,7 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
             post(routes::append_note),
         )
         .route("/api/v/{vault}/notes-move/{*path}", post(routes::move_note))
-        .route(
-            "/api/v/{vault}/inbox",
-            get(routes::list_inbox).post(routes::inbox_capture),
-        )
+        .route("/api/v/{vault}/capture", post(routes::capture_note))
         .route("/api/v/{vault}/search", get(routes::search_notes))
         .route(
             "/api/v/{vault}/sidebar-config",

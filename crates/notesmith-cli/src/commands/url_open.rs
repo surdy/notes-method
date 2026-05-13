@@ -66,7 +66,7 @@ impl UrlOpenCommand {
                 print_response(response, format).await
             }
             NotesmithUrl::Inbox { vault, text } => {
-                let url = build_vault_url(global_config, &vault, &["inbox"])?;
+                let url = build_vault_url(global_config, &vault, &["capture"])?;
                 let body = serde_json::json!({ "text": text });
                 let response = daemon_post(global_config, url, Some(body)).await?;
                 print_response(response, format).await

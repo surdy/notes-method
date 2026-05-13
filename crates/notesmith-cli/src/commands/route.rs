@@ -15,11 +15,8 @@ pub enum RouteCommand {
     },
     /// Apply routing to move note(s) to their destination
     Apply {
-        /// Path to a specific note
-        path: Option<String>,
-        /// Route all eligible inbox notes
-        #[arg(long)]
-        inbox: bool,
+        /// Path to the note (relative to vault root)
+        path: String,
     },
 }
 
@@ -53,15 +50,9 @@ impl RouteCommand {
                 })
                 .await
             }
-            RouteCommand::Apply { path, inbox } => {
+            RouteCommand::Apply { path } => {
                 let url = build_route_url(global_config, &detected.name, "apply")?;
-                let body = if *inbox {
-                    serde_json::json!({ "inbox": true })
-                } else if let Some(p) = path {
-                    serde_json::json!({ "paths": [p] })
-                } else {
-                    anyhow::bail!("either a path or --inbox flag is required");
-                };
+                let body = serde_json::json!({ "paths": [path] });
                 let response = reqwest::Client::new()
                     .post(url)
                     .json(&body)

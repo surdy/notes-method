@@ -19,8 +19,6 @@ pub enum InboxCommand {
         #[arg(long)]
         title: Option<String>,
     },
-    /// List unarchived notes in the inbox
-    List,
 }
 
 impl InboxCommand {
@@ -43,7 +41,6 @@ impl InboxCommand {
                 )
                 .await
             }
-            InboxCommand::List => cmd_list(global_config, explicit_vault, cwd, format).await,
         }
     }
 }
@@ -57,7 +54,7 @@ async fn cmd_add(
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     let detected = detect_vault(cwd, explicit_vault, global_config)?;
-    let url = build_vault_url(global_config, &detected.name, &["inbox"])?;
+    let url = build_vault_url(global_config, &detected.name, &["capture"])?;
     let mut body = serde_json::json!({ "text": text });
     if let Some(title) = title {
         body["title"] = serde_json::json!(title);
@@ -73,41 +70,6 @@ async fn cmd_add(
         println!("{}", json["path"].as_str().unwrap_or_default());
     })
     .await
-}
-
-async fn cmd_list(
-    global_config: &GlobalConfig,
-    explicit_vault: Option<&str>,
-    cwd: &Path,
-    format: OutputFormat,
-) -> anyhow::Result<()> {
-    let detected = detect_vault(cwd, explicit_vault, global_config)?;
-    let url = build_vault_url(global_config, &detected.name, &["inbox"])?;
-    let response = reqwest::Client::new()
-        .get(url)
-        .send()
-        .await
-        .map_err(map_request_error(global_config))?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("inbox list failed with {status}: {body}");
-    }
-
-    let notes = response.json::<Vec<serde_json::Value>>().await?;
-    match format {
-        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&notes)?),
-        OutputFormat::Text => {
-            for note in &notes {
-                let path = note["path"].as_str().unwrap_or_default();
-                let title = note["title"].as_str().unwrap_or_default();
-                println!("{path}  {title}");
-            }
-        }
-    }
-
-    Ok(())
 }
 
 fn build_vault_url(

@@ -58,7 +58,7 @@ The response includes an `ETag` header with the config hash for use with `PUT` r
 {
   "config": {
     "name": "work",
-    "inbox": { "folder": "Inbox", "template": "generic-note" },
+    "capture": { "folder": "Inbox", "template": "generic-note" },
     "daily": { "folder": "Inbox/Daily", "template": "daily-note", "generate_at": "06:00", "timezone": "America/Los_Angeles", "catch_up": false },
     "editor": { "live_preview": true, "default_mode": "source" },
     "git": { "enabled": true, "auto_commit_every": "5m", "auto_pull_every": "10m", "auto_push_every": "10m" },
@@ -67,7 +67,7 @@ The response includes an `ETag` header with the config hash for use with `PUT` r
   "hash": "a1b2c3d4...",
   "path": ".notesmith/vault.toml",
   "warnings": {
-    "inbox.folder": "Folder 'Inbox' does not exist"
+    "capture.folder": "Folder 'Inbox' does not exist"
   }
 }
 ```
@@ -96,7 +96,7 @@ Update the vault configuration. Requires an `If-Match` header with the current c
 ```json
 {
   "name": "work",
-  "inbox": { "folder": "Inbox", "template": "generic-note" },
+  "capture": { "folder": "Inbox", "template": "generic-note" },
   "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
   "editor": { "live_preview": true, "default_mode": "source" },
   "git": { "enabled": false },
@@ -121,7 +121,7 @@ Update the vault configuration. Requires an `If-Match` header with the current c
 - `daily.generate_at` must be `HH:MM` format (00:00–23:59)
 - `daily.timezone` must be a valid IANA timezone
 - `git.auto_commit_every`, `git.auto_pull_every`, `git.auto_push_every` must be duration strings like `5m`, `1h`, `30s`
-- Missing inbox/daily folders produce warnings (non-blocking)
+- Missing capture/daily folders produce warnings (non-blocking)
 
 **Errors:**
 - `403` — origin not allowed (cross-origin write attempt)
@@ -140,7 +140,7 @@ HASH=$(echo "$RESPONSE" | jq -r .hash)
 curl -X PUT http://127.0.0.1:27183/api/v/work/config \
   -H "Content-Type: application/json" \
   -H "If-Match: \"$HASH\"" \
-  -d '{"name":"work","inbox":{"folder":"Inbox","template":"generic-note"},"daily":{"folder":"Inbox/Daily","template":"daily-note","catch_up":false},"editor":{"live_preview":true,"default_mode":"source"},"git":{"enabled":false},"hooks":{}}'
+  -d '{"name":"work","capture":{"folder":"Inbox","template":"generic-note"},"daily":{"folder":"Inbox/Daily","template":"daily-note","catch_up":false},"editor":{"live_preview":true,"default_mode":"source"},"git":{"enabled":false},"hooks":{}}'
 
 ### `GET /api/v/{vault}/notes`
 
@@ -206,7 +206,7 @@ curl "http://127.0.0.1:27183/api/v/work/html/Customers/Acme%20Corp/Acme%20Corp.m
 
 ### `POST /api/v/{vault}/notes`
 
-Create a new note. The server writes `{folder}/{title}.md`, defaults `folder` to `Inbox`, runs the save pipeline, and returns the written hash.
+Create a new note. The server writes `{folder}/{title}.md`, defaults `folder` to the `capture.folder` config value, runs the save pipeline, and returns the written hash.
 
 **Request body:**
 ```json
@@ -339,11 +339,11 @@ Vaults can configure `.notesmith/vault.toml` hooks for `on_note_create` and `on_
 
 ---
 
-## Inbox
+## Capture
 
-### `POST /api/v/{vault}/inbox`
+### `POST /api/v/{vault}/capture`
 
-Quick-capture a note to the inbox folder. Generates a timestamped filename.
+Quick-capture a note to the capture folder. Generates a timestamped filename.
 
 **Request body:**
 ```json
@@ -355,7 +355,7 @@ Quick-capture a note to the inbox folder. Generates a timestamped filename.
 
 Only `text` is required. `title` is optional — when provided it's used as the filename slug, otherwise the slug is derived from the first 40 characters of `text`.
 
-**Filename format:** `{inbox_folder}/{YYYY-MM-DD HH-MM-SS} - {slug}.md`
+**Filename format:** `{capture_folder}/{YYYY-MM-DD HH-MM-SS} - {slug}.md`
 
 **Response:** `201 Created`
 ```json
@@ -365,22 +365,7 @@ Only `text` is required. `title` is optional — when provided it's used as the 
 }
 ```
 
-### `GET /api/v/{vault}/inbox`
-
-List unarchived notes in the inbox folder (up to 100, sorted by path descending).
-
-**Response:** `200 OK`
-```json
-[
-  {
-    "path": "Inbox/2026-05-09 16-30-00 - Phone Call.md",
-    "title": "Phone Call",
-    "type": "note",
-    "archived": false,
-    "..."
-  }
-]
-```
+> **Note:** `GET /api/v/{vault}/inbox` has been removed. Use `POST /api/v/{vault}/query/sql` with `WHERE path LIKE 'folder/%'` for folder listings.
 
 ---
 
@@ -748,13 +733,6 @@ Apply routing rules to move notes to their destinations. Stamps `archived: true`
 }
 ```
 
-**Request body (inbox batch):**
-```json
-{
-  "inbox": true
-}
-```
-
 **Response:** `200 OK`
 ```json
 {
@@ -773,8 +751,6 @@ Apply routing rules to move notes to their destinations. Stamps `archived: true`
   ]
 }
 ```
-
-When `inbox: true`, notes without frontmatter, already-archived notes, and notes with no matching rule are silently skipped.
 
 ---
 
@@ -892,7 +868,7 @@ Server-Sent Events (SSE) stream for real-time vault change notifications. Each c
 | `note.moved` | Note path changed (move or route) |
 | `note.deleted` | Note removed |
 | `task.updated` | Task added or status toggled |
-| `inbox.added` | New inbox capture |
+| `note.captured` | New note captured |
 | `daily.created` | Daily note created |
 | `cache.rebuilt` | Cache rebuild completed |
 | `search.reindexed` | Search index rebuilt |

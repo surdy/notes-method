@@ -1350,15 +1350,15 @@ async fn toggle_task_returns_unprocessable_for_invalid_transition() {
     server.server.abort();
 }
 
-// ── Inbox API tests ────────────────────────────────────────────────────────────
+// ── Capture API tests ──────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn post_inbox_creates_note_with_timestamp_filename() {
+async fn post_capture_creates_note_with_timestamp_filename() {
     let server = TestServer::empty().await;
     let client = reqwest::Client::new();
 
     let response = client
-        .post(server.url("/api/v/test-vault/inbox"))
+        .post(server.url("/api/v/test-vault/capture"))
         .json(&serde_json::json!({
             "text": "Buy milk and eggs",
         }))
@@ -1390,12 +1390,12 @@ async fn post_inbox_creates_note_with_timestamp_filename() {
 }
 
 #[tokio::test]
-async fn post_inbox_with_title_uses_title_in_filename() {
+async fn post_capture_with_title_uses_title_in_filename() {
     let server = TestServer::empty().await;
     let client = reqwest::Client::new();
 
     let response = client
-        .post(server.url("/api/v/test-vault/inbox"))
+        .post(server.url("/api/v/test-vault/capture"))
         .json(&serde_json::json!({
             "text": "Some detailed content here",
             "title": "Grocery List",
@@ -1421,13 +1421,8 @@ async fn post_inbox_with_title_uses_title_in_filename() {
 }
 
 #[tokio::test]
-async fn get_inbox_lists_inbox_notes() {
-    let server = TestServer::with_files(&[
-        ("Inbox/2026-05-09 10-00-00 - Note One.md", "First note"),
-        ("Inbox/2026-05-09 10-01-00 - Note Two.md", "Second note"),
-        ("Other/Not Inbox.md", "Should not appear"),
-    ])
-    .await;
+async fn get_inbox_returns_404() {
+    let server = TestServer::empty().await;
     let client = reqwest::Client::new();
 
     let response = client
@@ -1436,21 +1431,7 @@ async fn get_inbox_lists_inbox_notes() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-    let body = response.json::<Vec<serde_json::Value>>().await.unwrap();
-    assert!(
-        body.len() >= 2,
-        "expected at least 2 inbox notes, got {}",
-        body.len()
-    );
-    // All returned notes should be in Inbox/
-    for note in &body {
-        let path = note["path"].as_str().unwrap();
-        assert!(
-            path.starts_with("Inbox/"),
-            "expected Inbox/ path, got {path}"
-        );
-    }
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
 
     server.server.abort();
 }
@@ -1725,40 +1706,6 @@ async fn route_apply_moves_note_and_stamps_archive() {
     assert!(content.contains("archived: true"));
     assert!(content.contains("archived-at:"));
     assert!(content.contains("# My Idea"));
-
-    server.server.abort();
-}
-
-#[tokio::test]
-async fn route_apply_inbox_routes_all_eligible() {
-    let server = TestServer::with_files(&[
-        ("Inbox/note1.md", "---\ntype: note\n---\n# Note 1\n"),
-        (
-            "Inbox/note2.md",
-            "---\ntype: note\ncustomer: \"[[Acme]]\"\n---\n# Note 2\n",
-        ),
-        ("Inbox/readme.md", "No frontmatter here\n"),
-    ])
-    .await;
-    write_routing_config(&server.root);
-
-    let client = reqwest::Client::new();
-    let response = client
-        .post(server.url("/api/v/test-vault/route/apply"))
-        .json(&serde_json::json!({ "inbox": true }))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-    let body = response.json::<serde_json::Value>().await.unwrap();
-    assert_eq!(body["routed"], 2);
-
-    // note1 → General/, note2 → Customers/Acme/
-    assert!(server.root.join("General/note1.md").exists());
-    assert!(server.root.join("Customers/Acme/note2.md").exists());
-    // readme stays in Inbox (no frontmatter)
-    assert!(server.root.join("Inbox/readme.md").exists());
 
     server.server.abort();
 }
