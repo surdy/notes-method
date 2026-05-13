@@ -91,7 +91,7 @@ Detection order:
 
 ### `vault info`
 
-Show vault configuration summary (name, root, inbox/daily/editor/git settings).
+Show vault configuration summary (name, root, capture/daily/editor/git settings).
 
 ```bash
 notesmith vault info
@@ -142,7 +142,7 @@ Note CRUD commands go through the running daemon and operate on the detected vau
 
 ### `note create`
 
-Create a note in `Inbox/` by default.
+Create a note in the vault root by default.
 
 ```bash
 notesmith note create "Follow Up" [--folder Customers/Acme] [--content "Body text"]
@@ -153,7 +153,7 @@ notesmith note create "Follow Up" [--folder Customers/Acme] [--content "Body tex
 Fetch a note by vault-relative path.
 
 ```bash
-notesmith note get Inbox/Follow\ Up.md
+notesmith note get General/Follow\ Up.md
 ```
 
 Text output prints just the note body. JSON output prints the full HTTP note payload, including frontmatter, links, tasks, and hash.
@@ -163,8 +163,8 @@ Text output prints just the note body. JSON output prints the full HTTP note pay
 Replace a note's content.
 
 ```bash
-notesmith note put Inbox/Follow\ Up.md --content "# Replaced"
-printf '# Replaced from stdin\n' | notesmith note put Inbox/Follow\ Up.md --from-stdin
+notesmith note put General/Follow\ Up.md --content "# Replaced"
+printf '# Replaced from stdin\n' | notesmith note put General/Follow\ Up.md --from-stdin
 ```
 
 ### `note append`
@@ -172,7 +172,7 @@ printf '# Replaced from stdin\n' | notesmith note put Inbox/Follow\ Up.md --from
 Append content to an existing note.
 
 ```bash
-notesmith note append Inbox/Follow\ Up.md "Next line"
+notesmith note append General/Follow\ Up.md "Next line"
 ```
 
 ### `note delete`
@@ -180,7 +180,7 @@ notesmith note append Inbox/Follow\ Up.md "Next line"
 Delete a note.
 
 ```bash
-notesmith note delete Inbox/Follow\ Up.md
+notesmith note delete General/Follow\ Up.md
 ```
 
 ### `note move`
@@ -188,7 +188,7 @@ notesmith note delete Inbox/Follow\ Up.md
 Move a note to a new vault-relative path.
 
 ```bash
-notesmith note move Inbox/Follow\ Up.md Customers/Acme/Follow\ Up.md
+notesmith note move General/Follow\ Up.md Customers/Acme/Follow\ Up.md
 ```
 
 All create/put/append writes run through the save pipeline, which trims trailing whitespace, normalizes the trailing newline, and auto-maintains `created`/`updated` frontmatter fields when frontmatter is present.
@@ -213,16 +213,16 @@ The clipboard entry includes both `text/html` and a plain-text markdown fallback
 
 ---
 
-## inbox
+## capture
 
-Inbox quick-capture commands go through the running daemon.
+Quick-capture commands go through the running daemon.
 
-### `inbox add`
+### `capture`
 
-Quick-capture a note to the inbox folder. Generates a timestamped filename.
+Quick-capture a note to the configured capture folder. Generates a timestamped filename.
 
 ```bash
-notesmith inbox add "<text>" [--title <title>]
+notesmith capture "<text>" [--title <title>]
 ```
 
 | Arg/Flag | Description |
@@ -230,33 +230,16 @@ notesmith inbox add "<text>" [--title <title>]
 | `<text>` | Note body content |
 | `--title <title>` | Optional title used in filename slug |
 
-**Filename format:** `Inbox/{YYYY-MM-DD HH-MM-SS} - {slug}.md`
+**Filename format:** `{capture_folder}/{YYYY-MM-DD HH-MM-SS} - {slug}.md`
 
-The slug is derived from `--title` if provided, otherwise from the first 40 characters of the text (sanitized to keep alphanumeric, spaces, and hyphens).
-
-**Examples:**
-
-```bash
-notesmith inbox add "Call Sarah about the project"
-notesmith inbox add "Meeting notes from standup" --title "Standup Notes"
-notesmith inbox add "Quick thought" --format json
-```
-
-### `inbox list`
-
-List unarchived notes in the inbox folder.
-
-```bash
-notesmith inbox list
-```
-
-Returns up to 100 notes sorted by path descending (newest first). Text output shows `path  title` per line.
+If `capture.folder = ""`, the note is created in the vault root. The slug is derived from `--title` if provided, otherwise from the first 40 characters of the text (sanitized to keep alphanumeric, spaces, and hyphens).
 
 **Examples:**
 
 ```bash
-notesmith inbox list
-notesmith inbox list --format json | jq '.[].path'
+notesmith capture "Call Sarah about the project"
+notesmith capture "Meeting notes from standup" --title "Standup Notes"
+notesmith capture "Quick thought" --format json
 ```
 
 ---
@@ -311,7 +294,7 @@ notesmith task add <note_path> <description> [--customer <name>] [--stream <name
 
 ```bash
 notesmith task add "Customers/Acme/Acme Corp.md" "Follow up on SLA requirements" --customer Acme --due 2025-02-01
-notesmith task add Inbox/Daily/2025-01-15.md "Review pull requests" --priority high
+notesmith task add Daily/2025-01-15.md "Review pull requests" --priority high
 ```
 
 ### `task toggle`
@@ -447,8 +430,8 @@ Text output shows `source -> destination (rule: rule_id)`.
 **Examples:**
 
 ```bash
-notesmith route preview "Inbox/standup.md"
-notesmith route preview "Inbox/idea.md" --format json
+notesmith route preview "Drafts/standup.md"
+notesmith route preview "Drafts/idea.md" --format json
 ```
 
 ### `route apply`
@@ -457,27 +440,20 @@ Apply routing to move note(s) to their destination folder. Stamps `archived: tru
 
 ```bash
 notesmith route apply <path>
-notesmith route apply --inbox
 ```
 
-| Arg/Flag | Description |
-|----------|-------------|
+| Arg | Description |
+|-----|-------------|
 | `path` | Route a single note by vault-relative path |
-| `--inbox` | Route all eligible notes in the inbox folder |
-
-One of `path` or `--inbox` is required.
 
 **Examples:**
 
 ```bash
 # Route a single note
-notesmith route apply "Inbox/standup.md"
-
-# Route all inbox notes
-notesmith route apply --inbox
+notesmith route apply "Drafts/standup.md"
 
 # Route with JSON output
-notesmith route apply --inbox --format json
+notesmith route apply "Drafts/standup.md" --format json
 ```
 
 ---
@@ -562,11 +538,11 @@ notesmith --format json skill print
 Handle a `notesmith://` deep-link URL by translating it into daemon API calls.
 
 ```bash
-notesmith url-open "notesmith://app/open/main/Inbox/hello.md"
+notesmith url-open "notesmith://app/open/main/hello.md"
 notesmith url-open "notesmith://app/daily/main"
 notesmith url-open "notesmith://app/search/main?q=meeting+notes"
-notesmith url-open "notesmith://app/inbox/main?text=Remember+to+buy+milk"
-notesmith url-open "notesmith://app/new/main?template=meeting&folder=Inbox"
+notesmith url-open "notesmith://app/capture/main?text=Remember+to+buy+milk"
+notesmith url-open "notesmith://app/new/main?template=meeting&folder=General"
 notesmith url-open "notesmith://app/task/main/todo.md?line_hash=abc123&status=done"
 notesmith url-open "notesmith://user/standup?date=2026-05-10"
 ```
@@ -579,7 +555,7 @@ notesmith url-open "notesmith://user/standup?date=2026-05-10"
 | `notesmith://app/daily/{vault}` | Create/open today's daily note |
 | `notesmith://app/search/{vault}?q={query}` | Full-text search |
 | `notesmith://app/new/{vault}?template={name}&folder={path}` | Create note from template |
-| `notesmith://app/inbox/{vault}?text={text}` | Quick capture to inbox |
+| `notesmith://app/capture/{vault}?text={text}` | Quick capture to the configured capture folder |
 | `notesmith://app/task/{vault}/{path}?line_hash={h}&status={s}` | Toggle a task |
 | `notesmith://app/command/{name}?args…` | Trigger a built-in command |
 | `notesmith://user/{action}?params…` | Run a user-defined action from `.notesmith/url-actions.yaml` |

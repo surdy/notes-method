@@ -24,7 +24,7 @@ For each customer there would be a folder containing:
 
 ## High-Level Structure
 
-- Inbox
+- Capture
 - Tasks (aggregated)
 - Dashboards
 - Customer 1
@@ -82,15 +82,15 @@ For each customer there would be a folder containing:
 
 ## Capture Workflow
 
-- All captured notes start in the **Inbox** folder.
+- All captured notes start in the configured capture location (for example `Inbox/` if I want a dedicated capture folder).
 - Once I am done working on a note, I move it to the appropriate folder for long-term storage.
-- **Routing engine** (`.notesmith/routing.yaml`) automatically determines each note's destination based on frontmatter fields (`type`, `customer`, `meeting-kind`, `stream`) and moves notes with `notesmith route apply` or per-note `notesmith route apply <path>`.
+- **Routing engine** (`.notesmith/routing.yaml`) automatically determines each note's destination based on frontmatter fields (`type`, `customer`, `meeting-kind`, `stream`) and moves notes with `notesmith route apply <path>`.
 - Routed notes are stamped with `archived: true` and `archived-at` in frontmatter before moving.
-- The goal is to achieve **Inbox zero**.
+- The goal is to keep the capture backlog at zero.
 
 ## Daily Notes
 
-- Every morning I want a note for that day generated into **Inbox/Daily**. Primary creation should come from an external agent using a saved prompt template, with a daemon scheduler available as a fallback.
+- Every morning I want a note for that day generated into the configured daily location (for example `Inbox/Daily/` if I want a dedicated folder). Primary creation should come from an external agent using a saved prompt template, with a daemon scheduler available as a fallback.
 - Vault-specific agent instructions should live in `.notesmith/skill.md`, and saved prompt templates should live in `.notesmith/prompts/` so agents can assemble daily-note context consistently.
 - Vault hooks can trigger external automation on note creation (`on_note_create`) and daily note creation (`on_daily_create`) without blocking the underlying Notesmith action.
 

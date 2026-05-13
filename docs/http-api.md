@@ -58,17 +58,15 @@ The response includes an `ETag` header with the config hash for use with `PUT` r
 {
   "config": {
     "name": "work",
-    "capture": { "folder": "Inbox", "template": "generic-note" },
-    "daily": { "folder": "Inbox/Daily", "template": "daily-note", "generate_at": "06:00", "timezone": "America/Los_Angeles", "catch_up": false },
+    "capture": { "folder": "", "template": "generic-note" },
+    "daily": { "folder": "", "template": "daily-note", "generate_at": "06:00", "timezone": "America/Los_Angeles", "catch_up": false },
     "editor": { "live_preview": true, "default_mode": "source" },
     "git": { "enabled": true, "auto_commit_every": "5m", "auto_pull_every": "10m", "auto_push_every": "10m" },
     "hooks": {}
   },
   "hash": "a1b2c3d4...",
   "path": ".notesmith/vault.toml",
-  "warnings": {
-    "capture.folder": "Folder 'Inbox' does not exist"
-  }
+  "warnings": {}
 }
 ```
 
@@ -96,8 +94,8 @@ Update the vault configuration. Requires an `If-Match` header with the current c
 ```json
 {
   "name": "work",
-  "capture": { "folder": "Inbox", "template": "generic-note" },
-  "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
+  "capture": { "folder": "", "template": "generic-note" },
+  "daily": { "folder": "", "template": "daily-note", "catch_up": false },
   "editor": { "live_preview": true, "default_mode": "source" },
   "git": { "enabled": false },
   "hooks": {}
@@ -140,7 +138,7 @@ HASH=$(echo "$RESPONSE" | jq -r .hash)
 curl -X PUT http://127.0.0.1:27183/api/v/work/config \
   -H "Content-Type: application/json" \
   -H "If-Match: \"$HASH\"" \
-  -d '{"name":"work","capture":{"folder":"Inbox","template":"generic-note"},"daily":{"folder":"Inbox/Daily","template":"daily-note","catch_up":false},"editor":{"live_preview":true,"default_mode":"source"},"git":{"enabled":false},"hooks":{}}'
+  -d '{"name":"work","capture":{"folder":"","template":"generic-note"},"daily":{"folder":"","template":"daily-note","catch_up":false},"editor":{"live_preview":true,"default_mode":"source"},"git":{"enabled":false},"hooks":{}}'
 
 ### `GET /api/v/{vault}/notes`
 
@@ -212,7 +210,7 @@ Create a new note. The server writes `{folder}/{title}.md`, defaults `folder` to
 ```json
 {
   "title": "Follow Up",
-  "folder": "Inbox",
+  "folder": "",
   "content": "Body text",
   "frontmatter": {
     "status": "draft"
@@ -223,7 +221,7 @@ Create a new note. The server writes `{folder}/{title}.md`, defaults `folder` to
 **Response:** `201 Created`
 ```json
 {
-  "path": "Inbox/Follow Up.md",
+  "path": "Follow Up.md",
   "hash": "2d7d0d..."
 }
 ```
@@ -246,7 +244,7 @@ Replace a note's content. If `expected_hash` is supplied, the write is rejected 
 **Response:** `200 OK`
 ```json
 {
-  "path": "Inbox/Follow Up.md",
+  "path": "Follow Up.md",
   "hash": "9a5b62..."
 }
 ```
@@ -273,7 +271,7 @@ Merge frontmatter fields into the current note, then run the save pipeline befor
 **Response:** `200 OK`
 ```json
 {
-  "path": "Inbox/Follow Up.md",
+  "path": "Follow Up.md",
   "hash": "35cb45..."
 }
 ```
@@ -298,7 +296,7 @@ Append content to an existing note, then run the save pipeline.
 **Response:** `200 OK`
 ```json
 {
-  "path": "Inbox/Follow Up.md",
+  "path": "Follow Up.md",
   "hash": "0f18d0..."
 }
 ```
@@ -317,7 +315,7 @@ Move a note to another vault-relative path.
 **Response:** `200 OK`
 ```json
 {
-  "from": "Inbox/Follow Up.md",
+  "from": "Follow Up.md",
   "to": "Customers/Acme/Follow Up.md"
 }
 ```
@@ -360,12 +358,12 @@ Only `text` is required. `title` is optional — when provided it's used as the 
 **Response:** `201 Created`
 ```json
 {
-  "path": "Inbox/2026-05-09 16-30-00 - Phone Call.md",
+  "path": "2026-05-09 16-30-00 - Phone Call.md",
   "hash": "a1b2c3..."
 }
 ```
 
-> **Note:** `GET /api/v/{vault}/inbox` has been removed. Use `POST /api/v/{vault}/query/sql` with `WHERE path LIKE 'folder/%'` for folder listings.
+> **Note:** Folder listings now go through `POST /api/v/{vault}/query/sql` with `WHERE path LIKE 'folder/%'`.
 
 ---
 
@@ -458,7 +456,7 @@ Load sidebar view configuration from `.notesmith/sidebar.yaml`. Returns empty vi
       "id": "workflow",
       "name": "Workflow",
       "icon": "⚡",
-      "badge_query": "SELECT count(*) FROM v_notes WHERE path LIKE 'Inbox/%'",
+      "badge_query": "SELECT count(*) FROM v_notes WHERE path LIKE 'Capture/%'",
       "sections": [
         {
           "type": "recently-viewed",
@@ -476,9 +474,9 @@ Load sidebar view configuration from `.notesmith/sidebar.yaml`. Returns empty vi
           "label": "Triage",
           "items": [
             {
-              "name": "Inbox",
-              "icon": "📥",
-              "source": { "folder": "Inbox", "recursive": true }
+              "name": "Capture",
+              "icon": "⚡",
+              "source": { "folder": "Capture", "recursive": true }
             }
           ]
         }
@@ -512,7 +510,7 @@ List notes in a folder with title and body snippet, for use by the sidebar middl
 {
   "notes": [
     {
-      "path": "Inbox/meeting-notes.md",
+      "path": "Capture/meeting-notes.md",
       "title": "Meeting Notes",
       "snippet": "First two lines of the note body...",
       "modified_at": "2026-05-11T10:00:00",
@@ -524,7 +522,7 @@ List notes in a folder with title and body snippet, for use by the sidebar middl
 
 **Example:**
 ```bash
-curl "http://127.0.0.1:27183/api/v/work/folder-notes?path=Inbox&recursive=true&limit=20"
+curl "http://127.0.0.1:27183/api/v/work/folder-notes?path=Capture&recursive=true&limit=20"
 ```
 
 ---
@@ -633,7 +631,7 @@ List all available templates.
   {
     "name": "generic-note",
     "description": "A generic blank note",
-    "output_path": "{{ folder | default('Inbox') }}/{{ title | slug }}.md",
+    "output_path": "{% if folder %}{{ folder }}/{% endif %}{{ title | slug }}.md",
     "prompts": [
       { "name": "title", "type": "text", "required": true },
       { "name": "folder", "type": "text", "required": false }
@@ -704,14 +702,14 @@ Preview where a note would be routed based on `.notesmith/routing.yaml` rules.
 **Request body:**
 ```json
 {
-  "path": "Inbox/standup.md"
+  "path": "Capture/standup.md"
 }
 ```
 
 **Response:** `200 OK`
 ```json
 {
-  "path": "Inbox/standup.md",
+  "path": "Capture/standup.md",
   "destination": "Customers/Acme Corp/External Meetings/standup.md",
   "rule_id": "external-meeting"
 }
@@ -729,7 +727,7 @@ Apply routing rules to move notes to their destinations. Stamps `archived: true`
 **Request body (specific notes):**
 ```json
 {
-  "paths": ["Inbox/standup.md", "Inbox/idea.md"]
+  "paths": ["Capture/standup.md", "Capture/idea.md"]
 }
 ```
 
@@ -739,12 +737,12 @@ Apply routing rules to move notes to their destinations. Stamps `archived: true`
   "routed": 2,
   "results": [
     {
-      "from": "Inbox/standup.md",
+      "from": "Capture/standup.md",
       "to": "Customers/Acme Corp/External Meetings/standup.md",
       "rule_id": "external-meeting"
     },
     {
-      "from": "Inbox/idea.md",
+      "from": "Capture/idea.md",
       "to": "General/idea.md",
       "rule_id": "note-general"
     }
@@ -771,7 +769,7 @@ curl http://127.0.0.1:27183/api/v/work/daily/2025-06-15
 **Response:** `200 OK`
 ```json
 {
-  "path": "Inbox/Daily/2025-06-15.md",
+  "path": "2025-06-15.md",
   "content": "---\ndate: 2025-06-15\ntype: daily\n---\n# 2025-06-15\n...",
   "frontmatter": { "date": "2025-06-15", "type": "daily" }
 }
@@ -795,7 +793,7 @@ curl -X POST http://127.0.0.1:27183/api/v/work/daily/2025-06-15
 **Response:** `201 Created` (new note)
 ```json
 {
-  "path": "Inbox/Daily/2025-06-15.md",
+  "path": "2025-06-15.md",
   "created": true
 }
 ```
@@ -803,7 +801,7 @@ curl -X POST http://127.0.0.1:27183/api/v/work/daily/2025-06-15
 **Response:** `200 OK` (already exists)
 ```json
 {
-  "path": "Inbox/Daily/2025-06-15.md",
+  "path": "2025-06-15.md",
   "created": false
 }
 ```
@@ -840,7 +838,7 @@ Agent daily workflow endpoint. In prompt mode, the daemon loads `.notesmith/prom
 **Response:** `201 Created` (write mode)
 ```json
 {
-  "path": "Inbox/Daily/2026-05-10.md",
+  "path": "2026-05-10.md",
   "created": true
 }
 ```
@@ -881,7 +879,7 @@ Server-Sent Events (SSE) stream for real-time vault change notifications. Each c
 {
   "vault": "work",
   "type": "note.created",
-  "path": "Inbox/Follow Up.md",
+  "path": "Follow Up.md",
   "timestamp": "2026-05-09T16:30:00.123-0700"
 }
 ```
@@ -971,7 +969,7 @@ Returns git working tree status for the vault.
 {
   "changed": ["README.md"],
   "staged": [],
-  "untracked": ["Inbox/new-note.md"],
+  "untracked": ["new-note.md"],
   "clean": false
 }
 ```
@@ -1035,11 +1033,11 @@ Updates the sidebar configuration. Requires `If-Match` header with the current c
 {
   "views": [
     {
-      "id": "inbox",
-      "name": "Inbox",
-      "icon": "inbox",
+      "id": "capture",
+      "name": "Capture",
+      "icon": "bolt",
       "sections": [
-        { "type": "custom-folders", "label": "Inbox", "folders": ["Inbox"] }
+        { "type": "custom-folders", "label": "Capture", "folders": ["Capture"] }
       ]
     }
   ]
@@ -1059,7 +1057,7 @@ Returns a sorted list of all visible folders in the vault. Used for folder autoc
 
 **Response:** `200 OK`
 ```json
-["Archive", "Daily", "Inbox", "Projects", "Projects/Alpha"]
+["Capture", "Daily", "Projects", "Projects/Alpha"]
 ```
 
 ---

@@ -38,7 +38,7 @@ views:
   - id: workflow
     name: Workflow
     icon: "⚡"
-    badge_query: "SELECT count(*) FROM v_notes WHERE path LIKE 'Inbox/%'"
+    badge_query: "SELECT count(*) FROM v_notes WHERE path LIKE 'Capture/%'"
     sections:
       - type: recently-viewed
         label: Recent
@@ -54,10 +54,10 @@ views:
       - type: custom-items
         label: Triage
         items:
-          - name: Inbox
-            icon: "��"
+          - name: Capture
+            icon: "⚡"
             source:
-              folder: Inbox
+              folder: Capture
               recursive: true
               sort: modified
               sort_dir: desc
@@ -103,7 +103,7 @@ Notes can be reached in two main ways:
 
 Sidebar views organize notes based on their data source queries rather than raw folders. That makes them ideal for workflows like:
 
-- "show me all inbox items"
+- "show me captured notes waiting to be routed"
 - "show me active tasks"
 - "show me recent meeting notes"
 
@@ -331,7 +331,7 @@ This is useful for notes that act like dashboards, such as:
 
 - a Home note with task summaries
 - a customer list
-- an inbox triage page
+- a capture triage page
 - a stream review note
 
 Queries run against the vault's SQLite cache and can use public views such as:

@@ -7,7 +7,7 @@ _Generated 2026-05-12 from a full-codebase architecture review._
 ## 1. Split `routes.rs` into domain-scoped route modules
 
 - **Files**: `crates/notesmith-http/src/routes.rs` (2042 lines, 33 handlers)
-- **Problem**: This is a god file. Note CRUD, task mutation, template/daily creation, routing, config I/O — all inline. ~60% is domain logic, ~40% HTTP plumbing. A change to task toggling requires navigating through note creation, inbox capture, and config handlers. No **locality**.
+- **Problem**: This is a god file. Note CRUD, task mutation, template/daily creation, routing, config I/O — all inline. ~60% is domain logic, ~40% HTTP plumbing. A change to task toggling requires navigating through note creation, capture workflows, and config handlers. No **locality**.
 - **Solution**: Extract into `routes/notes.rs`, `routes/tasks.rs`, `routes/templates.rs`, `routes/config.rs`, `routes/routing.rs`. Each sub-module owns its handlers + the types they need. `routes/mod.rs` re-exports the router builder.
 - **Benefits**: **Locality** — task bugs stay in `routes/tasks.rs`. **Leverage** — each module has a smaller interface (just its handler fns). Tests can target a single domain area. AI navigability improves dramatically (grep for "task" finds one file, not a 2000-line haystack).
 
