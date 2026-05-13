@@ -77,14 +77,14 @@ For each customer there would be a folder containing:
 - The primary desktop experience should be a three-pane app: sidebar on the left, tabbed editor workspace in the center, and a collapsible contextual right rail on the right.
 - The note workspace should use tabs that persist across launches and remember each tab's current view mode.
 - Each open tab should support three modes: **Source**, **Live Preview**, and **Reading View**, with a breadcrumb toolbar and a simple mode toggle in the header.
-- The desktop shell should provide a command palette, quick switcher, and keyboard-first navigation for note creation, search, daily notes, inbox capture, archiving, and view toggling.
+- The desktop shell should provide a command palette, quick switcher, and keyboard-first navigation for note creation, search, daily notes, capture, archiving, and view toggling.
 - The app should use a dark theme by default and support note deep links through a `notesmith://app/...` URL scheme.
 
-## Inbox Workflow
+## Capture Workflow
 
-- All notes start in the **Inbox** folder.
+- All captured notes start in the **Inbox** folder.
 - Once I am done working on a note, I move it to the appropriate folder for long-term storage.
-- **Routing engine** (`.notesmith/routing.yaml`) automatically determines each note's destination based on frontmatter fields (`type`, `customer`, `meeting-kind`, `stream`) and moves notes with `notesmith route apply --inbox` or per-note `notesmith route apply <path>`.
+- **Routing engine** (`.notesmith/routing.yaml`) automatically determines each note's destination based on frontmatter fields (`type`, `customer`, `meeting-kind`, `stream`) and moves notes with `notesmith route apply` or per-note `notesmith route apply <path>`.
 - Routed notes are stamped with `archived: true` and `archived-at` in frontmatter before moving.
 - The goal is to achieve **Inbox zero**.
 

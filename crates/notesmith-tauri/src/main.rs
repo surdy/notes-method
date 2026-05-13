@@ -163,18 +163,18 @@ fn handle_deep_link<R: Runtime>(app: &AppHandle<R>, parsed: notesmith_core::Note
             }
             navigate_webview(app, &route);
         }
-        NotesmithUrl::Inbox { vault, text } => {
-            let url = format!("{daemon_base}/api/v/{vault}/inbox");
+        NotesmithUrl::Capture { vault, text } => {
+            let url = format!("{daemon_base}/api/v/{vault}/capture");
             let body = serde_json::json!({ "text": text });
             tauri::async_runtime::spawn(async move {
                 match reqwest::Client::new().post(&url).json(&body).send().await {
                     Ok(resp) if resp.status().is_success() => {
-                        tracing::info!("inbox capture successful");
+                        tracing::info!("capture successful");
                     }
                     Ok(resp) => {
-                        tracing::error!("inbox capture failed: {}", resp.status());
+                        tracing::error!("capture failed: {}", resp.status());
                     }
-                    Err(error) => tracing::error!("inbox request failed: {error}"),
+                    Err(error) => tracing::error!("capture request failed: {error}"),
                 }
             });
         }

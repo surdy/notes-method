@@ -1,27 +1,24 @@
-//! `notesmith inbox` subcommands: add, list
+//! `notesmith capture` quick-capture command.
 
 use std::path::Path;
 
 use anyhow::Context;
-use clap::Subcommand;
+use clap::Args;
 use notesmith_config::{GlobalConfig, detect_vault};
 use reqwest::Url;
 
 use crate::commands::vault::OutputFormat;
 
-#[derive(Debug, Subcommand)]
-pub enum InboxCommand {
-    /// Quick-capture a note to the inbox
-    Add {
-        /// Note text content
-        text: String,
-        /// Optional title (used in filename)
-        #[arg(long)]
-        title: Option<String>,
-    },
+#[derive(Debug, Args)]
+pub struct CaptureCommand {
+    /// Note text content
+    text: String,
+    /// Optional title (used in filename)
+    #[arg(long)]
+    title: Option<String>,
 }
 
-impl InboxCommand {
+impl CaptureCommand {
     pub async fn run(
         &self,
         global_config: &GlobalConfig,
@@ -29,23 +26,19 @@ impl InboxCommand {
         cwd: &Path,
         format: OutputFormat,
     ) -> anyhow::Result<()> {
-        match self {
-            InboxCommand::Add { text, title } => {
-                cmd_add(
-                    global_config,
-                    explicit_vault,
-                    cwd,
-                    text,
-                    title.as_deref(),
-                    format,
-                )
-                .await
-            }
-        }
+        cmd_capture(
+            global_config,
+            explicit_vault,
+            cwd,
+            &self.text,
+            self.title.as_deref(),
+            format,
+        )
+        .await
     }
 }
 
-async fn cmd_add(
+async fn cmd_capture(
     global_config: &GlobalConfig,
     explicit_vault: Option<&str>,
     cwd: &Path,
@@ -100,7 +93,7 @@ fn map_request_error<'a>(
                 global_config.daemon.bind
             )
         } else {
-            anyhow::anyhow!("inbox request failed: {error}")
+            anyhow::anyhow!("capture request failed: {error}")
         }
     }
 }
@@ -113,7 +106,7 @@ async fn print_json_response(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("inbox request failed with {status}: {body}");
+        anyhow::bail!("capture request failed with {status}: {body}");
     }
 
     let json = response.json::<serde_json::Value>().await?;

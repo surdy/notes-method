@@ -112,7 +112,7 @@ fn bind_address() -> String {
 }
 
 #[tokio::test]
-async fn inbox_add_creates_note_via_daemon() {
+async fn capture_creates_note_via_daemon() {
     let temp_dir = TempDir::new().unwrap();
     let vault_root = temp_dir.path().join("work");
     create_vault(&vault_root, "work");
@@ -128,7 +128,7 @@ async fn inbox_add_creates_note_via_daemon() {
         .current_dir(&vault_root)
         .env("XDG_CONFIG_HOME", &config_home)
         .env("XDG_CACHE_HOME", &cache_home)
-        .args(["--format", "json", "inbox", "add", "Quick thought from CLI"])
+        .args(["--format", "json", "capture", "Quick thought from CLI"])
         .output()
         .unwrap();
 
