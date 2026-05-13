@@ -19,7 +19,8 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::{events, routes, watcher::watch_all_vaults};
+use crate::routes::*;
+use crate::{events, watcher::watch_all_vaults};
 
 pub struct VaultState {
     pub cache: VaultCache,
@@ -68,84 +69,66 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
         .fallback(ServeFile::new(index_path));
 
     Router::new()
-        .route("/ping", get(routes::ping))
-        .route("/api/capabilities", get(routes::get_capabilities))
-        .route(
-            "/api/app/vaults",
-            get(routes::list_vaults).post(routes::add_vault),
-        )
+        .route("/ping", get(ping))
+        .route("/api/capabilities", get(get_capabilities))
+        .route("/api/app/vaults", get(list_vaults).post(add_vault))
         .route(
             "/api/app/vaults/{name}",
-            axum::routing::put(routes::update_vault).delete(routes::remove_vault),
+            axum::routing::put(update_vault).delete(remove_vault),
         )
         .route(
             "/api/app/default-vault",
-            axum::routing::put(routes::set_default_vault),
+            axum::routing::put(set_default_vault),
         )
-        .route(
-            "/api/app/vaults/{name}/reindex",
-            post(routes::reindex_vault),
-        )
-        .route(
-            "/api/v/{vault}/notes",
-            get(routes::list_notes).post(routes::create_note),
-        )
+        .route("/api/app/vaults/{name}/reindex", post(reindex_vault))
+        .route("/api/v/{vault}/notes", get(list_notes).post(create_note))
         .route(
             "/api/v/{vault}/notes/{*path}",
-            get(routes::get_note)
-                .put(routes::put_note)
-                .patch(routes::patch_note)
-                .delete(routes::delete_note),
+            get(get_note)
+                .put(put_note)
+                .patch(patch_note)
+                .delete(delete_note),
         )
-        .route("/api/v/{vault}/html/{*path}", get(routes::render_note_html))
-        .route(
-            "/api/v/{vault}/notes-append/{*path}",
-            post(routes::append_note),
-        )
-        .route("/api/v/{vault}/notes-move/{*path}", post(routes::move_note))
-        .route("/api/v/{vault}/capture", post(routes::capture_note))
-        .route("/api/v/{vault}/search", get(routes::search_notes))
+        .route("/api/v/{vault}/html/{*path}", get(render_note_html))
+        .route("/api/v/{vault}/notes-append/{*path}", post(append_note))
+        .route("/api/v/{vault}/notes-move/{*path}", post(move_note))
+        .route("/api/v/{vault}/capture", post(capture_note))
+        .route("/api/v/{vault}/search", get(search_notes))
         .route(
             "/api/v/{vault}/sidebar-config",
-            get(routes::get_sidebar_config).put(routes::put_sidebar_config),
+            get(get_sidebar_config).put(put_sidebar_config),
         )
         .route(
             "/api/v/{vault}/config",
-            get(routes::get_vault_config).put(routes::put_vault_config),
+            get(get_vault_config).put(put_vault_config),
         )
-        .route("/api/v/{vault}/folders", get(routes::get_folders))
-        .route("/api/v/{vault}/folder-notes", get(routes::get_folder_notes))
-        .route("/api/v/{vault}/query/sql", post(routes::execute_sql_query))
-        .route(
-            "/api/v/{vault}/tasks",
-            get(routes::list_tasks).post(routes::create_task),
-        )
-        .route(
-            "/api/v/{vault}/tasks/toggle",
-            post(routes::toggle_task_status),
-        )
-        .route("/api/v/{vault}/templates", get(routes::list_templates))
+        .route("/api/v/{vault}/folders", get(get_folders))
+        .route("/api/v/{vault}/folder-notes", get(get_folder_notes))
+        .route("/api/v/{vault}/query/sql", post(execute_sql_query))
+        .route("/api/v/{vault}/tasks", get(list_tasks).post(create_task))
+        .route("/api/v/{vault}/tasks/toggle", post(toggle_task_status))
+        .route("/api/v/{vault}/templates", get(list_templates))
         .route(
             "/api/v/{vault}/templates/{name}/render",
-            post(routes::render_template),
+            post(render_template),
         )
         .route(
             "/api/v/{vault}/templates/{name}/instantiate",
-            post(routes::instantiate_template),
+            post(instantiate_template),
         )
-        .route("/api/v/{vault}/route/preview", post(routes::route_preview))
-        .route("/api/v/{vault}/route/apply", post(routes::route_apply))
-        .route("/api/v/{vault}/git/status", get(routes::git_status))
-        .route("/api/v/{vault}/git/sync", post(routes::git_sync))
+        .route("/api/v/{vault}/route/preview", post(route_preview))
+        .route("/api/v/{vault}/route/apply", post(route_apply))
+        .route("/api/v/{vault}/git/status", get(git_status))
+        .route("/api/v/{vault}/git/sync", post(git_sync))
         .route(
             "/api/v/{vault}/daily/{date}",
-            get(routes::get_daily_note).post(routes::create_daily_note),
+            get(get_daily_note).post(create_daily_note),
         )
         .route(
             "/api/v/{vault}/daily/agent-create",
-            post(routes::agent_create_daily),
+            post(agent_create_daily),
         )
-        .route("/api/v/{vault}/events", get(routes::vault_events))
+        .route("/api/v/{vault}/events", get(vault_events))
         .nest_service("/app", app_service)
         .layer(middleware::map_response(set_cache_headers))
         .layer(CorsLayer::permissive())
