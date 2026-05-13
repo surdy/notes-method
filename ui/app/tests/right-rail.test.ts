@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { NoteSummary } from '../src/lib/api.ts';
+import type { NoteSummary } from '$lib/api';
 import {
 	buildBacklinksQuery,
 	buildOutgoingLinksQuery,
