@@ -154,6 +154,10 @@ test('createAppShell bootstraps the page shell and tears it down cleanly', async
 					closeCalls += 1;
 				}
 			}) as EventSource,
+		listVaults: async () => [
+			{ name: 'work', is_default: true },
+			{ name: 'home', is_default: false }
+		],
 		registerHotkeys: (registeredHotkeys) => {
 			hotkeys = registeredHotkeys;
 			return () => {
@@ -168,7 +172,7 @@ test('createAppShell bootstraps the page shell and tears it down cleanly', async
 	const vaults: string[] = [];
 	await shell.init('work', vaults);
 
-	assert.deepEqual(vaults, ['work']);
+	assert.deepEqual(vaults, ['work', 'home']);
 	assert.equal(vaultStore.currentVault, 'work');
 	assert.equal(tabStore.restoreTabsCalls, 1);
 	assert.equal(vaultStore.loadNotesCalls, 1);
@@ -215,6 +219,7 @@ test('createAppShell dispatches SSE events to the right page callbacks', async (
 			onReconnect = handleReconnect;
 			return { close() {} } as EventSource;
 		},
+		listVaults: async () => [{ name: 'work', is_default: true }],
 		registerHotkeys: () => () => {},
 		vaultStore,
 		tabStore,
@@ -282,4 +287,71 @@ test('createAppShell dispatches SSE events to the right page callbacks', async (
 
 	onReconnect?.();
 	assert.equal(calls.sidebarConfigChanged, 2);
+});
+
+test('createAppShell refreshes vault registrations after vaults.changed events', async () => {
+	stubSvelteRunes();
+
+	const windowStub = createWindowStub();
+	const vaultStore = createVaultStoreStub();
+	const tabStore = createTabStoreStub();
+	const { callbacks } = createCallbacks();
+
+	let onEvent:
+		| ((event: {
+				vault: string;
+				type: string;
+				path: string;
+				timestamp: string;
+		  }) => void)
+		| undefined;
+	let closeCalls = 0;
+	let connectCalls = 0;
+	let listVaultCalls = 0;
+
+	const { createAppShell } = await import('../src/lib/app-shell-core.ts');
+
+	const shell = createAppShell(callbacks, {
+		connectSSE: (_vault, handleEvent) => {
+			connectCalls += 1;
+			onEvent = handleEvent as typeof onEvent;
+			return {
+				close() {
+					closeCalls += 1;
+				}
+			} as EventSource;
+		},
+		listVaults: async () => {
+			listVaultCalls += 1;
+			if (listVaultCalls === 1) {
+				return [{ name: 'work', is_default: true }];
+			}
+			return [{ name: 'home', is_default: true }];
+		},
+		registerHotkeys: () => () => {},
+		vaultStore,
+		tabStore,
+		targetWindow: windowStub.window
+	});
+
+	const vaults: string[] = [];
+	await shell.init('work', vaults);
+	assert.deepEqual(vaults, ['work']);
+	assert.equal(vaultStore.currentVault, 'work');
+
+	onEvent?.({
+		vault: 'work',
+		type: 'vaults.changed',
+		path: '',
+		timestamp: new Date().toISOString()
+	});
+	await Promise.resolve();
+	await Promise.resolve();
+
+	assert.equal(listVaultCalls, 2);
+	assert.deepEqual(vaults, ['home']);
+	assert.equal(vaultStore.currentVault, 'home');
+	assert.equal(vaultStore.loadNotesCalls, 2);
+	assert.equal(connectCalls, 2);
+	assert.equal(closeCalls, 1);
 });

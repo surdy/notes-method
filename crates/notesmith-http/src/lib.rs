@@ -1,6 +1,7 @@
 //! notesmith-http: Axum daemon, REST endpoints, SSE, and static app serving
 
 pub mod config_io;
+pub mod config_watcher;
 pub mod events;
 pub mod hooks;
 pub mod logging;
@@ -19,8 +20,8 @@ pub use scheduler::{
 };
 pub use server::{
     AppState, SharedAppState, VaultState, build_app_state, build_router, cache_dir_for_vault,
-    cache_path_for_vault, search_index_path_for_vault, serve, serve_configured_vaults,
-    serve_with_listener,
+    cache_path_for_vault, create_vault_state, search_index_path_for_vault, serve,
+    serve_configured_vaults, serve_with_listener,
 };
 pub use watcher::{VaultWatcher, watch_all_vaults, watch_vault};
 pub use write_guard::WriteGuard;

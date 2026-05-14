@@ -935,7 +935,7 @@ Agent daily workflow endpoint. In prompt mode, the daemon loads `.notesmith/prom
 
 ### `GET /api/v/{vault}/events`
 
-Server-Sent Events (SSE) stream for real-time vault change notifications. Each connected client receives events for the specified vault only. Multiple clients can subscribe concurrently.
+Server-Sent Events (SSE) stream for real-time vault change notifications. Each connected client receives events for the specified vault only. Multiple clients can subscribe concurrently. Global vault-registration updates are broadcast as `vaults.changed` on each active vault stream so clients can refetch `/api/app/vaults`.
 
 **Event types:**
 
@@ -953,6 +953,7 @@ Server-Sent Events (SSE) stream for real-time vault change notifications. Each c
 | `config.changed` | Config file modified and parsed successfully |
 | `config.removed` | Config file deleted |
 | `config.error` | Config file has a parse error |
+| `vaults.changed` | Global vault registrations changed; refetch `/api/app/vaults` |
 | `shutting_down` | Daemon is draining and preparing to exit |
 
 **Payload (JSON in `data:` field):**
@@ -1013,6 +1014,16 @@ Server-Sent Events (SSE) stream for real-time vault change notifications. Each c
 ```
 
 Config keys are `sidebar` (for `.notesmith/sidebar.yaml`) and `vault` (for `.notesmith/vault.toml`).
+
+`vaults.changed` uses the standard payload shape and carries an empty `path`:
+```json
+{
+  "vault": "work",
+  "type": "vaults.changed",
+  "path": "",
+  "timestamp": "2026-05-14T19:44:23.865-0700"
+}
+```
 
 **Example:**
 ```bash

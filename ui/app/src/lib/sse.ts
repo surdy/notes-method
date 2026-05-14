@@ -29,6 +29,7 @@ const NAMED_EVENT_TYPES = [
 	'config.changed',
 	'config.removed',
 	'config.error',
+	'vaults.changed',
 	'shutting_down'
 ] as const;
 

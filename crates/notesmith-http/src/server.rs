@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     future::Future,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, atomic::AtomicUsize},
 };
 
@@ -29,7 +29,10 @@ use tower_http::{
 };
 
 use crate::routes::*;
-use crate::{events, watcher::watch_all_vaults};
+use crate::{
+    config_watcher::{SharedVaultWatchers, watch_global_config},
+    events,
+};
 
 pub struct VaultState {
     pub cache: VaultCache,
@@ -349,7 +352,16 @@ pub async fn serve_configured_vaults(
 
     let bind = bind_override.unwrap_or(&config.daemon.bind);
     let state = Arc::new(RwLock::new(build_app_state(config)?));
-    let _watchers = watch_all_vaults(state.clone()).await?;
+    let vault_watchers: SharedVaultWatchers = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+    let vault_names = {
+        let state = state.read().await;
+        state.vaults.keys().cloned().collect::<Vec<_>>()
+    };
+    for vault_name in vault_names {
+        let watcher = crate::watcher::watch_vault(state.clone(), vault_name.clone()).await?;
+        vault_watchers.lock().await.insert(vault_name, watcher);
+    }
+    let _config_watcher = watch_global_config(state.clone(), vault_watchers).await?;
     let _schedulers = crate::scheduler::start_daily_schedulers(state.clone()).await;
     let hook_vaults: Vec<crate::hooks::HookVaultContext> = {
         let state = state.read().await;
@@ -403,43 +415,47 @@ pub async fn serve_configured_vaults(
     serve_shared_with_listener(listener, state, true).await
 }
 
+pub fn create_vault_state(vault_name: &str, vault_path: &Path) -> anyhow::Result<VaultState> {
+    let engine = NativeVaultEngine;
+    let notes = engine
+        .scan(vault_path)
+        .with_context(|| format!("failed to scan vault {vault_name}"))?;
+    let cache = VaultCache::open(&cache_path_for_vault(vault_name)?)?;
+    cache.reindex(vault_name, &notes)?;
+    let search_index = SearchIndex::open(&search_index_path_for_vault(vault_name)?)?;
+    search_index.reindex(vault_name, &notes)?;
+    let vault_config = VaultConfig::load_from_vault(vault_path).unwrap_or_else(|_| VaultConfig {
+        name: vault_name.to_string(),
+        capture: Default::default(),
+        daily: Default::default(),
+        editor: Default::default(),
+        git: Default::default(),
+        hooks: Default::default(),
+        homepage: None,
+    });
+    let cache_path = cache_path_for_vault(vault_name)?;
+    let template_engine =
+        notesmith_templates::TemplateEngine::new(vault_path.to_path_buf(), Some(cache_path));
+
+    Ok(VaultState {
+        cache,
+        search_index,
+        engine,
+        root: vault_path.to_path_buf(),
+        vault_config: ArcSwap::from_pointee(vault_config),
+        template_engine,
+    })
+}
+
 pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
     let (event_tx, _) = crate::events::create_event_channel();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let mut vaults = HashMap::new();
 
     for (vault_name, registration) in &config.vaults {
-        let root = registration.path.clone();
-        let engine = NativeVaultEngine;
-        let notes = engine
-            .scan(&root)
-            .with_context(|| format!("failed to scan vault {vault_name}"))?;
-        let cache = VaultCache::open(&cache_path_for_vault(vault_name)?)?;
-        cache.reindex(vault_name, &notes)?;
-        let search_index = SearchIndex::open(&search_index_path_for_vault(vault_name)?)?;
-        search_index.reindex(vault_name, &notes)?;
-        let vault_config = VaultConfig::load_from_vault(&root).unwrap_or_else(|_| VaultConfig {
-            name: vault_name.clone(),
-            capture: Default::default(),
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
-            homepage: None,
-        });
-        let cache_path = cache_path_for_vault(vault_name)?;
-        let template_engine =
-            notesmith_templates::TemplateEngine::new(root.clone(), Some(cache_path));
         vaults.insert(
             vault_name.clone(),
-            VaultState {
-                cache,
-                search_index,
-                engine,
-                root,
-                vault_config: ArcSwap::from_pointee(vault_config),
-                template_engine,
-            },
+            create_vault_state(vault_name, &registration.path)?,
         );
     }
 
@@ -496,7 +512,10 @@ mod tests {
 
     use crate::events::EventType;
 
-    use super::{AppState, build_app_state, build_router_with_app_dir, wait_for_shutdown_trigger};
+    use super::{
+        AppState, build_app_state, build_router_with_app_dir, create_vault_state,
+        wait_for_shutdown_trigger,
+    };
 
     #[tokio::test]
     async fn serves_app_index_for_nested_app_routes() {
@@ -637,5 +656,44 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+    }
+
+    #[test]
+    fn create_vault_state_indexes_existing_notes() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let vault_root = temp_dir.path().join("vault");
+        fs::create_dir_all(vault_root.join("Inbox")).unwrap();
+        fs::write(
+            vault_root.join("Inbox/Test Note.md"),
+            "# Test Note\n\ncreate_vault_state smoke test\n",
+        )
+        .unwrap();
+
+        let vault_name = format!(
+            "work-{}",
+            temp_dir.path().file_name().unwrap().to_string_lossy()
+        );
+        let vault = create_vault_state(&vault_name, &vault_root).unwrap();
+
+        assert_eq!(vault.root, vault_root);
+        assert_eq!(vault.vault_config.load().name, vault_name);
+
+        let note_count: i64 = vault
+            .cache
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM notes WHERE path = 'Inbox/Test Note.md'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(note_count, 1);
+
+        let search_results = vault.search_index.search("smoke", 10).unwrap();
+        assert!(
+            search_results
+                .iter()
+                .any(|result| result.path == "Inbox/Test Note.md")
+        );
     }
 }

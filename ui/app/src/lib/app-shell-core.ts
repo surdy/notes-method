@@ -51,12 +51,18 @@ export interface AppShellEventSource {
 	close: () => void;
 }
 
+export interface AppShellVaultRegistration {
+	name: string;
+	is_default: boolean;
+}
+
 export interface AppShellDependencies {
 	connectSSE: (
 		vault: string,
 		onEvent: (event: VaultEvent) => void,
 		onReconnect?: () => void
 	) => AppShellEventSource;
+	listVaults: () => Promise<AppShellVaultRegistration[]>;
 	registerHotkeys: (hotkeys: Hotkey[]) => () => void;
 	vaultStore: AppShellVaultStore;
 	tabStore: AppShellTabStore;
@@ -142,8 +148,14 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 	let sseConnection: AppShellEventSource | null = null;
 	let unregisterHotkeys = () => {};
 	let handleOpenQuickSwitcher: EventListener | null = null;
+	let availableVaults: string[] | null = null;
 
 	function handleEvent(event: VaultEvent) {
+		if (event.type === 'vaults.changed') {
+			void refreshVaultRegistrations();
+			return;
+		}
+
 		const appEvent = classifyAppShellEvent(event);
 
 		if (appEvent.refreshNotes) {
@@ -173,8 +185,37 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 		}
 	}
 
+	function connectToVault(vault: string) {
+		sseConnection?.close();
+		sseConnection = dependencies.connectSSE(vault, handleEvent, () => {
+			callbacks.onSidebarConfigChanged();
+		});
+	}
+
+	async function refreshVaultRegistrations() {
+		const registrations = await dependencies.listVaults();
+		const vaultNames = registrations.map((vault) => vault.name);
+		availableVaults?.splice(0, availableVaults.length, ...vaultNames);
+
+		if (vaultNames.includes(dependencies.vaultStore.currentVault)) {
+			return;
+		}
+
+		const nextVault =
+			registrations.find((vault) => vault.is_default)?.name ?? vaultNames[0] ?? '';
+		if (!nextVault) {
+			return;
+		}
+
+		dependencies.vaultStore.currentVault = nextVault;
+		await Promise.resolve(dependencies.vaultStore.loadNotes());
+		callbacks.onNotesChanged();
+		connectToVault(nextVault);
+	}
+
 	async function init(vaultParam: string | null, vaults: string[]) {
 		teardown();
+		availableVaults = vaults;
 
 		handleOpenQuickSwitcher = () => callbacks.onOpenQuickSwitcher();
 		dependencies.targetWindow.addEventListener(
@@ -186,15 +227,16 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 		);
 
 		try {
-			const vault = vaultParam ?? 'work';
-			vaults.splice(0, vaults.length, vault);
+			const registrations = await dependencies.listVaults();
+			vaults.splice(0, vaults.length, ...registrations.map((vault) => vault.name));
+			const defaultVault =
+				registrations.find((vault) => vault.is_default)?.name ?? registrations[0]?.name ?? 'work';
+			const vault = vaultParam ?? defaultVault;
 			dependencies.vaultStore.currentVault = vault;
 			dependencies.tabStore.restoreTabs();
 			await dependencies.vaultStore.loadNotes();
 
-			sseConnection = dependencies.connectSSE(vault, handleEvent, () => {
-				callbacks.onSidebarConfigChanged();
-			});
+			connectToVault(vault);
 		} catch (error) {
 			logger.error('Failed to initialize Notesmith app shell', error);
 		}
@@ -214,6 +256,7 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 
 		unregisterHotkeys();
 		unregisterHotkeys = () => {};
+		availableVaults = null;
 	}
 
 	return { init, teardown };

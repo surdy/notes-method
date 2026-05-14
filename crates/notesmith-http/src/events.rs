@@ -49,6 +49,8 @@ pub enum EventType {
     ConfigRemoved,
     #[serde(rename = "config.error")]
     ConfigError,
+    #[serde(rename = "vaults.changed")]
+    VaultsChanged,
     #[serde(rename = "shutting_down")]
     ShuttingDown,
 }
@@ -68,6 +70,7 @@ impl EventType {
             EventType::ConfigChanged => "config.changed",
             EventType::ConfigRemoved => "config.removed",
             EventType::ConfigError => "config.error",
+            EventType::VaultsChanged => "vaults.changed",
             EventType::ShuttingDown => "shutting_down",
         }
     }
@@ -249,5 +252,13 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("\"shutting_down\""));
         assert_eq!(EventType::ShuttingDown.as_str(), "shutting_down");
+    }
+
+    #[test]
+    fn vaults_changed_serializes_with_named_event() {
+        let event = VaultEvent::new("work", EventType::VaultsChanged, "");
+        let json: serde_json::Value = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["type"], "vaults.changed");
+        assert_eq!(EventType::VaultsChanged.as_str(), "vaults.changed");
     }
 }
