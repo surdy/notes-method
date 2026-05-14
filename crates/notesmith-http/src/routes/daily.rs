@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
 };
 use notesmith_core::{NotesmithError, VaultEngine, VaultName, VaultPath, WriteResult};
-use notesmith_query::execute_sql;
+use notesmith_query::{execute_sql, format_query_as_markdown_table};
 use notesmith_vault::{extract_frontmatter, parse_note};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -13,7 +13,6 @@ use crate::events::{self, EventType, VaultEvent};
 use crate::server::SharedAppState;
 
 use super::helpers::{internal_error, note_error, query_error};
-use super::sql::format_query_as_markdown_table;
 
 #[derive(Debug, Deserialize)]
 pub struct AgentCreateRequest {
@@ -53,7 +52,7 @@ pub async fn get_daily_note(
         .read(&vault.root, &note_path)
         .map_err(note_error)?;
     let vault_id = VaultName::new(vault_name.clone());
-    let parsed = parse_note(&content, &vault_id, &note_path);
+    let parsed = parse_note(&vault_id, &note_path, &content);
 
     Ok(Json(json!({
         "path": note_path.as_str(),

@@ -363,20 +363,7 @@ pub async fn get_note(
         .read(&vault.root, &vault_path)
         .map_err(note_error)?;
     let vault_id = VaultName::new(vault_name.clone());
-    let parsed = parse_note(&content, &vault_id, &vault_path);
-
-    Ok(Json(Note {
-        vault: vault_id,
-        path: vault_path,
-        frontmatter: parsed.frontmatter,
-        raw_frontmatter: parsed.raw_frontmatter,
-        body: parsed.body,
-        tasks: parsed.tasks,
-        links: parsed.links,
-        inline_fields: parsed.inline_fields,
-        blocks: parsed.blocks,
-        hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
-    }))
+    Ok(Json(parse_note(&vault_id, &vault_path, &content)))
 }
 
 pub async fn render_note_html(
@@ -455,7 +442,7 @@ pub async fn patch_note(
         .engine
         .read(&vault.root, &note_path)
         .map_err(note_error)?;
-    let parsed = parse_note(&current_content, &vault_id, &note_path);
+    let parsed = parse_note(&vault_id, &note_path, &current_content);
     let mut merged_frontmatter =
         raw_frontmatter_to_mapping(parsed.raw_frontmatter.as_deref()).map_err(internal_error)?;
     merge_frontmatter(&mut merged_frontmatter, &request.frontmatter).map_err(internal_error)?;

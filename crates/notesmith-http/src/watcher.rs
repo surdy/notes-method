@@ -364,20 +364,7 @@ fn read_note(
 ) -> anyhow::Result<Note> {
     let content = engine.read(root, path).map_err(anyhow::Error::from)?;
     let vault_id = VaultName::new(vault_name.to_string());
-    let parsed = parse_note(&content, &vault_id, path);
-
-    Ok(Note {
-        vault: vault_id,
-        path: path.clone(),
-        frontmatter: parsed.frontmatter,
-        raw_frontmatter: parsed.raw_frontmatter,
-        body: parsed.body,
-        tasks: parsed.tasks,
-        links: parsed.links,
-        inline_fields: parsed.inline_fields,
-        blocks: parsed.blocks,
-        hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
-    })
+    Ok(parse_note(&vault_id, path, &content))
 }
 
 fn vault_path(path: String) -> VaultPath {

@@ -1,5 +1,5 @@
-use notesmith_core::{LinkType, TaskStatus, VaultEngine, VaultName, VaultPath};
-use notesmith_vault::{NativeVaultEngine, ParsedNote, parse_note};
+use notesmith_core::{LinkType, Note, TaskStatus, VaultEngine, VaultName, VaultPath};
+use notesmith_vault::{NativeVaultEngine, parse_note};
 use std::fs;
 
 fn golden_vault() -> std::path::PathBuf {
@@ -11,18 +11,21 @@ fn read_note(relative_path: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read {}: {e}", path.display()))
 }
 
-fn parse(relative_path: &str) -> ParsedNote {
+fn parse(relative_path: &str) -> Note {
     let content = read_note(relative_path);
     parse_note(
-        &content,
         &VaultName::new("test"),
         &VaultPath::new(relative_path),
+        &content,
     )
 }
 
 #[test]
 fn daily_note_frontmatter() {
     let parsed = parse("Inbox/Daily/2025-01-15.md");
+    assert_eq!(parsed.vault.as_str(), "test");
+    assert_eq!(parsed.path.as_str(), "Inbox/Daily/2025-01-15.md");
+    assert!(!parsed.hash.is_empty());
     assert!(parsed.frontmatter.is_some());
     assert!(parsed.raw_frontmatter.is_some());
     assert!(!parsed.body.starts_with("---"));

@@ -157,9 +157,9 @@ impl NotesmithMcp {
         let note_path = VaultPath::new(path.to_string());
         let content = self.engine.read(&self.vault_root, &note_path)?;
         let parsed = parse_note(
-            &content,
             &VaultName::new(self.vault_name.clone()),
             &note_path,
+            &content,
         );
 
         Ok(json!({
@@ -640,19 +640,11 @@ impl NotesmithMcp {
 
     fn load_note(&self, path: &VaultPath) -> anyhow::Result<Note> {
         let content = self.engine.read(&self.vault_root, path)?;
-        let parsed = parse_note(&content, &VaultName::new(self.vault_name.clone()), path);
-        Ok(Note {
-            vault: VaultName::new(self.vault_name.clone()),
-            path: path.clone(),
-            frontmatter: parsed.frontmatter,
-            raw_frontmatter: parsed.raw_frontmatter,
-            body: parsed.body,
-            tasks: parsed.tasks,
-            links: parsed.links,
-            inline_fields: parsed.inline_fields,
-            blocks: parsed.blocks,
-            hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
-        })
+        Ok(parse_note(
+            &VaultName::new(self.vault_name.clone()),
+            path,
+            &content,
+        ))
     }
 
     fn ensure_note_missing(&self, path: &VaultPath) -> anyhow::Result<()> {
