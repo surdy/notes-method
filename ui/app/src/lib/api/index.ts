@@ -34,6 +34,9 @@ export type {
 export { addVault, listVaults, reindexVault, removeVault, setDefaultVault, updateVault } from './vaults.ts';
 export type { VaultInfo } from './vaults.ts';
 
+export { fetchDaemonStatus, fetchLogTail, restartDaemon } from './status.ts';
+export type { DaemonStatus, ResourceStatus, VaultStatus } from './status.ts';
+
 export {
 	getFolderNotes,
 	getSidebarConfig,

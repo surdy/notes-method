@@ -6,6 +6,7 @@
 	import { createAppShell } from '$lib/app-shell.svelte';
 	import { buildCommands } from '$lib/commands';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
+	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
 	import ConfigToast from '$lib/components/ConfigToast.svelte';
 	import MiddlePane from '$lib/components/MiddlePane.svelte';
 	import NoteEditor from '$lib/components/NoteEditor.svelte';
@@ -119,6 +120,7 @@ bind:this={sidebarViewsRef}
 onActivateMiddlePane={(item) => (activeMiddlePaneItem = item)}
 onDeactivateMiddlePane={() => (activeMiddlePaneItem = null)}
 />
+<ConnectionStatus currentVault={vaultStore.currentVault} onToast={showConfigToast} />
 </aside>
 
 {#if activeMiddlePaneItem}
