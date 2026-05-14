@@ -37,8 +37,8 @@ Replace `/ping` with a rich status endpoint. All downstream UX work depends on t
 ```json
 {
   "status": "ok",
-  "version": "0.2.1",
-  "api_schema": 3,
+  "version": "0.1.0",
+  "api_schema": 1,
   "pid": 12345,
   "started_at": "2026-05-14T12:00:00Z",
   "binary_path": "/Applications/Notesmith.app/.../notesmith",
@@ -58,6 +58,7 @@ Replace `/ping` with a rich status endpoint. All downstream UX work depends on t
 - Include `version` and `api_schema` for version negotiation
 - Include `pid` and `binary_path` for multi-instance detection
 - Include `resources` for diagnostics (RSS, open FDs, SSE connections, cache size)
+- Initial implementation can report `"healthy"` placeholders for watcher/index state until deeper health probes land
 
 ### 0.2 Daemon lockfile
 

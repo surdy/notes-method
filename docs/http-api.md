@@ -8,9 +8,44 @@ All API endpoints are unauthenticated — the daemon is designed for local use.
 
 ## Health
 
+### `GET /api/status`
+
+Rich daemon status for resilient clients and diagnostics.
+
+**Response:** `200 OK`
+```json
+{
+  "status": "ok",
+  "version": "0.1.0",
+  "api_schema": 1,
+  "pid": 12345,
+  "started_at": "2026-05-14T19:00:00Z",
+  "binary_path": "/path/to/notesmith",
+  "vaults": [{ "name": "work", "state": "ready", "notes": 421 }],
+  "watchers": [{ "vault": "work", "state": "healthy" }],
+  "indexes": [{ "vault": "work", "state": "healthy", "last_reindex": "2026-05-14T19:00:00Z" }],
+  "resources": {
+    "rss_bytes": 52428800,
+    "open_fds": 47,
+    "sse_connections": 2,
+    "cache_size_bytes": 1048576
+  }
+}
+```
+
+**Notes:**
+- `api_schema` is the daemon compatibility contract version.
+- `watchers[*].state` and `indexes[*].state` currently return placeholder `"healthy"` values.
+- `last_reindex` is derived from the cache artifact timestamp when available.
+
+**Example:**
+```bash
+curl http://127.0.0.1:27183/api/status
+```
+
 ### `GET /ping`
 
-Health check.
+Lightweight health check alias.
 
 **Response:** `200 OK`
 ```json
@@ -900,6 +935,7 @@ Server-Sent Events (SSE) stream for real-time vault change notifications. Each c
 | `config.changed` | Config file modified and parsed successfully |
 | `config.removed` | Config file deleted |
 | `config.error` | Config file has a parse error |
+| `shutting_down` | Daemon is draining and preparing to exit |
 
 **Payload (JSON in `data:` field):**
 ```json

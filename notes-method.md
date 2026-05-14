@@ -138,3 +138,8 @@ For each customer there would be a folder containing:
 - CLI: `notesmith git {status, pull, push, sync, log}`.
 - HTTP: `GET /api/v/{vault}/git/status`, `POST /api/v/{vault}/git/sync`.
 - Non-git vaults are completely unaffected.
+
+## Daemon Diagnostics
+
+- The daemon should expose `GET /api/status` with version, API schema, uptime, vault note counts, watcher/index health placeholders, and resource diagnostics (RSS, open FDs, SSE connection count, cache size).
+- `GET /ping` remains as a lightweight compatibility alias for scripts, but richer clients should rely on `/api/status`.

@@ -1,5 +1,13 @@
-use std::{collections::BTreeMap, fs, net::SocketAddr, path::Path, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    fs,
+    net::SocketAddr,
+    path::Path,
+    path::PathBuf,
+    sync::{Arc, atomic::AtomicUsize},
+};
 
+use chrono::Utc;
 use notesmith_config::{GlobalConfig, VaultConfig, VaultRegistration};
 use notesmith_core::VaultEngine;
 use notesmith_http::{AppState, VaultState, serve_with_listener};
@@ -58,11 +66,16 @@ fn build_test_state_with_vaults(
         .collect();
 
     let (event_tx, _) = notesmith_http::create_event_channel();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     AppState {
         vaults,
         event_tx,
         global_config_path,
+        started_at: Utc::now(),
+        sse_connection_count: Arc::new(AtomicUsize::new(0)),
+        shutdown_tx,
+        shutdown_rx,
     }
 }
 

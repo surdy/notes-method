@@ -9,6 +9,8 @@ pub mod server;
 pub mod watcher;
 pub mod write_guard;
 
+pub const API_SCHEMA_VERSION: u32 = 1;
+
 pub use events::{EventSender, EventType, VaultEvent, create_event_channel};
 pub use hooks::{HookVaultContext, start_hook_listener};
 pub use scheduler::{

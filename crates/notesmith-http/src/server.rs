@@ -1,6 +1,11 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    future::Future,
+    path::PathBuf,
+    sync::{Arc, atomic::AtomicUsize},
+};
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use arc_swap::ArcSwap;
 use axum::http::header;
 use axum::middleware;
@@ -8,11 +13,15 @@ use axum::{
     Router,
     routing::{get, post},
 };
+use chrono::{DateTime, Utc};
 use notesmith_config::{GlobalConfig, VaultConfig};
 use notesmith_core::VaultEngine;
 use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_vault::NativeVaultEngine;
-use tokio::{net::TcpListener, sync::RwLock};
+use tokio::{
+    net::TcpListener,
+    sync::{RwLock, watch},
+};
 use tower_http::{
     cors::CorsLayer,
     services::{ServeDir, ServeFile},
@@ -35,15 +44,24 @@ pub struct AppState {
     pub vaults: HashMap<String, VaultState>,
     pub event_tx: events::EventSender,
     pub global_config_path: PathBuf,
+    pub started_at: DateTime<Utc>,
+    pub sse_connection_count: Arc<AtomicUsize>,
+    pub shutdown_tx: watch::Sender<bool>,
+    pub shutdown_rx: watch::Receiver<bool>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         let (event_tx, _) = tokio::sync::broadcast::channel(events::EVENT_CHANNEL_CAPACITY);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
         Self {
             vaults: HashMap::new(),
             event_tx,
             global_config_path: default_global_config_path(),
+            started_at: Utc::now(),
+            sse_connection_count: Arc::new(AtomicUsize::new(0)),
+            shutdown_tx,
+            shutdown_rx,
         }
     }
 }
@@ -70,6 +88,9 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
 
     Router::new()
         .route("/ping", get(ping))
+        .route("/api/status", get(crate::routes::status::get_status))
+        .route("/admin/shutdown", post(crate::routes::admin::shutdown))
+        .route("/admin/restart", post(crate::routes::admin::restart))
         .route("/api/capabilities", get(get_capabilities))
         .route("/api/app/vaults", get(list_vaults).post(add_vault))
         .route(
@@ -180,10 +201,73 @@ fn app_build_dir() -> PathBuf {
     PathBuf::from("ui/app/build")
 }
 
-pub async fn serve_with_listener(listener: TcpListener, state: AppState) -> anyhow::Result<()> {
-    axum::serve(listener, build_router(state))
+async fn wait_for_watch_shutdown(mut shutdown_rx: watch::Receiver<bool>) {
+    while !*shutdown_rx.borrow() {
+        if shutdown_rx.changed().await.is_err() {
+            break;
+        }
+    }
+}
+
+async fn wait_for_shutdown_trigger<CtrlC, Sigterm>(
+    shutdown_rx: watch::Receiver<bool>,
+    ctrl_c: CtrlC,
+    sigterm: Sigterm,
+) where
+    CtrlC: Future<Output = ()>,
+    Sigterm: Future<Output = ()>,
+{
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = sigterm => {},
+        _ = wait_for_watch_shutdown(shutdown_rx) => {},
+    }
+}
+
+async fn wait_for_shutdown_signal(shutdown_rx: watch::Receiver<bool>) -> anyhow::Result<()> {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+
+    #[cfg(unix)]
+    {
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .map_err(|error| anyhow!("failed to listen for SIGTERM: {error}"))?;
+        wait_for_shutdown_trigger(shutdown_rx, ctrl_c, async move {
+            let _ = sigterm.recv().await;
+        })
+        .await;
+    }
+
+    #[cfg(not(unix))]
+    {
+        wait_for_shutdown_trigger(shutdown_rx, ctrl_c, std::future::pending::<()>()).await;
+    }
+
+    Ok(())
+}
+
+async fn serve_shared_with_listener(
+    listener: TcpListener,
+    state: SharedAppState,
+) -> anyhow::Result<()> {
+    let shutdown_rx = {
+        let state = state.read().await;
+        state.shutdown_rx.clone()
+    };
+
+    axum::serve(listener, build_router_with_shared_state(state))
+        .with_graceful_shutdown(async move {
+            if let Err(error) = wait_for_shutdown_signal(shutdown_rx).await {
+                tracing::warn!("graceful shutdown signal listener failed: {error}");
+            }
+        })
         .await
         .context("failed to serve notesmith-http")
+}
+
+pub async fn serve_with_listener(listener: TcpListener, state: AppState) -> anyhow::Result<()> {
+    serve_shared_with_listener(listener, Arc::new(RwLock::new(state))).await
 }
 
 pub async fn serve(bind: &str, state: AppState) -> anyhow::Result<()> {
@@ -242,13 +326,12 @@ pub async fn serve_configured_vaults(
     let listener = TcpListener::bind(bind)
         .await
         .with_context(|| format!("failed to bind notesmith-http to {bind}"))?;
-    axum::serve(listener, build_router_with_shared_state(state))
-        .await
-        .context("failed to serve notesmith-http")
+    serve_shared_with_listener(listener, state).await
 }
 
 pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
     let (event_tx, _) = crate::events::create_event_channel();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let mut vaults = HashMap::new();
 
     for (vault_name, registration) in &config.vaults {
@@ -290,6 +373,10 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
         vaults,
         event_tx,
         global_config_path: default_global_config_path(),
+        started_at: Utc::now(),
+        sse_connection_count: Arc::new(AtomicUsize::new(0)),
+        shutdown_tx,
+        shutdown_rx,
     })
 }
 
@@ -327,12 +414,15 @@ fn default_global_config_path() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{collections::BTreeMap, fs, path::PathBuf, time::Duration};
 
     use axum::{body::Body, http::Request};
+    use notesmith_config::{GlobalConfig, VaultRegistration};
     use tower::ServiceExt;
 
-    use super::{AppState, build_router_with_app_dir};
+    use crate::events::EventType;
+
+    use super::{AppState, build_app_state, build_router_with_app_dir, wait_for_shutdown_trigger};
 
     #[tokio::test]
     async fn serves_app_index_for_nested_app_routes() {
@@ -362,5 +452,116 @@ mod tests {
             .unwrap();
         let text = String::from_utf8(body.to_vec()).unwrap();
         assert!(text.contains("app shell"), "body was: {text}");
+    }
+
+    #[tokio::test]
+    async fn admin_shutdown_returns_ok() {
+        let response =
+            build_router_with_app_dir(AppState::default(), PathBuf::from("ui/app/build"))
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/admin/shutdown")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn admin_shutdown_triggers_signal() {
+        let state = AppState::default();
+        let mut shutdown_rx = state.shutdown_rx.clone();
+
+        let response = build_router_with_app_dir(state, PathBuf::from("ui/app/build"))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/admin/shutdown")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !*shutdown_rx.borrow() {
+                shutdown_rx.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+
+        assert!(*shutdown_rx.borrow());
+    }
+
+    #[tokio::test]
+    async fn admin_shutdown_emits_shutting_down_event() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let vault_root = temp_dir.path().join("vault");
+        fs::create_dir_all(&vault_root).unwrap();
+
+        let config = GlobalConfig {
+            daemon: Default::default(),
+            default_vault: Some("work".to_string()),
+            vaults: BTreeMap::from([(
+                "work".to_string(),
+                VaultRegistration {
+                    path: vault_root.clone(),
+                },
+            )]),
+        };
+        let state = build_app_state(&config).unwrap();
+        let mut event_rx = state.event_tx.subscribe();
+
+        let response = build_router_with_app_dir(state, PathBuf::from("ui/app/build"))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/admin/shutdown")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let event = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(event.vault, "work");
+        assert_eq!(event.event_type, EventType::ShuttingDown);
+    }
+
+    #[tokio::test]
+    async fn shutdown_waiter_completes_on_sigterm() {
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let (sigterm_tx, sigterm_rx) = tokio::sync::oneshot::channel::<()>();
+
+        let waiter = tokio::spawn(wait_for_shutdown_trigger(
+            shutdown_rx,
+            std::future::pending::<()>(),
+            async move {
+                let _ = sigterm_rx.await;
+            },
+        ));
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!waiter.is_finished());
+
+        sigterm_tx.send(()).unwrap();
+
+        tokio::time::timeout(Duration::from_secs(1), waiter)
+            .await
+            .unwrap()
+            .unwrap();
     }
 }

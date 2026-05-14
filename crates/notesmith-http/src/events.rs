@@ -49,6 +49,8 @@ pub enum EventType {
     ConfigRemoved,
     #[serde(rename = "config.error")]
     ConfigError,
+    #[serde(rename = "shutting_down")]
+    ShuttingDown,
 }
 
 impl EventType {
@@ -66,6 +68,7 @@ impl EventType {
             EventType::ConfigChanged => "config.changed",
             EventType::ConfigRemoved => "config.removed",
             EventType::ConfigError => "config.error",
+            EventType::ShuttingDown => "shutting_down",
         }
     }
 }
@@ -238,5 +241,13 @@ mod tests {
         };
         let json: serde_json::Value = serde_json::to_value(&detail).unwrap();
         assert_eq!(json["error"], "parse failed");
+    }
+
+    #[test]
+    fn shutting_down_event_type_as_str_matches_serde() {
+        let event = VaultEvent::new("v", EventType::ShuttingDown, "");
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"shutting_down\""));
+        assert_eq!(EventType::ShuttingDown.as_str(), "shutting_down");
     }
 }
