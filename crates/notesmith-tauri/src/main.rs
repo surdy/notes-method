@@ -1,17 +1,22 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::{
+    Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
-use notesmith_tauri::daemon::{self, DaemonSettings, DynError};
+use notesmith_tauri::daemon::{self, DaemonSettings, DaemonState, DynError};
 use tauri::{
-    AppHandle, Manager, RunEvent, Runtime, WebviewWindowBuilder,
+    AppHandle, Manager, RunEvent, Runtime, Url, WebviewUrl, WebviewWindowBuilder,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 
 const MAIN_WINDOW_LABEL: &str = "main";
+const SPLASH_WINDOW_LABEL: &str = "startup-splash";
+const FALLBACK_WINDOW_LABEL: &str = "startup-fallback";
 const TRAY_ID: &str = "notesmith-tray";
 const MENU_OPEN: &str = "open";
 const MENU_CAPTURE: &str = "capture";
@@ -21,12 +26,38 @@ const MENU_QUIT: &str = "quit";
 #[derive(Default)]
 struct ExitState(AtomicBool);
 
+struct DaemonUrlState(Mutex<String>);
+
+enum PrimaryAction {
+    Retry,
+    RestartApp,
+}
+
+struct StartupFallbackView {
+    title: String,
+    message: String,
+    primary_action: PrimaryAction,
+}
+
+impl Default for DaemonUrlState {
+    fn default() -> Self {
+        Self(Mutex::new(DaemonSettings::default().daemon_url))
+    }
+}
+
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_shell::init())
         .manage(ExitState::default())
+        .manage(DaemonUrlState::default())
         .enable_macos_default_menu(false)
+        .invoke_handler(tauri::generate_handler![
+            retry_daemon_connect,
+            open_diagnostics,
+            quit_app,
+            restart_app
+        ])
         .menu(build_app_menu)
         .on_menu_event(|app, event| {
             if let Err(error) = handle_menu_event(app, event.id().as_ref()) {
@@ -45,7 +76,9 @@ fn main() {
             }
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            if window.label() == MAIN_WINDOW_LABEL
+                && let tauri::WindowEvent::CloseRequested { api, .. } = event
+            {
                 api.prevent_close();
                 let _ = window.hide();
             }
@@ -67,14 +100,10 @@ fn main() {
 }
 
 fn initialize_app<R: Runtime>(app: &tauri::App<R>) -> Result<(), DynError> {
-    let settings = DaemonSettings {
-        sidecar_path: resolve_sidecar_path(),
-        ..Default::default()
-    };
-    tauri::async_runtime::block_on(daemon::ensure_daemon_running_with(settings))?;
+    show_splash_window(app.handle())?;
     setup_tray(app.handle())?;
     setup_deep_links(app.handle())?;
-    show_main_window(app.handle())?;
+    tauri::async_runtime::block_on(run_startup_flow(app.handle()))?;
     Ok(())
 }
 
@@ -131,8 +160,7 @@ fn handle_deep_link<R: Runtime>(app: &AppHandle<R>, parsed: notesmith_core::Note
         return;
     }
 
-    let config = notesmith_config::GlobalConfig::load().unwrap_or_default();
-    let daemon_base = format!("http://{}", config.daemon.bind);
+    let daemon_base = current_daemon_url(app);
 
     match parsed {
         NotesmithUrl::Open { vault, path } => {
@@ -278,6 +306,18 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<(), Dyn
 }
 
 fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
+    if let Some(window) = app.get_webview_window(SPLASH_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    if let Some(window) = app.get_webview_window(FALLBACK_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
     ensure_main_window(app)?;
 
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
@@ -298,23 +338,347 @@ fn hide_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
 }
 
 fn ensure_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
-    if app.get_webview_window(MAIN_WINDOW_LABEL).is_some() {
+    let app_url = current_app_url(app)?;
+
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        if window.url()?.as_str() != app_url.as_str() {
+            window.navigate(app_url)?;
+        }
         return Ok(());
     }
 
-    let window_config = app
+    let mut window_config = app
         .config()
         .app
         .windows
         .iter()
         .find(|window| window.label == MAIN_WINDOW_LABEL)
+        .cloned()
         .ok_or_else(|| std::io::Error::other("missing main window config"))?;
 
-    WebviewWindowBuilder::from_config(app, window_config)?.build()?;
+    window_config.url = WebviewUrl::External(app_url);
+    WebviewWindowBuilder::from_config(app, &window_config)?.build()?;
     Ok(())
 }
 
 fn request_exit<R: Runtime>(app: &AppHandle<R>) {
     app.state::<ExitState>().0.store(true, Ordering::SeqCst);
     app.exit(0);
+}
+
+fn startup_settings() -> DaemonSettings {
+    DaemonSettings {
+        sidecar_path: resolve_sidecar_path(),
+        ..Default::default()
+    }
+}
+
+async fn run_startup_flow<R: Runtime>(app: &AppHandle<R>) -> Result<String, DynError> {
+    show_splash_window(app)?;
+    close_window(app, FALLBACK_WINDOW_LABEL)?;
+
+    let settings = startup_settings();
+    let state = daemon::orchestrate_startup(&settings).await;
+    handle_startup_state(app, &settings, state)
+}
+
+fn handle_startup_state<R: Runtime>(
+    app: &AppHandle<R>,
+    settings: &DaemonSettings,
+    state: DaemonState,
+) -> Result<String, DynError> {
+    close_window(app, SPLASH_WINDOW_LABEL)?;
+
+    match state {
+        DaemonState::Ready => {
+            close_window(app, FALLBACK_WINDOW_LABEL)?;
+            set_current_daemon_url(app, daemon::resolve_daemon_url(settings));
+            show_main_window(app)?;
+            Ok("Notesmith is ready".to_string())
+        }
+        DaemonState::VersionMismatch { running, bundled } => {
+            hide_main_window(app)?;
+            show_fallback_window(
+                app,
+                StartupFallbackView {
+                    title: "Restart to finish updating?".to_string(),
+                    message: format!(
+                        "Notesmith found daemon version {running}, but this app bundles {bundled}. Restart the desktop app to finish the update."
+                    ),
+                    primary_action: PrimaryAction::RestartApp,
+                },
+            )?;
+            Ok("Notesmith needs a restart".to_string())
+        }
+        DaemonState::Unreachable => {
+            hide_main_window(app)?;
+            show_fallback_window(
+                app,
+                StartupFallbackView {
+                    title: "Could not connect to Notesmith daemon".to_string(),
+                    message:
+                        "Notesmith couldn't start its background service. Retry or open diagnostics for more details."
+                            .to_string(),
+                    primary_action: PrimaryAction::Retry,
+                },
+            )?;
+            Ok("Notesmith daemon is unreachable".to_string())
+        }
+        DaemonState::PortConflict { pid } => {
+            hide_main_window(app)?;
+            show_fallback_window(
+                app,
+                StartupFallbackView {
+                    title: "Another Notesmith daemon is blocking startup".to_string(),
+                    message: format!(
+                        "Notesmith found a running daemon process (PID {pid}) that never became ready. Quit it or open diagnostics before retrying."
+                    ),
+                    primary_action: PrimaryAction::Retry,
+                },
+            )?;
+            Ok(format!("Notesmith daemon PID {pid} is blocking startup"))
+        }
+    }
+}
+
+fn show_splash_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
+    if app.get_webview_window(SPLASH_WINDOW_LABEL).is_none() {
+        WebviewWindowBuilder::new(app, SPLASH_WINDOW_LABEL, html_data_url(&splash_html())?)
+            .title("Notesmith")
+            .inner_size(320.0, 220.0)
+            .resizable(false)
+            .decorations(false)
+            .center()
+            .visible(true)
+            .skip_taskbar(true)
+            .build()?;
+    }
+
+    if let Some(window) = app.get_webview_window(SPLASH_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+
+    Ok(())
+}
+
+fn show_fallback_window<R: Runtime>(
+    app: &AppHandle<R>,
+    view: StartupFallbackView,
+) -> Result<(), DynError> {
+    close_window(app, FALLBACK_WINDOW_LABEL)?;
+
+    WebviewWindowBuilder::new(
+        app,
+        FALLBACK_WINDOW_LABEL,
+        html_data_url(&fallback_html(&view))?,
+    )
+    .title("Notesmith")
+    .inner_size(480.0, 320.0)
+    .resizable(false)
+    .center()
+    .skip_taskbar(true)
+    .build()?;
+
+    Ok(())
+}
+
+fn close_window<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<(), DynError> {
+    if let Some(window) = app.get_webview_window(label) {
+        window.close()?;
+    }
+
+    Ok(())
+}
+
+fn current_daemon_url<R: Runtime>(app: &AppHandle<R>) -> String {
+    app.state::<DaemonUrlState>()
+        .0
+        .lock()
+        .expect("daemon url state poisoned")
+        .clone()
+}
+
+fn set_current_daemon_url<R: Runtime>(app: &AppHandle<R>, daemon_url: String) {
+    *app.state::<DaemonUrlState>()
+        .0
+        .lock()
+        .expect("daemon url state poisoned") = daemon_url;
+}
+
+fn current_app_url<R: Runtime>(app: &AppHandle<R>) -> Result<Url, DynError> {
+    Url::parse(&format!(
+        "{}/app/",
+        current_daemon_url(app).trim_end_matches('/')
+    ))
+    .map_err(Into::into)
+}
+
+fn splash_html() -> String {
+    r#"<!doctype html>
+<html>
+  <body style="margin:0;background:#1a1a2e;color:white;display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui">
+    <div style="text-align:center">
+      <h2 style="margin:0 0 8px">Notesmith</h2>
+      <p style="margin:0;color:#cbd5e1">Starting...</p>
+      <div style="width:40px;height:40px;border:3px solid #333;border-top:3px solid #fff;border-radius:50%;animation:spin 1s linear infinite;margin:20px auto"></div>
+    </div>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+  </body>
+</html>"#
+        .to_string()
+}
+
+fn fallback_html(view: &StartupFallbackView) -> String {
+    let (primary_label, primary_command) = match view.primary_action {
+        PrimaryAction::Retry => ("Retry", "retry_daemon_connect"),
+        PrimaryAction::RestartApp => ("Restart App", "restart_app"),
+    };
+
+    format!(
+        r#"<!doctype html>
+<html>
+  <body style="margin:0;background:#0f172a;color:#e2e8f0;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh">
+    <main style="width:min(420px,calc(100vw - 48px));padding:28px;border-radius:18px;background:#111827;box-shadow:0 16px 40px rgba(15,23,42,.45)">
+      <h2 style="margin:0 0 12px;font-size:24px">{}</h2>
+      <p id="message" style="margin:0 0 24px;line-height:1.5;color:#cbd5e1">{}</p>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <button id="primary" onclick="runPrimary()" style="border:0;border-radius:10px;padding:10px 16px;background:#2563eb;color:white;font:inherit;cursor:pointer">{}</button>
+        <button onclick="runCommand('open_diagnostics')" style="border:0;border-radius:10px;padding:10px 16px;background:#334155;color:white;font:inherit;cursor:pointer">Open Diagnostics</button>
+        <button onclick="runCommand('quit_app')" style="border:0;border-radius:10px;padding:10px 16px;background:#475569;color:white;font:inherit;cursor:pointer">Quit</button>
+      </div>
+      <p id="status" style="margin:18px 0 0;color:#93c5fd;min-height:1.5em"></p>
+    </main>
+    <script>
+      async function runCommand(command) {{
+        const status = document.getElementById('status');
+        status.textContent = 'Working...';
+        try {{
+          const result = await window.__TAURI_INTERNALS__.invoke(command);
+          status.textContent = typeof result === 'string' ? result : '';
+        }} catch (error) {{
+          status.textContent = String(error);
+        }}
+      }}
+      function runPrimary() {{
+        return runCommand('{}');
+      }}
+    </script>
+  </body>
+</html>"#,
+        escape_html(&view.title),
+        escape_html(&view.message),
+        primary_label,
+        primary_command
+    )
+}
+
+fn html_data_url(html: &str) -> Result<WebviewUrl, DynError> {
+    let encoded = percent_encode(html);
+    let url = Url::parse(&format!("data:text/html;charset=utf-8,{encoded}"))?;
+    Ok(WebviewUrl::CustomProtocol(url))
+}
+
+fn percent_encode(input: &str) -> String {
+    let mut encoded = String::with_capacity(input.len());
+    for byte in input.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(byte as char);
+            }
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
+}
+
+fn escape_html(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn diagnostics_target() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(log_file) = daemon_log_file_path() {
+        candidates.push(log_file.clone());
+        if let Some(parent) = log_file.parent() {
+            candidates.push(parent.to_path_buf());
+        }
+    }
+
+    if let Some(lockfile_path) = notesmith_config::DaemonLockfile::path() {
+        candidates.push(lockfile_path.clone());
+        if let Some(parent) = lockfile_path.parent() {
+            candidates.push(parent.to_path_buf());
+        }
+    }
+
+    candidates.into_iter().find(|path| path.exists())
+}
+
+fn daemon_log_file_path() -> Option<PathBuf> {
+    if cfg!(target_os = "macos") {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .map(|home| home.join("Library/Logs/Notesmith/daemon.log"))
+    } else {
+        std::env::var_os("XDG_STATE_HOME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state"))
+            })
+            .map(|dir| dir.join("notesmith").join("daemon.log"))
+    }
+}
+
+fn open_with_system_app(path: &Path) -> Result<(), DynError> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(path).spawn()?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open").arg(path).spawn()?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer").arg(path).spawn()?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err(std::io::Error::other("opening diagnostics is not supported on this platform").into())
+}
+
+#[tauri::command]
+async fn retry_daemon_connect(app: tauri::AppHandle) -> Result<String, String> {
+    run_startup_flow(&app)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn open_diagnostics() -> Result<(), String> {
+    let path = diagnostics_target()
+        .ok_or_else(|| "Could not find Notesmith diagnostics on disk".to_string())?;
+    open_with_system_app(&path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    request_exit(&app);
+}
+
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.state::<ExitState>().0.store(true, Ordering::SeqCst);
+    app.restart();
 }
