@@ -7,6 +7,7 @@ QuerySource,
 SqlQueryResult
 } from '$lib/api';
 import { executeSql, getFolderNotes } from '$lib/api';
+import { tabStore } from '$lib/tab-store.svelte';
 import { vaultStore } from '$lib/stores.svelte';
 
 let {
@@ -100,7 +101,7 @@ loading = false;
 }
 
 function openNote(path: string, line?: number) {
-vaultStore.selectNote(path);
+tabStore.selectNote(path);
 if (line !== undefined) {
 window.dispatchEvent(new CustomEvent('notesmith:scroll-to-line', { detail: { path, line } }));
 }
@@ -164,7 +165,7 @@ localStorage.setItem(getStorageKey(), String(paneWidth));
 {@const note = listItem.note}
 <button
 class="list-item"
-class:selected={vaultStore.selectedPath === note.path}
+class:selected={tabStore.selectedPath === note.path}
 onclick={() => openNote(note.path)}
 type="button"
 >
@@ -177,7 +178,7 @@ type="button"
 {@const { row, titleCol, subtitleCol, badgeCols } = listItem}
 <button
 class="list-item"
-class:selected={typeof row.path === 'string' && vaultStore.selectedPath === row.path}
+class:selected={typeof row.path === 'string' && tabStore.selectedPath === row.path}
 onclick={() => {
 if (typeof row.path === 'string' && row.path) {
 const line = typeof row.line === 'number' ? row.line : undefined;

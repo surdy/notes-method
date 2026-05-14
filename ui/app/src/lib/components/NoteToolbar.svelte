@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { vaultStore } from '$lib/stores.svelte';
+	import { tabStore } from '$lib/tab-store.svelte';
 
-	let activeTab = $derived(vaultStore.activeTab);
-	let viewMode = $derived(vaultStore.activeViewMode);
+	let activeTab = $derived(tabStore.activeTab);
+	let viewMode = $derived(tabStore.activeViewMode);
 
 	function pathSegments(path: string): string[] {
 		return path.replace(/\.md$/, '').split('/');
 	}
 
 	function handleToggle() {
-		vaultStore.toggleViewMode();
+		tabStore.toggleViewMode();
 	}
 </script>
 

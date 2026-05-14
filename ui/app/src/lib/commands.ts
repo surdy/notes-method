@@ -10,6 +10,7 @@ import {
 } from './api';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
+import { tabStore } from './tab-store.svelte';
 import { vaultStore } from './stores.svelte';
 
 export interface Command {
@@ -121,13 +122,13 @@ category: 'Notes',
 execute: async () => {
 	const currentVault = requireVault();
 	if (!currentVault) return;
-	if (!vaultStore.selectedPath) {
+	if (!tabStore.selectedPath) {
 		window.alert('Select a note first.');
 		return;
 	}
 
 	try {
-		const html = await getNoteHtmlInline(currentVault, vaultStore.selectedPath);
+		const html = await getNoteHtmlInline(currentVault, tabStore.selectedPath);
 		await navigator.clipboard.write([
 			new ClipboardItem({
 				'text/html': new Blob([html], { type: 'text/html' }),
@@ -148,13 +149,13 @@ shortcut: '⌘⇧A',
 execute: async () => {
 const currentVault = requireVault();
 if (!currentVault) return;
-if (!vaultStore.selectedPath) {
+if (!tabStore.selectedPath) {
 window.alert('Select a note to archive.');
 return;
 }
 
 try {
-const response = await routeApply(currentVault, [vaultStore.selectedPath]);
+const response = await routeApply(currentVault, [tabStore.selectedPath]);
 await reloadAndNavigate(response.results[0]?.to, onNavigate);
 } catch (cause) {
 notifyError('Failed to archive the current note.', cause);
@@ -246,7 +247,7 @@ label: 'Toggle View Mode',
 category: 'Navigation',
 shortcut: '⌘E',
 execute: () => {
-vaultStore.toggleViewMode();
+tabStore.toggleViewMode();
 }
 },
 {

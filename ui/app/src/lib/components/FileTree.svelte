@@ -1,8 +1,8 @@
 <script lang="ts">
 	import FileTree from './FileTree.svelte';
 	import type { NoteSummary } from '$lib/api';
-	import type { FolderNode } from '$lib/stores.svelte';
-	import { vaultStore } from '$lib/stores.svelte';
+	import { tabStore } from '$lib/tab-store.svelte';
+	import type { FolderNode } from '$lib/tree-builder';
 
 	let { node, depth = 0 }: { node: FolderNode; depth?: number } = $props();
 	let expanded = $state(false);
@@ -19,7 +19,7 @@
 	}
 
 	function selectNote(note: NoteSummary) {
-		vaultStore.selectNote(note.path);
+		tabStore.selectNote(note.path);
 	}
 
 	function noteTitle(note: NoteSummary): string {
@@ -60,7 +60,7 @@
 	{#each node.notes as note (note.path)}
 		<button
 			class="note-item"
-			class:selected={vaultStore.selectedPath === note.path}
+			class:selected={tabStore.selectedPath === note.path}
 			style={`padding-left: ${(depth + 1) * 16}px`}
 			onclick={() => selectNote(note)}
 		>

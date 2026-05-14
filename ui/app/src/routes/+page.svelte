@@ -17,6 +17,7 @@ import TabBar from '$lib/components/TabBar.svelte';
 import VaultSwitcher from '$lib/components/VaultSwitcher.svelte';
 import { registerHotkeys } from '$lib/hotkeys';
 import { connectSSE } from '$lib/sse';
+import { tabStore } from '$lib/tab-store.svelte';
 import { vaultStore } from '$lib/stores.svelte';
 
 let vaults = $state<string[]>([]);
@@ -44,7 +45,7 @@ function showConfigToast(message: string, type: 'info' | 'error') {
 
 let commands = $derived.by(() =>
 buildCommands(vaultStore.currentVault, (path) => {
-vaultStore.selectNote(path);
+tabStore.selectNote(path);
 })
 );
 
@@ -68,10 +69,10 @@ console.error(`Failed to execute command: ${commandId}`, error);
 }
 
 async function handleToggleView() {
-if (vaultStore.activeViewMode === 'live-preview') {
+if (tabStore.activeViewMode === 'live-preview') {
 await noteEditorRef?.flushSave();
 }
-vaultStore.toggleViewMode();
+tabStore.toggleViewMode();
 }
 
 onMount(() => {
@@ -90,7 +91,7 @@ const url = new URL(window.location.href);
 const vault = url.searchParams.get('vault') ?? 'work';
 vaults = [vault];
 vaultStore.currentVault = vault;
-vaultStore.restoreTabs();
+tabStore.restoreTabs();
 await vaultStore.loadNotes();
 
 sseConnection = connectSSE(
@@ -148,14 +149,14 @@ const unregister = registerHotkeys([
 { key: 'k', meta: true, action: openCommandPalette },
 { key: 'p', meta: true, action: openCommandPalette },
 { key: 'o', meta: true, action: openQuickSwitcher },
-{ key: 'w', meta: true, action: () => vaultStore.closeActiveTab() },
+{ key: 'w', meta: true, action: () => tabStore.closeActiveTab() },
 { key: 'n', meta: true, action: () => runCommand('new-note') },
 { key: 'd', meta: true, action: () => runCommand('open-daily') },
 { key: 'a', meta: true, shift: true, action: () => runCommand('archive-current') },
 { key: 'n', meta: true, shift: true, action: () => runCommand('capture') },
 { key: 's', meta: true, action: () => {} },
 { key: 'e', meta: true, action: () => void handleToggleView() },
-{ key: 't', meta: true, shift: true, action: () => vaultStore.reopenLastTab() },
+{ key: 't', meta: true, shift: true, action: () => tabStore.reopenLastTab() },
 { key: '\\', meta: true, action: () => rightRailRef?.toggle() },
 { key: 'f', meta: true, shift: true, action: openQuickSwitcher },
 { key: ',', meta: true, action: () => void goto(`${base}/settings?vault=${encodeURIComponent(vaultStore.currentVault)}`) }
@@ -201,8 +202,8 @@ onClose={() => (activeMiddlePaneItem = null)}
 <main class="content-area">
 <TabBar />
 <NoteToolbar />
-{#if vaultStore.activeViewMode === 'reading'}
-<NoteViewer path={vaultStore.selectedPath} />
+{#if tabStore.activeViewMode === 'reading'}
+<NoteViewer path={tabStore.selectedPath} />
 {:else}
 <NoteEditor bind:this={noteEditorRef} />
 {/if}

@@ -1,6 +1,7 @@
 <script lang="ts">
 import { executeSql } from '$lib/api';
 import { getRecentlyViewed } from '$lib/recently-viewed';
+import { tabStore } from '$lib/tab-store.svelte';
 import { vaultStore } from '$lib/stores.svelte';
 
 let { mode, limit }: { mode: 'viewed' | 'edited' | 'both'; limit: number } = $props();
@@ -14,7 +15,7 @@ let items = $state<Item[]>([]);
 
 $effect(() => {
 const vault = vaultStore.currentVault;
-const _path = vaultStore.selectedPath;
+const _path = tabStore.selectedPath;
 if (!vault) return;
 void loadItems(vault);
 });
@@ -63,7 +64,7 @@ return merged.slice(0, max);
 }
 
 function open(path: string) {
-vaultStore.selectNote(path);
+tabStore.selectNote(path);
 }
 </script>
 
@@ -71,7 +72,7 @@ vaultStore.selectNote(path);
 {#each items as item (item.path)}
 <button
 class="item"
-class:selected={vaultStore.selectedPath === item.path}
+class:selected={tabStore.selectedPath === item.path}
 onclick={() => open(item.path)}
 type="button"
 >

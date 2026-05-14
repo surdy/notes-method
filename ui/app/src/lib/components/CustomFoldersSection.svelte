@@ -1,6 +1,6 @@
 <script lang="ts">
 import FileTree from './FileTree.svelte';
-import type { FolderNode } from '$lib/stores.svelte';
+import type { FolderNode } from '$lib/tree-builder';
 import { vaultStore } from '$lib/stores.svelte';
 
 let { folders }: { folders: string[] } = $props();

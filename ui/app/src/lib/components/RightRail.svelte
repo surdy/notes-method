@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { executeSql, getNote, type SqlQueryResult } from '$lib/api';
 	import { buildBacklinksQuery, buildOutgoingLinksQuery, buildRailMetadata } from '$lib/right-rail';
+	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
 	type RailLink = { path: string; label: string };
@@ -21,7 +22,7 @@
 	const metadataEntries = $derived.by(() => Object.entries(metadata ?? {}));
 
 	$effect(() => {
-		const path = vaultStore.selectedPath;
+		const path = tabStore.selectedPath;
 		if (!path) {
 			clearRail();
 			return;
@@ -44,7 +45,7 @@
 			getNote(vault, path)
 		]);
 
-		if (token !== loadToken || vaultStore.selectedPath !== path || vaultStore.currentVault !== vault) {
+		if (token !== loadToken || tabStore.selectedPath !== path || vaultStore.currentVault !== vault) {
 			return;
 		}
 
@@ -109,12 +110,12 @@
 	}
 
 	function navigateTo(path: string) {
-		vaultStore.selectNote(path);
+		tabStore.selectNote(path);
 	}
 
 	export function refresh() {
-		if (vaultStore.selectedPath) {
-			void loadRailData(vaultStore.selectedPath);
+		if (tabStore.selectedPath) {
+			void loadRailData(tabStore.selectedPath);
 		}
 	}
 
@@ -138,8 +139,8 @@
 		<div class="rail-header">
 			<div>
 				<h2>Context</h2>
-				{#if vaultStore.selectedPath}
-					<p>{vaultStore.selectedPath}</p>
+				{#if tabStore.selectedPath}
+					<p>{tabStore.selectedPath}</p>
 				{/if}
 			</div>
 			{#if loading}
@@ -147,7 +148,7 @@
 			{/if}
 		</div>
 
-		{#if !vaultStore.selectedPath}
+		{#if !tabStore.selectedPath}
 			<div class="rail-empty">Select a note to see metadata and links.</div>
 		{:else}
 			{#if error}

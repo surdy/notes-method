@@ -1,6 +1,7 @@
 <script lang="ts">
 import { fuzzyFilter } from '$lib/fuzzy';
 import type { NoteSummary } from '$lib/api';
+import { tabStore } from '$lib/tab-store.svelte';
 import { vaultStore } from '$lib/stores.svelte';
 
 let { onClose }: { onClose: () => void } = $props();
@@ -21,7 +22,7 @@ return fuzzyFilter(query, vaultStore.notes, (note) => `${note.title} ${note.path
 });
 
 function openNote(note: NoteSummary) {
-vaultStore.selectNote(note.path);
+tabStore.selectNote(note.path);
 onClose();
 }
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { SqlQueryResult } from '$lib/api';
-	import { vaultStore } from '$lib/stores.svelte';
+	import { tabStore } from '$lib/tab-store.svelte';
 
 	type Row = Record<string, unknown>;
 	type SidebarViewListConfig = {
@@ -56,7 +56,7 @@
 	function openRow(row: Row) {
 		const path = row.path;
 		if (typeof path !== 'string' || !path) return;
-		vaultStore.selectNote(path);
+		tabStore.selectNote(path);
 	}
 
 	function isOpenable(row: Row): boolean {
@@ -127,7 +127,7 @@
 				<button
 					class="view-row"
 					class:openable={isOpenable(row)}
-					class:selected={typeof row.path === 'string' && vaultStore.selectedPath === row.path}
+					class:selected={typeof row.path === 'string' && tabStore.selectedPath === row.path}
 					disabled={!isOpenable(row)}
 					onclick={() => openRow(row)}
 					type="button"

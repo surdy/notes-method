@@ -31,6 +31,7 @@ import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-bl
 import { notesmithTheme } from '$lib/editor/theme';
 import { shouldLoadSelectedNote } from '$lib/note-loading';
 import { isDashboardNote } from '$lib/right-rail';
+import { tabStore } from '$lib/tab-store.svelte';
 import { vaultStore } from '$lib/stores.svelte';
 
 const TASK_LINE_RE = /^\s*[-*+]\s+\[[ xX/\-bwhBWH]\]/;
@@ -67,7 +68,7 @@ currentHash = hash;
 dirty = false;
 saveError = null;
 if (currentPath) {
-vaultStore.markDirty(currentPath, false);
+tabStore.markDirty(currentPath, false);
 ignoreExternalChange = {
 path: currentPath,
 expiresAt: Date.now() + 1500
@@ -167,11 +168,11 @@ createSqlBlockPlugin(() => vaultStore.currentVault),
 createOFMDecorations({
 notes: () => vaultStore.notes,
 taskHashes: () => currentTaskHashes,
-onNavigate: (path) => vaultStore.selectNote(path),
+onNavigate: (path) => tabStore.selectNote(path),
 onTaskToggle: handleTaskToggle
 }),
 livePreviewCompartment.of(
-	vaultStore.activeViewMode === 'live-preview' ? createLivePreviewExtension() : []
+	tabStore.activeViewMode === 'live-preview' ? createLivePreviewExtension() : []
 ),
 EditorView.updateListener.of((update) => {
 if (!update.docChanged) {
@@ -180,7 +181,7 @@ return;
 dirty = true;
 saveError = null;
 if (currentPath) {
-vaultStore.markDirty(currentPath, true);
+tabStore.markDirty(currentPath, true);
 }
 autoSave.schedule(update.state.doc.toString());
 })
@@ -209,7 +210,7 @@ setDashboardMode(false);
 try {
 const vault = vaultStore.currentVault;
 const note = await getNote(vault, path);
-if (activeLoadToken !== token || vaultStore.selectedPath !== path || vaultStore.currentVault !== vault) {
+if (activeLoadToken !== token || tabStore.selectedPath !== path || vaultStore.currentVault !== vault) {
 return;
 }
 
@@ -218,12 +219,12 @@ currentHash = note.hash;
 currentTaskHashes = buildTaskHashes(note);
 loading = false;
 await tick();
-if (activeLoadToken !== token || vaultStore.selectedPath !== path || vaultStore.currentVault !== vault) {
+if (activeLoadToken !== token || tabStore.selectedPath !== path || vaultStore.currentVault !== vault) {
 return;
 }
 setDashboardMode(isDashboardNote(note.frontmatter));
 createEditor(note);
-vaultStore.markDirty(path, false);
+tabStore.markDirty(path, false);
 } catch (cause) {
 if (activeLoadToken !== token) {
 return;
@@ -308,7 +309,7 @@ return;
 conflictBanner = null;
 dirty = false;
 saveError = null;
-vaultStore.markDirty(currentPath, false);
+tabStore.markDirty(currentPath, false);
 await loadNote(currentPath);
 }
 
@@ -318,7 +319,7 @@ conflictBanner = null;
 }
 
 $effect(() => {
-const path = vaultStore.selectedPath;
+const path = tabStore.selectedPath;
 untrack(() => {
 	if (
 	path &&
@@ -351,7 +352,7 @@ untrack(() => {
 });
 
 $effect(() => {
-const mode = vaultStore.activeViewMode;
+const mode = tabStore.activeViewMode;
 untrack(() => {
 	if (!view) return;
 	view.dispatch({
@@ -371,7 +372,7 @@ destroyEditor();
 </script>
 
 <div class="note-editor">
-{#if !vaultStore.selectedPath}
+{#if !tabStore.selectedPath}
 <div class="empty-state">
 <p>Select a note from the sidebar to edit</p>
 </div>

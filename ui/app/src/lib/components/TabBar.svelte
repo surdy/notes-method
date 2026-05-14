@@ -1,26 +1,26 @@
 <script lang="ts">
-	import { vaultStore, type Tab } from '$lib/stores.svelte';
+	import { tabStore, type Tab } from '$lib/tab-store.svelte';
 
 	let dragIndex = $state<number | null>(null);
 	let dropIndex = $state<number | null>(null);
-	let tabs = $derived(vaultStore.tabs as Tab[]);
+	let tabs = $derived(tabStore.tabs as Tab[]);
 
 	function handleClose(event: MouseEvent, index: number) {
 		event.stopPropagation();
-		vaultStore.closeTab(index);
+		tabStore.closeTab(index);
 	}
 
 	function handleMousedown(event: MouseEvent, index: number) {
 		if (event.button === 1) {
 			event.preventDefault();
-			vaultStore.closeTab(index);
+			tabStore.closeTab(index);
 		}
 	}
 
 	function handleKeydown(event: KeyboardEvent, index: number) {
 		if (event.key === 'Enter' || event.key === ' ') {
 			event.preventDefault();
-			vaultStore.switchToTab(index);
+			tabStore.switchToTab(index);
 		}
 	}
 
@@ -40,7 +40,7 @@
 	function handleDrop(event: DragEvent, index: number) {
 		event.preventDefault();
 		if (dragIndex !== null && dragIndex !== index) {
-			vaultStore.moveTab(dragIndex, index);
+			tabStore.moveTab(dragIndex, index);
 		}
 		dragIndex = null;
 		dropIndex = null;
@@ -57,16 +57,16 @@
 		{#each tabs as tab, index (tab.path)}
 			<div
 				class="tab-shell"
-				class:active={index === vaultStore.activeTabIndex}
+				class:active={index === tabStore.activeTabIndex}
 				class:drag-over={dropIndex === index && dragIndex !== index}
 			>
 				<div
 					class="tab"
 					role="tab"
-					tabindex={index === vaultStore.activeTabIndex ? 0 : -1}
-					aria-selected={index === vaultStore.activeTabIndex}
+					tabindex={index === tabStore.activeTabIndex ? 0 : -1}
+					aria-selected={index === tabStore.activeTabIndex}
 					draggable="true"
-					onclick={() => vaultStore.switchToTab(index)}
+					onclick={() => tabStore.switchToTab(index)}
 					onkeydown={(event) => handleKeydown(event, index)}
 					ondragstart={(event) => handleDragStart(event, index)}
 					ondragover={(event) => handleDragOver(event, index)}

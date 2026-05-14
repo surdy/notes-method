@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
 	let { vaults }: { vaults: string[] } = $props();
@@ -6,7 +7,7 @@
 	function switchVault(event: Event) {
 		const target = event.target as HTMLSelectElement;
 		vaultStore.currentVault = target.value;
-		vaultStore.selectedPath = null;
+		tabStore.selectedPath = null;
 		void vaultStore.loadNotes();
 	}
 </script>

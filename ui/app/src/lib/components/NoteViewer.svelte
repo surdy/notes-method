@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getNote, getNoteHtml, toggleTaskStatus, type NoteTask, type TaskMutationStatus } from '$lib/api';
+	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
 	let html = $state('');
@@ -72,7 +73,7 @@
 				note.path.endsWith(`${noteTarget}.md`)
 		);
 		if (match) {
-			vaultStore.selectNote(match.path);
+			tabStore.selectNote(match.path);
 		}
 	}
 
