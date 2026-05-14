@@ -1,3 +1,4 @@
+use notesmith_config::DaemonLockfile;
 use std::{future::Future, io, path::PathBuf, process::Stdio, time::Duration};
 use tokio::time::Instant;
 
@@ -117,6 +118,7 @@ pub async fn ensure_daemon_running_with(settings: DaemonSettings) -> Result<(), 
 }
 
 async fn probe_daemon(settings: DaemonSettings) -> bool {
+    let daemon_url = discover_daemon_url(&settings);
     let client = match reqwest::Client::builder()
         .timeout(settings.ping_timeout)
         .build()
@@ -129,11 +131,35 @@ async fn probe_daemon(settings: DaemonSettings) -> bool {
     };
 
     client
-        .get(settings.ping_url())
+        .get(format!("{}/ping", daemon_url.trim_end_matches('/')))
         .send()
         .await
         .map(|response| response.status().is_success())
         .unwrap_or(false)
+}
+
+fn discover_daemon_url(settings: &DaemonSettings) -> String {
+    match DaemonLockfile::read_active() {
+        Ok(Some(lockfile)) => daemon_url_for_port(&settings.daemon_url, lockfile.port),
+        Ok(None) => settings.daemon_url.clone(),
+        Err(error) => {
+            tracing::warn!("failed to read daemon lockfile: {error}");
+            settings.daemon_url.clone()
+        }
+    }
+}
+
+fn daemon_url_for_port(base_url: &str, port: u16) -> String {
+    let fallback = format!("http://127.0.0.1:{port}");
+    let Ok(mut url) = reqwest::Url::parse(base_url) else {
+        return fallback;
+    };
+
+    if url.set_port(Some(port)).is_err() {
+        return fallback;
+    }
+
+    url.to_string().trim_end_matches('/').to_string()
 }
 
 async fn launch_daemon(settings: DaemonSettings) -> Result<(), DynError> {
@@ -310,5 +336,21 @@ mod tests {
     fn program_falls_back_to_daemon_bin_when_no_sidecar() {
         let settings = test_settings();
         assert_eq!(settings.program(), "notesmith");
+    }
+
+    #[test]
+    fn daemon_url_for_port_replaces_existing_port() {
+        assert_eq!(
+            super::daemon_url_for_port("http://127.0.0.1:27183", 39000),
+            "http://127.0.0.1:39000"
+        );
+    }
+
+    #[test]
+    fn daemon_url_for_port_falls_back_for_invalid_base_url() {
+        assert_eq!(
+            super::daemon_url_for_port("not a url", 39000),
+            "http://127.0.0.1:39000"
+        );
     }
 }

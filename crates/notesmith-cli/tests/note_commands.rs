@@ -68,6 +68,11 @@ impl DaemonProcess {
         let child = Command::new(notesmith_bin())
             .env("XDG_CONFIG_HOME", config_home)
             .env("XDG_CACHE_HOME", cache_home)
+            .env("HOME", config_home.parent().unwrap())
+            .env(
+                "XDG_RUNTIME_DIR",
+                config_home.parent().unwrap().join("runtime"),
+            )
             .arg("daemon")
             .arg("start")
             .stdout(Stdio::piped())

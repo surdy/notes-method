@@ -35,7 +35,7 @@ The daemon indexes all registered vaults on startup and watches for file changes
 
 ## Desktop app
 
-The Notesmith desktop shell wraps the daemon-served web UI in a native Tauri window. It auto-starts the daemon if needed, opens `http://127.0.0.1:27183/app/`, and exposes tray/menu actions for opening the app, quick capture, and quitting.
+The Notesmith desktop shell wraps the daemon-served web UI in a native Tauri window. It auto-starts the daemon if needed, discovers the live daemon via the Notesmith lockfile, and exposes tray/menu actions for opening the app, quick capture, and quitting.
 
 ```bash
 # Run the desktop shell during development

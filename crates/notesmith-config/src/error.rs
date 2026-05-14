@@ -24,6 +24,9 @@ pub enum ConfigError {
     #[error("No config directory found")]
     NoConfigDir,
 
+    #[error("No data directory found")]
+    NoDataDir,
+
     #[error("Vault not found: {name}")]
     VaultNotFound { name: String },
 

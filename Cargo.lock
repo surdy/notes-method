@@ -1698,10 +1698,13 @@ name = "notesmith-config"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "dirs",
  "insta",
+ "libc",
  "notesmith-core",
  "serde",
+ "serde_json",
  "serde_yaml",
  "tempfile",
  "thiserror 2.0.18",

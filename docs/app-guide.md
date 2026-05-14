@@ -12,7 +12,7 @@ Notesmith uses a three-pane layout:
 - **Editor area (center):** tabs, note toolbar, editing, and reading
 - **Right rail (right):** context for the selected note
 
-The desktop app connects to the Notesmith daemon at `http://127.0.0.1:27183`.
+The desktop app connects to the live Notesmith daemon discovered from the Notesmith lockfile. By default that is `http://127.0.0.1:27183`, but the desktop shell follows the daemon's active port when it changes.
 
 In practice, that means:
 

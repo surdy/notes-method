@@ -143,3 +143,4 @@ For each customer there would be a folder containing:
 
 - The daemon should expose `GET /api/status` with version, API schema, uptime, vault note counts, watcher/index health placeholders, and resource diagnostics (RSS, open FDs, SSE connection count, cache size).
 - `GET /ping` remains as a lightweight compatibility alias for scripts, but richer clients should rely on `/api/status`.
+- The daemon should write a JSON lockfile at the platform-specific Notesmith data/runtime location containing PID, port, version, start time, and binary path so desktop and other local clients can discover the live daemon and clean up stale entries.

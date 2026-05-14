@@ -1953,9 +1953,12 @@ name = "notesmith-config"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "dirs",
+ "libc",
  "notesmith-core",
  "serde",
+ "serde_json",
  "serde_yaml",
  "thiserror 2.0.18",
  "toml 0.8.2",

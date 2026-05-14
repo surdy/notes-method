@@ -14,7 +14,7 @@ use axum::{
     routing::{get, post},
 };
 use chrono::{DateTime, Utc};
-use notesmith_config::{GlobalConfig, VaultConfig};
+use notesmith_config::{DaemonLockfile, GlobalConfig, VaultConfig};
 use notesmith_core::VaultEngine;
 use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_vault::NativeVaultEngine;
@@ -250,6 +250,7 @@ async fn wait_for_shutdown_signal(shutdown_rx: watch::Receiver<bool>) -> anyhow:
 async fn serve_shared_with_listener(
     listener: TcpListener,
     state: SharedAppState,
+    remove_lockfile_on_shutdown: bool,
 ) -> anyhow::Result<()> {
     let shutdown_rx = {
         let state = state.read().await;
@@ -261,13 +262,19 @@ async fn serve_shared_with_listener(
             if let Err(error) = wait_for_shutdown_signal(shutdown_rx).await {
                 tracing::warn!("graceful shutdown signal listener failed: {error}");
             }
+
+            if remove_lockfile_on_shutdown {
+                if let Err(error) = DaemonLockfile::remove() {
+                    tracing::warn!("failed to remove daemon lockfile during shutdown: {error}");
+                }
+            }
         })
         .await
         .context("failed to serve notesmith-http")
 }
 
 pub async fn serve_with_listener(listener: TcpListener, state: AppState) -> anyhow::Result<()> {
-    serve_shared_with_listener(listener, Arc::new(RwLock::new(state))).await
+    serve_shared_with_listener(listener, Arc::new(RwLock::new(state)), false).await
 }
 
 pub async fn serve(bind: &str, state: AppState) -> anyhow::Result<()> {
@@ -277,10 +284,67 @@ pub async fn serve(bind: &str, state: AppState) -> anyhow::Result<()> {
     serve_with_listener(listener, state).await
 }
 
+struct DaemonLockfileGuard;
+
+impl Drop for DaemonLockfileGuard {
+    fn drop(&mut self) {
+        if let Err(error) = DaemonLockfile::remove() {
+            tracing::warn!("failed to remove daemon lockfile: {error}");
+        }
+    }
+}
+
+fn ensure_no_active_daemon() -> anyhow::Result<()> {
+    if let Some(lockfile) = DaemonLockfile::read_active()? {
+        anyhow::bail!(
+            "Another Notesmith daemon is running (PID {} on port {})",
+            lockfile.pid,
+            lockfile.port
+        );
+    }
+
+    Ok(())
+}
+
+fn write_daemon_lockfile(listener: &TcpListener, started_at: DateTime<Utc>) -> anyhow::Result<()> {
+    let lockfile = DaemonLockfile {
+        pid: std::process::id(),
+        port: listener
+            .local_addr()
+            .context("failed to read bound daemon address")?
+            .port(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        started_at,
+        binary_path: std::env::current_exe().context("failed to resolve daemon binary path")?,
+    };
+
+    match lockfile.write() {
+        Ok(()) => Ok(()),
+        Err(notesmith_config::ConfigError::WriteError { source, .. })
+            if source.kind() == std::io::ErrorKind::AlreadyExists =>
+        {
+            if let Some(existing) = DaemonLockfile::read_active()? {
+                anyhow::bail!(
+                    "Another Notesmith daemon is running (PID {} on port {})",
+                    existing.pid,
+                    existing.port
+                );
+            }
+
+            lockfile
+                .write()
+                .context("failed to write daemon lockfile after clearing stale entry")
+        }
+        Err(error) => Err(error).context("failed to write daemon lockfile"),
+    }
+}
+
 pub async fn serve_configured_vaults(
     config: &GlobalConfig,
     bind_override: Option<&str>,
 ) -> anyhow::Result<()> {
+    ensure_no_active_daemon()?;
+
     let bind = bind_override.unwrap_or(&config.daemon.bind);
     let state = Arc::new(RwLock::new(build_app_state(config)?));
     let _watchers = watch_all_vaults(state.clone()).await?;
@@ -326,7 +390,15 @@ pub async fn serve_configured_vaults(
     let listener = TcpListener::bind(bind)
         .await
         .with_context(|| format!("failed to bind notesmith-http to {bind}"))?;
-    serve_shared_with_listener(listener, state).await
+
+    let started_at = {
+        let state = state.read().await;
+        state.started_at
+    };
+    write_daemon_lockfile(&listener, started_at)?;
+    let _lockfile_guard = DaemonLockfileGuard;
+
+    serve_shared_with_listener(listener, state, true).await
 }
 
 pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
