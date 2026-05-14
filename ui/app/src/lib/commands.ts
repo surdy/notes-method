@@ -10,6 +10,7 @@ import {
 } from './api';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
+import { OPEN_QUICK_SWITCHER_EVENT } from './command-events';
 import { tabStore } from './tab-store.svelte';
 import { vaultStore } from './stores.svelte';
 
@@ -21,7 +22,7 @@ shortcut?: string;
 execute: () => void | Promise<void>;
 }
 
-export const OPEN_QUICK_SWITCHER_EVENT = 'notesmith:open-quick-switcher';
+export { OPEN_QUICK_SWITCHER_EVENT } from './command-events';
 
 function promptValue(message: string, defaultValue = ''): string | null {
 return window.prompt(message, defaultValue);

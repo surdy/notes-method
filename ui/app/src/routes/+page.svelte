@@ -1,176 +1,106 @@
 <script lang="ts">
-import { onMount } from 'svelte';
-import { goto } from '$app/navigation';
-import { base } from '$app/paths';
-import type { CustomItem } from '$lib/api';
-import { buildCommands, OPEN_QUICK_SWITCHER_EVENT } from '$lib/commands';
-import CommandPalette from '$lib/components/CommandPalette.svelte';
-import ConfigToast from '$lib/components/ConfigToast.svelte';
-import MiddlePane from '$lib/components/MiddlePane.svelte';
-import NoteEditor from '$lib/components/NoteEditor.svelte';
-import NoteToolbar from '$lib/components/NoteToolbar.svelte';
-import NoteViewer from '$lib/components/NoteViewer.svelte';
-import QuickSwitcher from '$lib/components/QuickSwitcher.svelte';
-import RightRail from '$lib/components/RightRail.svelte';
-import SidebarViews from '$lib/components/SidebarViews.svelte';
-import TabBar from '$lib/components/TabBar.svelte';
-import VaultSwitcher from '$lib/components/VaultSwitcher.svelte';
-import { registerHotkeys } from '$lib/hotkeys';
-import { connectSSE } from '$lib/sse';
-import { tabStore } from '$lib/tab-store.svelte';
-import { vaultStore } from '$lib/stores.svelte';
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
+	import type { CustomItem } from '$lib/api';
+	import { createAppShell } from '$lib/app-shell.svelte';
+	import { buildCommands } from '$lib/commands';
+	import CommandPalette from '$lib/components/CommandPalette.svelte';
+	import ConfigToast from '$lib/components/ConfigToast.svelte';
+	import MiddlePane from '$lib/components/MiddlePane.svelte';
+	import NoteEditor from '$lib/components/NoteEditor.svelte';
+	import NoteToolbar from '$lib/components/NoteToolbar.svelte';
+	import NoteViewer from '$lib/components/NoteViewer.svelte';
+	import QuickSwitcher from '$lib/components/QuickSwitcher.svelte';
+	import RightRail from '$lib/components/RightRail.svelte';
+	import SidebarViews from '$lib/components/SidebarViews.svelte';
+	import TabBar from '$lib/components/TabBar.svelte';
+	import VaultSwitcher from '$lib/components/VaultSwitcher.svelte';
+	import { tabStore } from '$lib/tab-store.svelte';
+	import { vaultStore } from '$lib/stores.svelte';
 
-let vaults = $state<string[]>([]);
-let showCommandPalette = $state(false);
-let showQuickSwitcher = $state(false);
-let sseConnection: EventSource | null = null;
-let sidebarViewsRef = $state<{ refresh: () => void; reloadConfig: () => void } | null>(null);
-let noteEditorRef = $state<
-| {
-handleExternalChange: (path: string) => void;
-refreshSqlBlocks: () => void;
-flushSave: () => Promise<void>;
-  }
-| null
->(null);
-let rightRailRef = $state<{ refresh: () => void; toggle: () => void } | null>(null);
-let activeMiddlePaneItem = $state<CustomItem | null>(null);
-let configToastRef = $state<{ show: (message: string, type: 'info' | 'error') => void } | null>(
-	null
-);
+	let vaults = $state<string[]>([]);
+	let showCommandPalette = $state(false);
+	let showQuickSwitcher = $state(false);
+	let sidebarViewsRef = $state<{ refresh: () => void; reloadConfig: () => void } | null>(null);
+	let noteEditorRef = $state<
+		| {
+				handleExternalChange: (path: string) => void;
+				refreshSqlBlocks: () => void;
+				flushSave: () => Promise<void>;
+		  }
+		| null
+	>(null);
+	let rightRailRef = $state<{ refresh: () => void; toggle: () => void } | null>(null);
+	let activeMiddlePaneItem = $state<CustomItem | null>(null);
+	let configToastRef = $state<
+		{ show: (message: string, type: 'info' | 'error') => void } | null
+	>(null);
 
-function showConfigToast(message: string, type: 'info' | 'error') {
-	configToastRef?.show(message, type);
-}
-
-let commands = $derived.by(() =>
-buildCommands(vaultStore.currentVault, (path) => {
-tabStore.selectNote(path);
-})
-);
-
-function openCommandPalette() {
-showCommandPalette = true;
-showQuickSwitcher = false;
-}
-
-function openQuickSwitcher() {
-showQuickSwitcher = true;
-showCommandPalette = false;
-}
-
-function runCommand(commandId: string) {
-const command = commands.find((candidate) => candidate.id === commandId);
-if (command) {
-void Promise.resolve(command.execute()).catch((error) => {
-console.error(`Failed to execute command: ${commandId}`, error);
-});
-}
-}
-
-async function handleToggleView() {
-if (tabStore.activeViewMode === 'live-preview') {
-await noteEditorRef?.flushSave();
-}
-tabStore.toggleViewMode();
-}
-
-onMount(() => {
-const handleOpenQuickSwitcher = () => openQuickSwitcher();
-const refreshContextPanels = () => {
-sidebarViewsRef?.refresh();
-rightRailRef?.refresh();
-noteEditorRef?.refreshSqlBlocks();
-};
-
-window.addEventListener(OPEN_QUICK_SWITCHER_EVENT, handleOpenQuickSwitcher as EventListener);
-
-void (async () => {
-try {
-const url = new URL(window.location.href);
-const vault = url.searchParams.get('vault') ?? 'work';
-vaults = [vault];
-vaultStore.currentVault = vault;
-tabStore.restoreTabs();
-await vaultStore.loadNotes();
-
-sseConnection = connectSSE(
-vault,
-(event) => {
-const refreshNotes =
-event.type.startsWith('note.') ||
-event.type === 'note.captured' ||
-event.type === 'daily.created' ||
-event.type === 'cache.rebuilt';
-if (refreshNotes) {
-void vaultStore.loadNotes().finally(() => {
-	refreshContextPanels();
-});
-}
-if (event.type === 'note.updated' || event.type === 'note.created') {
-noteEditorRef?.handleExternalChange(event.path);
-}
-if (!refreshNotes && event.type === 'task.updated') {
-refreshContextPanels();
-}
-// Config change events
-if (event.type.startsWith('config.')) {
-if (event.config?.key === 'sidebar') {
-	if (event.config.status === 'error') {
-		showConfigToast(
-			`Sidebar config error: ${event.config.error ?? 'unknown error'}`,
-			'error'
-		);
-	} else {
-		sidebarViewsRef?.reloadConfig();
+	function showConfigToast(message: string, type: 'info' | 'error') {
+		configToastRef?.show(message, type);
 	}
-}
-if (event.config?.key === 'vault') {
-	if (event.config.status === 'error') {
-		showConfigToast(
-			`Vault config error: ${event.config.error ?? 'unknown error'}`,
-			'error'
-		);
+
+	function refreshContextPanels() {
+		sidebarViewsRef?.refresh();
+		rightRailRef?.refresh();
+		noteEditorRef?.refreshSqlBlocks();
 	}
-}
-}
-},
-() => {
-// Defensive refetch on SSE reconnect — events may have been missed.
-sidebarViewsRef?.reloadConfig();
-}
-);
-} catch (error) {
-console.error('Failed to initialize Notesmith app shell', error);
-}
-})();
 
-const unregister = registerHotkeys([
-{ key: 'k', meta: true, action: openCommandPalette },
-{ key: 'p', meta: true, action: openCommandPalette },
-{ key: 'o', meta: true, action: openQuickSwitcher },
-{ key: 'w', meta: true, action: () => tabStore.closeActiveTab() },
-{ key: 'n', meta: true, action: () => runCommand('new-note') },
-{ key: 'd', meta: true, action: () => runCommand('open-daily') },
-{ key: 'a', meta: true, shift: true, action: () => runCommand('archive-current') },
-{ key: 'n', meta: true, shift: true, action: () => runCommand('capture') },
-{ key: 's', meta: true, action: () => {} },
-{ key: 'e', meta: true, action: () => void handleToggleView() },
-{ key: 't', meta: true, shift: true, action: () => tabStore.reopenLastTab() },
-{ key: '\\', meta: true, action: () => rightRailRef?.toggle() },
-{ key: 'f', meta: true, shift: true, action: openQuickSwitcher },
-{ key: ',', meta: true, action: () => void goto(`${base}/settings?vault=${encodeURIComponent(vaultStore.currentVault)}`) }
-]);
+	let commands = $derived.by(() =>
+		buildCommands(vaultStore.currentVault, (path) => {
+			tabStore.selectNote(path);
+		})
+	);
 
-return () => {
-window.removeEventListener(
-OPEN_QUICK_SWITCHER_EVENT,
-handleOpenQuickSwitcher as EventListener
-);
-sseConnection?.close();
-unregister();
-};
-});
+	function openCommandPalette() {
+		showCommandPalette = true;
+		showQuickSwitcher = false;
+	}
+
+	function openQuickSwitcher() {
+		showQuickSwitcher = true;
+		showCommandPalette = false;
+	}
+
+	async function handleToggleView() {
+		if (tabStore.activeViewMode === 'live-preview') {
+			await noteEditorRef?.flushSave();
+		}
+
+		tabStore.toggleViewMode();
+	}
+
+	const shell = createAppShell({
+		onOpenCommandPalette: openCommandPalette,
+		onOpenQuickSwitcher: openQuickSwitcher,
+		onToggleView: handleToggleView,
+		onToggleRightRail: () => rightRailRef?.toggle(),
+		onOpenSettings: () =>
+			void goto(`${base}/settings?vault=${encodeURIComponent(vaultStore.currentVault)}`),
+		onNotesChanged: refreshContextPanels,
+		onExternalNoteChange: (path) => {
+			noteEditorRef?.handleExternalChange(path);
+		},
+		onTaskUpdated: refreshContextPanels,
+		onSidebarConfigChanged: () => {
+			sidebarViewsRef?.reloadConfig();
+		},
+		onVaultConfigChanged: () => {},
+		onConfigError: (error) => {
+			showConfigToast(error, 'error');
+		},
+		commands: () => commands
+	});
+
+	onMount(() => {
+		const url = new URL(window.location.href);
+		const vaultParam = url.searchParams.get('vault');
+
+		void shell.init(vaultParam, vaults);
+
+		return shell.teardown;
+	});
 </script>
 
 <div class="app-layout">
