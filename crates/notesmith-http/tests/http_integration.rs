@@ -354,6 +354,7 @@ async fn execute_sql_returns_query_result_json() {
     let body = response.json::<serde_json::Value>().await.unwrap();
     assert_eq!(body["columns"], serde_json::json!(["title"]));
     assert_eq!(body["row_count"], serde_json::json!(3));
+    assert_eq!(body["truncated"], serde_json::json!(false));
 
     server.abort();
 }

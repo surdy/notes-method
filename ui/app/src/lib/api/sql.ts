@@ -9,6 +9,7 @@ interface RawSqlQueryResult {
 	columns: string[];
 	rows: unknown[][];
 	row_count: number;
+	truncated: boolean;
 }
 
 export async function executeSql(vault: string, sql: string): Promise<SqlQueryResult> {

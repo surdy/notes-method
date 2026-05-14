@@ -411,10 +411,22 @@ Execute read-only SQL against the SQLite cache. Only `SELECT` and `WITH` stateme
 
 **Request body:**
 ```json
-{ "sql": "SELECT title, state FROM v_customers ORDER BY title" }
+{
+  "sql": "SELECT title, state FROM v_customers ORDER BY title",
+  "max_rows": 10000,
+  "format": "json"
+}
 ```
 
-**Response:** `200 OK`
+**Request fields:**
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `sql` | string | yes | — | Read-only SQL statement |
+| `max_rows` | integer | no | `10000` | Maximum rows returned before truncation |
+| `format` | `json` \| `markdown` | no | `json` | Response format |
+
+**Response (`format: "json"`):** `200 OK`
 ```json
 {
   "columns": ["title", "state"],
@@ -422,8 +434,17 @@ Execute read-only SQL against the SQLite cache. Only `SELECT` and `WITH` stateme
     ["Acme Corp", "Active"],
     ["Globex Industries", "Onboarding"]
   ],
-  "row_count": 2
+  "row_count": 2,
+  "truncated": false
 }
+```
+
+**Response (`format: "markdown"`):** `200 OK`
+```text
+| title | state |
+| --- | --- |
+| Acme Corp | Active |
+| Globex Industries | Onboarding |
 ```
 
 **Errors:**
@@ -436,6 +457,12 @@ Execute read-only SQL against the SQLite cache. Only `SELECT` and `WITH` stateme
 curl -s http://127.0.0.1:27183/api/v/work/query/sql \
   -H 'content-type: application/json' \
   -d '{"sql":"SELECT title, state FROM v_customers ORDER BY title"}'
+```
+
+```bash
+curl -s http://127.0.0.1:27183/api/v/work/query/sql \
+  -H 'content-type: application/json' \
+  -d '{"sql":"SELECT title, state FROM v_customers ORDER BY title","format":"markdown","max_rows":25}'
 ```
 
 See [SQL Views Reference](sql-views.md) for available views.
