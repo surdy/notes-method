@@ -1,6 +1,9 @@
+import { API_BASE } from './api/core.ts';
 import { OPEN_QUICK_SWITCHER_EVENT } from './command-events.ts';
 import type { Hotkey } from './hotkeys.ts';
 import type { VaultEvent } from './sse.ts';
+
+const RESYNC_DEBOUNCE_MS = 5000;
 
 export interface CommandLike {
 	id: string;
@@ -67,6 +70,7 @@ export interface AppShellDependencies {
 	vaultStore: AppShellVaultStore;
 	tabStore: AppShellTabStore;
 	targetWindow: AppShellWindowTarget;
+	addVisibilityListener?: (callback: () => void) => () => void;
 	logger?: Pick<Console, 'error'>;
 }
 
@@ -147,8 +151,35 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 
 	let sseConnection: AppShellEventSource | null = null;
 	let unregisterHotkeys = () => {};
+	let removeVisibilityListener = () => {};
 	let handleOpenQuickSwitcher: EventListener | null = null;
 	let availableVaults: string[] | null = null;
+	let lastResyncTime = 0;
+
+	async function performResync() {
+		try {
+			const response = await fetch(`${API_BASE}/api/status`);
+			if (!response.ok) {
+				return;
+			}
+
+			await Promise.resolve(dependencies.vaultStore.loadNotes());
+			callbacks.onNotesChanged();
+			callbacks.onTaskUpdated();
+			callbacks.onSidebarConfigChanged();
+			callbacks.onVaultConfigChanged();
+		} catch {}
+	}
+
+	function resyncIfNeeded() {
+		const now = Date.now();
+		if (now - lastResyncTime < RESYNC_DEBOUNCE_MS) {
+			return;
+		}
+
+		lastResyncTime = now;
+		void performResync();
+	}
 
 	function handleEvent(event: VaultEvent) {
 		if (event.type === 'vaults.changed') {
@@ -187,17 +218,7 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 
 	function connectToVault(vault: string) {
 		sseConnection?.close();
-		sseConnection = dependencies.connectSSE(vault, handleEvent, async () => {
-			try {
-				await Promise.resolve(dependencies.vaultStore.loadNotes());
-				callbacks.onNotesChanged();
-				callbacks.onTaskUpdated();
-				callbacks.onSidebarConfigChanged();
-				callbacks.onVaultConfigChanged();
-			} catch (error) {
-				logger.error('Failed to resync after SSE reconnect', error);
-			}
-		});
+		sseConnection = dependencies.connectSSE(vault, handleEvent, performResync);
 	}
 
 	async function refreshVaultRegistrations() {
@@ -233,6 +254,7 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 		unregisterHotkeys = dependencies.registerHotkeys(
 			buildHotkeys(callbacks, dependencies.tabStore, logger)
 		);
+		removeVisibilityListener = dependencies.addVisibilityListener?.(resyncIfNeeded) ?? (() => {});
 
 		try {
 			const registrations = await dependencies.listVaults();
@@ -264,6 +286,9 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 
 		unregisterHotkeys();
 		unregisterHotkeys = () => {};
+		removeVisibilityListener();
+		removeVisibilityListener = () => {};
+		lastResyncTime = 0;
 		availableVaults = null;
 	}
 

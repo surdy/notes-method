@@ -210,89 +210,224 @@ test('createAppShell dispatches SSE events to the right page callbacks', async (
 
 	let onEvent: ((event: { type: string; path: string; config?: { key: 'sidebar' | 'vault'; status: 'changed' | 'removed' | 'error'; error?: string } }) => void) | undefined;
 	let onReconnect: (() => void) | undefined;
+	const originalFetch = globalThis.fetch;
+	const fetchCalls: string[] = [];
+	globalThis.fetch = (async (input: string | URL | Request) => {
+		fetchCalls.push(String(input));
+		return { ok: true } as Response;
+	}) as typeof fetch;
 
-	const { createAppShell } = await import('../src/lib/app-shell-core.ts');
+	try {
+		const { createAppShell } = await import('../src/lib/app-shell-core.ts');
 
-	const shell = createAppShell(callbacks, {
-		connectSSE: (_vault, handleEvent, handleReconnect) => {
-			onEvent = handleEvent as typeof onEvent;
-			onReconnect = handleReconnect;
-			return { close() {} } as EventSource;
-		},
-		listVaults: async () => [{ name: 'work', is_default: true }],
-		registerHotkeys: () => () => {},
-		vaultStore,
-		tabStore,
-		targetWindow: windowStub.window
-	});
+		const shell = createAppShell(callbacks, {
+			connectSSE: (_vault, handleEvent, handleReconnect) => {
+				onEvent = handleEvent as typeof onEvent;
+				onReconnect = handleReconnect;
+				return { close() {} } as EventSource;
+			},
+			listVaults: async () => [{ name: 'work', is_default: true }],
+			registerHotkeys: () => () => {},
+			vaultStore,
+			tabStore,
+			targetWindow: windowStub.window
+		});
 
-	await shell.init('work', []);
+		await shell.init('work', []);
 
-	onEvent?.({
-		vault: 'work',
-		type: 'note.updated',
-		path: 'Inbox/Refactor.md',
-		timestamp: new Date().toISOString()
-	});
-	await Promise.resolve();
+		onEvent?.({
+			vault: 'work',
+			type: 'note.updated',
+			path: 'Inbox/Refactor.md',
+			timestamp: new Date().toISOString()
+		});
+		await Promise.resolve();
 
-	assert.equal(vaultStore.loadNotesCalls, 2);
-	assert.equal(calls.notesChanged, 1);
-	assert.deepEqual(calls.externalNoteChanges, ['Inbox/Refactor.md']);
+		assert.equal(vaultStore.loadNotesCalls, 2);
+		assert.equal(calls.notesChanged, 1);
+		assert.deepEqual(calls.externalNoteChanges, ['Inbox/Refactor.md']);
 
-	onEvent?.({
-		vault: 'work',
-		type: 'task.updated',
-		path: 'Inbox/Refactor.md',
-		timestamp: new Date().toISOString()
-	});
-	assert.equal(calls.taskUpdated, 1);
+		onEvent?.({
+			vault: 'work',
+			type: 'task.updated',
+			path: 'Inbox/Refactor.md',
+			timestamp: new Date().toISOString()
+		});
+		assert.equal(calls.taskUpdated, 1);
 
-	onEvent?.({
-		vault: 'work',
-		type: 'config.changed',
-		path: '',
-		timestamp: new Date().toISOString(),
-		config: { key: 'sidebar', status: 'changed' }
-	});
-	assert.equal(calls.sidebarConfigChanged, 1);
+		onEvent?.({
+			vault: 'work',
+			type: 'config.changed',
+			path: '',
+			timestamp: new Date().toISOString(),
+			config: { key: 'sidebar', status: 'changed' }
+		});
+		assert.equal(calls.sidebarConfigChanged, 1);
 
-	onEvent?.({
-		vault: 'work',
-		type: 'config.changed',
-		path: '',
-		timestamp: new Date().toISOString(),
-		config: { key: 'sidebar', status: 'error', error: 'invalid section' }
-	});
-	onEvent?.({
-		vault: 'work',
-		type: 'config.changed',
-		path: '',
-		timestamp: new Date().toISOString(),
-		config: { key: 'vault', status: 'changed' }
-	});
-	onEvent?.({
-		vault: 'work',
-		type: 'config.changed',
-		path: '',
-		timestamp: new Date().toISOString(),
-		config: { key: 'vault', status: 'error', error: 'invalid root' }
-	});
+		onEvent?.({
+			vault: 'work',
+			type: 'config.changed',
+			path: '',
+			timestamp: new Date().toISOString(),
+			config: { key: 'sidebar', status: 'error', error: 'invalid section' }
+		});
+		onEvent?.({
+			vault: 'work',
+			type: 'config.changed',
+			path: '',
+			timestamp: new Date().toISOString(),
+			config: { key: 'vault', status: 'changed' }
+		});
+		onEvent?.({
+			vault: 'work',
+			type: 'config.changed',
+			path: '',
+			timestamp: new Date().toISOString(),
+			config: { key: 'vault', status: 'error', error: 'invalid root' }
+		});
 
-	assert.equal(calls.vaultConfigChanged, 1);
-	assert.deepEqual(calls.configErrors, [
-		'Sidebar config error: invalid section',
-		'Vault config error: invalid root'
-	]);
+		assert.equal(calls.vaultConfigChanged, 1);
+		assert.deepEqual(calls.configErrors, [
+			'Sidebar config error: invalid section',
+			'Vault config error: invalid root'
+		]);
 
-	onReconnect?.();
-	await Promise.resolve();
-	await Promise.resolve();
-	assert.equal(vaultStore.loadNotesCalls, 3);
-	assert.equal(calls.notesChanged, 2);
-	assert.equal(calls.taskUpdated, 2);
-	assert.equal(calls.sidebarConfigChanged, 2);
-	assert.equal(calls.vaultConfigChanged, 2);
+		onReconnect?.();
+		await Promise.resolve();
+		await Promise.resolve();
+		assert.deepEqual(fetchCalls, ['/api/status']);
+		assert.equal(vaultStore.loadNotesCalls, 3);
+		assert.equal(calls.notesChanged, 2);
+		assert.equal(calls.taskUpdated, 2);
+		assert.equal(calls.sidebarConfigChanged, 2);
+		assert.equal(calls.vaultConfigChanged, 2);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test('createAppShell resyncs through wake listener when daemon is healthy', async () => {
+	stubSvelteRunes();
+
+	const windowStub = createWindowStub();
+	const vaultStore = createVaultStoreStub();
+	const tabStore = createTabStoreStub();
+	const { calls, callbacks } = createCallbacks();
+
+	let wakeListener: (() => void) | undefined;
+	const originalFetch = globalThis.fetch;
+	const fetchCalls: string[] = [];
+	globalThis.fetch = (async (input: string | URL | Request) => {
+		fetchCalls.push(String(input));
+		return { ok: true } as Response;
+	}) as typeof fetch;
+
+	try {
+		const { createAppShell } = await import('../src/lib/app-shell-core.ts');
+
+		const shell = createAppShell(callbacks, {
+			connectSSE: () => ({ close() {} }) as EventSource,
+			listVaults: async () => [{ name: 'work', is_default: true }],
+			registerHotkeys: () => () => {},
+			vaultStore,
+			tabStore,
+			targetWindow: windowStub.window,
+			addVisibilityListener: (callback) => {
+				wakeListener = callback;
+				return () => {
+					wakeListener = undefined;
+				};
+			}
+		});
+
+		await shell.init('work', []);
+		wakeListener?.();
+		await Promise.resolve();
+		await Promise.resolve();
+
+		assert.deepEqual(fetchCalls, ['/api/status']);
+		assert.equal(vaultStore.loadNotesCalls, 2);
+		assert.equal(calls.notesChanged, 1);
+		assert.equal(calls.taskUpdated, 1);
+		assert.equal(calls.sidebarConfigChanged, 1);
+		assert.equal(calls.vaultConfigChanged, 1);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test('createAppShell debounces wake resyncs and removes the listener on teardown', async () => {
+	stubSvelteRunes();
+
+	const windowStub = createWindowStub();
+	const vaultStore = createVaultStoreStub();
+	const tabStore = createTabStoreStub();
+	const { callbacks } = createCallbacks();
+
+	let wakeListener: (() => void) | undefined;
+	let cleanupCalls = 0;
+	let now = 10_000;
+	const originalDateNow = Date.now;
+	const originalFetch = globalThis.fetch;
+	const fetchCalls: string[] = [];
+
+	Date.now = () => now;
+	globalThis.fetch = (async (input: string | URL | Request) => {
+		fetchCalls.push(String(input));
+		return { ok: true } as Response;
+	}) as typeof fetch;
+
+	try {
+		const { createAppShell } = await import('../src/lib/app-shell-core.ts');
+
+		const shell = createAppShell(callbacks, {
+			connectSSE: () => ({ close() {} }) as EventSource,
+			listVaults: async () => [{ name: 'work', is_default: true }],
+			registerHotkeys: () => () => {},
+			vaultStore,
+			tabStore,
+			targetWindow: windowStub.window,
+			addVisibilityListener: (callback) => {
+				wakeListener = callback;
+				return () => {
+					cleanupCalls += 1;
+					wakeListener = undefined;
+				};
+			}
+		});
+
+		await shell.init('work', []);
+
+		wakeListener?.();
+		await Promise.resolve();
+		await Promise.resolve();
+
+		now = 12_000;
+		wakeListener?.();
+		await Promise.resolve();
+		await Promise.resolve();
+
+		now = 16_000;
+		wakeListener?.();
+		await Promise.resolve();
+		await Promise.resolve();
+
+		assert.deepEqual(fetchCalls, ['/api/status', '/api/status']);
+		assert.equal(vaultStore.loadNotesCalls, 3);
+
+		shell.teardown();
+		assert.equal(cleanupCalls, 1);
+
+		now = 22_000;
+		wakeListener?.();
+		await Promise.resolve();
+		await Promise.resolve();
+
+		assert.deepEqual(fetchCalls, ['/api/status', '/api/status']);
+	} finally {
+		Date.now = originalDateNow;
+		globalThis.fetch = originalFetch;
+	}
 });
 
 test('createAppShell refreshes vault registrations after vaults.changed events', async () => {

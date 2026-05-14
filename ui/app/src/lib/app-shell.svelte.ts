@@ -16,6 +16,22 @@ export function createAppShell(callbacks: AppShellCallbacks) {
 		vaultStore,
 		tabStore,
 		targetWindow: window,
+		addVisibilityListener: (callback) => {
+			const handleVisibilityChange = () => {
+				if (document.visibilityState === 'visible') {
+					callback();
+				}
+			};
+			const handleWake = () => callback();
+
+			document.addEventListener('visibilitychange', handleVisibilityChange);
+			window.addEventListener('notesmith://wake', handleWake);
+
+			return () => {
+				document.removeEventListener('visibilitychange', handleVisibilityChange);
+				window.removeEventListener('notesmith://wake', handleWake);
+			};
+		},
 		logger: console
 	});
 }

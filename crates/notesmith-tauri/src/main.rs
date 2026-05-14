@@ -22,6 +22,7 @@ const MENU_OPEN: &str = "open";
 const MENU_CAPTURE: &str = "capture";
 const MENU_HIDE: &str = "hide";
 const MENU_QUIT: &str = "quit";
+const WAKE_EVENT_SCRIPT: &str = "window.dispatchEvent(new Event('notesmith://wake'));";
 
 #[derive(Default)]
 struct ExitState(AtomicBool);
@@ -90,12 +91,14 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|app_handle, event| {
-        if let RunEvent::ExitRequested { api, .. } = event
-            && !app_handle.state::<ExitState>().0.load(Ordering::SeqCst)
+    app.run(|app_handle, event| match event {
+        RunEvent::ExitRequested { api, .. }
+            if !app_handle.state::<ExitState>().0.load(Ordering::SeqCst) =>
         {
             api.prevent_exit();
         }
+        RunEvent::Resumed => emit_wake_event(app_handle),
+        _ => {}
     });
 }
 
@@ -250,6 +253,14 @@ fn navigate_webview<R: Runtime>(app: &AppHandle<R>, route: &str) {
         if let Err(error) = window.eval(&script) {
             tracing::error!("failed to navigate webview: {error}");
         }
+    }
+}
+
+fn emit_wake_event<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL)
+        && let Err(error) = window.eval(WAKE_EVENT_SCRIPT)
+    {
+        tracing::error!("failed to emit wake event: {error}");
     }
 }
 
