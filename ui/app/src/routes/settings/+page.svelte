@@ -7,6 +7,11 @@
 	import { registerHotkeys } from '$lib/hotkeys';
 	import SidebarSettings from '$lib/components/SidebarSettings.svelte';
 	import VaultsSettings from '$lib/components/VaultsSettings.svelte';
+	import DailySettings from '$lib/components/settings/DailySettings.svelte';
+	import EditorSettings from '$lib/components/settings/EditorSettings.svelte';
+	import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte';
+	import GitSettings from '$lib/components/settings/GitSettings.svelte';
+	import HooksSettings from '$lib/components/settings/HooksSettings.svelte';
 
 	type Section = 'general' | 'daily' | 'editor' | 'sidebar' | 'git' | 'hooks' | 'vaults';
 
@@ -40,38 +45,8 @@
 		void goto(`${base}/?vault=${encodeURIComponent(vault)}`);
 	}
 
-	function textField(
-		section: string,
-		value: string | null | undefined,
-		setter: (v: string) => void
-	) {
-		return {
-			value: value ?? '',
-			oninput(e: Event) {
-				setter((e.target as HTMLInputElement).value);
-				settingsStore.markDirty(section);
-			}
-		};
-	}
-
-	function toggleField(section: string, value: boolean, setter: (v: boolean) => void) {
-		return {
-			checked: value,
-			onchange(e: Event) {
-				setter((e.target as HTMLInputElement).checked);
-				void saveImmediate(section);
-			}
-		};
-	}
-
-	function selectField(section: string, value: string, setter: (v: string) => void) {
-		return {
-			value,
-			onchange(e: Event) {
-				setter((e.target as HTMLSelectElement).value);
-				void saveImmediate(section);
-			}
-		};
+	function markDirty(section: string) {
+		settingsStore.markDirty(section);
 	}
 
 	async function saveImmediate(section: string) {
@@ -190,291 +165,45 @@
 		{#if cfg}
 			<div class="settings-body">
 				{#if selectedSection === 'general'}
-					<section class="config-section">
-						{#if sectionIsDirty('name') || sectionIsDirty('homepage') || sectionIsDirty('capture')}
-							<div class="section-actions">
-								<button
-									type="button"
-									class="btn-save"
-									onclick={() => void saveSection('name')}>Save</button
-								>
-								<button
-									type="button"
-									class="btn-revert"
-									onclick={() => {
-										revert('name');
-										revert('homepage');
-										revert('capture');
-									}}>Revert</button
-								>
-							</div>
-						{/if}
-						<label class="field">
-							<span class="field-label">Vault Name</span>
-							<input
-								type="text"
-								{...textField('name', cfg.name, (v) => {
-									if (cfg) cfg.name = v;
-								})}
-							/>
-							{#if fieldError('name')}<span class="field-error">{fieldError('name')}</span
-							>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Homepage</span>
-							<input
-								type="text"
-								placeholder="e.g. Dashboard.md"
-								{...textField('homepage', cfg.homepage, (v) => {
-									if (cfg) cfg.homepage = v || null;
-								})}
-							/>
-						</label>
-						<label class="field">
-							<span class="field-label">Default capture folder</span>
-							<input
-								type="text"
-								{...textField('capture', cfg.capture.folder, (v) => {
-									if (cfg) cfg.capture.folder = v;
-								})}
-							/>
-							{#if fieldError('capture.folder')}<span class="field-error"
-									>{fieldError('capture.folder')}</span
-								>{/if}
-							{#if fieldWarning('capture.folder')}<span class="field-warning"
-									>{fieldWarning('capture.folder')}</span
-								>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Capture template</span>
-							<input
-								type="text"
-								{...textField('capture', cfg.capture.template, (v) => {
-									if (cfg) cfg.capture.template = v;
-								})}
-							/>
-						</label>
-					</section>
+					<GeneralSettings
+						{cfg}
+						{fieldError}
+						{fieldWarning}
+						{sectionIsDirty}
+						{saveSection}
+						{revert}
+						{markDirty}
+						{saveImmediate}
+					/>
 				{:else if selectedSection === 'daily'}
-					<section class="config-section">
-						{#if sectionIsDirty('daily')}
-							<div class="section-actions">
-								<button
-									type="button"
-									class="btn-save"
-									onclick={() => void saveSection('daily')}>Save</button
-								>
-								<button
-									type="button"
-									class="btn-revert"
-									onclick={() => revert('daily')}>Revert</button
-								>
-							</div>
-						{/if}
-						<label class="field">
-							<span class="field-label">Folder</span>
-							<input
-								type="text"
-								{...textField('daily', cfg.daily.folder, (v) => {
-									if (cfg) cfg.daily.folder = v;
-								})}
-							/>
-							{#if fieldError('daily.folder')}<span class="field-error"
-									>{fieldError('daily.folder')}</span
-								>{/if}
-							{#if fieldWarning('daily.folder')}<span class="field-warning"
-									>{fieldWarning('daily.folder')}</span
-								>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Template</span>
-							<input
-								type="text"
-								{...textField('daily', cfg.daily.template, (v) => {
-									if (cfg) cfg.daily.template = v;
-								})}
-							/>
-						</label>
-						<label class="field">
-							<span class="field-label">Generate At (HH:MM)</span>
-							<input
-								type="text"
-								placeholder="e.g. 06:00"
-								{...textField('daily', cfg.daily.generate_at, (v) => {
-									if (cfg) cfg.daily.generate_at = v || null;
-								})}
-							/>
-							{#if fieldError('daily.generate_at')}<span class="field-error"
-									>{fieldError('daily.generate_at')}</span
-								>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Timezone</span>
-							<input
-								type="text"
-								placeholder="e.g. America/New_York"
-								{...textField('daily', cfg.daily.timezone, (v) => {
-									if (cfg) cfg.daily.timezone = v || null;
-								})}
-							/>
-							{#if fieldError('daily.timezone')}<span class="field-error"
-									>{fieldError('daily.timezone')}</span
-								>{/if}
-						</label>
-						<label class="field field-toggle">
-							<span class="field-label">Catch Up Missed Days</span>
-							<input
-								type="checkbox"
-								{...toggleField('daily', cfg.daily.catch_up, (v) => {
-									if (cfg) cfg.daily.catch_up = v;
-								})}
-							/>
-						</label>
-					</section>
+					<DailySettings
+						{cfg}
+						{fieldError}
+						{fieldWarning}
+						{sectionIsDirty}
+						{saveSection}
+						{revert}
+						{markDirty}
+						{saveImmediate}
+					/>
 				{:else if selectedSection === 'editor'}
-					<section class="config-section">
-						<label class="field field-toggle">
-							<span class="field-label">Live Preview</span>
-							<input
-								type="checkbox"
-								{...toggleField('editor', cfg.editor.live_preview, (v) => {
-									if (cfg) cfg.editor.live_preview = v;
-								})}
-							/>
-						</label>
-						<label class="field">
-							<span class="field-label">Default Mode</span>
-							<select
-								{...selectField('editor', cfg.editor.default_mode, (v) => {
-									if (cfg) cfg.editor.default_mode = v;
-								})}
-							>
-								<option value="source">Source</option>
-								<option value="reading">Reading</option>
-								<option value="live-preview">Live Preview</option>
-							</select>
-						</label>
-					</section>
+					<EditorSettings {cfg} {saveImmediate} {markDirty} />
 				{:else if selectedSection === 'sidebar'}
-					<section class="config-section">
-						<SidebarSettings {vault} />
-					</section>
+					<SidebarSettings {vault} />
 				{:else if selectedSection === 'git'}
-					<section class="config-section">
-						{#if sectionIsDirty('git')}
-							<div class="section-actions">
-								<button
-									type="button"
-									class="btn-save"
-									onclick={() => void saveSection('git')}>Save</button
-								>
-								<button
-									type="button"
-									class="btn-revert"
-									onclick={() => revert('git')}>Revert</button
-								>
-							</div>
-						{/if}
-						<label class="field field-toggle">
-							<span class="field-label">Enabled</span>
-							<input
-								type="checkbox"
-								{...toggleField('git', cfg.git.enabled, (v) => {
-									if (cfg) cfg.git.enabled = v;
-								})}
-							/>
-						</label>
-						<label class="field">
-							<span class="field-label">Auto-commit Interval</span>
-							<input
-								type="text"
-								placeholder="e.g. 5m"
-								{...textField('git', cfg.git.auto_commit_every, (v) => {
-									if (cfg) cfg.git.auto_commit_every = v || null;
-								})}
-							/>
-							{#if fieldError('git.auto_commit_every')}<span class="field-error"
-									>{fieldError('git.auto_commit_every')}</span
-								>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Auto-pull Interval</span>
-							<input
-								type="text"
-								placeholder="e.g. 5m"
-								{...textField('git', cfg.git.auto_pull_every, (v) => {
-									if (cfg) cfg.git.auto_pull_every = v || null;
-								})}
-							/>
-							{#if fieldError('git.auto_pull_every')}<span class="field-error"
-									>{fieldError('git.auto_pull_every')}</span
-								>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Auto-push Interval</span>
-							<input
-								type="text"
-								placeholder="e.g. 5m"
-								{...textField('git', cfg.git.auto_push_every, (v) => {
-									if (cfg) cfg.git.auto_push_every = v || null;
-								})}
-							/>
-							{#if fieldError('git.auto_push_every')}<span class="field-error"
-									>{fieldError('git.auto_push_every')}</span
-								>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Commit Message</span>
-							<input
-								type="text"
-								placeholder="e.g. auto: sync changes"
-								{...textField('git', cfg.git.commit_message, (v) => {
-									if (cfg) cfg.git.commit_message = v || null;
-								})}
-							/>
-						</label>
-					</section>
+					<GitSettings
+						{cfg}
+						{fieldError}
+						{sectionIsDirty}
+						{saveSection}
+						{revert}
+						{markDirty}
+						{saveImmediate}
+					/>
 				{:else if selectedSection === 'hooks'}
-					<section class="config-section">
-						{#if sectionIsDirty('hooks')}
-							<div class="section-actions">
-								<button
-									type="button"
-									class="btn-save"
-									onclick={() => void saveSection('hooks')}>Save</button
-								>
-								<button
-									type="button"
-									class="btn-revert"
-									onclick={() => revert('hooks')}>Revert</button
-								>
-							</div>
-						{/if}
-						<label class="field">
-							<span class="field-label">On Note Create</span>
-							<input
-								type="text"
-								placeholder="shell command"
-								{...textField('hooks', cfg.hooks.on_note_create, (v) => {
-									if (cfg) cfg.hooks.on_note_create = v || null;
-								})}
-							/>
-						</label>
-						<label class="field">
-							<span class="field-label">On Daily Create</span>
-							<input
-								type="text"
-								placeholder="shell command"
-								{...textField('hooks', cfg.hooks.on_daily_create, (v) => {
-									if (cfg) cfg.hooks.on_daily_create = v || null;
-								})}
-							/>
-						</label>
-					</section>
+					<HooksSettings {cfg} {sectionIsDirty} {saveSection} {revert} {markDirty} />
 				{:else if selectedSection === 'vaults'}
-					<section class="config-section">
-						<VaultsSettings capabilities={caps} />
-					</section>
+					<VaultsSettings capabilities={caps} />
 				{/if}
 			</div>
 
@@ -644,122 +373,6 @@
 		padding: 0;
 	}
 
-	.config-section {
-		padding: 16px 24px;
-		max-width: 560px;
-	}
-
-	.section-actions {
-		display: flex;
-		gap: 6px;
-		margin-bottom: 12px;
-	}
-
-	.btn-save,
-	.btn-revert {
-		padding: 5px 14px;
-		border-radius: 4px;
-		border: 1px solid var(--border-color, #444);
-		font-size: 12px;
-		cursor: pointer;
-	}
-
-	.btn-save {
-		background: #264f78;
-		color: #fff;
-		border-color: #264f78;
-	}
-
-	.btn-save:hover {
-		background: #2d5f8e;
-	}
-
-	.btn-revert {
-		background: transparent;
-		color: var(--text-muted, #888);
-	}
-
-	.btn-revert:hover {
-		background: var(--hover-bg, #2a2d2e);
-		color: var(--text-primary, #e0e0e0);
-	}
-
-	.field {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		margin-bottom: 14px;
-	}
-
-	.field-toggle {
-		flex-direction: row;
-		align-items: center;
-		gap: 10px;
-	}
-
-	.field-toggle input[type='checkbox'] {
-		order: -1;
-		width: 16px;
-		height: 16px;
-		accent-color: #264f78;
-	}
-
-	.field-toggle .field-label {
-		order: 1;
-	}
-
-	.field-label {
-		font-size: 12px;
-		color: var(--text-muted, #888);
-	}
-
-	.field input[type='text'],
-	.field select {
-		padding: 6px 10px;
-		border: 1px solid var(--border-color, #444);
-		border-radius: 4px;
-		background: var(--bg-secondary, #2a2a2a);
-		color: var(--text-primary, #e0e0e0);
-		font-size: 13px;
-		max-width: 400px;
-	}
-
-	.field input[type='text']:focus,
-	.field select:focus {
-		outline: none;
-		border-color: #264f78;
-	}
-
-	.field-error {
-		color: #ff6b6b;
-		font-size: 11px;
-	}
-
-	.field-warning {
-		color: #f5c842;
-		font-size: 11px;
-	}
-
-	.section-hint {
-		color: var(--text-muted, #888);
-		font-size: 13px;
-		margin: 0;
-		line-height: 1.6;
-	}
-
-	.section-hint.muted {
-		margin-top: 8px;
-		font-size: 12px;
-		color: var(--text-muted, #666);
-	}
-
-	.section-hint code {
-		background: var(--bg-secondary, #2a2a2a);
-		padding: 1px 4px;
-		border-radius: 3px;
-		font-size: 12px;
-	}
-
 	.config-footer {
 		padding: 8px 24px;
 		border-top: 1px solid var(--border-color, #333);
@@ -782,9 +395,6 @@
 		.settings-nav {
 			width: 160px;
 			min-width: 140px;
-		}
-		.config-section {
-			padding: 12px 16px;
 		}
 	}
 </style>
