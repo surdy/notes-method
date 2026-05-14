@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Mutex,
@@ -8,7 +9,7 @@ use std::sync::{
 
 use notesmith_tauri::daemon::{self, DaemonSettings, DaemonState, DynError};
 use tauri::{
-    AppHandle, Manager, RunEvent, Runtime, Url, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Manager, RunEvent, Runtime, UriSchemeContext, Url, WebviewUrl, WebviewWindowBuilder,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
@@ -28,6 +29,16 @@ const WAKE_EVENT_SCRIPT: &str = "window.dispatchEvent(new Event('notesmith://wak
 struct ExitState(AtomicBool);
 
 struct DaemonUrlState(Mutex<String>);
+
+/// Stores dynamic HTML content served by the `notesmith-internal://` protocol.
+/// The splash page is static, but fallback pages change per startup attempt.
+struct InternalHtmlState(Mutex<InternalPages>);
+
+struct InternalPages {
+    fallback: Option<String>,
+}
+
+const INTERNAL_PROTOCOL: &str = "notesmith-internal";
 
 enum PrimaryAction {
     Retry,
@@ -52,6 +63,10 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .manage(ExitState::default())
         .manage(DaemonUrlState::default())
+        .manage(InternalHtmlState(Mutex::new(InternalPages {
+            fallback: None,
+        })))
+        .register_uri_scheme_protocol(INTERNAL_PROTOCOL, handle_internal_protocol)
         .enable_macos_default_menu(false)
         .invoke_handler(tauri::generate_handler![
             retry_daemon_connect,
@@ -454,7 +469,7 @@ fn handle_startup_state<R: Runtime>(
 
 fn show_splash_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
     if app.get_webview_window(SPLASH_WINDOW_LABEL).is_none() {
-        WebviewWindowBuilder::new(app, SPLASH_WINDOW_LABEL, html_data_url(&splash_html())?)
+        WebviewWindowBuilder::new(app, SPLASH_WINDOW_LABEL, internal_url("/splash"))
             .title("Notesmith")
             .inner_size(320.0, 220.0)
             .resizable(false)
@@ -479,17 +494,20 @@ fn show_fallback_window<R: Runtime>(
 ) -> Result<(), DynError> {
     close_window(app, FALLBACK_WINDOW_LABEL)?;
 
-    WebviewWindowBuilder::new(
-        app,
-        FALLBACK_WINDOW_LABEL,
-        html_data_url(&fallback_html(&view))?,
-    )
-    .title("Notesmith")
-    .inner_size(480.0, 320.0)
-    .resizable(false)
-    .center()
-    .skip_taskbar(true)
-    .build()?;
+    // Store fallback HTML in managed state so the protocol handler can serve it
+    app.state::<InternalHtmlState>()
+        .0
+        .lock()
+        .expect("internal html state poisoned")
+        .fallback = Some(fallback_html(&view));
+
+    WebviewWindowBuilder::new(app, FALLBACK_WINDOW_LABEL, internal_url("/fallback"))
+        .title("Notesmith")
+        .inner_size(480.0, 320.0)
+        .resizable(false)
+        .center()
+        .skip_taskbar(true)
+        .build()?;
 
     Ok(())
 }
@@ -584,23 +602,48 @@ fn fallback_html(view: &StartupFallbackView) -> String {
     )
 }
 
-fn html_data_url(html: &str) -> Result<WebviewUrl, DynError> {
-    let encoded = percent_encode(html);
-    let url = Url::parse(&format!("data:text/html;charset=utf-8,{encoded}"))?;
-    Ok(WebviewUrl::CustomProtocol(url))
+fn internal_url(path: &str) -> WebviewUrl {
+    WebviewUrl::CustomProtocol(
+        Url::parse(&format!("{INTERNAL_PROTOCOL}://localhost{path}"))
+            .expect("internal protocol URL must parse"),
+    )
 }
 
-fn percent_encode(input: &str) -> String {
-    let mut encoded = String::with_capacity(input.len());
-    for byte in input.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                encoded.push(byte as char);
-            }
-            _ => encoded.push_str(&format!("%{byte:02X}")),
+fn handle_internal_protocol<R: Runtime>(
+    ctx: UriSchemeContext<'_, R>,
+    request: tauri::http::Request<Vec<u8>>,
+) -> tauri::http::Response<Cow<'static, [u8]>> {
+    let path = request.uri().path();
+    let content_type = "text/html; charset=utf-8";
+
+    match path {
+        "/splash" => tauri::http::Response::builder()
+            .header("Content-Type", content_type)
+            .body(Cow::Owned(splash_html().into_bytes()))
+            .expect("splash response must build"),
+
+        "/fallback" => {
+            let html = ctx
+                .app_handle()
+                .state::<InternalHtmlState>()
+                .0
+                .lock()
+                .expect("internal html state poisoned")
+                .fallback
+                .clone()
+                .unwrap_or_else(|| "No fallback content".to_string());
+
+            tauri::http::Response::builder()
+                .header("Content-Type", content_type)
+                .body(Cow::Owned(html.into_bytes()))
+                .expect("fallback response must build")
         }
+
+        _ => tauri::http::Response::builder()
+            .status(404)
+            .body(Cow::Borrowed(b"Not found" as &[u8]))
+            .expect("404 response must build"),
     }
-    encoded
 }
 
 fn escape_html(input: &str) -> String {

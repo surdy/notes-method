@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "macos-private-api", "webview-data-url"] }
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-deep-link = "2"
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
