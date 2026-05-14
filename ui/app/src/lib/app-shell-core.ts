@@ -187,8 +187,16 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 
 	function connectToVault(vault: string) {
 		sseConnection?.close();
-		sseConnection = dependencies.connectSSE(vault, handleEvent, () => {
-			callbacks.onSidebarConfigChanged();
+		sseConnection = dependencies.connectSSE(vault, handleEvent, async () => {
+			try {
+				await Promise.resolve(dependencies.vaultStore.loadNotes());
+				callbacks.onNotesChanged();
+				callbacks.onTaskUpdated();
+				callbacks.onSidebarConfigChanged();
+				callbacks.onVaultConfigChanged();
+			} catch (error) {
+				logger.error('Failed to resync after SSE reconnect', error);
+			}
 		});
 	}
 

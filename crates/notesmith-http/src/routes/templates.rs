@@ -104,6 +104,7 @@ pub async fn instantiate_template(
         Ok(rendered) => {
             events::emit(
                 &state.event_tx,
+                &state.event_buffer,
                 VaultEvent::new(&vault_name, EventType::NoteCreated, &rendered.path),
             );
             Ok((StatusCode::CREATED, Json(json!({ "path": rendered.path }))))

@@ -181,13 +181,14 @@ async fn reconcile_vaults(
         }
     }
 
-    let event_tx = {
+    let (event_tx, event_buffer) = {
         let state = state.read().await;
-        state.event_tx.clone()
+        (state.event_tx.clone(), state.event_buffer.clone())
     };
     for vault_name in plan.event_targets {
         events::emit(
             &event_tx,
+            &event_buffer,
             crate::events::VaultEvent::new(vault_name, EventType::VaultsChanged, ""),
         );
     }

@@ -51,6 +51,9 @@ async fn watcher_indexes_new_markdown_files() {
             },
         )]),
         event_tx,
+        event_buffer: Arc::new(notesmith_http::EventBuffer::new(
+            notesmith_http::events::EVENT_BUFFER_CAPACITY,
+        )),
         global_config_path: vault_root.join(".notesmith-http-test-config.toml"),
         started_at: Utc::now(),
         sse_connection_count: Arc::new(AtomicUsize::new(0)),

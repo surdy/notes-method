@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { capture, routeApply } from '$lib/api';
+import { capture, routeApply } from '../src/lib/api/index.ts';
 
 function installFetchStub(
 	handler: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response

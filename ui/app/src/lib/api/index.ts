@@ -1,4 +1,4 @@
-export { API_BASE, ApiError, encodePath } from './core';
+export { API_BASE, ApiError, encodePath } from './core.ts';
 
 export {
 	createNote,
@@ -10,7 +10,7 @@ export {
 	putNote,
 	searchNotes,
 	toggleTaskStatus
-} from './notes';
+} from './notes.ts';
 export type {
 	NoteDetail,
 	NoteSummary,
@@ -18,21 +18,21 @@ export type {
 	SourcePosition,
 	TaskMutationStatus,
 	WriteNoteResponse
-} from './notes';
+} from './notes.ts';
 
-export { capture } from './capture';
+export { capture } from './capture.ts';
 
-export { getCapabilities, getVaultConfig, putVaultConfig } from './config';
+export { getCapabilities, getVaultConfig, putVaultConfig } from './config.ts';
 export type {
 	Capabilities,
 	ConfigConflictError,
 	ConfigResponse,
 	ConfigValidationError,
 	VaultConfigData
-} from './config';
+} from './config.ts';
 
-export { addVault, listVaults, reindexVault, removeVault, setDefaultVault, updateVault } from './vaults';
-export type { VaultInfo } from './vaults';
+export { addVault, listVaults, reindexVault, removeVault, setDefaultVault, updateVault } from './vaults.ts';
+export type { VaultInfo } from './vaults.ts';
 
 export {
 	getFolderNotes,
@@ -40,7 +40,7 @@ export {
 	getSidebarConfigWithHash,
 	getVaultFolders,
 	putSidebarConfig
-} from './sidebar';
+} from './sidebar.ts';
 export type {
 	CustomItem,
 	FolderNoteItem,
@@ -51,13 +51,13 @@ export type {
 	SidebarConfigResponse,
 	SidebarSection,
 	SidebarView
-} from './sidebar';
+} from './sidebar.ts';
 
-export { instantiateTemplate, listTemplates } from './templates';
-export type { TemplatePrompt, TemplateSummary } from './templates';
+export { instantiateTemplate, listTemplates } from './templates.ts';
+export type { TemplatePrompt, TemplateSummary } from './templates.ts';
 
-export { routeApply } from './routing';
-export type { RouteApplyResponse, RouteResult } from './routing';
+export { routeApply } from './routing.ts';
+export type { RouteApplyResponse, RouteResult } from './routing.ts';
 
-export { executeSql } from './sql';
-export type { SqlQueryResult } from './sql';
+export { executeSql } from './sql.ts';
+export type { SqlQueryResult } from './sql.ts';

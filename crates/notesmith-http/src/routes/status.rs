@@ -330,6 +330,9 @@ mod tests {
                 },
             )]),
             event_tx,
+            event_buffer: Arc::new(crate::events::EventBuffer::new(
+                crate::events::EVENT_BUFFER_CAPACITY,
+            )),
             global_config_path: vault_root.join(".notesmith-http-test-config.toml"),
             started_at,
             sse_connection_count: Arc::new(AtomicUsize::new(0)),

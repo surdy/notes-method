@@ -56,6 +56,7 @@ pub async fn capture_note(
 
     events::emit(
         &state.event_tx,
+        &state.event_buffer,
         VaultEvent::new(&vault_name, EventType::NoteCaptured, note_path.as_str()),
     );
 

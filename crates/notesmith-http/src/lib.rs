@@ -13,7 +13,7 @@ pub mod write_guard;
 
 pub const API_SCHEMA_VERSION: u32 = 1;
 
-pub use events::{EventSender, EventType, VaultEvent, create_event_channel};
+pub use events::{EventBuffer, EventSender, EventType, VaultEvent, create_event_channel};
 pub use hooks::{HookVaultContext, start_hook_listener};
 pub use scheduler::{
     DailyScheduler, catch_up_daily_notes, ensure_daily_note, start_daily_schedulers,

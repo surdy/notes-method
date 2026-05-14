@@ -1,4 +1,4 @@
-import { API_BASE } from './core';
+import { API_BASE } from './core.ts';
 
 export interface TemplatePrompt {
 	name: string;

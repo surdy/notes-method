@@ -23,11 +23,12 @@ fn default_tail() -> usize {
 }
 
 pub async fn shutdown(State(state): State<SharedAppState>) -> StatusCode {
-    let (vault_names, event_tx, shutdown_tx) = {
+    let (vault_names, event_tx, event_buffer, shutdown_tx) = {
         let state = state.read().await;
         (
             state.vaults.keys().cloned().collect::<Vec<_>>(),
             state.event_tx.clone(),
+            state.event_buffer.clone(),
             state.shutdown_tx.clone(),
         )
     };
@@ -35,6 +36,7 @@ pub async fn shutdown(State(state): State<SharedAppState>) -> StatusCode {
     for vault_name in vault_names {
         events::emit(
             &event_tx,
+            &event_buffer,
             VaultEvent::new(vault_name, EventType::ShuttingDown, ""),
         );
     }

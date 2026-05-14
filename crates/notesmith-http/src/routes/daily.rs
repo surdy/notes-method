@@ -95,6 +95,7 @@ pub async fn create_daily_note(
         Some(path) => {
             events::emit(
                 &state.event_tx,
+                &state.event_buffer,
                 VaultEvent::new(&vault_name, EventType::DailyCreated, &path),
             );
             Ok((
@@ -150,6 +151,7 @@ pub async fn agent_create_daily(
             WriteResult::Written { .. } => {
                 events::emit(
                     &state.event_tx,
+                    &state.event_buffer,
                     VaultEvent::new(&vault_name, EventType::DailyCreated, note_path.as_str()),
                 );
                 Ok((

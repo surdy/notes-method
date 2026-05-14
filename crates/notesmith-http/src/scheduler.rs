@@ -116,6 +116,7 @@ pub async fn start_daily_schedulers(state: SharedAppState) -> Vec<DailyScheduler
                     ) {
                         crate::events::emit(
                             &state.event_tx,
+                            &state.event_buffer,
                             crate::events::VaultEvent::new(
                                 &vault_name_clone,
                                 crate::events::EventType::DailyCreated,

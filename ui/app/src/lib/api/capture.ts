@@ -1,5 +1,5 @@
-import { API_BASE } from './core';
-import type { WriteNoteResponse } from './notes';
+import { API_BASE } from './core.ts';
+import type { WriteNoteResponse } from './notes.ts';
 
 export async function capture(
 	vault: string,

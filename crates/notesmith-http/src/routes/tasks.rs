@@ -173,6 +173,7 @@ pub async fn create_task(
 
     events::emit(
         &state.event_tx,
+        &state.event_buffer,
         VaultEvent::new(&vault_name, EventType::TaskUpdated, note_path.as_str()),
     );
 
@@ -229,6 +230,7 @@ pub async fn toggle_task_status(
 
     events::emit(
         &state.event_tx,
+        &state.event_buffer,
         VaultEvent::new(&vault_name, EventType::TaskUpdated, note_path.as_str()),
     );
 

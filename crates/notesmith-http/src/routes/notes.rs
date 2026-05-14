@@ -339,6 +339,7 @@ pub async fn create_note(
 
     events::emit(
         &state.event_tx,
+        &state.event_buffer,
         VaultEvent::new(&vault_name, EventType::NoteCreated, note_path.as_str()),
     );
 
@@ -417,6 +418,7 @@ pub async fn put_note(
 
     events::emit(
         &state.event_tx,
+        &state.event_buffer,
         VaultEvent::new(&vault_name, EventType::NoteUpdated, note_path.as_str()),
     );
 
@@ -459,6 +461,7 @@ pub async fn patch_note(
 
     events::emit(
         &state.event_tx,
+        &state.event_buffer,
         VaultEvent::new(&vault_name, EventType::NoteUpdated, note_path.as_str()),
     );
 
@@ -485,6 +488,7 @@ pub async fn delete_note(
 
     events::emit(
         &state.event_tx,
+        &state.event_buffer,
         VaultEvent::new(&vault_name, EventType::NoteDeleted, note_path.as_str()),
     );
 
@@ -520,6 +524,7 @@ pub async fn append_note(
 
     events::emit(
         &state.event_tx,
+        &state.event_buffer,
         VaultEvent::new(&vault_name, EventType::NoteUpdated, note_path.as_str()),
     );
 
@@ -548,6 +553,7 @@ pub async fn move_note(
 
     events::emit(
         &state.event_tx,
+        &state.event_buffer,
         VaultEvent::new(&vault_name, EventType::NoteMoved, to.as_str()),
     );
 

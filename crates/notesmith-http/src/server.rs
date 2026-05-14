@@ -46,6 +46,7 @@ pub struct VaultState {
 pub struct AppState {
     pub vaults: HashMap<String, VaultState>,
     pub event_tx: events::EventSender,
+    pub event_buffer: Arc<events::EventBuffer>,
     pub global_config_path: PathBuf,
     pub started_at: DateTime<Utc>,
     pub sse_connection_count: Arc<AtomicUsize>,
@@ -60,6 +61,7 @@ impl Default for AppState {
         Self {
             vaults: HashMap::new(),
             event_tx,
+            event_buffer: Arc::new(events::EventBuffer::new(events::EVENT_BUFFER_CAPACITY)),
             global_config_path: default_global_config_path(),
             started_at: Utc::now(),
             sse_connection_count: Arc::new(AtomicUsize::new(0)),
@@ -462,6 +464,7 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
     Ok(AppState {
         vaults,
         event_tx,
+        event_buffer: Arc::new(events::EventBuffer::new(events::EVENT_BUFFER_CAPACITY)),
         global_config_path: default_global_config_path(),
         started_at: Utc::now(),
         sse_connection_count: Arc::new(AtomicUsize::new(0)),

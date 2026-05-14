@@ -1,4 +1,4 @@
-import { API_BASE, ApiError } from './core';
+import { API_BASE, ApiError } from './core.ts';
 
 export interface VaultInfo {
 	name: string;

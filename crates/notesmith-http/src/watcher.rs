@@ -27,6 +27,12 @@ enum ChangeAction {
     Delete,
 }
 
+struct EventContext<'a> {
+    vault_name: &'a str,
+    event_tx: &'a crate::events::EventSender,
+    event_buffer: &'a crate::events::EventBuffer,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WatchTarget {
     Note,
@@ -177,6 +183,11 @@ async fn process_pending(
     let Some(vault) = state.vaults.get(vault_name) else {
         return Ok(());
     };
+    let event_context = EventContext {
+        vault_name,
+        event_tx: &state.event_tx,
+        event_buffer: &state.event_buffer,
+    };
     for (absolute_path, (action, target)) in pending {
         let relative_path = absolute_path
             .strip_prefix(root)
@@ -192,8 +203,7 @@ async fn process_pending(
             WatchTarget::Note => {
                 handle_note_change(
                     vault,
-                    vault_name,
-                    &state.event_tx,
+                    &event_context,
                     &absolute_path,
                     &relative_path,
                     root,
@@ -201,7 +211,7 @@ async fn process_pending(
                 )?;
             }
             WatchTarget::Config(key) => {
-                handle_config_change(vault, vault_name, &state.event_tx, root, key, action);
+                handle_config_change(vault, &event_context, root, key, action);
             }
         }
     }
@@ -211,8 +221,7 @@ async fn process_pending(
 
 fn handle_note_change(
     vault: &crate::server::VaultState,
-    vault_name: &str,
-    event_tx: &crate::events::EventSender,
+    event_context: &EventContext<'_>,
     absolute_path: &Path,
     relative_path: &str,
     root: &Path,
@@ -220,21 +229,35 @@ fn handle_note_change(
 ) -> anyhow::Result<()> {
     match action {
         ChangeAction::Delete => {
-            vault.cache.remove_note(vault_name, relative_path)?;
-            vault.search_index.remove_note(vault_name, relative_path)?;
+            vault
+                .cache
+                .remove_note(event_context.vault_name, relative_path)?;
+            vault
+                .search_index
+                .remove_note(event_context.vault_name, relative_path)?;
             crate::events::emit(
-                event_tx,
-                crate::events::VaultEvent::new(vault_name, EventType::NoteDeleted, relative_path),
+                event_context.event_tx,
+                event_context.event_buffer,
+                crate::events::VaultEvent::new(
+                    event_context.vault_name,
+                    EventType::NoteDeleted,
+                    relative_path,
+                ),
             );
         }
         ChangeAction::Upsert => {
             if !absolute_path.exists() {
-                vault.cache.remove_note(vault_name, relative_path)?;
-                vault.search_index.remove_note(vault_name, relative_path)?;
+                vault
+                    .cache
+                    .remove_note(event_context.vault_name, relative_path)?;
+                vault
+                    .search_index
+                    .remove_note(event_context.vault_name, relative_path)?;
                 crate::events::emit(
-                    event_tx,
+                    event_context.event_tx,
+                    event_context.event_buffer,
                     crate::events::VaultEvent::new(
-                        vault_name,
+                        event_context.vault_name,
                         EventType::NoteDeleted,
                         relative_path,
                     ),
@@ -243,16 +266,23 @@ fn handle_note_change(
             }
 
             let note = read_note(
-                vault_name,
+                event_context.vault_name,
                 root,
                 &vault_path(relative_path.to_string()),
                 &vault.engine,
             )?;
-            vault.cache.update_note(vault_name, &note)?;
-            vault.search_index.update_note(vault_name, &note)?;
+            vault.cache.update_note(event_context.vault_name, &note)?;
+            vault
+                .search_index
+                .update_note(event_context.vault_name, &note)?;
             crate::events::emit(
-                event_tx,
-                crate::events::VaultEvent::new(vault_name, EventType::NoteUpdated, relative_path),
+                event_context.event_tx,
+                event_context.event_buffer,
+                crate::events::VaultEvent::new(
+                    event_context.vault_name,
+                    EventType::NoteUpdated,
+                    relative_path,
+                ),
             );
         }
     }
@@ -261,8 +291,7 @@ fn handle_note_change(
 
 fn handle_config_change(
     vault: &crate::server::VaultState,
-    vault_name: &str,
-    event_tx: &crate::events::EventSender,
+    event_context: &EventContext<'_>,
     root: &Path,
     key: ConfigKey,
     action: ChangeAction,
@@ -273,9 +302,10 @@ fn handle_config_change(
     match action {
         ChangeAction::Delete => {
             crate::events::emit(
-                event_tx,
+                event_context.event_tx,
+                event_context.event_buffer,
                 crate::events::VaultEvent::config_event(
-                    vault_name,
+                    event_context.vault_name,
                     EventType::ConfigRemoved,
                     rel_path,
                     ConfigDetail {
@@ -290,9 +320,10 @@ fn handle_config_change(
             ConfigKey::Sidebar => match crate::config_io::load_sidebar_config_from_root(root) {
                 Ok(_) => {
                     crate::events::emit(
-                        event_tx,
+                        event_context.event_tx,
+                        event_context.event_buffer,
                         crate::events::VaultEvent::config_event(
-                            vault_name,
+                            event_context.vault_name,
                             EventType::ConfigChanged,
                             rel_path,
                             ConfigDetail {
@@ -305,9 +336,10 @@ fn handle_config_change(
                 }
                 Err(err) => {
                     crate::events::emit(
-                        event_tx,
+                        event_context.event_tx,
+                        event_context.event_buffer,
                         crate::events::VaultEvent::config_event(
-                            vault_name,
+                            event_context.vault_name,
                             EventType::ConfigError,
                             rel_path,
                             ConfigDetail {
@@ -323,9 +355,10 @@ fn handle_config_change(
                 Ok(new_config) => {
                     vault.vault_config.store(std::sync::Arc::new(new_config));
                     crate::events::emit(
-                        event_tx,
+                        event_context.event_tx,
+                        event_context.event_buffer,
                         crate::events::VaultEvent::config_event(
-                            vault_name,
+                            event_context.vault_name,
                             EventType::ConfigChanged,
                             rel_path,
                             ConfigDetail {
@@ -338,9 +371,10 @@ fn handle_config_change(
                 }
                 Err(err) => {
                     crate::events::emit(
-                        event_tx,
+                        event_context.event_tx,
+                        event_context.event_buffer,
                         crate::events::VaultEvent::config_event(
-                            vault_name,
+                            event_context.vault_name,
                             EventType::ConfigError,
                             rel_path,
                             ConfigDetail {

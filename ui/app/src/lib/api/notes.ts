@@ -1,4 +1,4 @@
-import { API_BASE, ApiError, encodePath } from './core';
+import { API_BASE, ApiError, encodePath } from './core.ts';
 
 export interface NoteSummary {
 	path: string;

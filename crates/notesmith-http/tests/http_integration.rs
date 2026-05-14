@@ -71,6 +71,9 @@ fn build_test_state_with_vaults(
     AppState {
         vaults,
         event_tx,
+        event_buffer: Arc::new(notesmith_http::EventBuffer::new(
+            notesmith_http::events::EVENT_BUFFER_CAPACITY,
+        )),
         global_config_path,
         started_at: Utc::now(),
         sse_connection_count: Arc::new(AtomicUsize::new(0)),

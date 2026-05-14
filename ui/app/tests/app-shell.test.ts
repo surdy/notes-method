@@ -286,7 +286,13 @@ test('createAppShell dispatches SSE events to the right page callbacks', async (
 	]);
 
 	onReconnect?.();
+	await Promise.resolve();
+	await Promise.resolve();
+	assert.equal(vaultStore.loadNotesCalls, 3);
+	assert.equal(calls.notesChanged, 2);
+	assert.equal(calls.taskUpdated, 2);
 	assert.equal(calls.sidebarConfigChanged, 2);
+	assert.equal(calls.vaultConfigChanged, 2);
 });
 
 test('createAppShell refreshes vault registrations after vaults.changed events', async () => {

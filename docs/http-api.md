@@ -935,7 +935,15 @@ Agent daily workflow endpoint. In prompt mode, the daemon loads `.notesmith/prom
 
 ### `GET /api/v/{vault}/events`
 
-Server-Sent Events (SSE) stream for real-time vault change notifications. Each connected client receives events for the specified vault only. Multiple clients can subscribe concurrently. Global vault-registration updates are broadcast as `vaults.changed` on each active vault stream so clients can refetch `/api/app/vaults`.
+Server-Sent Events (SSE) stream for real-time vault change notifications. Each connected client receives events for the specified vault plus any `_system` events. Multiple clients can subscribe concurrently. Global vault-registration updates are broadcast as `vaults.changed` so clients can refetch `/api/app/vaults`.
+
+**Query parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `last_event_id` | integer | Optional replay cursor. Returns buffered events with IDs greater than this value before the live stream resumes. |
+
+The daemon keeps a ring buffer of the most recent 100 SSE events. Clients may also send `Last-Event-ID` and the daemon will replay buffered events after that ID.
 
 **Event types:**
 
@@ -959,6 +967,7 @@ Server-Sent Events (SSE) stream for real-time vault change notifications. Each c
 **Payload (JSON in `data:` field):**
 ```json
 {
+  "id": 41,
   "vault": "work",
   "type": "note.created",
   "path": "Follow Up.md",

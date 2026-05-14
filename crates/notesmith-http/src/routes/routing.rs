@@ -99,6 +99,7 @@ pub async fn route_apply(
             .map_err(internal_error)?;
         events::emit(
             &state.event_tx,
+            &state.event_buffer,
             VaultEvent::new(&vault_name, EventType::NoteMoved, &result.to),
         );
         results.push(result);
