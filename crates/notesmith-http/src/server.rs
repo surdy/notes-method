@@ -89,6 +89,7 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
     Router::new()
         .route("/ping", get(ping))
         .route("/api/status", get(crate::routes::status::get_status))
+        .route("/admin/logs", get(crate::routes::admin::get_logs))
         .route("/admin/shutdown", post(crate::routes::admin::shutdown))
         .route("/admin/restart", post(crate::routes::admin::restart))
         .route("/api/capabilities", get(get_capabilities))
@@ -344,6 +345,7 @@ pub async fn serve_configured_vaults(
     bind_override: Option<&str>,
 ) -> anyhow::Result<()> {
     ensure_no_active_daemon()?;
+    let _log_guard = crate::logging::init_logging();
 
     let bind = bind_override.unwrap_or(&config.daemon.bind);
     let state = Arc::new(RwLock::new(build_app_state(config)?));

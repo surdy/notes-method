@@ -30,6 +30,7 @@ notesmith daemon start [--bind 127.0.0.1:27183]
 | `--bind <addr>` | Bind address for the HTTP server | `127.0.0.1:27183` |
 
 The daemon indexes all registered vaults on startup and watches for file changes.
+It also writes daily-rotated daemon logs to the platform log directory (`~/Library/Logs/Notesmith/` on macOS, `$XDG_STATE_HOME/notesmith/` or `~/.local/state/notesmith/` on Linux) and retains the last 7 days.
 
 ---
 

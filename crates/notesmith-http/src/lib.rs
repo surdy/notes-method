@@ -3,6 +3,7 @@
 pub mod config_io;
 pub mod events;
 pub mod hooks;
+pub mod logging;
 pub mod routes;
 pub mod scheduler;
 pub mod server;

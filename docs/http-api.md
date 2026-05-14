@@ -52,6 +52,24 @@ Lightweight health check alias.
 { "status": "ok" }
 ```
 
+### `GET /admin/logs`
+
+Returns recent daemon log lines as plain text.
+
+**Query parameters:**
+- `tail` (optional, default: `200`, max: `1000`) — number of lines to return
+
+**Response:** `200 OK` with `text/plain`
+
+**Errors:**
+- `404` — no daemon log file exists yet
+- `500` — daemon log file could not be read
+
+**Example:**
+```bash
+curl http://127.0.0.1:27183/admin/logs?tail=100
+```
+
 ---
 
 ## Capabilities
