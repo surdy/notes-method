@@ -1006,6 +1006,32 @@ curl -N http://127.0.0.1:27183/api/v/work/events
 
 ---
 
+## Admin
+
+### `POST /admin/shutdown`
+
+Emit a `shutting_down` SSE event for each configured vault, trigger graceful shutdown, and return `200 OK`. The daemon stops accepting new connections and drains in-flight requests before exiting.
+
+**Response:** `200 OK`
+
+**Example:**
+```bash
+curl -X POST http://127.0.0.1:27183/admin/shutdown
+```
+
+### `POST /admin/restart`
+
+Same behavior as `POST /admin/shutdown`. External supervision (for example Tauri, launchd, or systemd) is responsible for starting the daemon again.
+
+**Response:** `200 OK`
+
+**Example:**
+```bash
+curl -X POST http://127.0.0.1:27183/admin/restart
+```
+
+---
+
 ## App shell
 
 ### `GET /app/*`
