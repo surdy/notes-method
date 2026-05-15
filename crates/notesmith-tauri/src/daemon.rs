@@ -73,6 +73,11 @@ pub struct DaemonStatus {
     pub version: String,
 }
 
+pub struct SupervisedStartup {
+    pub state: DaemonState,
+    pub child: Option<tokio::process::Child>,
+}
+
 pub struct DaemonSupervisor<P, L, R = fn() -> Result<Option<DaemonLockfile>, DynError>> {
     settings: DaemonSettings,
     probe: P,
@@ -307,6 +312,61 @@ pub async fn orchestrate_startup(settings: &DaemonSettings) -> DaemonState {
     .await
 }
 
+pub async fn orchestrate_startup_supervised(settings: &DaemonSettings) -> SupervisedStartup {
+    let settings = settings.clone();
+
+    match read_active_lockfile() {
+        Ok(Some(lockfile)) => {
+            let settings = daemon_settings_for_lockfile(&settings, &lockfile);
+            if wait_for_status_ready(settings.clone()).await {
+                return SupervisedStartup {
+                    state: check_version_for_settings(settings).await,
+                    child: None,
+                };
+            }
+
+            return SupervisedStartup {
+                state: DaemonState::PortConflict { pid: lockfile.pid },
+                child: None,
+            };
+        }
+        Ok(None) => {}
+        Err(error) => tracing::warn!("failed to read daemon lockfile: {error}"),
+    }
+
+    if probe_daemon(settings.clone()).await {
+        return SupervisedStartup {
+            state: check_version_for_settings(settings).await,
+            child: None,
+        };
+    }
+
+    match launch_daemon_supervised(settings.clone()).await {
+        Ok(mut child) => {
+            if wait_for_status_ready(settings.clone()).await {
+                SupervisedStartup {
+                    state: check_version_for_settings(settings).await,
+                    child: Some(child),
+                }
+            } else {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                SupervisedStartup {
+                    state: DaemonState::Unreachable,
+                    child: None,
+                }
+            }
+        }
+        Err(error) => {
+            tracing::error!("failed to launch notesmith daemon: {error}");
+            SupervisedStartup {
+                state: DaemonState::Unreachable,
+                child: None,
+            }
+        }
+    }
+}
+
 pub fn resolve_daemon_settings(settings: &DaemonSettings) -> DaemonSettings {
     match read_active_lockfile() {
         Ok(Some(lockfile)) => daemon_settings_for_lockfile(settings, &lockfile),
@@ -391,6 +451,24 @@ async fn fetch_daemon_status(settings: DaemonSettings) -> Result<DaemonStatus, D
 }
 
 async fn launch_daemon(settings: DaemonSettings) -> Result<(), DynError> {
+    spawn_daemon(settings, true).await?;
+    Ok(())
+}
+
+pub async fn launch_daemon_supervised(
+    settings: DaemonSettings,
+) -> Result<tokio::process::Child, DynError> {
+    spawn_daemon(settings, false).await
+}
+
+pub async fn wait_for_daemon_status(settings: &DaemonSettings) -> bool {
+    wait_for_status_ready(settings.clone()).await
+}
+
+async fn spawn_daemon(
+    settings: DaemonSettings,
+    detach: bool,
+) -> Result<tokio::process::Child, DynError> {
     let program = settings.program().to_string();
     tracing::info!("launching daemon: {program} {:?}", START_COMMAND);
     let mut command = tokio::process::Command::new(&program);
@@ -401,7 +479,7 @@ async fn launch_daemon(settings: DaemonSettings) -> Result<(), DynError> {
         .stderr(Stdio::null());
 
     #[cfg(unix)]
-    {
+    if detach {
         // SAFETY: The child process immediately detaches before exec so the daemon
         // can outlive the desktop shell.
         unsafe {
@@ -414,8 +492,37 @@ async fn launch_daemon(settings: DaemonSettings) -> Result<(), DynError> {
         }
     }
 
-    command.spawn()?;
-    Ok(())
+    command.spawn().map_err(Into::into)
+}
+
+async fn wait_for_status_ready(settings: DaemonSettings) -> bool {
+    let deadline = Instant::now() + settings.startup_wait;
+    loop {
+        if fetch_daemon_status(settings.clone()).await.is_ok() {
+            return true;
+        }
+
+        if Instant::now() >= deadline {
+            return false;
+        }
+
+        tokio::time::sleep(settings.startup_poll_interval).await;
+    }
+}
+
+async fn check_version_for_settings(settings: DaemonSettings) -> DaemonState {
+    let bundled = env!("CARGO_PKG_VERSION").to_string();
+    match fetch_daemon_status(settings).await {
+        Ok(status) if status.version == bundled => DaemonState::Ready,
+        Ok(status) => DaemonState::VersionMismatch {
+            running: status.version,
+            bundled,
+        },
+        Err(error) => {
+            tracing::error!("failed to fetch daemon status: {error}");
+            DaemonState::Unreachable
+        }
+    }
 }
 
 #[cfg(test)]
