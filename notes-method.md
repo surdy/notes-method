@@ -53,7 +53,8 @@ For each customer there would be a folder containing:
 - Views support an optional `badge_query` for tab-level badge counts (SQL-driven).
 - Folder-backed items in the middle pane default to `modified_at DESC` sort, configurable via YAML.
 - When `.notesmith/sidebar.yaml` does not exist, the app behaves as a plain Files-only notes app.
-- The main note workspace should also include a contextual **right rail** for metadata, backlinks, and outgoing links on the active note.
+- The main note workspace should also include a contextual, collapsible **right rail** with tabbed **Metadata**, **Links**, and **TOC** modes for the active note.
+- The **TOC** tab should be driven from live editor headings so it can highlight the current section and jump the editor to a selected heading.
 
 ## Reactive Configuration
 
@@ -148,7 +149,7 @@ For each customer there would be a folder containing:
 - `GET /ping` remains as a lightweight compatibility alias for scripts, but richer clients should rely on `/api/status`.
 - API and admin responses should include daemon version and schema headers so the frontend can detect incompatible client/daemon pairs, show a blue compatibility banner, and mark the sidebar status pill as restart-required until versions align.
 - The daemon should write daily-rotated logs to the platform log directory, retain 7 days of history, and expose `GET /admin/logs?tail=` for local diagnostics.
-- The desktop shell sidebar footer should show a connection-status pill driven by SSE state plus `/api/status` liveness, opening a popover with daemon health details and local controls for restart, reindex, and log tail viewing.
+- The desktop shell should show a bottom status bar with connection status, active vault, cursor position, word count, and save state. Clicking the connection section should open a popover with daemon health details and local controls for restart, reindex, and log tail viewing.
 - CLI reindexing should be available as `notesmith reindex` with `--cache-only` and `--search-only` flags, defaulting to all registered vaults unless `--vault` is supplied.
 - The daemon should write a JSON lockfile at the platform-specific Notesmith data/runtime location containing PID, port, version, start time, and binary path so desktop and other local clients can discover the live daemon and clean up stale entries.
 - The daemon should watch the global config file and hot-reload vault registrations (add, remove, rename/path changes) without requiring a restart, emitting SSE `vaults.changed` so clients can refresh the vault list.

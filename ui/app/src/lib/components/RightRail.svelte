@@ -1,15 +1,16 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { executeSql, getNote, type SqlQueryResult } from '$lib/api';
+	import TocPanel from '$lib/components/TocPanel.svelte';
 	import { buildBacklinksQuery, buildOutgoingLinksQuery, buildRailMetadata } from '$lib/right-rail';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
 	type RailLink = { path: string; label: string };
+	type RailTab = 'metadata' | 'links' | 'toc';
 
 	let collapsed = $state(false);
-	let metadataOpen = $state(true);
-	let backlinksOpen = $state(true);
-	let outgoingOpen = $state(true);
+	let activeTab = $state<RailTab>('metadata');
 	let backlinks = $state<SqlQueryResult>(emptySqlResult());
 	let outgoingLinks = $state<SqlQueryResult>(emptySqlResult());
 	let metadata = $state<Record<string, unknown> | null>(null);
@@ -20,6 +21,10 @@
 	const backlinkItems = $derived.by(() => toRailLinks(backlinks.rows, 'backlink_path', 'source_title'));
 	const outgoingItems = $derived.by(() => toRailLinks(outgoingLinks.rows, 'target_path', 'target'));
 	const metadataEntries = $derived.by(() => Object.entries(metadata ?? {}));
+
+	onMount(() => {
+		activeTab = loadTab();
+	});
 
 	$effect(() => {
 		const path = tabStore.selectedPath;
@@ -113,6 +118,28 @@
 		tabStore.selectNote(path);
 	}
 
+	function loadTab(): RailTab {
+		try {
+			const saved = localStorage.getItem('notesmith:rail-tab');
+			if (saved === 'metadata' || saved === 'links' || saved === 'toc') {
+				return saved;
+			}
+		} catch {}
+
+		return 'metadata';
+	}
+
+	function setTab(tab: RailTab) {
+		activeTab = tab;
+		try {
+			localStorage.setItem('notesmith:rail-tab', tab);
+		} catch {}
+	}
+
+	function handleScrollTo(from: number) {
+		window.dispatchEvent(new CustomEvent('notesmith:scroll-to', { detail: { from } }));
+	}
+
 	export function refresh() {
 		if (tabStore.selectedPath) {
 			void loadRailData(tabStore.selectedPath);
@@ -148,25 +175,42 @@
 			{/if}
 		</div>
 
-		{#if !tabStore.selectedPath}
-			<div class="rail-empty">Select a note to see metadata and links.</div>
-		{:else}
-			{#if error}
-				<div class="rail-error">{error}</div>
-			{/if}
+		<div class="rail-tab-bar">
+			<button
+				class="rail-tab"
+				class:active={activeTab === 'metadata'}
+				type="button"
+				onclick={() => setTab('metadata')}
+			>
+				Metadata
+			</button>
+			<button
+				class="rail-tab"
+				class:active={activeTab === 'links'}
+				type="button"
+				onclick={() => setTab('links')}
+			>
+				Links
+			</button>
+			<button
+				class="rail-tab"
+				class:active={activeTab === 'toc'}
+				type="button"
+				onclick={() => setTab('toc')}
+			>
+				TOC
+			</button>
+		</div>
 
-			<section class="rail-section">
-				<button
-					class="section-toggle"
-					type="button"
-					aria-expanded={metadataOpen}
-					onclick={() => (metadataOpen = !metadataOpen)}
-				>
-					<span>Metadata</span>
-					<span>{metadataOpen ? '▾' : '▸'}</span>
-				</button>
+		<div class="rail-content">
+			{#if !tabStore.selectedPath}
+				<div class="rail-empty">Select a note to see metadata, links, and a table of contents.</div>
+			{:else}
+				{#if error}
+					<div class="rail-error">{error}</div>
+				{/if}
 
-				{#if metadataOpen}
+				{#if activeTab === 'metadata'}
 					{#if metadataEntries.length === 0}
 						<div class="section-empty">No metadata</div>
 					{:else}
@@ -187,63 +231,45 @@
 							{/each}
 						</div>
 					{/if}
-				{/if}
-			</section>
-
-			<section class="rail-section">
-				<button
-					class="section-toggle"
-					type="button"
-					aria-expanded={backlinksOpen}
-					onclick={() => (backlinksOpen = !backlinksOpen)}
-				>
-					<span>Backlinks</span>
-					<span>{backlinksOpen ? '▾' : '▸'}</span>
-				</button>
-
-				{#if backlinksOpen}
-					{#if backlinkItems.length === 0}
-						<div class="section-empty">No backlinks</div>
-					{:else}
-						<div class="link-list">
-							{#each backlinkItems as item (item.path)}
-								<button class="link-item" type="button" onclick={() => navigateTo(item.path)}>
-									<span class="link-label">{item.label}</span>
-									<span class="link-path">{item.path}</span>
-								</button>
-							{/each}
+				{:else if activeTab === 'links'}
+					<div class="links-section">
+						<div class="links-group">
+							<h3 class="links-heading">Backlinks ({backlinkItems.length})</h3>
+							{#if backlinkItems.length === 0}
+								<div class="section-empty">No backlinks</div>
+							{:else}
+								<div class="link-list">
+									{#each backlinkItems as item (item.path)}
+										<button class="link-item" type="button" onclick={() => navigateTo(item.path)}>
+											<span class="link-label">{item.label}</span>
+											<span class="link-path">{item.path}</span>
+										</button>
+									{/each}
+								</div>
+							{/if}
 						</div>
-					{/if}
-				{/if}
-			</section>
 
-			<section class="rail-section">
-				<button
-					class="section-toggle"
-					type="button"
-					aria-expanded={outgoingOpen}
-					onclick={() => (outgoingOpen = !outgoingOpen)}
-				>
-					<span>Outgoing Links</span>
-					<span>{outgoingOpen ? '▾' : '▸'}</span>
-				</button>
-
-				{#if outgoingOpen}
-					{#if outgoingItems.length === 0}
-						<div class="section-empty">No outgoing links</div>
-					{:else}
-						<div class="link-list">
-							{#each outgoingItems as item (item.path)}
-								<button class="link-item" type="button" onclick={() => navigateTo(item.path)}>
-									<span class="link-label">{item.label}</span>
-									<span class="link-path">{item.path}</span>
-								</button>
-							{/each}
+						<div class="links-group">
+							<h3 class="links-heading">Outgoing ({outgoingItems.length})</h3>
+							{#if outgoingItems.length === 0}
+								<div class="section-empty">No outgoing links</div>
+							{:else}
+								<div class="link-list">
+									{#each outgoingItems as item (item.path)}
+										<button class="link-item" type="button" onclick={() => navigateTo(item.path)}>
+											<span class="link-label">{item.label}</span>
+											<span class="link-path">{item.path}</span>
+										</button>
+									{/each}
+								</div>
+							{/if}
 						</div>
-					{/if}
+					</div>
+				{:else}
+					<TocPanel onScrollTo={handleScrollTo} />
 				{/if}
-			</section>
-		{/if}
+			{/if}
+		</div>
 	</div>
 </div>
 
@@ -281,7 +307,7 @@
 		height: 100%;
 		background: var(--ns-sidebar-bg);
 		border-left: 1px solid var(--ns-border);
-		overflow: hidden auto;
+		overflow: hidden;
 		opacity: 1;
 		transition:
 			opacity 120ms ease,
@@ -321,10 +347,44 @@
 		font-size: 12px;
 	}
 
+	.rail-tab-bar {
+		display: flex;
+		border-bottom: 1px solid var(--ns-border);
+		flex-shrink: 0;
+	}
+
+	.rail-tab {
+		flex: 1;
+		padding: 8px 4px;
+		border: none;
+		background: transparent;
+		color: var(--ns-text-muted);
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+		border-bottom: 2px solid transparent;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+
+	.rail-tab:hover {
+		color: var(--ns-text);
+		background: var(--ns-surface-hover);
+	}
+
+	.rail-tab.active {
+		color: var(--ns-accent);
+		border-bottom-color: var(--ns-accent);
+	}
+
+	.rail-content {
+		flex: 1;
+		overflow-y: auto;
+	}
+
 	.rail-empty,
 	.rail-error {
 		padding: 12px 16px;
-		border-bottom: 1px solid var(--ns-border);
 	}
 
 	.rail-error {
@@ -332,36 +392,16 @@
 		background: var(--ns-danger-bg-muted);
 	}
 
-	.rail-section {
-		border-bottom: 1px solid var(--ns-border);
-	}
-
-	.section-toggle {
+	.metadata-list,
+	.link-list,
+	.links-section {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		width: 100%;
-		padding: 12px 16px;
-		border: none;
-		border-radius: 0;
-		background: transparent;
-		color: var(--ns-text);
-		font-size: 12px;
-		font-weight: 700;
-		letter-spacing: 0.03em;
-		text-transform: uppercase;
-	}
-
-	.section-toggle:hover,
-	.link-item:hover {
-		background: var(--ns-surface-hover);
+		flex-direction: column;
 	}
 
 	.metadata-list,
-	.link-list {
-		display: flex;
-		flex-direction: column;
-		padding-bottom: 8px;
+	.links-section {
+		padding: 8px 0;
 	}
 
 	.metadata-row {
@@ -395,6 +435,20 @@
 		font-size: 12px;
 	}
 
+	.links-group + .links-group {
+		border-top: 1px solid var(--ns-border);
+	}
+
+	.links-heading {
+		margin: 0;
+		padding: 12px 16px 8px;
+		color: var(--ns-text-muted);
+		font-size: 12px;
+		font-weight: 700;
+		letter-spacing: 0.03em;
+		text-transform: uppercase;
+	}
+
 	.link-item {
 		display: flex;
 		flex-direction: column;
@@ -407,6 +461,10 @@
 		background: transparent;
 		color: var(--ns-text);
 		text-align: left;
+	}
+
+	.link-item:hover {
+		background: var(--ns-surface-hover);
 	}
 
 	.link-label {
@@ -423,4 +481,4 @@
 	.section-empty {
 		padding: 0 16px 12px;
 	}
-</style>
+ </style>

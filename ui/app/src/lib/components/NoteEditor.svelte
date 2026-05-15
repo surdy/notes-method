@@ -25,20 +25,23 @@ type TaskMutationStatus
 } from '$lib/api';
 import { classifyError } from '$lib/api/error-classify';
 import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-import SaveIndicator from '$lib/components/SaveIndicator.svelte';
+import { countWords, editorStatus, getCursorPosition } from '$lib/editor-status.svelte';
 import { createAutoSave } from '$lib/editor/auto-save';
+import { findActiveHeadingIndex, parseHeadings } from '$lib/editor/headings';
 import { createLivePreviewExtension } from '$lib/editor/live-preview';
 import { createOFMDecorations } from '$lib/editor/ofm-decorations';
 import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-blocks';
 import { notesmithTheme } from '$lib/editor/theme';
+import { headingStore } from '$lib/heading-store.svelte';
 import { shouldLoadSelectedNote } from '$lib/note-loading';
 import { isDashboardNote } from '$lib/right-rail';
-import { saveQueue, saveState } from '$lib/save-queue';
+import { saveQueue } from '$lib/save-queue';
 import { clearApiError, reportApiError } from '$lib/stores/api-errors.svelte';
 import { tabStore } from '$lib/tab-store.svelte';
 import { vaultStore } from '$lib/stores.svelte';
 
 const TASK_LINE_RE = /^\s*[-*+]\s+\[[ xX/\-bwhBWH]\]/;
+const WORD_COUNT_DEBOUNCE_MS = 150;
 type EditorErrorState = {
 cause: unknown;
 endpointHint: 'note-detail' | 'save-note' | 'toggle-task';
@@ -58,6 +61,8 @@ let conflictBanner = $state<{ show: boolean; path: string } | null>(null);
 let dirty = $state(false);
 let saveError = $state<EditorErrorState | null>(null);
 let ignoreExternalChange: { path: string; expiresAt: number } | null = null;
+let headingTimer: ReturnType<typeof setTimeout> | null = null;
+let wordCountTimer: ReturnType<typeof setTimeout> | null = null;
 let loadBanner = $derived(error ? classifyError(error.cause, error.endpointHint) : null);
 let saveBanner = $derived(saveError ? classifyError(saveError.cause, saveError.endpointHint) : null);
 
@@ -159,10 +164,58 @@ console.error('Auto-save failed', cause);
 });
 
 function destroyEditor() {
+clearHeadingTimer();
+clearWordCountTimer();
+headingStore.clear();
+editorStatus.clear();
 if (view) {
 view.destroy();
 view = null;
 }
+}
+
+function clearHeadingTimer() {
+if (headingTimer) {
+	clearTimeout(headingTimer);
+	headingTimer = null;
+}
+}
+
+function clearWordCountTimer() {
+if (wordCountTimer) {
+	clearTimeout(wordCountTimer);
+	wordCountTimer = null;
+}
+}
+
+function updateEditorCursorStatus(state: EditorState, wordCount = editorStatus.wordCount): void {
+const { line, col } = getCursorPosition(state.doc, state.selection.main.head);
+editorStatus.update(line, col, wordCount);
+}
+
+function updateEditorWordCount(state: EditorState): void {
+updateEditorCursorStatus(state, countWords(state.doc.toString()));
+}
+
+function scheduleWordCountUpdate(): void {
+clearWordCountTimer();
+wordCountTimer = setTimeout(() => {
+	wordCountTimer = null;
+	if (!view) {
+		return;
+	}
+
+	updateEditorWordCount(view.state);
+}, WORD_COUNT_DEBOUNCE_MS);
+}
+
+function updateHeadings(doc: string): void {
+const headings = parseHeadings(doc);
+headingStore.update(headings);
+}
+
+function updateActiveHeading(cursorPos: number): void {
+headingStore.setActive(findActiveHeadingIndex(headingStore.headings, cursorPos));
 }
 
 function setDashboardMode(enabled: boolean) {
@@ -201,8 +254,9 @@ return;
 }
 
 currentTaskHashes = buildTaskHashes(note);
+const documentText = buildEditorDocument(note);
 const state = EditorState.create({
-doc: buildEditorDocument(note),
+doc: documentText,
 extensions: [
 lineNumbers(),
 highlightActiveLineGutter(),
@@ -246,20 +300,33 @@ livePreviewCompartment.of(
 	tabStore.activeViewMode === 'live-preview' ? createLivePreviewExtension() : []
 ),
 EditorView.updateListener.of((update) => {
-if (!update.docChanged) {
-return;
-}
-dirty = true;
-saveError = null;
-if (currentPath) {
-tabStore.markDirty(currentPath, true);
-}
-autoSave.schedule(update.state.doc.toString());
+	if (update.selectionSet || update.docChanged) {
+		updateEditorCursorStatus(update.state);
+		updateActiveHeading(update.state.selection.main.head);
+	}
+	if (update.docChanged) {
+		dirty = true;
+		saveError = null;
+		if (currentPath) {
+			tabStore.markDirty(currentPath, true);
+		}
+		autoSave.schedule(update.state.doc.toString());
+		scheduleWordCountUpdate();
+		clearHeadingTimer();
+		headingTimer = setTimeout(() => {
+			updateHeadings(update.state.doc.toString());
+			updateActiveHeading(update.state.selection.main.head);
+			headingTimer = null;
+		}, 300);
+	}
 })
 ]
 });
 
 view = new EditorView({ state, parent: editorContainer });
+updateEditorWordCount(state);
+updateHeadings(documentText);
+updateActiveHeading(state.selection.main.head);
 }
 
 async function loadNote(path: string) {
@@ -391,6 +458,19 @@ currentHash = null;
 conflictBanner = null;
 }
 
+function handleScrollTo(event: CustomEvent<{ from: number }>) {
+	if (!view) {
+		return;
+	}
+
+	const { from } = event.detail;
+	view.dispatch({
+		selection: { anchor: from },
+		scrollIntoView: true,
+		effects: EditorView.scrollIntoView(from, { y: 'start' })
+	});
+}
+
 $effect(() => {
 const path = tabStore.selectedPath;
 untrack(() => {
@@ -437,7 +517,12 @@ untrack(() => {
 });
 
 onMount(() => {
+	const scrollListener: EventListener = (event) =>
+		handleScrollTo(event as CustomEvent<{ from: number }>);
+	window.addEventListener('notesmith:scroll-to', scrollListener);
+
 return () => {
+	window.removeEventListener('notesmith:scroll-to', scrollListener);
 autoSave.cancel();
 destroyEditor();
 };
@@ -458,7 +543,6 @@ onAction={handleLoadErrorAction}
 onDismiss={clearEditorError}
 />
 {:else}
-<SaveIndicator state={$saveState} onRetry={() => void saveQueue.retryAll()} />
 {#if conflictBanner?.show}
 <div class="conflict-banner">
 <span>⚠️ This file has changed on disk.</span>
