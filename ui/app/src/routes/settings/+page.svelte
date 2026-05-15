@@ -4,6 +4,7 @@
 	import { base } from '$app/paths';
 	import { settingsStore } from '$lib/settings.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
+	import { themeStore, type ThemeChoice } from '$lib/theme.svelte';
 	import { registerHotkeys } from '$lib/hotkeys';
 	import SidebarSettings from '$lib/components/SidebarSettings.svelte';
 	import VaultsSettings from '$lib/components/VaultsSettings.svelte';
@@ -13,7 +14,15 @@
 	import GitSettings from '$lib/components/settings/GitSettings.svelte';
 	import HooksSettings from '$lib/components/settings/HooksSettings.svelte';
 
-	type Section = 'general' | 'daily' | 'editor' | 'sidebar' | 'git' | 'hooks' | 'vaults';
+	type Section =
+		| 'general'
+		| 'daily'
+		| 'editor'
+		| 'sidebar'
+		| 'git'
+		| 'hooks'
+		| 'appearance'
+		| 'vaults';
 
 	let selectedSection = $state<Section>('general');
 	let vault = $derived(vaultStore.currentVault);
@@ -34,7 +43,18 @@
 		{ id: 'hooks', label: 'Hooks' }
 	];
 
-	const appSections: { id: Section; label: string }[] = [{ id: 'vaults', label: 'Vaults' }];
+	const appSections: { id: Section; label: string }[] = [
+		{ id: 'appearance', label: 'Appearance' },
+		{ id: 'vaults', label: 'Vaults' }
+	];
+
+	const themeOptions: Array<{ value: ThemeChoice; label: string }> = [
+		{ value: 'dark', label: 'Dark' },
+		{ value: 'light', label: 'Light' },
+		{ value: 'system', label: 'System' },
+		{ value: 'manuscript', label: 'Manuscript' },
+		{ value: 'hc-dark', label: 'High Contrast' }
+	];
 
 	function navigateBack() {
 		if (settingsStore.isDirty) {
@@ -162,7 +182,29 @@
 			</div>
 		{/if}
 
-		{#if cfg}
+		{#if selectedSection === 'appearance'}
+			<div class="settings-body">
+				<section class="section-content">
+					<h2>Appearance</h2>
+					<p class="section-description">
+						Choose the theme Notesmith uses across the app and editor.
+					</p>
+					<div class="theme-picker">
+						{#each themeOptions as option}
+							<button
+								class="theme-option"
+								class:active={themeStore.current === option.value}
+								type="button"
+								onclick={() => themeStore.set(option.value)}
+							>
+								<div class="theme-preview {option.value}"></div>
+								<span>{option.label}</span>
+							</button>
+						{/each}
+					</div>
+				</section>
+			</div>
+		{:else if cfg}
 			<div class="settings-body">
 				{#if selectedSection === 'general'}
 					<GeneralSettings
@@ -373,6 +415,101 @@
 		padding: 0;
 	}
 
+	.section-content {
+		padding: 16px 24px;
+		max-width: 760px;
+	}
+
+	.section-content h2 {
+		margin: 0 0 8px;
+		font-size: 20px;
+	}
+
+	.section-description {
+		margin: 0 0 18px;
+		color: var(--ns-text-muted);
+		font-size: 13px;
+	}
+
+	.theme-picker {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+		gap: 12px;
+	}
+
+	.theme-option {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		padding: 12px;
+		border: 1px solid var(--ns-border);
+		border-radius: 10px;
+		background: var(--ns-surface-elevated);
+		color: var(--ns-text);
+		cursor: pointer;
+		text-align: left;
+		transition:
+			border-color 120ms ease,
+			background 120ms ease,
+			transform 120ms ease;
+	}
+
+	.theme-option:hover {
+		border-color: var(--ns-border-strong);
+		background: var(--ns-surface-hover);
+		transform: translateY(-1px);
+	}
+
+	.theme-option.active {
+		border-color: var(--ns-accent);
+		background: var(--ns-accent-surface);
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--ns-accent) 35%, transparent 65%);
+	}
+
+	.theme-option span {
+		font-size: 13px;
+		font-weight: 600;
+	}
+
+	.theme-preview {
+		height: 72px;
+		border-radius: 8px;
+		border: 1px solid var(--ns-border-overlay);
+		box-shadow: inset 0 0 0 1px var(--ns-border-overlay);
+	}
+
+	.theme-preview.dark {
+		background:
+			linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0 14px, transparent 14px),
+			linear-gradient(90deg, #252526 0 30%, #1e1e1e 30% 100%);
+	}
+
+	.theme-preview.light {
+		background:
+			linear-gradient(180deg, rgba(0, 0, 0, 0.08) 0 14px, transparent 14px),
+			linear-gradient(90deg, #f0f0f0 0 30%, #ffffff 30% 100%);
+	}
+
+	.theme-preview.system {
+		background:
+			linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0 14px, transparent 14px),
+			linear-gradient(90deg, #252526 0 50%, #f5f5f5 50% 100%);
+	}
+
+	.theme-preview.manuscript {
+		background:
+			linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0 14px, transparent 14px),
+			linear-gradient(90deg, #252526 0 34%, #faf8f5 34% 100%);
+	}
+
+	.theme-preview.hc-dark {
+		border-color: #00e5ff;
+		box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.35);
+		background:
+			linear-gradient(180deg, rgba(0, 229, 255, 0.2) 0 14px, transparent 14px),
+			linear-gradient(90deg, #000000 0 30%, #061a20 30% 100%);
+	}
+
 	.config-footer {
 		padding: 8px 24px;
 		border-top: 1px solid var(--ns-border);
@@ -395,6 +532,10 @@
 		.settings-nav {
 			width: 160px;
 			min-width: 140px;
+		}
+
+		.section-content {
+			padding: 12px 16px;
 		}
 	}
 </style>
