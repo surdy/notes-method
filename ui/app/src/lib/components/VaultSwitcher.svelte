@@ -23,15 +23,15 @@
 <style>
 	.vault-switcher {
 		padding: 8px 12px;
-		border-bottom: 1px solid var(--border-color, #333);
+		border-bottom: 1px solid var(--ns-border);
 	}
 
 	select {
 		width: 100%;
 		padding: 6px 8px;
-		background: var(--input-bg, #3c3c3c);
-		color: var(--text-primary, #e0e0e0);
-		border: 1px solid var(--border-color, #555);
+		background: var(--ns-input-bg);
+		color: var(--ns-text);
+		border: 1px solid var(--ns-border-input);
 		border-radius: 4px;
 		font-size: 13px;
 	}

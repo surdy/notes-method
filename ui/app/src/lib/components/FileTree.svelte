@@ -82,11 +82,11 @@
 		cursor: pointer;
 		font-size: 14px;
 		text-align: left;
-		color: var(--text-primary, #e0e0e0);
+		color: var(--ns-text);
 	}
 
 	.folder-toggle:hover {
-		background: var(--hover-bg, #2a2d2e);
+		background: var(--ns-surface-hover);
 	}
 
 	.note-item {
@@ -100,15 +100,15 @@
 		cursor: pointer;
 		font-size: 13px;
 		text-align: left;
-		color: var(--text-secondary, #cccccc);
+		color: var(--ns-text-secondary);
 	}
 
 	.note-item:hover {
-		background: var(--hover-bg, #2a2d2e);
+		background: var(--ns-surface-hover);
 	}
 
 	.note-item.selected {
-		background: var(--selected-bg, #094771);
-		color: white;
+		background: var(--ns-selected-bg);
+		color: var(--ns-text-inverse);
 	}
 </style>

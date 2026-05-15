@@ -232,8 +232,8 @@
 	.settings-nav {
 		width: 220px;
 		min-width: 180px;
-		background: var(--sidebar-bg, #252526);
-		border-right: 1px solid var(--border-color, #333);
+		background: var(--ns-sidebar-bg);
+		border-right: 1px solid var(--ns-border);
 		display: flex;
 		flex-direction: column;
 		padding: 0;
@@ -246,16 +246,16 @@
 		padding: 14px 16px;
 		background: none;
 		border: none;
-		border-bottom: 1px solid var(--border-color, #333);
-		color: var(--text-muted, #888);
+		border-bottom: 1px solid var(--ns-border);
+		color: var(--ns-text-muted);
 		font-size: 13px;
 		cursor: pointer;
 		text-align: left;
 	}
 
 	.back-btn:hover {
-		background: var(--hover-bg, #2a2d2e);
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-surface-hover);
+		color: var(--ns-text);
 	}
 
 	.nav-group {
@@ -269,7 +269,7 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 	}
 
 	.nav-item {
@@ -280,24 +280,24 @@
 		padding: 7px 16px;
 		background: none;
 		border: none;
-		color: var(--text-primary, #e0e0e0);
+		color: var(--ns-text);
 		font-size: 13px;
 		cursor: pointer;
 		text-align: left;
 	}
 
 	.nav-item:hover {
-		background: var(--hover-bg, #2a2d2e);
+		background: var(--ns-surface-hover);
 	}
 
 	.nav-item.active {
-		background: var(--active-bg, #37373d);
-		color: #fff;
+		background: var(--ns-surface-active);
+		color: var(--ns-text-inverse);
 		font-weight: 500;
 	}
 
 	.dirty-dot {
-		color: #f5c842;
+		color: var(--ns-warning);
 		font-size: 10px;
 	}
 
@@ -313,7 +313,7 @@
 		align-items: center;
 		gap: 12px;
 		padding: 14px 24px;
-		border-bottom: 1px solid var(--border-color, #333);
+		border-bottom: 1px solid var(--ns-border);
 		flex-shrink: 0;
 	}
 
@@ -325,22 +325,22 @@
 
 	.status-badge {
 		font-size: 12px;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 	}
 
 	.error-banner {
 		padding: 10px 24px;
-		background: #3a1a1a;
-		color: #ff6b6b;
-		border-bottom: 1px solid #5a2a2a;
+		background: var(--ns-danger-bg);
+		color: var(--ns-danger);
+		border-bottom: 1px solid var(--ns-danger-border);
 		font-size: 13px;
 	}
 
 	.conflict-banner {
 		padding: 10px 24px;
-		background: #3a3018;
-		color: #f5c842;
-		border-bottom: 1px solid #5a4a20;
+		background: var(--ns-warning-bg);
+		color: var(--ns-warning);
+		border-bottom: 1px solid var(--ns-warning-border);
 		font-size: 13px;
 	}
 
@@ -355,16 +355,16 @@
 
 	.conflict-actions button {
 		padding: 4px 12px;
-		border: 1px solid #5a4a20;
+		border: 1px solid var(--ns-warning-border);
 		border-radius: 4px;
 		background: transparent;
-		color: #f5c842;
+		color: var(--ns-warning);
 		font-size: 12px;
 		cursor: pointer;
 	}
 
 	.conflict-actions button:hover {
-		background: #4a3a10;
+		background: var(--ns-warning-hover);
 	}
 
 	.settings-body {
@@ -375,19 +375,19 @@
 
 	.config-footer {
 		padding: 8px 24px;
-		border-top: 1px solid var(--border-color, #333);
+		border-top: 1px solid var(--ns-border);
 		flex-shrink: 0;
 	}
 
 	.config-path {
 		font-size: 11px;
-		color: var(--text-muted, #666);
+		color: var(--ns-text-subtle);
 	}
 
 	.settings-empty {
 		padding: 32px 24px;
 		text-align: center;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		font-size: 13px;
 	}
 

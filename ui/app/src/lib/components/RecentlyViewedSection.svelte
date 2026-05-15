@@ -95,7 +95,7 @@ width: 100%;
 padding: 5px 12px;
 border: none;
 background: none;
-color: var(--text-secondary, #cccccc);
+color: var(--ns-text-secondary);
 font-size: 13px;
 text-align: left;
 cursor: pointer;
@@ -105,12 +105,12 @@ text-overflow: ellipsis;
 }
 
 .item:hover {
-background: var(--hover-bg, #2a2d2e);
+background: var(--ns-surface-hover);
 }
 
 .item.selected {
-background: var(--selected-bg, #094771);
-color: white;
+background: var(--ns-selected-bg);
+color: var(--ns-text-inverse);
 }
 
 .item-title {
@@ -121,6 +121,6 @@ text-overflow: ellipsis;
 .empty {
 padding: 8px 12px;
 font-size: 12px;
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 }
 </style>

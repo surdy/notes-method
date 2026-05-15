@@ -63,7 +63,7 @@ gap: 10px;
 order: -1;
 width: 16px;
 height: 16px;
-accent-color: #264f78;
+accent-color: var(--ns-accent-bg);
 }
 
 .field-toggle .field-label {
@@ -72,22 +72,22 @@ order: 1;
 
 .field-label {
 font-size: 12px;
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 }
 
 .field select {
 padding: 6px 10px;
-border: 1px solid var(--border-color, #444);
+border: 1px solid var(--ns-border-strong);
 border-radius: 4px;
-background: var(--bg-secondary, #2a2a2a);
-color: var(--text-primary, #e0e0e0);
+background: var(--ns-bg-secondary);
+color: var(--ns-text);
 font-size: 13px;
 max-width: 400px;
 }
 
 .field select:focus {
 outline: none;
-border-color: #264f78;
+border-color: var(--ns-accent-bg);
 }
 
 @media (max-width: 600px) {

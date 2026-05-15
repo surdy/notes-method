@@ -142,7 +142,7 @@
 		flex: 1;
 		overflow-y: auto;
 		padding: 24px 32px;
-		color: var(--text-primary, #e0e0e0);
+		color: var(--ns-text);
 	}
 
 	.empty-state {
@@ -150,12 +150,12 @@
 		align-items: center;
 		justify-content: center;
 		height: 100%;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 	}
 
 	.frontmatter {
-		background: var(--surface-bg, #1e1e1e);
-		border: 1px solid var(--border-color, #333);
+		background: var(--ns-surface);
+		border: 1px solid var(--ns-border);
 		border-radius: 6px;
 		padding: 12px 16px;
 		margin-bottom: 20px;
@@ -170,7 +170,7 @@
 	.fm-key {
 		font-weight: 600;
 		padding: 2px 12px 2px 0;
-		color: var(--text-accent, #7ec8e3);
+		color: var(--ns-accent);
 		white-space: nowrap;
 	}
 
@@ -194,7 +194,7 @@
 	}
 
 	.content :global(a.wikilink) {
-		color: var(--link-color, #7ec8e3);
+		color: var(--ns-link);
 		cursor: pointer;
 		text-decoration: underline;
 		text-decoration-style: dotted;
@@ -207,15 +207,15 @@
 
 	.content :global(th),
 	.content :global(td) {
-		border: 1px solid var(--border-color, #444);
+		border: 1px solid var(--ns-border-strong);
 		padding: 6px 12px;
 	}
 
 	.content :global(blockquote) {
-		border-left: 3px solid var(--border-color, #444);
+		border-left: 3px solid var(--ns-border-strong);
 		margin: 1em 0;
 		padding: 0.5em 1em;
-		color: var(--text-muted, #aaa);
+		color: var(--ns-text-faint);
 	}
 
 	.content :global(.callout) {
@@ -226,18 +226,18 @@
 	}
 
 	.content :global(.callout-info) {
-		border-color: #4a9eff;
-		background: #1a3a5c;
+		border-color: var(--ns-info);
+		background: var(--ns-info-bg);
 	}
 
 	.content :global(.callout-warning) {
-		border-color: #ffb347;
-		background: #3d3018;
+		border-color: var(--ns-warning-callout-border);
+		background: var(--ns-warning-callout-bg);
 	}
 
 	.content :global(.callout-tip) {
-		border-color: #50c878;
-		background: #1a3d2a;
+		border-color: var(--ns-success);
+		background: var(--ns-success-bg);
 	}
 
 	.content :global(input[type='checkbox']) {
@@ -246,7 +246,7 @@
 	}
 
 	.content :global(li) {
-		color: var(--text-primary, #e0e0e0);
+		color: var(--ns-text);
 	}
 
 	.loading,
@@ -256,6 +256,6 @@
 	}
 
 	.error {
-		color: #ff6b6b;
+		color: var(--ns-danger);
 	}
 </style>

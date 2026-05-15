@@ -284,12 +284,12 @@
 <style>
 	.error-banner {
 		padding: 10px 0;
-		color: #ff6b6b;
+		color: var(--ns-danger);
 		font-size: 13px;
 	}
 
 	.loading {
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		font-size: 13px;
 	}
 
@@ -301,14 +301,14 @@
 	}
 
 	.vault-card {
-		border: 1px solid var(--border-color, #333);
+		border: 1px solid var(--ns-border);
 		border-radius: 6px;
 		padding: 10px 12px;
-		background: var(--bg-secondary, #2a2a2a);
+		background: var(--ns-bg-secondary);
 	}
 
 	.vault-card.is-default {
-		border-color: #264f78;
+		border-color: var(--ns-accent-bg);
 	}
 
 	.vault-main {
@@ -332,7 +332,7 @@
 
 	.vault-path {
 		font-size: 11px;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -351,31 +351,31 @@
 		font-size: 16px;
 		cursor: pointer;
 		padding: 2px 4px;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 	}
 
 	.default-btn.active {
-		color: #f5c842;
+		color: var(--ns-warning);
 		cursor: default;
 	}
 
 	.default-btn:hover:not(.active) {
-		color: #f5c842;
+		color: var(--ns-warning);
 	}
 
 	.btn-small {
 		padding: 3px 8px;
-		border: 1px solid var(--border-color, #444);
+		border: 1px solid var(--ns-border-strong);
 		border-radius: 4px;
 		background: transparent;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		font-size: 11px;
 		cursor: pointer;
 	}
 
 	.btn-small:hover:not(:disabled) {
-		background: var(--hover-bg, #2a2d2e);
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-surface-hover);
+		color: var(--ns-text);
 	}
 
 	.btn-small:disabled {
@@ -384,12 +384,12 @@
 	}
 
 	.btn-small.danger:hover:not(:disabled) {
-		color: #ff6b6b;
-		border-color: #ff6b6b;
+		color: var(--ns-danger);
+		border-color: var(--ns-danger);
 	}
 
 	.btn-small.muted {
-		color: var(--text-muted, #666);
+		color: var(--ns-text-subtle);
 	}
 
 	.rename-row {
@@ -400,23 +400,23 @@
 
 	.rename-input {
 		padding: 3px 8px;
-		border: 1px solid #264f78;
+		border: 1px solid var(--ns-accent-bg);
 		border-radius: 4px;
-		background: var(--bg-primary, #1e1e1e);
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-bg);
+		color: var(--ns-text);
 		font-size: 13px;
 		width: 160px;
 	}
 
 	.inline-error {
-		color: #ff6b6b;
+		color: var(--ns-danger);
 		font-size: 11px;
 		display: block;
 		margin-top: 2px;
 	}
 
 	.add-form {
-		border: 1px solid var(--border-color, #333);
+		border: 1px solid var(--ns-border);
 		border-radius: 6px;
 		padding: 12px;
 		margin-top: 8px;
@@ -437,22 +437,22 @@
 
 	.field-label {
 		font-size: 11px;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 	}
 
 	.field input[type='text'] {
 		padding: 5px 8px;
-		border: 1px solid var(--border-color, #444);
+		border: 1px solid var(--ns-border-strong);
 		border-radius: 4px;
-		background: var(--bg-secondary, #2a2a2a);
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-bg-secondary);
+		color: var(--ns-text);
 		font-size: 13px;
 		max-width: 360px;
 	}
 
 	.field input:focus {
 		outline: none;
-		border-color: #264f78;
+		border-color: var(--ns-accent-bg);
 	}
 
 	.path-prefix {
@@ -464,11 +464,11 @@
 
 	.prefix {
 		padding: 5px 6px;
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid var(--border-color, #444);
+		background: var(--ns-surface-translucent-subtle);
+		border: 1px solid var(--ns-border-strong);
 		border-right: none;
 		border-radius: 4px 0 0 4px;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		font-size: 12px;
 		white-space: nowrap;
 	}
@@ -487,19 +487,19 @@
 	.btn-revert {
 		padding: 5px 14px;
 		border-radius: 4px;
-		border: 1px solid var(--border-color, #444);
+		border: 1px solid var(--ns-border-strong);
 		font-size: 12px;
 		cursor: pointer;
 	}
 
 	.btn-save {
-		background: #264f78;
-		color: #fff;
-		border-color: #264f78;
+		background: var(--ns-accent-bg);
+		color: var(--ns-text-inverse);
+		border-color: var(--ns-accent-bg);
 	}
 
 	.btn-save:hover:not(:disabled) {
-		background: #2d5f8e;
+		background: var(--ns-accent-bg-hover);
 	}
 
 	.btn-save:disabled {
@@ -508,27 +508,27 @@
 
 	.btn-revert {
 		background: transparent;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 	}
 
 	.btn-revert:hover {
-		background: var(--hover-bg, #2a2d2e);
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-surface-hover);
+		color: var(--ns-text);
 	}
 
 	.btn-add-vault {
 		padding: 8px 16px;
-		border: 1px dashed var(--border-color, #444);
+		border: 1px dashed var(--ns-border-strong);
 		border-radius: 6px;
 		background: none;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		font-size: 13px;
 		cursor: pointer;
 		margin-top: 8px;
 	}
 
 	.btn-add-vault:hover {
-		border-color: var(--text-muted, #888);
-		color: var(--text-primary, #e0e0e0);
+		border-color: var(--ns-text-muted);
+		color: var(--ns-text);
 	}
 </style>

@@ -136,7 +136,7 @@ type="button"
 .switcher-backdrop {
 position: fixed;
 inset: 0;
-background: rgb(0 0 0 / 65%);
+background: var(--ns-overlay);
 display: flex;
 justify-content: center;
 align-items: flex-start;
@@ -149,10 +149,10 @@ width: min(640px, 100%);
 max-height: min(60vh, 720px);
 display: flex;
 flex-direction: column;
-background: #2d2d2d;
-border: 1px solid rgb(255 255 255 / 8%);
+background: var(--ns-panel-bg-strong);
+border: 1px solid var(--ns-border-overlay);
 border-radius: 16px;
-box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
+box-shadow: var(--ns-shadow);
 overflow: hidden;
 }
 
@@ -161,10 +161,10 @@ width: 100%;
 padding: 18px 20px;
 border: none;
 outline: none;
-background: #2d2d2d;
-color: var(--text-primary, #e0e0e0);
+background: var(--ns-panel-bg-strong);
+color: var(--ns-text);
 font-size: 17px;
-border-bottom: 1px solid rgb(255 255 255 / 8%);
+border-bottom: 1px solid var(--ns-border-overlay);
 }
 
 .switcher-results {
@@ -181,14 +181,14 @@ padding: 12px 14px;
 border: none;
 border-radius: 10px;
 background: transparent;
-color: var(--text-primary, #e0e0e0);
+color: var(--ns-text);
 cursor: pointer;
 text-align: left;
 }
 
 .switcher-item:hover,
 .switcher-item.selected {
-background: var(--hover-bg, #3a3a3a);
+background: var(--ns-surface-hover-strong);
 }
 
 .note-icon {
@@ -211,7 +211,7 @@ font-weight: 500;
 
 .note-meta {
 font-size: 12px;
-color: var(--text-muted, #989898);
+color: var(--ns-text-muted-strong);
 text-overflow: ellipsis;
 overflow: hidden;
 white-space: nowrap;
@@ -220,6 +220,6 @@ white-space: nowrap;
 .no-results {
 padding: 24px;
 text-align: center;
-color: var(--text-muted, #8f8f8f);
+color: var(--ns-text-muted-soft);
 }
 </style>

@@ -105,29 +105,29 @@ margin-bottom: 12px;
 .btn-revert {
 padding: 5px 14px;
 border-radius: 4px;
-border: 1px solid var(--border-color, #444);
+border: 1px solid var(--ns-border-strong);
 font-size: 12px;
 cursor: pointer;
 }
 
 .btn-save {
-background: #264f78;
-color: #fff;
-border-color: #264f78;
+background: var(--ns-accent-bg);
+color: var(--ns-text-inverse);
+border-color: var(--ns-accent-bg);
 }
 
 .btn-save:hover {
-background: #2d5f8e;
+background: var(--ns-accent-bg-hover);
 }
 
 .btn-revert {
 background: transparent;
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 }
 
 .btn-revert:hover {
-background: var(--hover-bg, #2a2d2e);
-color: var(--text-primary, #e0e0e0);
+background: var(--ns-surface-hover);
+color: var(--ns-text);
 }
 
 .field {
@@ -139,31 +139,31 @@ margin-bottom: 14px;
 
 .field-label {
 font-size: 12px;
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 }
 
 .field input[type='text'] {
 padding: 6px 10px;
-border: 1px solid var(--border-color, #444);
+border: 1px solid var(--ns-border-strong);
 border-radius: 4px;
-background: var(--bg-secondary, #2a2a2a);
-color: var(--text-primary, #e0e0e0);
+background: var(--ns-bg-secondary);
+color: var(--ns-text);
 font-size: 13px;
 max-width: 400px;
 }
 
 .field input[type='text']:focus {
 outline: none;
-border-color: #264f78;
+border-color: var(--ns-accent-bg);
 }
 
 .field-error {
-color: #ff6b6b;
+color: var(--ns-danger);
 font-size: 11px;
 }
 
 .field-warning {
-color: #f5c842;
+color: var(--ns-warning);
 font-size: 11px;
 }
 

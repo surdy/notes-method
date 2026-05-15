@@ -309,7 +309,7 @@
 		position: relative;
 		margin-top: auto;
 		padding: 8px 12px 12px;
-		border-top: 1px solid var(--border-color, #333);
+		border-top: 1px solid var(--ns-border);
 		flex-shrink: 0;
 	}
 
@@ -321,7 +321,7 @@
 		cursor: pointer;
 		border-radius: 4px;
 		font-size: 12px;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		border: none;
 		background: none;
 		width: 100%;
@@ -329,7 +329,7 @@
 	}
 
 	.status-pill:hover {
-		background: var(--hover-bg, #2a2d2e);
+		background: var(--ns-surface-hover);
 	}
 
 	.status-label {
@@ -347,8 +347,8 @@
 		height: 18px;
 		padding: 0 6px;
 		border-radius: 999px;
-		background: #ff9800;
-		color: #1f1f1f;
+		background: var(--ns-badge-bg);
+		color: var(--ns-badge-text);
 		font-size: 11px;
 		font-weight: 700;
 		flex-shrink: 0;
@@ -362,24 +362,24 @@
 	}
 
 	.status-dot.connected {
-		background: #4caf50;
+		background: var(--ns-status-connected);
 	}
 
 	.status-dot.reconnecting {
-		background: #ff9800;
+		background: var(--ns-status-reconnecting);
 		animation: pulse 1.5s infinite;
 	}
 
 	.status-dot.disconnected {
-		background: #f44336;
+		background: var(--ns-status-disconnected);
 	}
 
 	.status-dot.restart-required {
-		background: #2196f3;
+		background: var(--ns-status-restart);
 	}
 
 	.status-dot.rebuilding {
-		background: #9e9e9e;
+		background: var(--ns-status-idle);
 	}
 
 	.status-popover {
@@ -388,15 +388,15 @@
 		left: 0;
 		right: 0;
 		margin-bottom: 4px;
-		background: var(--sidebar-bg, #252526);
-		border: 1px solid var(--border-color, #333);
+		background: var(--ns-sidebar-bg);
+		border: 1px solid var(--ns-border);
 		border-radius: 8px;
 		padding: 12px;
-		box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.3);
+		box-shadow: var(--ns-shadow-popover);
 		z-index: 100;
 		max-height: 400px;
 		overflow-y: auto;
-		color: var(--text-primary, #e0e0e0);
+		color: var(--ns-text);
 		font-size: 12px;
 	}
 
@@ -412,7 +412,7 @@
 	}
 
 	.detail-line.hint {
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 	}
 
 	.detail-section {
@@ -421,16 +421,16 @@
 	}
 
 	.state-text {
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 	}
 
 	.state-text.error {
-		color: #ff6b6b;
+		color: var(--ns-danger);
 	}
 
 	.divider {
 		border: 0;
-		border-top: 1px solid var(--border-color, #333);
+		border-top: 1px solid var(--ns-border);
 		margin: 10px 0;
 	}
 
@@ -441,10 +441,10 @@
 	}
 
 	.action-btn {
-		border: 1px solid var(--border-color, #333);
+		border: 1px solid var(--ns-border);
 		border-radius: 6px;
-		background: var(--hover-bg, #2a2d2e);
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-surface-hover);
+		color: var(--ns-text);
 		font-size: 12px;
 		padding: 6px 10px;
 		cursor: pointer;
@@ -465,9 +465,9 @@
 		overflow: auto;
 		padding: 8px;
 		border-radius: 6px;
-		background: rgba(0, 0, 0, 0.2);
-		border: 1px solid var(--border-color, #333);
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-overlay-soft);
+		border: 1px solid var(--ns-border);
+		color: var(--ns-text);
 		font-family:
 			ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
 			'Courier New', monospace;

@@ -103,8 +103,8 @@
 		padding: 0 8px;
 		overflow-x: auto;
 		overflow-y: hidden;
-		background: #2d2d2d;
-		border-bottom: 1px solid var(--border-color, #333);
+		background: var(--ns-panel-bg-strong);
+		border-bottom: 1px solid var(--ns-border);
 		scrollbar-width: thin;
 	}
 
@@ -116,7 +116,7 @@
 		min-width: 0;
 		max-width: 240px;
 		margin-top: 1px;
-		background: #252526;
+		background: var(--ns-surface-elevated);
 		border-top: 2px solid transparent;
 		transition:
 			background-color 120ms ease,
@@ -124,8 +124,8 @@
 	}
 
 	.tab-shell.active {
-		background: #1e1e1e;
-		border-top-color: var(--text-accent, #7ec8e3);
+		background: var(--ns-surface);
+		border-top-color: var(--ns-accent);
 	}
 
 	.tab-shell.drag-over::after {
@@ -134,7 +134,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		border-bottom: 2px solid var(--text-accent, #7ec8e3);
+		border-bottom: 2px solid var(--ns-accent);
 	}
 
 	.tab {
@@ -142,13 +142,13 @@
 		align-items: center;
 		min-width: 0;
 		padding: 0 32px 0 12px;
-		color: var(--text-primary, #e0e0e0);
+		color: var(--ns-text);
 		cursor: pointer;
 		outline: none;
 	}
 
 	.tab:focus-visible {
-		box-shadow: inset 0 0 0 1px var(--text-accent, #7ec8e3);
+		box-shadow: inset 0 0 0 1px var(--ns-accent);
 	}
 
 	.tab-title {
@@ -166,7 +166,7 @@
 	}
 
 	.dirty-dot {
-		color: #ffb347;
+		color: var(--ns-dirty-dot);
 		font-size: 12px;
 		line-height: 1;
 	}
@@ -184,7 +184,7 @@
 		border: none;
 		border-radius: 4px;
 		background: transparent;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		cursor: pointer;
 		opacity: 0;
 		transform: translateY(-50%);
@@ -202,8 +202,8 @@
 
 	.tab-close:hover,
 	.tab-close:focus-visible {
-		background: rgba(255, 255, 255, 0.08);
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-surface-translucent);
+		color: var(--ns-text);
 		outline: none;
 	}
 </style>

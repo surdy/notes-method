@@ -282,8 +282,8 @@ display: grid;
 grid-template-columns: 1fr 1fr;
 gap: 1px;
 padding: 6px;
-border-bottom: 1px solid var(--border-color, #333);
-background: var(--sidebar-bg, #252526);
+border-bottom: 1px solid var(--ns-border);
+background: var(--ns-sidebar-bg);
 }
 
 .tab-button {
@@ -295,7 +295,7 @@ padding: 6px 8px;
 border: 1px solid transparent;
 border-radius: 6px;
 background: transparent;
-color: var(--text-secondary, #cccccc);
+color: var(--ns-text-secondary);
 font-size: 12px;
 font-weight: 500;
 cursor: pointer;
@@ -304,13 +304,13 @@ overflow: hidden;
 }
 
 .tab-button:hover {
-background: var(--hover-bg, #2a2d2e);
+background: var(--ns-surface-hover);
 }
 
 .tab-button.active {
-background: var(--selected-bg, #094771);
-color: white;
-border-color: color-mix(in srgb, var(--selected-bg, #094771) 70%, white 30%);
+background: var(--ns-selected-bg);
+color: var(--ns-text-inverse);
+border-color: var(--ns-selected-border);
 }
 
 .tab-icon {
@@ -342,7 +342,7 @@ padding: 4px 0;
 .section-separator {
 margin: 4px 0;
 border: none;
-border-top: 1px solid var(--border-color, #333);
+border-top: 1px solid var(--ns-border);
 }
 
 .section {
@@ -363,12 +363,12 @@ text-align: left;
 }
 
 .section-header:hover {
-background: var(--hover-bg, #2a2d2e);
+background: var(--ns-surface-hover);
 }
 
 .section-chevron {
 font-size: 12px;
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 width: 12px;
 flex-shrink: 0;
 }
@@ -378,7 +378,7 @@ font-size: 11px;
 font-weight: 700;
 letter-spacing: 0.08em;
 text-transform: uppercase;
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 }
 
 .section-body {
@@ -389,23 +389,23 @@ flex-direction: column;
 .state-msg {
 padding: 16px;
 text-align: center;
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 font-size: 12px;
 }
 
 .refresh-btn {
 margin-top: 10px;
 padding: 6px 10px;
-border: 1px solid var(--border-color, #333);
+border: 1px solid var(--ns-border);
 border-radius: 6px;
-background: var(--panel-bg, #2a2d2e);
-color: var(--text-primary, #e0e0e0);
+background: var(--ns-panel-bg);
+color: var(--ns-text);
 font-size: 12px;
 cursor: pointer;
 }
 
 .refresh-btn:hover {
-background: var(--hover-bg, #323537);
+background: var(--ns-panel-hover);
 }
 
 

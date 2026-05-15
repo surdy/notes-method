@@ -485,8 +485,8 @@ flex: 1;
 min-height: 0;
 display: flex;
 flex-direction: column;
-background: #1e1e1e;
-color: var(--text-primary, #e0e0e0);
+background: var(--ns-editor-bg);
+color: var(--ns-text);
 }
 
 .editor-container {
@@ -519,7 +519,7 @@ padding: 24px 32px;
 }
 
 .empty-state {
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 }
 
 .conflict-banner {
@@ -528,8 +528,8 @@ align-items: center;
 justify-content: space-between;
 gap: 12px;
 padding: 10px 16px;
-border-bottom: 1px solid var(--border-color, #333);
-background: #2a2014;
+border-bottom: 1px solid var(--ns-border);
+background: var(--ns-warning-bg-soft);
 }
 
 .conflict-actions {
@@ -539,14 +539,14 @@ gap: 8px;
 
 button {
 padding: 6px 10px;
-border: 1px solid var(--border-color, #444);
+border: 1px solid var(--ns-border-strong);
 border-radius: 6px;
-background: #2d2d2d;
+background: var(--ns-panel-bg-strong);
 color: inherit;
 cursor: pointer;
 }
 
 button:hover {
-background: #373737;
+background: var(--ns-panel-hover-strong);
 }
 </style>

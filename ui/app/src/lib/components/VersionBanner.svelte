@@ -65,10 +65,10 @@
 		justify-content: space-between;
 		gap: 12px;
 		padding: 8px 16px;
-		background: #1e5aa5;
-		color: #f3f8ff;
+		background: var(--ns-info-banner);
+		color: var(--ns-info-banner-text);
 		font-size: 13px;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+		border-bottom: 1px solid var(--ns-border-translucent);
 	}
 
 	.banner-copy {
@@ -79,14 +79,14 @@
 	}
 
 	.banner-error {
-		color: #d9ecff;
+		color: var(--ns-info-banner-text-muted);
 		opacity: 0.9;
 	}
 
 	.banner-action {
-		border: 1px solid rgba(255, 255, 255, 0.3);
+		border: 1px solid var(--ns-border-translucent-strong);
 		border-radius: 999px;
-		background: rgba(255, 255, 255, 0.12);
+		background: var(--ns-surface-translucent-strong);
 		color: inherit;
 		padding: 4px 10px;
 		font-size: 12px;
@@ -95,7 +95,7 @@
 	}
 
 	.banner-action:hover {
-		background: rgba(255, 255, 255, 0.2);
+		background: var(--ns-surface-translucent-emphasis);
 	}
 
 	@media (max-width: 768px) {

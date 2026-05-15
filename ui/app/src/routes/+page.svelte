@@ -184,8 +184,8 @@ overflow: hidden;
 .sidebar {
 width: 280px;
 min-width: 200px;
-background: var(--sidebar-bg, #252526);
-border-right: 1px solid var(--border-color, #333);
+background: var(--ns-sidebar-bg);
+border-right: 1px solid var(--ns-border);
 display: flex;
 flex-direction: column;
 overflow: hidden;
@@ -193,7 +193,7 @@ overflow: hidden;
 
 .sidebar-header {
 padding: 12px 16px;
-border-bottom: 1px solid var(--border-color, #333);
+border-bottom: 1px solid var(--ns-border);
 display: flex;
 align-items: center;
 justify-content: space-between;
@@ -208,7 +208,7 @@ font-weight: 600;
 .gear-btn {
 background: none;
 border: none;
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 font-size: 16px;
 cursor: pointer;
 padding: 2px 6px;
@@ -216,8 +216,8 @@ border-radius: 4px;
 }
 
 .gear-btn:hover {
-background: var(--hover-bg, #2a2d2e);
-color: var(--text-primary, #e0e0e0);
+background: var(--ns-surface-hover);
+color: var(--ns-text);
 }
 
 .content-area {
@@ -249,7 +249,7 @@ flex-direction: column;
 width: 100%;
 height: 40vh;
 border-right: none;
-border-bottom: 1px solid var(--border-color, #333);
+border-bottom: 1px solid var(--ns-border);
 }
 }
 </style>

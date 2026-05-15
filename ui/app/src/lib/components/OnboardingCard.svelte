@@ -59,10 +59,10 @@ whether the service is connected and healthy.
 .onboarding-card {
 margin: 8px 10px 10px;
 padding: 12px;
-border: 1px solid color-mix(in srgb, var(--border-color, #333) 88%, white 12%);
+border: 1px solid var(--ns-onboarding-border);
 border-radius: 10px;
-background: color-mix(in srgb, var(--sidebar-bg, #252526) 82%, white 18%);
-box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+background: var(--ns-onboarding-bg);
+box-shadow: var(--ns-shadow-soft);
 }
 
 .onboarding-content {
@@ -84,7 +84,7 @@ justify-content: center;
 width: 28px;
 height: 28px;
 border-radius: 8px;
-background: color-mix(in srgb, var(--selected-bg, #094771) 22%, transparent);
+background: color-mix(in srgb, var(--ns-selected-bg) 22%, transparent);
 font-size: 16px;
 line-height: 1;
 }
@@ -93,27 +93,27 @@ line-height: 1;
 margin: 0 0 4px;
 font-size: 14px;
 font-weight: 600;
-color: var(--text-primary, #e0e0e0);
+color: var(--ns-text);
 }
 
 .onboarding-card p {
 margin: 0;
 font-size: 12px;
 line-height: 1.45;
-color: var(--text-secondary, #cccccc);
+color: var(--ns-text-secondary);
 }
 
 .onboarding-hint {
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 }
 
 .onboarding-dismiss {
 justify-self: start;
 padding: 6px 12px;
-border: 1px solid color-mix(in srgb, var(--selected-bg, #094771) 70%, white 30%);
+border: 1px solid var(--ns-selected-border);
 border-radius: 6px;
-background: var(--selected-bg, #094771);
-color: white;
+background: var(--ns-selected-bg);
+color: var(--ns-text-inverse);
 font-size: 12px;
 font-weight: 600;
 cursor: pointer;

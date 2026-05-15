@@ -219,8 +219,8 @@ onmousedown={onDragStart}
 position: relative;
 display: flex;
 flex-direction: column;
-background: var(--sidebar-bg, #252526);
-border-right: 1px solid var(--border-color, #333);
+background: var(--ns-sidebar-bg);
+border-right: 1px solid var(--ns-border);
 overflow: hidden;
 flex-shrink: 0;
 }
@@ -230,7 +230,7 @@ display: flex;
 align-items: center;
 gap: 8px;
 padding: 10px 12px;
-border-bottom: 1px solid var(--border-color, #333);
+border-bottom: 1px solid var(--ns-border);
 flex-shrink: 0;
 }
 
@@ -242,7 +242,7 @@ font-size: 14px;
 flex: 1;
 font-size: 13px;
 font-weight: 600;
-color: var(--text-primary, #e0e0e0);
+color: var(--ns-text);
 overflow: hidden;
 text-overflow: ellipsis;
 white-space: nowrap;
@@ -251,7 +251,7 @@ white-space: nowrap;
 .close-btn {
 background: none;
 border: none;
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 cursor: pointer;
 font-size: 14px;
 padding: 2px 6px;
@@ -260,8 +260,8 @@ border-radius: 4px;
 }
 
 .close-btn:hover {
-background: var(--hover-bg, #2a2d2e);
-color: var(--text-primary, #e0e0e0);
+background: var(--ns-surface-hover);
+color: var(--ns-text);
 }
 
 .pane-body {
@@ -279,18 +279,18 @@ width: 100%;
 padding: 7px 12px;
 border: none;
 background: none;
-color: var(--text-secondary, #cccccc);
+color: var(--ns-text-secondary);
 text-align: left;
 cursor: pointer;
 }
 
 .list-item:hover {
-background: var(--hover-bg, #2a2d2e);
+background: var(--ns-surface-hover);
 }
 
 .list-item.selected {
-background: var(--selected-bg, #094771);
-color: white;
+background: var(--ns-selected-bg);
+color: var(--ns-text-inverse);
 }
 
 .item-primary {
@@ -304,7 +304,7 @@ max-width: 100%;
 
 .item-secondary {
 font-size: 11px;
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 overflow: hidden;
 text-overflow: ellipsis;
 white-space: nowrap;
@@ -312,7 +312,7 @@ max-width: 100%;
 }
 
 .list-item.selected .item-secondary {
-color: rgba(255, 255, 255, 0.75);
+color: var(--ns-text-inverse-soft);
 }
 
 .item-badges {
@@ -333,12 +333,12 @@ font-size: 10px;
 .state-msg {
 padding: 16px 12px;
 font-size: 12px;
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 text-align: center;
 }
 
 .state-msg.error {
-color: #ff6b6b;
+color: var(--ns-danger);
 }
 
 .drag-handle {
@@ -352,6 +352,6 @@ z-index: 10;
 }
 
 .drag-handle:hover {
-background: var(--border-color, #333);
+background: var(--ns-border);
 }
 </style>

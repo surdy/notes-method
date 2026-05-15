@@ -63,10 +63,10 @@
 		align-items: center;
 		height: 32px;
 		padding: 0 12px;
-		background: var(--surface-bg, #1e1e1e);
-		border-bottom: 1px solid var(--border-color, #333);
+		background: var(--ns-surface);
+		border-bottom: 1px solid var(--ns-border);
 		font-size: 12px;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		flex-shrink: 0;
 	}
 
@@ -94,7 +94,7 @@
 	}
 
 	.path-leaf {
-		color: var(--text-primary, #e0e0e0);
+		color: var(--ns-text);
 		font-weight: 500;
 	}
 
@@ -112,13 +112,13 @@
 		border: none;
 		border-radius: 4px;
 		background: transparent;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		cursor: pointer;
 		transition: background 0.15s, color 0.15s;
 	}
 
 	.view-toggle:hover {
-		background: var(--hover-bg, #333);
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-surface-hover-subtle);
+		color: var(--ns-text);
 	}
 </style>

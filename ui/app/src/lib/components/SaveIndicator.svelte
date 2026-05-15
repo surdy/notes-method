@@ -59,8 +59,8 @@
 		padding: 8px 12px;
 		border-radius: 999px;
 		border: 1px solid transparent;
-		background: rgba(53, 53, 53, 0.92);
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-overlay-panel);
+		color: var(--ns-text);
 		font-size: 12px;
 		line-height: 1;
 		transition:
@@ -90,21 +90,21 @@
 	}
 
 	.save-indicator.saved {
-		background: rgba(46, 125, 50, 0.18);
-		border-color: rgba(76, 175, 80, 0.35);
-		color: #b9f6ca;
+		background: var(--ns-success-surface);
+		border-color: var(--ns-success-border);
+		color: var(--ns-success-text);
 	}
 
 	.save-indicator.failed-retrying {
-		background: rgba(120, 76, 20, 0.32);
-		border-color: rgba(255, 167, 38, 0.35);
-		color: #ffd180;
+		background: var(--ns-warning-surface);
+		border-color: var(--ns-warning-surface-border);
+		color: var(--ns-warning-text);
 	}
 
 	.save-indicator.failed {
-		background: rgba(124, 36, 36, 0.35);
-		border-color: rgba(255, 107, 107, 0.4);
-		color: #ffb4b4;
+		background: var(--ns-danger-surface);
+		border-color: var(--ns-danger-surface-border);
+		color: var(--ns-danger-text);
 		cursor: pointer;
 	}
 
@@ -115,7 +115,7 @@
 	.spinner {
 		width: 12px;
 		height: 12px;
-		border: 2px solid rgba(255, 255, 255, 0.2);
+		border: 2px solid var(--ns-border-translucent-soft);
 		border-top-color: currentColor;
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
