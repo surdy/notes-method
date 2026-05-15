@@ -120,6 +120,39 @@ fn vault_reindex_creates_cache_file() {
     assert!(cache_home.join("notesmith/work/tantivy").exists());
 }
 
+#[test]
+fn top_level_reindex_requires_running_daemon() {
+    let temp_dir = TempDir::new().unwrap();
+    let vault_root = temp_dir.path().join("work");
+    create_vault(&vault_root, "work");
+    fs::create_dir_all(vault_root.join("Inbox")).unwrap();
+    fs::write(vault_root.join("Inbox/Note.md"), "# Note\n").unwrap();
+
+    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let bind = reserved.local_addr().unwrap();
+    drop(reserved);
+
+    let config_home = temp_dir.path().join("config-home");
+    let cache_home = temp_dir.path().join("cache-home");
+    write_global_config(&config_home, "work", &vault_root, Some(bind.to_string()));
+
+    let output = Command::new(notesmith_bin())
+        .current_dir(&vault_root)
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .args(["reindex", "--cache-only"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("could not reach the Notesmith daemon"),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[tokio::test]
 async fn daemon_start_serves_ping_endpoint() {
     let temp_dir = TempDir::new().unwrap();

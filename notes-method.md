@@ -142,9 +142,12 @@ For each customer there would be a folder containing:
 ## Daemon Diagnostics
 
 - The daemon should expose `GET /api/status` with version, API schema, uptime, vault note counts, watcher/index health placeholders, and resource diagnostics (RSS, open FDs, SSE connection count, cache size).
+- On daemon start, Notesmith should run SQLite cache and Tantivy integrity checks, automatically move aside corrupt artifacts, and rebuild them from markdown files before serving the vault.
+- Vaults reported by `GET /api/status` should surface a temporary `rebuilding` state while a manual reindex is in progress so the UI can show a rebuild banner.
 - `GET /ping` remains as a lightweight compatibility alias for scripts, but richer clients should rely on `/api/status`.
 - API and admin responses should include daemon version and schema headers so the frontend can detect incompatible client/daemon pairs, show a blue compatibility banner, and mark the sidebar status pill as restart-required until versions align.
 - The daemon should write daily-rotated logs to the platform log directory, retain 7 days of history, and expose `GET /admin/logs?tail=` for local diagnostics.
 - The desktop shell sidebar footer should show a connection-status pill driven by SSE state plus `/api/status` liveness, opening a popover with daemon health details and local controls for restart, reindex, and log tail viewing.
+- CLI reindexing should be available as `notesmith reindex` with `--cache-only` and `--search-only` flags, defaulting to all registered vaults unless `--vault` is supplied.
 - The daemon should write a JSON lockfile at the platform-specific Notesmith data/runtime location containing PID, port, version, start time, and binary path so desktop and other local clients can discover the live daemon and clean up stale entries.
 - The daemon should watch the global config file and hot-reload vault registrations (add, remove, rename/path changes) without requiring a restart, emitting SSE `vaults.changed` so clients can refresh the vault list.

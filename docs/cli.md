@@ -31,6 +31,7 @@ notesmith daemon start [--bind 127.0.0.1:27183]
 
 The daemon indexes all registered vaults on startup and watches for file changes.
 It also writes daily-rotated daemon logs to the platform log directory (`~/Library/Logs/Notesmith/` on macOS, `$XDG_STATE_HOME/notesmith/` or `~/.local/state/notesmith/` on Linux) and retains the last 7 days.
+On startup it also runs SQLite/Tantivy integrity checks and automatically rebuilds corrupted cache artifacts from markdown files.
 
 ---
 
@@ -107,6 +108,26 @@ notesmith vault reindex
 ```
 
 Output: `Reindexed 42 notes for work into ~/.cache/notesmith/work/cache.sqlite`
+
+---
+
+## reindex
+
+### `reindex`
+
+Ask the running daemon to rebuild one vault or all registered vaults.
+
+```bash
+notesmith reindex [--vault work] [--cache-only | --search-only]
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--vault <name>` | Reindex one registered vault | all registered vaults |
+| `--cache-only` | Rebuild only the SQLite cache | rebuild both |
+| `--search-only` | Rebuild only the Tantivy search index | rebuild both |
+
+Requires the daemon to be running.
 
 ---
 

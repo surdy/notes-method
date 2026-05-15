@@ -7,6 +7,7 @@ pub mod daily;
 pub mod mcp;
 pub mod note;
 pub mod query;
+pub mod reindex;
 pub mod route;
 pub mod search;
 pub mod skill;

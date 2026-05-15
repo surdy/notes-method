@@ -7,6 +7,7 @@ use notesmith_cli::commands::{
     mcp::McpCommand,
     note::NoteCommand,
     query::QueryCommand,
+    reindex::ReindexCommand,
     route::RouteCommand,
     search::SearchCommand,
     skill::SkillCommand,
@@ -80,6 +81,8 @@ enum Command {
     },
     /// Full-text search against the daemon index
     Search(SearchCommand),
+    /// Rebuild daemon cache and search indexes
+    Reindex(ReindexCommand),
     /// Task management commands
     Task {
         #[command(subcommand)]
@@ -145,6 +148,11 @@ async fn main() -> anyhow::Result<()> {
         Command::Search(command) => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
+        Command::Reindex(command) => {
+            command
+                .run(&global_config, cli.vault.as_deref(), format)
                 .await?;
         }
         Command::Task { command } => {
