@@ -81,7 +81,9 @@ For each customer there would be a folder containing:
 - The note workspace should use tabs that persist across launches and remember each tab's current view mode.
 - Each open tab should support three modes: **Source**, **Live Preview**, and **Reading View**, with a breadcrumb toolbar and a simple mode toggle in the header.
 - The desktop shell should provide a command palette, quick switcher, and keyboard-first navigation for note creation, search, daily notes, capture, archiving, and view toggling.
-- The app should use a dark theme by default and support note deep links through a `notesmith://app/...` URL scheme.
+- The app should use a dark theme by default, with five available themes: **Dark**, **Light**, **System** (follows OS preference), **Manuscript** (dark chrome + light editor), and **High Contrast** (black background, vivid colors). Theme preference should persist and apply without flash on load.
+- Note creation, capture, and template workflows should use a **sequential input palette** (VS Code/Raycast style) instead of native browser prompts, which are broken in Tauri's WKWebView. Alerts and success messages should use non-blocking **toast notifications**.
+- The app should use a `notesmith://app/...` URL scheme for deep links.
 
 ## Capture Workflow
 

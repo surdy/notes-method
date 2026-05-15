@@ -89,8 +89,14 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 ## Frontend
 
-- **Settings Page** — A dedicated `/settings` route with left sidebar navigation and right content area for editing vault config in-app. Sections: General (name, homepage, capture folder/template), Daily Notes, Editor, Git, Hooks. Per-section Save/Revert with ETag-based conflict detection.
-- **Right Rail** — A collapsible panel showing metadata, backlinks, and outgoing links for the active note.
+- **Design Tokens** — All UI colors are defined as `--ns-*` CSS custom properties in a single `:root {}` block in `app.css`. Components never define their own colors — they reference tokens. This enables theming by overriding token values in CSS class selectors.
+- **Theme System** — Five themes: Dark (default), Light, System (follows OS), Manuscript (dark chrome + light editor), High Contrast (pure black, cyan borders). Theme choice stored in `localStorage` under `notesmith:theme`. A blocking inline script in `app.html` applies the theme class before paint to prevent flash. Managed by `theme.svelte.ts` (Svelte 5 runes store).
+- **Settings Page** — A dedicated `/settings` route with left sidebar navigation and right content area for editing vault config in-app. Sections: General (name, homepage, capture folder/template), Daily Notes, Editor, Git, Hooks, Appearance (theme picker). Per-section Save/Revert with ETag-based conflict detection.
+- **Right Rail** — A collapsible tabbed panel (`⌘\`) with three modes: **Metadata** (frontmatter key/values, `_`-prefixed keys hidden), **Links** (backlinks + outgoing), **TOC** (live table of contents from editor headings with click-to-scroll and active heading highlight). Tab selection persists in `localStorage`.
 - **Middle Pane** — A resizable panel between sidebar and editor, opened by custom sidebar items to show folder listings or query results.
-- **Command Palette** — A fuzzy-searchable overlay for executing commands (⌘K / ⌘P).
+- **Command Palette** — A fuzzy-searchable overlay for executing commands (⌘K / ⌘P). Shows footer hints for keyboard navigation.
+- **Input Palette** — A sequential multi-step input overlay (same chrome as Command Palette) used for note creation, capture, and template instantiation. Supports text input and fuzzy list picker modes. Replaces `window.prompt()` which is broken in Tauri's WKWebView.
+- **Toast Stack** — Non-blocking corner notifications (success/error/warning) with auto-dismiss. Replaces `window.alert()`. Managed by `toast-store.svelte.ts`.
 - **Quick Switcher** — A fuzzy note search overlay for rapid navigation (⌘O).
+- **Status Bar** — A 28px bar at the bottom of the app showing: connection status with diagnostic popover (left), vault name (center), cursor position, word count, and save indicator (right). Editor state shared via `editor-status.svelte.ts`.
+- **Note Icons** — Notes can set `_icon:` (emoji) in frontmatter to override their icon in file trees, tabs, and quick switcher. Falls back to type-based defaults. `_`-prefixed frontmatter keys are reserved for system/UI use and hidden from metadata panels.

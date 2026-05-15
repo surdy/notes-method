@@ -28,8 +28,8 @@ All notes in the vault with metadata from frontmatter.
 | `type` | TEXT | Frontmatter type: `customer`, `meeting`, `stream`, `daily`, `note`, `dashboard`, `contact`, `account-info`, `glossary`, `milestones`, `other` |
 | `customer` | TEXT | Customer name (if applicable) |
 | `stream` | TEXT | Work stream name (if applicable) |
-| `state` | TEXT | Customer state (e.g., `Active`, `Churned`) |
-| `status` | TEXT | Stream status (e.g., `active`, `paused`) |
+| `state` | TEXT | Customer state (e.g., `Active`, `On Hold`, `Temp`, `Inactive`) |
+| `status` | TEXT | Stream status (e.g., `In Progress`, `Blocked`, `Done`, `Awaiting Customer`, `On Hold`) |
 | `date` | TEXT | Date for daily/meeting notes |
 | `created_at` | TEXT | Creation timestamp from frontmatter |
 | `updated_at` | TEXT | Last update timestamp from frontmatter |
@@ -133,5 +133,5 @@ SELECT title, state FROM v_customers ORDER BY title;
 Convenience view — filters `v_notes` to `type = 'stream'`. Same columns as `v_notes`.
 
 ```sql
-SELECT title, customer, status FROM v_streams WHERE status = 'active';
+SELECT title, customer, status FROM v_streams WHERE status = 'In Progress';
 ```
