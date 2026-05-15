@@ -50,7 +50,7 @@ export interface NoteTask {
 
 export async function listNotes(vault: string): Promise<NoteSummary[]> {
 	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes`);
-	if (!res.ok) throw new Error(`Failed to list notes: ${res.status}`);
+	if (!res.ok) throw new ApiError(`Failed to list notes: ${res.status}`, res.status);
 	return res.json();
 }
 

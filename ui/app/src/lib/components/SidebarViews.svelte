@@ -1,5 +1,7 @@
 <script lang="ts">
 import type { CustomItem, SidebarSection, SidebarView } from '$lib/api';
+import { classifyError } from '$lib/api/error-classify';
+import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 import { executeSql, getSidebarConfig } from '$lib/api';
 import FileTree from './FileTree.svelte';
 import RecentlyViewedSection from './RecentlyViewedSection.svelte';
@@ -20,6 +22,7 @@ let activeViewId = $state('files');
 let badges = $state<Record<string, number>>({});
 let collapsedSections = $state<Record<string, boolean>>({});
 let activeItemNames = $state<Record<string, string | null>>({});
+let filesError = $derived(vaultStore.error ? classifyError(vaultStore.error, 'list-notes') : null);
 
 $effect(() => {
 const vault = vaultStore.currentVault;
@@ -121,6 +124,15 @@ function sectionLabel(section: SidebarSection): string {
 return section.label;
 }
 
+function handleFilesErrorAction() {
+	if (filesError?.action?.type === 'update') {
+		window.location.reload();
+		return;
+	}
+
+	void vaultStore.loadNotes();
+}
+
 export function refresh() {
 const vault = vaultStore.currentVault;
 if (!vault) return;
@@ -184,7 +196,11 @@ type="button"
 {#if vaultStore.loading && vaultStore.notes.length === 0}
 <div class="state-msg">Loading…</div>
 {:else if vaultStore.error}
-<div class="state-msg error">{vaultStore.error}</div>
+<ErrorBanner
+error={filesError}
+onAction={handleFilesErrorAction}
+onDismiss={() => vaultStore.clearError()}
+/>
 {:else}
 <FileTree node={vaultStore.tree} />
 {/if}
@@ -356,7 +372,5 @@ color: var(--text-muted, #888);
 font-size: 12px;
 }
 
-.state-msg.error {
-color: #ff6b6b;
-}
+
 </style>

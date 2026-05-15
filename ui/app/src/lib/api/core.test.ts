@@ -1,0 +1,48 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { apiFetch, isNetworkError, versionMismatch } from './core.ts';
+
+afterEach(() => {
+	versionMismatch.set(null);
+	vi.unstubAllGlobals();
+	vi.useRealTimers();
+});
+
+describe('apiFetch', () => {
+	it('retries transient network errors before succeeding', async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+			.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+			.mockResolvedValueOnce(new Response('ok', { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		const responsePromise = apiFetch('/api/status');
+
+		await vi.runOnlyPendingTimersAsync();
+		await vi.runOnlyPendingTimersAsync();
+
+		const response = await responsePromise;
+
+		expect(response.status).toBe(200);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+	});
+
+	it('does not retry successful fetch responses with error status codes', async () => {
+		const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('boom', { status: 500 }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		const response = await apiFetch('/api/status');
+
+		expect(response.status).toBe(500);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('isNetworkError', () => {
+	it('detects fetch type errors', () => {
+		expect(isNetworkError(new TypeError('Failed to fetch'))).toBe(true);
+		expect(isNetworkError(new Error('Failed to fetch'))).toBe(false);
+	});
+});

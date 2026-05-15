@@ -23,6 +23,8 @@ toggleTaskStatus,
 type NoteDetail,
 type TaskMutationStatus
 } from '$lib/api';
+import { classifyError } from '$lib/api/error-classify';
+import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 import SaveIndicator from '$lib/components/SaveIndicator.svelte';
 import { createAutoSave } from '$lib/editor/auto-save';
 import { createLivePreviewExtension } from '$lib/editor/live-preview';
@@ -32,10 +34,16 @@ import { notesmithTheme } from '$lib/editor/theme';
 import { shouldLoadSelectedNote } from '$lib/note-loading';
 import { isDashboardNote } from '$lib/right-rail';
 import { saveQueue, saveState } from '$lib/save-queue';
+import { clearApiError, reportApiError } from '$lib/stores/api-errors.svelte';
 import { tabStore } from '$lib/tab-store.svelte';
 import { vaultStore } from '$lib/stores.svelte';
 
 const TASK_LINE_RE = /^\s*[-*+]\s+\[[ xX/\-bwhBWH]\]/;
+type EditorErrorState = {
+cause: unknown;
+endpointHint: 'note-detail' | 'save-note' | 'toggle-task';
+onAction?: () => void;
+};
 
 let editorContainer = $state<HTMLDivElement | undefined>();
 let view: EditorView | null = null;
@@ -45,13 +53,70 @@ let activeLoadToken: symbol | null = null;
 let currentHash: string | null = null;
 let currentTaskHashes = new Map<string, string>();
 let loading = $state(false);
-let error = $state<string | null>(null);
+let error = $state<EditorErrorState | null>(null);
 let conflictBanner = $state<{ show: boolean; path: string } | null>(null);
 let dirty = $state(false);
-let saveError = $state<string | null>(null);
+let saveError = $state<EditorErrorState | null>(null);
 let ignoreExternalChange: { path: string; expiresAt: number } | null = null;
+let loadBanner = $derived(error ? classifyError(error.cause, error.endpointHint) : null);
+let saveBanner = $derived(saveError ? classifyError(saveError.cause, saveError.endpointHint) : null);
 
 const livePreviewCompartment = new Compartment();
+
+function setEditorError(
+	cause: unknown,
+	endpointHint: EditorErrorState['endpointHint'],
+	onAction?: () => void
+) {
+	error = { cause, endpointHint, onAction };
+	reportApiError(cause, endpointHint);
+}
+
+function setSaveError(
+	cause: unknown,
+	endpointHint: EditorErrorState['endpointHint'],
+	onAction?: () => void
+) {
+	saveError = { cause, endpointHint, onAction };
+	reportApiError(cause, endpointHint);
+}
+
+function clearEditorError() {
+	error = null;
+	clearApiError();
+}
+
+function clearSaveError() {
+	saveError = null;
+	clearApiError();
+}
+
+async function retryCurrentSave() {
+	if (!view) {
+		await saveQueue.retryAll();
+		return;
+	}
+
+	await autoSave.flush(view.state.doc.toString());
+}
+
+function handleLoadErrorAction() {
+	if (loadBanner?.action?.type === 'update') {
+		window.location.reload();
+		return;
+	}
+
+	void error?.onAction?.();
+}
+
+function handleSaveErrorAction() {
+	if (saveBanner?.action?.type === 'update') {
+		window.location.reload();
+		return;
+	}
+
+	void saveError?.onAction?.();
+}
 
 const autoSave = createAutoSave({
 delay: 1000,
@@ -66,11 +131,13 @@ return saveQueue.save(vaultStore.currentVault, currentPath, content, {
 },
 onSaving: () => {
 saveError = null;
+clearApiError();
 },
 onSaved: (hash) => {
 currentHash = hash;
 dirty = false;
 saveError = null;
+clearApiError();
 if (currentPath) {
 tabStore.markDirty(currentPath, false);
 ignoreExternalChange = {
@@ -86,7 +153,7 @@ conflictBanner = { show: true, path: currentPath };
 }
 return;
 }
-saveError = cause instanceof Error ? cause.message : 'Auto-save failed';
+setSaveError(cause, 'save-note', () => void retryCurrentSave());
 console.error('Auto-save failed', cause);
 }
 });
@@ -203,6 +270,7 @@ autoSave.cancel();
 loading = true;
 error = null;
 saveError = null;
+clearApiError();
 conflictBanner = null;
 dirty = false;
 destroyEditor();
@@ -233,7 +301,7 @@ tabStore.markDirty(path, false);
 if (activeLoadToken !== token) {
 return;
 }
-error = cause instanceof Error ? cause.message : 'Failed to load note';
+	setEditorError(cause, 'note-detail', () => void loadNote(path));
 loading = false;
 } finally {
 if (activeLoadToken === token) {
@@ -264,7 +332,7 @@ expiresAt: Date.now() + 1500
 };
 await loadNote(currentPath);
 } catch (cause) {
-saveError = cause instanceof Error ? cause.message : 'Failed to toggle task';
+	setSaveError(cause, 'toggle-task', () => void handleTaskToggle(taskHash, status));
 console.error('Failed to toggle task', cause);
 }
 }
@@ -313,6 +381,7 @@ return;
 conflictBanner = null;
 dirty = false;
 saveError = null;
+clearApiError();
 tabStore.markDirty(currentPath, false);
 await loadNote(currentPath);
 }
@@ -383,7 +452,11 @@ destroyEditor();
 {:else if loading}
 <div class="loading">Loading...</div>
 {:else if error}
-<div class="error">{error}</div>
+<ErrorBanner
+error={loadBanner}
+onAction={handleLoadErrorAction}
+onDismiss={clearEditorError}
+/>
 {:else}
 <SaveIndicator state={$saveState} onRetry={() => void saveQueue.retryAll()} />
 {#if conflictBanner?.show}
@@ -396,7 +469,11 @@ destroyEditor();
 </div>
 {/if}
 {#if saveError}
-<div class="save-error">{saveError}</div>
+<ErrorBanner
+error={saveBanner}
+onAction={handleSaveErrorAction}
+onDismiss={clearSaveError}
+/>
 {/if}
 <div class="editor-container" bind:this={editorContainer}></div>
 {/if}
@@ -433,8 +510,7 @@ margin-bottom: 10px;
 }
 
 .empty-state,
-.loading,
-.error {
+.loading {
 flex: 1;
 display: flex;
 align-items: center;
@@ -446,13 +522,7 @@ padding: 24px 32px;
 color: var(--text-muted, #888);
 }
 
-.error,
-.save-error {
-color: #ff6b6b;
-}
-
-.conflict-banner,
-.save-error {
+.conflict-banner {
 display: flex;
 align-items: center;
 justify-content: space-between;
@@ -460,11 +530,6 @@ gap: 12px;
 padding: 10px 16px;
 border-bottom: 1px solid var(--border-color, #333);
 background: #2a2014;
-}
-
-.save-error {
-justify-content: flex-start;
-background: #3a1f24;
 }
 
 .conflict-actions {
