@@ -2,6 +2,7 @@
 import type { CustomItem, SidebarSection, SidebarView } from '$lib/api';
 import { classifyError } from '$lib/api/error-classify';
 import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+import OnboardingCard from '$lib/components/OnboardingCard.svelte';
 import { executeSql, getSidebarConfig, reindexVault } from '$lib/api';
 import FileTree from './FileTree.svelte';
 import RecentlyViewedSection from './RecentlyViewedSection.svelte';
@@ -204,6 +205,7 @@ type="button"
 {/if}
 
 <div class="view-content">
+<OnboardingCard />
 {#if activeViewId === 'files'}
 {#if vaultStore.loading && vaultStore.notes.length === 0}
 <div class="state-msg">Loading…</div>
