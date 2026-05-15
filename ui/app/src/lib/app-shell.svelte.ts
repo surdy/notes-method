@@ -2,6 +2,7 @@ import { createAppShell as createCoreAppShell, type AppShellCallbacks } from './
 import { listVaults } from './api';
 import { registerHotkeys } from './hotkeys';
 import { connectSSE } from './sse';
+import { saveQueue } from './save-queue.ts';
 import { tabStore } from './tab-store.svelte';
 import { vaultStore } from './stores.svelte';
 
@@ -32,6 +33,7 @@ export function createAppShell(callbacks: AppShellCallbacks) {
 				window.removeEventListener('notesmith://wake', handleWake);
 			};
 		},
+		flushQueuedSaves: () => saveQueue.flushOnReconnect(),
 		logger: console
 	});
 }

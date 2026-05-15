@@ -9,6 +9,7 @@
 		type DaemonStatus,
 		type VaultStatus
 	} from '$lib/api/status';
+	import { queuedCount } from '$lib/save-queue';
 
 	type StatusVisualState =
 		| 'connected'
@@ -284,6 +285,9 @@
 	>
 		<span class={`status-dot ${visualState}`} aria-hidden="true"></span>
 		<span class="status-label">{pillLabel}</span>
+		{#if $queuedCount > 0}
+			<span class="queue-badge" aria-label={`${$queuedCount} queued saves`}>{$queuedCount}</span>
+		{/if}
 	</button>
 </div>
 
@@ -316,9 +320,25 @@
 	}
 
 	.status-label {
+		flex: 1;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.queue-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 18px;
+		height: 18px;
+		padding: 0 6px;
+		border-radius: 999px;
+		background: #ff9800;
+		color: #1f1f1f;
+		font-size: 11px;
+		font-weight: 700;
+		flex-shrink: 0;
 	}
 
 	.status-dot {

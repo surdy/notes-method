@@ -19,11 +19,11 @@ import { onMount, tick, untrack } from 'svelte';
 import {
 ApiError,
 getNote,
-putNote,
 toggleTaskStatus,
 type NoteDetail,
 type TaskMutationStatus
 } from '$lib/api';
+import SaveIndicator from '$lib/components/SaveIndicator.svelte';
 import { createAutoSave } from '$lib/editor/auto-save';
 import { createLivePreviewExtension } from '$lib/editor/live-preview';
 import { createOFMDecorations } from '$lib/editor/ofm-decorations';
@@ -31,6 +31,7 @@ import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-bl
 import { notesmithTheme } from '$lib/editor/theme';
 import { shouldLoadSelectedNote } from '$lib/note-loading';
 import { isDashboardNote } from '$lib/right-rail';
+import { saveQueue, saveState } from '$lib/save-queue';
 import { tabStore } from '$lib/tab-store.svelte';
 import { vaultStore } from '$lib/stores.svelte';
 
@@ -58,7 +59,10 @@ save: async (content: string) => {
 if (!currentPath) {
 throw new Error('No note selected');
 }
-return putNote(vaultStore.currentVault, currentPath, content, currentHash);
+return saveQueue.save(vaultStore.currentVault, currentPath, content, {
+	expectedHash: currentHash,
+	fallbackHash: currentHash
+});
 },
 onSaving: () => {
 saveError = null;
@@ -381,6 +385,7 @@ destroyEditor();
 {:else if error}
 <div class="error">{error}</div>
 {:else}
+<SaveIndicator state={$saveState} onRetry={() => void saveQueue.retryAll()} />
 {#if conflictBanner?.show}
 <div class="conflict-banner">
 <span>⚠️ This file has changed on disk.</span>

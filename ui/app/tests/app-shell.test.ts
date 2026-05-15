@@ -133,7 +133,20 @@ function createCallbacks() {
 	};
 }
 
-test('createAppShell bootstraps the page shell and tears it down cleanly', async () => {
+async function settleAsyncWork(turns = 4) {
+	for (let turn = 0; turn < turns; turn += 1) {
+		await Promise.resolve();
+	}
+}
+
+function okResponse(): Response {
+	return {
+		ok: true,
+		headers: new Headers()
+	} as Response;
+}
+
+test('createAppShell bootstraps the page shell and tears it down cleanly', { concurrency: false }, async () => {
 	stubSvelteRunes();
 
 	const windowStub = createWindowStub();
@@ -200,7 +213,7 @@ test('createAppShell bootstraps the page shell and tears it down cleanly', async
 	assert.equal(calls.openQuickSwitcher, 1);
 });
 
-test('createAppShell dispatches SSE events to the right page callbacks', async () => {
+test('createAppShell dispatches SSE events to the right page callbacks', { concurrency: false }, async () => {
 	stubSvelteRunes();
 
 	const windowStub = createWindowStub();
@@ -214,7 +227,7 @@ test('createAppShell dispatches SSE events to the right page callbacks', async (
 	const fetchCalls: string[] = [];
 	globalThis.fetch = (async (input: string | URL | Request) => {
 		fetchCalls.push(String(input));
-		return { ok: true } as Response;
+		return okResponse();
 	}) as typeof fetch;
 
 	try {
@@ -293,8 +306,7 @@ test('createAppShell dispatches SSE events to the right page callbacks', async (
 		]);
 
 		onReconnect?.();
-		await Promise.resolve();
-		await Promise.resolve();
+		await settleAsyncWork();
 		assert.deepEqual(fetchCalls, ['/api/status']);
 		assert.equal(vaultStore.loadNotesCalls, 3);
 		assert.equal(calls.notesChanged, 2);
@@ -306,7 +318,7 @@ test('createAppShell dispatches SSE events to the right page callbacks', async (
 	}
 });
 
-test('createAppShell resyncs through wake listener when daemon is healthy', async () => {
+test('createAppShell resyncs through wake listener when daemon is healthy', { concurrency: false }, async () => {
 	stubSvelteRunes();
 
 	const windowStub = createWindowStub();
@@ -319,7 +331,7 @@ test('createAppShell resyncs through wake listener when daemon is healthy', asyn
 	const fetchCalls: string[] = [];
 	globalThis.fetch = (async (input: string | URL | Request) => {
 		fetchCalls.push(String(input));
-		return { ok: true } as Response;
+		return okResponse();
 	}) as typeof fetch;
 
 	try {
@@ -342,8 +354,7 @@ test('createAppShell resyncs through wake listener when daemon is healthy', asyn
 
 		await shell.init('work', []);
 		wakeListener?.();
-		await Promise.resolve();
-		await Promise.resolve();
+		await settleAsyncWork();
 
 		assert.deepEqual(fetchCalls, ['/api/status']);
 		assert.equal(vaultStore.loadNotesCalls, 2);
@@ -356,7 +367,7 @@ test('createAppShell resyncs through wake listener when daemon is healthy', asyn
 	}
 });
 
-test('createAppShell debounces wake resyncs and removes the listener on teardown', async () => {
+test('createAppShell debounces wake resyncs and removes the listener on teardown', { concurrency: false }, async () => {
 	stubSvelteRunes();
 
 	const windowStub = createWindowStub();
@@ -374,7 +385,7 @@ test('createAppShell debounces wake resyncs and removes the listener on teardown
 	Date.now = () => now;
 	globalThis.fetch = (async (input: string | URL | Request) => {
 		fetchCalls.push(String(input));
-		return { ok: true } as Response;
+		return okResponse();
 	}) as typeof fetch;
 
 	try {
@@ -399,18 +410,15 @@ test('createAppShell debounces wake resyncs and removes the listener on teardown
 		await shell.init('work', []);
 
 		wakeListener?.();
-		await Promise.resolve();
-		await Promise.resolve();
+		await settleAsyncWork();
 
 		now = 12_000;
 		wakeListener?.();
-		await Promise.resolve();
-		await Promise.resolve();
+		await settleAsyncWork();
 
 		now = 16_000;
 		wakeListener?.();
-		await Promise.resolve();
-		await Promise.resolve();
+		await settleAsyncWork();
 
 		assert.deepEqual(fetchCalls, ['/api/status', '/api/status']);
 		assert.equal(vaultStore.loadNotesCalls, 3);
@@ -420,8 +428,7 @@ test('createAppShell debounces wake resyncs and removes the listener on teardown
 
 		now = 22_000;
 		wakeListener?.();
-		await Promise.resolve();
-		await Promise.resolve();
+		await settleAsyncWork();
 
 		assert.deepEqual(fetchCalls, ['/api/status', '/api/status']);
 	} finally {
@@ -430,7 +437,7 @@ test('createAppShell debounces wake resyncs and removes the listener on teardown
 	}
 });
 
-test('createAppShell refreshes vault registrations after vaults.changed events', async () => {
+test('createAppShell refreshes vault registrations after vaults.changed events', { concurrency: false }, async () => {
 	stubSvelteRunes();
 
 	const windowStub = createWindowStub();
@@ -495,4 +502,44 @@ test('createAppShell refreshes vault registrations after vaults.changed events',
 	assert.equal(vaultStore.loadNotesCalls, 2);
 	assert.equal(connectCalls, 2);
 	assert.equal(closeCalls, 1);
+});
+
+test('createAppShell flushes queued saves after SSE reconnects', { concurrency: false }, async () => {
+	stubSvelteRunes();
+
+	const windowStub = createWindowStub();
+	const vaultStore = createVaultStoreStub();
+	const tabStore = createTabStoreStub();
+	const { callbacks } = createCallbacks();
+
+	let onReconnect: (() => void) | undefined;
+	let flushCalls = 0;
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async () => okResponse()) as typeof fetch;
+
+	try {
+		const { createAppShell } = await import('../src/lib/app-shell-core.ts');
+		const shell = createAppShell(callbacks, {
+			connectSSE: (_vault, _handleEvent, handleReconnect) => {
+				onReconnect = handleReconnect;
+				return { close() {} } as EventSource;
+			},
+			listVaults: async () => [{ name: 'work', is_default: true }],
+			registerHotkeys: () => () => {},
+			vaultStore,
+			tabStore,
+			targetWindow: windowStub.window,
+			flushQueuedSaves: async () => {
+				flushCalls += 1;
+			}
+		});
+
+		await shell.init('work', []);
+		onReconnect?.();
+		await settleAsyncWork();
+
+		assert.equal(flushCalls, 1);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
 });
