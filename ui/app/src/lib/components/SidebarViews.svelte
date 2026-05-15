@@ -2,7 +2,7 @@
 import type { CustomItem, SidebarSection, SidebarView } from '$lib/api';
 import { classifyError } from '$lib/api/error-classify';
 import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-import { executeSql, getSidebarConfig } from '$lib/api';
+import { executeSql, getSidebarConfig, reindexVault } from '$lib/api';
 import FileTree from './FileTree.svelte';
 import RecentlyViewedSection from './RecentlyViewedSection.svelte';
 import CustomFoldersSection from './CustomFoldersSection.svelte';
@@ -133,6 +133,18 @@ function handleFilesErrorAction() {
 	void vaultStore.loadNotes();
 }
 
+async function handleRefreshVault() {
+	const vault = vaultStore.currentVault;
+	if (!vault) return;
+
+	try {
+		await reindexVault(vault);
+		await vaultStore.loadNotes();
+	} catch (err) {
+		console.error('Failed to refresh vault', err);
+	}
+}
+
 export function refresh() {
 const vault = vaultStore.currentVault;
 if (!vault) return;
@@ -201,6 +213,13 @@ error={filesError}
 onAction={handleFilesErrorAction}
 onDismiss={() => vaultStore.clearError()}
 />
+{:else if vaultStore.notes.length === 0}
+<div class="state-msg">
+<div>No notes found.</div>
+<button class="refresh-btn" type="button" onclick={() => void handleRefreshVault()}>
+Refresh Vault
+</button>
+</div>
 {:else}
 <FileTree node={vaultStore.tree} />
 {/if}
@@ -370,6 +389,21 @@ padding: 16px;
 text-align: center;
 color: var(--text-muted, #888);
 font-size: 12px;
+}
+
+.refresh-btn {
+margin-top: 10px;
+padding: 6px 10px;
+border: 1px solid var(--border-color, #333);
+border-radius: 6px;
+background: var(--panel-bg, #2a2d2e);
+color: var(--text-primary, #e0e0e0);
+font-size: 12px;
+cursor: pointer;
+}
+
+.refresh-btn:hover {
+background: var(--hover-bg, #323537);
 }
 
 

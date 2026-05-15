@@ -2,7 +2,10 @@ use std::{
     collections::HashMap,
     future::Future,
     path::{Path, PathBuf},
-    sync::{Arc, atomic::AtomicUsize},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize},
+    },
 };
 
 use anyhow::{Context, anyhow};
@@ -32,6 +35,7 @@ use crate::routes::*;
 use crate::{
     config_watcher::{SharedVaultWatchers, watch_global_config},
     events,
+    watcher::WatcherState,
 };
 
 pub struct VaultState {
@@ -40,6 +44,8 @@ pub struct VaultState {
     pub engine: NativeVaultEngine,
     pub root: PathBuf,
     pub vault_config: ArcSwap<VaultConfig>,
+    pub watcher_state: WatcherState,
+    pub rebuilding: AtomicBool,
     pub template_engine: notesmith_templates::TemplateEngine,
 }
 
@@ -436,19 +442,12 @@ pub fn create_vault_state(vault_name: &str, vault_path: &Path) -> anyhow::Result
     let notes = engine
         .scan(vault_path)
         .with_context(|| format!("failed to scan vault {vault_name}"))?;
-    let cache = VaultCache::open(&cache_path_for_vault(vault_name)?)?;
-    cache.reindex(vault_name, &notes)?;
-    let search_index = SearchIndex::open(&search_index_path_for_vault(vault_name)?)?;
-    search_index.reindex(vault_name, &notes)?;
-    let vault_config = VaultConfig::load_from_vault(vault_path).unwrap_or_else(|_| VaultConfig {
-        name: vault_name.to_string(),
-        capture: Default::default(),
-        daily: Default::default(),
-        editor: Default::default(),
-        git: Default::default(),
-        hooks: Default::default(),
-        homepage: None,
-    });
+    let cache_path = cache_path_for_vault(vault_name)?;
+    let cache = open_or_repair_cache(vault_name, &cache_path, &notes)?;
+    let search_index_path = search_index_path_for_vault(vault_name)?;
+    let search_index = open_or_repair_search_index(vault_name, &search_index_path, &notes)?;
+    let vault_config = VaultConfig::load_from_vault(vault_path)
+        .unwrap_or_else(|_| default_vault_config(vault_name));
     let cache_path = cache_path_for_vault(vault_name)?;
     let template_engine =
         notesmith_templates::TemplateEngine::new(vault_path.to_path_buf(), Some(cache_path));
@@ -459,8 +458,109 @@ pub fn create_vault_state(vault_name: &str, vault_path: &Path) -> anyhow::Result
         engine,
         root: vault_path.to_path_buf(),
         vault_config: ArcSwap::from_pointee(vault_config),
+        watcher_state: WatcherState::new(),
+        rebuilding: AtomicBool::new(false),
         template_engine,
     })
+}
+
+fn default_vault_config(vault_name: &str) -> VaultConfig {
+    VaultConfig {
+        name: vault_name.to_string(),
+        capture: Default::default(),
+        daily: Default::default(),
+        editor: Default::default(),
+        git: Default::default(),
+        hooks: Default::default(),
+        homepage: None,
+    }
+}
+
+fn open_or_repair_cache(
+    vault_name: &str,
+    cache_path: &Path,
+    notes: &[notesmith_core::Note],
+) -> anyhow::Result<VaultCache> {
+    match VaultCache::open(cache_path) {
+        Ok(cache) => {
+            if cache.check_integrity().unwrap_or(false) {
+                cache.reindex(vault_name, notes)?;
+                return Ok(cache);
+            }
+
+            tracing::warn!(
+                "SQLite cache integrity check failed for vault {vault_name}; rebuilding cache"
+            );
+        }
+        Err(error) => {
+            tracing::warn!("failed to open SQLite cache for vault {vault_name}: {error}");
+        }
+    }
+
+    move_corrupt_sqlite_artifacts(cache_path)?;
+
+    let cache = VaultCache::open(cache_path)?;
+    cache.reindex(vault_name, notes)?;
+    Ok(cache)
+}
+
+fn open_or_repair_search_index(
+    vault_name: &str,
+    search_index_path: &Path,
+    notes: &[notesmith_core::Note],
+) -> anyhow::Result<SearchIndex> {
+    match SearchIndex::open(search_index_path) {
+        Ok(search_index) => {
+            if search_index.check_integrity().unwrap_or(false) {
+                search_index.reindex(vault_name, notes)?;
+                return Ok(search_index);
+            }
+
+            tracing::warn!(
+                "search index integrity check failed for vault {vault_name}; rebuilding index"
+            );
+        }
+        Err(error) => {
+            tracing::warn!("failed to open search index for vault {vault_name}: {error}");
+        }
+    }
+
+    move_corrupt_file(search_index_path)?;
+
+    let search_index = SearchIndex::open(search_index_path)?;
+    search_index.reindex(vault_name, notes)?;
+    Ok(search_index)
+}
+
+fn move_corrupt_sqlite_artifacts(cache_path: &Path) -> anyhow::Result<()> {
+    move_corrupt_file(cache_path)?;
+
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = PathBuf::from(format!("{}{}", cache_path.display(), suffix));
+        move_corrupt_file(&sidecar)?;
+    }
+
+    Ok(())
+}
+
+fn move_corrupt_file(path: &Path) -> anyhow::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let timestamp = Utc::now().format("%Y%m%d%H%M%S");
+    let file_name = path
+        .file_name()
+        .context("corrupt artifact path is missing a file name")?
+        .to_string_lossy();
+    let corrupt_path = path.with_file_name(format!("{file_name}.corrupt.{timestamp}"));
+    tracing::info!(
+        "moving corrupt artifact from {} to {}",
+        path.display(),
+        corrupt_path.display()
+    );
+    std::fs::rename(path, corrupt_path)?;
+    Ok(())
 }
 
 pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
@@ -525,13 +625,14 @@ mod tests {
 
     use axum::{body::Body, http::Request};
     use notesmith_config::{GlobalConfig, VaultRegistration};
+    use notesmith_core::VaultEngine;
     use tower::ServiceExt;
 
     use crate::events::EventType;
 
     use super::{
         AppState, build_app_state, build_router_with_app_dir, create_vault_state,
-        wait_for_shutdown_trigger,
+        move_corrupt_file, open_or_repair_cache, wait_for_shutdown_trigger,
     };
 
     #[tokio::test]
@@ -750,5 +851,56 @@ mod tests {
                 .iter()
                 .any(|result| result.path == "Inbox/Test Note.md")
         );
+    }
+
+    #[test]
+    fn move_corrupt_file_renames_existing_artifact() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let corrupt_path = temp_dir.path().join("cache.sqlite");
+        fs::write(&corrupt_path, "not a sqlite database").unwrap();
+
+        move_corrupt_file(&corrupt_path).unwrap();
+
+        assert!(!corrupt_path.exists());
+        let renamed = fs::read_dir(temp_dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .find(|name| name.starts_with("cache.sqlite.corrupt."))
+            .expect("expected renamed corrupt artifact");
+        assert!(!renamed.is_empty());
+    }
+
+    #[test]
+    fn open_or_repair_cache_rebuilds_from_corrupt_file() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let vault_root = temp_dir.path().join("vault");
+        fs::create_dir_all(vault_root.join("Inbox")).unwrap();
+        fs::write(
+            vault_root.join("Inbox/Repaired.md"),
+            "# Repaired\n\ncache recovery test\n",
+        )
+        .unwrap();
+
+        let notes = notesmith_vault::NativeVaultEngine
+            .scan(&vault_root)
+            .unwrap();
+        let cache_path = temp_dir.path().join("cache.sqlite");
+        fs::write(&cache_path, "not a sqlite database").unwrap();
+
+        let cache = open_or_repair_cache("work", &cache_path, &notes).unwrap();
+
+        let note_count: i64 = cache
+            .connection()
+            .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get::<_, i64>(0))
+            .unwrap();
+        assert_eq!(note_count, 1);
+        let renamed = fs::read_dir(temp_dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .find(|name| name.starts_with("cache.sqlite.corrupt."))
+            .expect("expected moved corrupt cache");
+        assert!(!renamed.is_empty());
     }
 }

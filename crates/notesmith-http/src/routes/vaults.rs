@@ -2,7 +2,7 @@ use std::fs;
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
 use notesmith_config::GlobalConfig;
@@ -29,6 +29,14 @@ pub struct UpdateVaultRequest {
 #[derive(Debug, Deserialize)]
 pub struct SetDefaultRequest {
     pub name: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ReindexVaultQuery {
+    #[serde(default)]
+    pub cache_only: bool,
+    #[serde(default)]
+    pub search_only: bool,
 }
 
 pub async fn list_vaults(
@@ -206,8 +214,19 @@ pub async fn set_default_vault(
 pub async fn reindex_vault(
     State(state): State<SharedAppState>,
     Path(vault_name): Path<String>,
+    Query(query): Query<ReindexVaultQuery>,
     _guard: WriteGuard,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if query.cache_only && query.search_only {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({
+                "error": "invalid_reindex_mode",
+                "message": "cache_only and search_only cannot both be true"
+            })),
+        ));
+    }
+
     let state = state.read().await;
     let vault = state.vaults.get(&vault_name).ok_or_else(|| {
         (
@@ -216,17 +235,190 @@ pub async fn reindex_vault(
         )
     })?;
 
+    vault
+        .rebuilding
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let _rebuild_guard = RebuildGuard(&vault.rebuilding);
     let notes = vault.engine.scan(&vault.root).map_err(internal_error)?;
-    vault
-        .cache
-        .reindex(&vault_name, &notes)
-        .map_err(internal_error)?;
-    vault
-        .search_index
-        .reindex(&vault_name, &notes)
-        .map_err(internal_error)?;
+
+    if !query.search_only {
+        vault
+            .cache
+            .reindex(&vault_name, &notes)
+            .map_err(internal_error)?;
+    }
+    if !query.cache_only {
+        vault
+            .search_index
+            .reindex(&vault_name, &notes)
+            .map_err(internal_error)?;
+    }
 
     Ok(Json(
         json!({ "vault": vault_name, "status": "reindexed", "notes": notes.len() }),
     ))
+}
+
+struct RebuildGuard<'a>(&'a std::sync::atomic::AtomicBool);
+
+impl Drop for RebuildGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, fs, sync::Arc};
+
+    use axum::extract::{Path, Query, State};
+    use chrono::Utc;
+    use notesmith_config::VaultConfig;
+    use notesmith_core::VaultEngine;
+    use notesmith_index::{SearchIndex, VaultCache};
+    use notesmith_vault::NativeVaultEngine;
+    use tokio::sync::RwLock;
+
+    use crate::{
+        events::{EventBuffer, create_event_channel},
+        server::{AppState, SharedAppState, VaultState},
+        watcher::WatcherState,
+        write_guard::WriteGuard,
+    };
+
+    use super::{ReindexVaultQuery, reindex_vault};
+
+    #[tokio::test]
+    async fn reindex_vault_honors_cache_only_and_search_only_flags() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let vault_root = temp_dir.path().join("vault");
+        fs::create_dir_all(vault_root.join("Inbox")).unwrap();
+        fs::write(
+            vault_root.join("Inbox/Existing.md"),
+            "# Existing\n\nready\n",
+        )
+        .unwrap();
+
+        let engine = NativeVaultEngine;
+        let notes = engine.scan(&vault_root).unwrap();
+        let cache = VaultCache::open_in_memory().unwrap();
+        cache.reindex("work", &notes).unwrap();
+        let search_index = SearchIndex::open_in_memory().unwrap();
+        search_index.reindex("work", &notes).unwrap();
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let state: SharedAppState = Arc::new(RwLock::new(AppState {
+            vaults: HashMap::from([(
+                "work".to_string(),
+                VaultState {
+                    cache,
+                    search_index,
+                    engine,
+                    root: vault_root.clone(),
+                    vault_config: arc_swap::ArcSwap::from_pointee(VaultConfig {
+                        name: "work".to_string(),
+                        capture: Default::default(),
+                        daily: Default::default(),
+                        editor: Default::default(),
+                        git: Default::default(),
+                        hooks: Default::default(),
+                        homepage: None,
+                    }),
+                    watcher_state: WatcherState::new(),
+                    template_engine: notesmith_templates::TemplateEngine::new(
+                        vault_root.clone(),
+                        None,
+                    ),
+                    rebuilding: std::sync::atomic::AtomicBool::new(false),
+                },
+            )]),
+            event_tx: create_event_channel().0,
+            event_buffer: Arc::new(EventBuffer::new(crate::events::EVENT_BUFFER_CAPACITY)),
+            global_config_path: temp_dir.path().join("config.toml"),
+            started_at: Utc::now(),
+            sse_connection_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            shutdown_tx,
+            shutdown_rx,
+        }));
+
+        fs::write(
+            vault_root.join("Inbox/Cache Only.md"),
+            "# Cache Only\n\ncache-only reindex\n",
+        )
+        .unwrap();
+
+        let _ = reindex_vault(
+            State(state.clone()),
+            Path("work".to_string()),
+            Query(ReindexVaultQuery {
+                cache_only: true,
+                search_only: false,
+            }),
+            WriteGuard,
+        )
+        .await
+        .unwrap();
+
+        {
+            let state = state.read().await;
+            let vault = state.vaults.get("work").unwrap();
+            let cache_count: i64 = vault
+                .cache
+                .connection()
+                .query_row(
+                    "SELECT COUNT(*) FROM notes WHERE path = 'Inbox/Cache Only.md'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap();
+            assert_eq!(cache_count, 1);
+            assert!(
+                vault
+                    .search_index
+                    .search("cache-only reindex", 10)
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+
+        fs::write(
+            vault_root.join("Inbox/Search Only.md"),
+            "# Search Only\n\nsearch-only reindex\n",
+        )
+        .unwrap();
+
+        let _ = reindex_vault(
+            State(state.clone()),
+            Path("work".to_string()),
+            Query(ReindexVaultQuery {
+                cache_only: false,
+                search_only: true,
+            }),
+            WriteGuard,
+        )
+        .await
+        .unwrap();
+
+        let state = state.read().await;
+        let vault = state.vaults.get("work").unwrap();
+        let cache_count: i64 = vault
+            .cache
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM notes WHERE path = 'Inbox/Search Only.md'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(cache_count, 0);
+        let search_results = vault
+            .search_index
+            .search("search-only reindex", 10)
+            .unwrap();
+        assert!(
+            search_results
+                .iter()
+                .any(|result| result.path == "Inbox/Search Only.md")
+        );
+    }
 }

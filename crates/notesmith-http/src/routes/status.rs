@@ -38,7 +38,8 @@ struct VaultStatus {
 #[derive(Debug, Serialize, PartialEq, Eq)]
 struct WatcherStatus {
     vault: String,
-    state: &'static str,
+    state: String,
+    message: Option<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -68,19 +69,28 @@ pub async fn get_status(State(state): State<SharedAppState>) -> Json<StatusRespo
         .iter()
         .map(|vault_name| {
             let vault = &state.vaults[vault_name];
+            let rebuilding = vault.rebuilding.load(Ordering::Relaxed);
             VaultStatus {
                 name: vault_name.clone(),
-                state: "ready",
-                notes: note_count(&vault.cache, vault_name),
+                state: if rebuilding { "rebuilding" } else { "ready" },
+                notes: if rebuilding {
+                    0
+                } else {
+                    note_count(&vault.cache, vault_name)
+                },
             }
         })
         .collect();
 
     let watchers = vault_names
         .iter()
-        .map(|vault_name| WatcherStatus {
-            vault: vault_name.clone(),
-            state: "healthy",
+        .map(|vault_name| {
+            let vault = &state.vaults[vault_name];
+            WatcherStatus {
+                vault: vault_name.clone(),
+                state: vault.watcher_state.health().as_str().to_string(),
+                message: vault.watcher_state.message(),
+            }
         })
         .collect();
 
@@ -228,6 +238,7 @@ mod tests {
         API_SCHEMA_VERSION,
         events::create_event_channel,
         server::{AppState, VaultState},
+        watcher::{WatcherHealth, WatcherState},
     };
 
     #[tokio::test]
@@ -282,7 +293,7 @@ mod tests {
         );
         assert_eq!(
             payload["watchers"],
-            json!([{ "vault": "work", "state": "healthy" }])
+            json!([{ "vault": "work", "state": "healthy", "message": null }])
         );
         assert_eq!(payload["indexes"][0]["vault"], "work");
         assert_eq!(payload["indexes"][0]["state"], "healthy");
@@ -323,6 +334,8 @@ mod tests {
                     engine,
                     root: vault_root.to_path_buf(),
                     vault_config: arc_swap::ArcSwap::from_pointee(default_vault_config(vault_name)),
+                    watcher_state: WatcherState::new(),
+                    rebuilding: std::sync::atomic::AtomicBool::new(false),
                     template_engine: notesmith_templates::TemplateEngine::new(
                         vault_root.to_path_buf(),
                         Some(PathBuf::from(cache_path)),
@@ -351,5 +364,98 @@ mod tests {
             hooks: Default::default(),
             homepage: None,
         }
+    }
+
+    #[tokio::test]
+    async fn get_status_reports_rebuilding_vault_state() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let vault_root = temp_dir.path().join("vault");
+        fs::create_dir_all(&vault_root).unwrap();
+        let cache_path = temp_dir.path().join("cache.sqlite");
+        let state = build_test_state(
+            "work",
+            &vault_root,
+            &cache_path,
+            Utc.with_ymd_and_hms(2026, 5, 14, 19, 0, 0).unwrap(),
+        );
+        state
+            .vaults
+            .get("work")
+            .unwrap()
+            .rebuilding
+            .store(true, Ordering::Relaxed);
+
+        let response = crate::server::build_router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/api/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(
+            payload["vaults"],
+            json!([{ "name": "work", "state": "rebuilding", "notes": 0 }])
+        );
+    }
+
+    #[tokio::test]
+    async fn get_status_reports_watcher_health_and_message() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let vault_root = temp_dir.path().join("vault");
+        fs::create_dir_all(vault_root.join("Inbox")).unwrap();
+        fs::write(vault_root.join("Inbox/Status Test.md"), "# Status Test\n").unwrap();
+
+        let cache_path = temp_dir.path().join("cache.sqlite");
+        let mut app_state = build_test_state(
+            "work",
+            &vault_root,
+            &cache_path,
+            Utc.with_ymd_and_hms(2026, 5, 14, 19, 0, 0).unwrap(),
+        );
+        app_state
+            .vaults
+            .get_mut("work")
+            .unwrap()
+            .watcher_state
+            .set_health(
+                WatcherHealth::Polling,
+                Some("Network drive detected — updates may take up to 30s".to_string()),
+            );
+
+        let response = crate::server::build_router(app_state)
+            .oneshot(
+                Request::builder()
+                    .uri("/api/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(
+            payload["watchers"],
+            json!([{
+                "vault": "work",
+                "state": "polling",
+                "message": "Network drive detected — updates may take up to 30s"
+            }])
+        );
     }
 }

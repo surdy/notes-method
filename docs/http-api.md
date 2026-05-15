@@ -31,7 +31,7 @@ Rich daemon status for resilient clients and diagnostics.
   "started_at": "2026-05-14T19:00:00Z",
   "binary_path": "/path/to/notesmith",
   "vaults": [{ "name": "work", "state": "ready", "notes": 421 }],
-  "watchers": [{ "vault": "work", "state": "healthy" }],
+  "watchers": [{ "vault": "work", "state": "healthy", "message": null }],
   "indexes": [{ "vault": "work", "state": "healthy", "last_reindex": "2026-05-14T19:00:00Z" }],
   "resources": {
     "rss_bytes": 52428800,
@@ -44,7 +44,10 @@ Rich daemon status for resilient clients and diagnostics.
 
 **Notes:**
 - `api_schema` is the daemon compatibility contract version.
-- `watchers[*].state` and `indexes[*].state` currently return placeholder `"healthy"` values.
+- `vaults[*].state` is `"ready"` or `"rebuilding"`.
+- `watchers[*].state` is `"healthy"`, `"degraded"`, or `"polling"`.
+- `watchers[*].message` is present when the daemon has an operator hint (for example, a network-drive warning or automatic resync message).
+- `indexes[*].state` currently returns `"healthy"`.
 - `last_reindex` is derived from the cache artifact timestamp when available.
 
 **Example:**
@@ -1279,6 +1282,12 @@ Sets the default vault.
 
 Triggers a full reindex of the vault cache and search index.
 
+**Query parameters:**
+- `cache_only` (optional, default: `false`) — rebuild only the SQLite cache
+- `search_only` (optional, default: `false`) — rebuild only the Tantivy search index
+
+`cache_only=true` and `search_only=true` is rejected with `422`.
+
 **Response:** `200 OK`
 ```json
 { "vault": "work", "status": "reindexed", "notes": 142 }
@@ -1286,3 +1295,4 @@ Triggers a full reindex of the vault cache and search index.
 
 **Errors:**
 - `404` — vault not found
+- `422` — invalid reindex mode

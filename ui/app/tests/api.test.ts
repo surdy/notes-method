@@ -5,6 +5,7 @@ import { capture, routeApply } from '../src/lib/api/index.ts';
 import {
 	fetchDaemonStatus,
 	fetchLogTail,
+	normalizeDaemonStatus,
 	reindexVault,
 	restartDaemon
 } from '../src/lib/api/status.ts';
@@ -89,14 +90,11 @@ test('fetchDaemonStatus reads daemon health from /api/status', async () => {
 	const payload = {
 		version: '0.1.0',
 		started_at: '2026-05-14T19:00:00Z',
-		uptime_seconds: 3600,
-		vaults: {
-			work: { notes: 150, tasks: 42, search_indexed: true, watcher_active: true }
-		},
-		resources: { memory_rss_bytes: 52_428_800, sse_connections: 2 },
-		watchers: { active: 1, total: 1 },
-		indexes: { caches_ok: 1, search_ok: 1 }
-	};
+		vaults: [{ name: 'work', state: 'rebuilding', notes: 150 }],
+		watchers: [{ vault: 'work', state: 'healthy', message: null }],
+		indexes: [{ vault: 'work', state: 'healthy' }],
+		resources: { rss_bytes: 52_428_800, sse_connections: 2 }
+	} as const satisfies Parameters<typeof normalizeDaemonStatus>[0];
 	const restoreFetch = installFetchStub(async (input) => {
 		requestUrl = String(input);
 		return new Response(JSON.stringify(payload), {
@@ -109,7 +107,7 @@ test('fetchDaemonStatus reads daemon health from /api/status', async () => {
 		const response = await fetchDaemonStatus();
 
 		assert.equal(requestUrl, '/api/status');
-		assert.deepEqual(response, payload);
+		assert.deepEqual(response, normalizeDaemonStatus(payload));
 	} finally {
 		restoreFetch();
 	}

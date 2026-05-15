@@ -8,6 +8,7 @@ use std::{
 use chrono::Utc;
 use notesmith_config::VaultConfig;
 use notesmith_core::VaultEngine;
+use notesmith_http::watcher::WatcherState;
 use notesmith_http::{AppState, SharedAppState, VaultState, watch_vault};
 use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_vault::NativeVaultEngine;
@@ -47,6 +48,8 @@ async fn watcher_indexes_new_markdown_files() {
                     hooks: Default::default(),
                     homepage: None,
                 }),
+                watcher_state: WatcherState::new(),
+                rebuilding: std::sync::atomic::AtomicBool::new(false),
                 template_engine: notesmith_templates::TemplateEngine::new(vault_root.clone(), None),
             },
         )]),

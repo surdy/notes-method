@@ -44,18 +44,22 @@
 	let restarting = $state(false);
 
 	let currentVaultStatus = $derived.by<VaultStatus | null>(() => status?.vaults[currentVault] ?? null);
+	let serverRebuilding = $derived.by(() =>
+		Object.values(status?.vaults ?? {}).some((vault) => vault.state === 'rebuilding')
+	);
+	let isRebuilding = $derived.by(() => reindexing || serverRebuilding);
 	let hasRecentStatus = $derived.by(
 		() => lastStatusCheckAt !== null && Date.now() - lastStatusCheckAt < STATUS_POLL_MS
 	);
 	let visualState = $derived.by<StatusVisualState>(() => {
-		if (reindexing) return 'rebuilding';
+		if (isRebuilding) return 'rebuilding';
 		if (restartRequired) return 'restart-required';
 		if ($connectionState === 'reconnecting') return 'reconnecting';
 		if ($connectionState !== 'connected' || !hasRecentStatus) return 'disconnected';
 		return 'connected';
 	});
 	let pillLabel = $derived.by(() => {
-		if (reindexing) return 'Rebuilding index';
+		if (isRebuilding) return 'Rebuilding index';
 		if (restarting || $daemonShuttingDown) return 'Restarting…';
 		switch (visualState) {
 			case 'connected':
@@ -116,7 +120,7 @@
 	}
 
 	async function handleReindex() {
-		if (reindexing || !currentVault) return;
+		if (isRebuilding || !currentVault) return;
 		try {
 			reindexing = true;
 			await reindexVault(currentVault);
@@ -220,8 +224,17 @@
 						</div>
 						<div class="detail-line">
 							Index: {currentVaultStatus.search_indexed ? '✓' : '✗'} • Watcher:
-							{currentVaultStatus.watcher_active ? '✓' : '✗'}
+							{#if currentVaultStatus.watcher_health === 'polling'}
+								⚠ Polling
+							{:else if currentVaultStatus.watcher_health === 'degraded'}
+								⚠ Degraded
+							{:else}
+								{currentVaultStatus.watcher_active ? '✓' : '✗'}
+							{/if}
 						</div>
+						{#if currentVaultStatus.watcher_message}
+							<div class="detail-line hint">{currentVaultStatus.watcher_message}</div>
+						{/if}
 					</div>
 				{:else}
 					<div class="state-text">
@@ -252,7 +265,7 @@
 					class="action-btn"
 					type="button"
 					onclick={() => void handleRestart()}
-					disabled={reindexing || restarting}
+					disabled={isRebuilding || restarting}
 				>
 					{restarting || $daemonShuttingDown ? 'Restarting…' : 'Restart Service'}
 				</button>
@@ -260,9 +273,9 @@
 					class="action-btn"
 					type="button"
 					onclick={() => void handleReindex()}
-					disabled={!currentVault || reindexing || restarting}
+					disabled={!currentVault || isRebuilding || restarting}
 				>
-					{reindexing ? 'Rebuilding…' : 'Rebuild Index'}
+					{isRebuilding ? 'Rebuilding…' : 'Rebuild Index'}
 				</button>
 				<button
 					class="action-btn"
@@ -396,6 +409,10 @@
 
 	.section-heading {
 		font-weight: 600;
+	}
+
+	.detail-line.hint {
+		color: var(--text-muted, #888);
 	}
 
 	.detail-section {

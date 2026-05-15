@@ -10,6 +10,7 @@ use std::{
 use chrono::Utc;
 use notesmith_config::{GlobalConfig, VaultConfig, VaultRegistration};
 use notesmith_core::VaultEngine;
+use notesmith_http::watcher::WatcherState;
 use notesmith_http::{AppState, VaultState, serve_with_listener};
 use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_vault::NativeVaultEngine;
@@ -45,6 +46,8 @@ fn build_vault_state(vault_name: &str, root: &Path) -> VaultState {
         engine,
         root: root.to_path_buf(),
         vault_config: arc_swap::ArcSwap::from_pointee(vault_config),
+        watcher_state: WatcherState::new(),
+        rebuilding: std::sync::atomic::AtomicBool::new(false),
         template_engine,
     }
 }

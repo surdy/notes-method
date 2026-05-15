@@ -38,6 +38,7 @@ chrono-tz = { workspace = true }
 tokio-stream = { workspace = true }
 futures = { workspace = true }
 libc = "0.2"
+walkdir = { workspace = true }
 
 [dev-dependencies]
 reqwest = { workspace = true }

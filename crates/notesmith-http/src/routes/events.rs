@@ -151,6 +151,7 @@ mod tests {
     use crate::{
         events::{EventBuffer, EventType, VaultEvent, create_event_channel},
         server::{AppState, VaultState},
+        watcher::WatcherState,
     };
 
     use super::*;
@@ -179,6 +180,8 @@ mod tests {
                         hooks: Default::default(),
                         homepage: None,
                     }),
+                    watcher_state: WatcherState::new(),
+                    rebuilding: std::sync::atomic::AtomicBool::new(false),
                     template_engine: notesmith_templates::TemplateEngine::new(root, None),
                 },
             )]),
@@ -260,6 +263,8 @@ mod tests {
                     hooks: Default::default(),
                     homepage: None,
                 }),
+                watcher_state: WatcherState::new(),
+                rebuilding: std::sync::atomic::AtomicBool::new(false),
                 template_engine: notesmith_templates::TemplateEngine::new(
                     std::env::current_dir().unwrap(),
                     None,
