@@ -1,4 +1,4 @@
-import { API_BASE, ApiError } from './core.ts';
+import { API_BASE, ApiError, apiFetch } from './core.ts';
 
 export interface SidebarConfig {
 	views: SidebarView[];
@@ -62,7 +62,7 @@ export interface SidebarConfigConflictError {
 }
 
 export async function getSidebarConfig(vault: string): Promise<SidebarConfig> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/sidebar-config`);
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/sidebar-config`);
 	if (!res.ok) throw new Error(`Failed to load sidebar config: ${res.status}`);
 	const data = await res.json();
 	return data.config ?? data;
@@ -71,7 +71,7 @@ export async function getSidebarConfig(vault: string): Promise<SidebarConfig> {
 export async function getSidebarConfigWithHash(
 	vault: string
 ): Promise<SidebarConfigResponse> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/sidebar-config`);
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/sidebar-config`);
 	if (!res.ok) throw new Error(`Failed to load sidebar config: ${res.status}`);
 	const data = await res.json();
 	const etag = res.headers.get('etag')?.replace(/"/g, '') ?? data.hash;
@@ -83,7 +83,7 @@ export async function putSidebarConfig(
 	config: SidebarConfig,
 	etag: string
 ): Promise<SidebarConfigResponse> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/sidebar-config`, {
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/sidebar-config`, {
 		method: 'PUT',
 		headers: {
 			'Content-Type': 'application/json',
@@ -111,7 +111,7 @@ export async function putSidebarConfig(
 }
 
 export async function getVaultFolders(vault: string): Promise<string[]> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/folders`);
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/folders`);
 	if (!res.ok) throw new Error(`Failed to load folders: ${res.status}`);
 	return res.json();
 }
@@ -131,7 +131,7 @@ export async function getFolderNotes(
 	if (params.limit) qs.set('limit', String(params.limit));
 	if (params.sort) qs.set('sort', params.sort);
 	if (params.sort_dir) qs.set('sort_dir', params.sort_dir);
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/folder-notes?${qs}`);
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/folder-notes?${qs}`);
 	if (!res.ok) throw new Error(`Failed to load folder notes: ${res.status}`);
 	const data = (await res.json()) as { notes: FolderNoteItem[] };
 	return data.notes;

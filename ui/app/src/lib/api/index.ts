@@ -1,4 +1,15 @@
-export { API_BASE, ApiError, encodePath } from './core.ts';
+export {
+	API_BASE,
+	CLIENT_SCHEMA_VERSION,
+	CLIENT_VERSION,
+	ApiError,
+	apiFetch,
+	checkVersionHeaders,
+	classifyVersionCompatibility,
+	encodePath,
+	versionMismatch
+} from './core.ts';
+export type { VersionInfo, VersionMismatchDirection } from './core.ts';
 
 export {
 	createNote,

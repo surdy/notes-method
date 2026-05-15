@@ -157,6 +157,7 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
         )
         .route("/api/v/{vault}/events", get(vault_events))
         .nest_service("/app", app_service)
+        .layer(middleware::map_response(set_version_headers))
         .layer(middleware::map_response(set_cache_headers))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
@@ -179,6 +180,19 @@ async fn set_cache_headers(
             header::HeaderValue::from_static("no-cache, no-store, must-revalidate"),
         );
     }
+    response
+}
+
+async fn set_version_headers(mut response: axum::response::Response) -> axum::response::Response {
+    let headers = response.headers_mut();
+    headers.insert(
+        "X-Notesmith-Server-Version",
+        header::HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
+    );
+    headers.insert(
+        "X-Notesmith-Schema-Version",
+        header::HeaderValue::from_static("1"),
+    );
     response
 }
 
@@ -568,6 +582,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn api_responses_include_version_headers() {
+        let response =
+            build_router_with_app_dir(AppState::default(), PathBuf::from("ui/app/build"))
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/status")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("X-Notesmith-Server-Version")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            env!("CARGO_PKG_VERSION")
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get("X-Notesmith-Schema-Version")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            crate::API_SCHEMA_VERSION.to_string()
+        );
+    }
+
+    #[tokio::test]
     async fn admin_shutdown_triggers_signal() {
         let state = AppState::default();
         let mut shutdown_rx = state.shutdown_rx.clone();
@@ -601,12 +649,16 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let vault_root = temp_dir.path().join("vault");
         fs::create_dir_all(&vault_root).unwrap();
+        let vault_name = format!(
+            "work-{}",
+            temp_dir.path().file_name().unwrap().to_string_lossy()
+        );
 
         let config = GlobalConfig {
             daemon: Default::default(),
-            default_vault: Some("work".to_string()),
+            default_vault: Some(vault_name.clone()),
             vaults: BTreeMap::from([(
-                "work".to_string(),
+                vault_name.clone(),
                 VaultRegistration {
                     path: vault_root.clone(),
                 },
@@ -633,7 +685,7 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert_eq!(event.vault, "work");
+        assert_eq!(event.vault, vault_name);
         assert_eq!(event.event_type, EventType::ShuttingDown);
     }
 

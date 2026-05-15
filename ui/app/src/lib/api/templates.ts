@@ -1,4 +1,4 @@
-import { API_BASE } from './core.ts';
+import { API_BASE, apiFetch } from './core.ts';
 
 export interface TemplatePrompt {
 	name: string;
@@ -14,7 +14,7 @@ export interface TemplateSummary {
 }
 
 export async function listTemplates(vault: string): Promise<TemplateSummary[]> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/templates`);
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/templates`);
 	if (!res.ok) throw new Error(`Failed to list templates: ${res.status}`);
 	return res.json();
 }
@@ -24,7 +24,7 @@ export async function instantiateTemplate(
 	name: string,
 	prompts?: Record<string, string>
 ): Promise<{ path: string }> {
-	const res = await fetch(
+	const res = await apiFetch(
 		`${API_BASE}/api/v/${encodeURIComponent(vault)}/templates/${encodeURIComponent(name)}/instantiate`,
 		{
 			method: 'POST',

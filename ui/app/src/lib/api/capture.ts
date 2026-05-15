@@ -1,4 +1,4 @@
-import { API_BASE } from './core.ts';
+import { API_BASE, apiFetch } from './core.ts';
 import type { WriteNoteResponse } from './notes.ts';
 
 export async function capture(
@@ -6,7 +6,7 @@ export async function capture(
 	content: string,
 	title?: string
 ): Promise<WriteNoteResponse> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/capture`, {
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/capture`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ text: content, title })

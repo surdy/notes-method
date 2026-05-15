@@ -4,6 +4,15 @@ The daemon listens on `127.0.0.1:27183` by default (configurable via `--bind` or
 
 All API endpoints are unauthenticated — the daemon is designed for local use.
 
+## Version Negotiation
+
+All daemon API and admin responses include compatibility headers:
+
+- `X-Notesmith-Server-Version` — daemon package version (for example `0.1.0`)
+- `X-Notesmith-Schema-Version` — API schema version integer (currently `1`)
+
+Rich clients should send `X-Notesmith-Client-Version` on requests and compare the returned server version/schema before assuming compatibility.
+
 ---
 
 ## Health

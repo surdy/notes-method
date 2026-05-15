@@ -1,4 +1,4 @@
-import { API_BASE } from './core.ts';
+import { API_BASE, apiFetch } from './core.ts';
 
 export interface DaemonStatus {
 	version: string;
@@ -23,7 +23,7 @@ export interface ResourceStatus {
 }
 
 export async function fetchDaemonStatus(): Promise<DaemonStatus> {
-	const response = await fetch(`${API_BASE}/api/status`);
+	const response = await apiFetch(`${API_BASE}/api/status`);
 	if (!response.ok) {
 		throw new Error(`Status check failed: ${response.status}`);
 	}
@@ -31,14 +31,14 @@ export async function fetchDaemonStatus(): Promise<DaemonStatus> {
 }
 
 export async function restartDaemon(): Promise<void> {
-	const response = await fetch(`${API_BASE}/admin/restart`, { method: 'POST' });
+	const response = await apiFetch(`${API_BASE}/admin/restart`, { method: 'POST' });
 	if (!response.ok) {
 		throw new Error(`Restart failed: ${response.status}`);
 	}
 }
 
 export async function reindexVault(vault: string): Promise<void> {
-	const response = await fetch(`${API_BASE}/api/app/vaults/${encodeURIComponent(vault)}/reindex`, {
+	const response = await apiFetch(`${API_BASE}/api/app/vaults/${encodeURIComponent(vault)}/reindex`, {
 		method: 'POST'
 	});
 	if (!response.ok) {
@@ -47,7 +47,7 @@ export async function reindexVault(vault: string): Promise<void> {
 }
 
 export async function fetchLogTail(lines = 200): Promise<string> {
-	const response = await fetch(`${API_BASE}/admin/logs?tail=${lines}`);
+	const response = await apiFetch(`${API_BASE}/admin/logs?tail=${lines}`);
 	if (!response.ok) {
 		throw new Error(`Log fetch failed: ${response.status}`);
 	}

@@ -1,4 +1,4 @@
-import { API_BASE } from './core.ts';
+import { API_BASE, apiFetch } from './core.ts';
 
 export interface SqlQueryResult {
 	columns: string[];
@@ -13,7 +13,7 @@ interface RawSqlQueryResult {
 }
 
 export async function executeSql(vault: string, sql: string): Promise<SqlQueryResult> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/query/sql`, {
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/query/sql`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ sql })

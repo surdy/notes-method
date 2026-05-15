@@ -1,4 +1,4 @@
-import { API_BASE, ApiError } from './core.ts';
+import { API_BASE, ApiError, apiFetch } from './core.ts';
 
 export interface Capabilities {
 	deployment_mode: 'desktop' | 'hosted';
@@ -56,13 +56,13 @@ export interface ConfigConflictError {
 }
 
 export async function getCapabilities(): Promise<Capabilities> {
-	const res = await fetch(`${API_BASE}/api/capabilities`);
+	const res = await apiFetch(`${API_BASE}/api/capabilities`);
 	if (!res.ok) throw new Error(`Failed to load capabilities: ${res.status}`);
 	return res.json();
 }
 
 export async function getVaultConfig(vault: string): Promise<ConfigResponse & { etag: string }> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/config`);
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/config`);
 	if (!res.ok) throw new Error(`Failed to load vault config: ${res.status}`);
 	const data: ConfigResponse = await res.json();
 	const etag = res.headers.get('etag')?.replace(/"/g, '') ?? data.hash;
@@ -74,7 +74,7 @@ export async function putVaultConfig(
 	config: VaultConfigData,
 	etag: string
 ): Promise<ConfigResponse & { etag: string }> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/config`, {
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/config`, {
 		method: 'PUT',
 		headers: {
 			'Content-Type': 'application/json',

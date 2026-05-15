@@ -1,4 +1,4 @@
-import { API_BASE } from './api/core.ts';
+import { API_BASE, apiFetch } from './api/core.ts';
 import { OPEN_QUICK_SWITCHER_EVENT } from './command-events.ts';
 import type { Hotkey } from './hotkeys.ts';
 import type { VaultEvent } from './sse.ts';
@@ -71,6 +71,7 @@ export interface AppShellDependencies {
 	tabStore: AppShellTabStore;
 	targetWindow: AppShellWindowTarget;
 	addVisibilityListener?: (callback: () => void) => () => void;
+	flushQueuedSaves?: () => Promise<void> | void;
 	logger?: Pick<Console, 'error'>;
 }
 
@@ -156,11 +157,15 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 	let availableVaults: string[] | null = null;
 	let lastResyncTime = 0;
 
-	async function performResync() {
+	async function performResync(flushQueuedSaves = false) {
 		try {
-			const response = await fetch(`${API_BASE}/api/status`);
+			const response = await apiFetch(`${API_BASE}/api/status`);
 			if (!response.ok) {
 				return;
+			}
+
+			if (flushQueuedSaves) {
+				await Promise.resolve(dependencies.flushQueuedSaves?.());
 			}
 
 			await Promise.resolve(dependencies.vaultStore.loadNotes());
@@ -218,7 +223,7 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 
 	function connectToVault(vault: string) {
 		sseConnection?.close();
-		sseConnection = dependencies.connectSSE(vault, handleEvent, performResync);
+		sseConnection = dependencies.connectSSE(vault, handleEvent, () => performResync(true));
 	}
 
 	async function refreshVaultRegistrations() {

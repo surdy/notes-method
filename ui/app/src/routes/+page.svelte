@@ -16,7 +16,9 @@
 	import RightRail from '$lib/components/RightRail.svelte';
 	import SidebarViews from '$lib/components/SidebarViews.svelte';
 	import TabBar from '$lib/components/TabBar.svelte';
+	import VersionBanner from '$lib/components/VersionBanner.svelte';
 	import VaultSwitcher from '$lib/components/VaultSwitcher.svelte';
+	import { versionMismatch } from '$lib/api/core';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
@@ -104,6 +106,9 @@
 	});
 </script>
 
+<div class="page-shell">
+<VersionBanner />
+
 <div class="app-layout">
 <aside class="sidebar">
 <div class="sidebar-header">
@@ -120,7 +125,11 @@ bind:this={sidebarViewsRef}
 onActivateMiddlePane={(item) => (activeMiddlePaneItem = item)}
 onDeactivateMiddlePane={() => (activeMiddlePaneItem = null)}
 />
-<ConnectionStatus currentVault={vaultStore.currentVault} onToast={showConfigToast} />
+<ConnectionStatus
+currentVault={vaultStore.currentVault}
+onToast={showConfigToast}
+restartRequired={Boolean($versionMismatch)}
+/>
 </aside>
 
 {#if activeMiddlePaneItem}
@@ -145,6 +154,7 @@ onClose={() => (activeMiddlePaneItem = null)}
 <RightRail bind:this={rightRailRef} />
 </aside>
 </div>
+</div>
 
 {#if showCommandPalette}
 <CommandPalette commands={commands} onClose={() => (showCommandPalette = false)} />
@@ -157,9 +167,17 @@ onClose={() => (activeMiddlePaneItem = null)}
 <ConfigToast bind:this={configToastRef} />
 
 <style>
+.page-shell {
+display: flex;
+flex-direction: column;
+height: 100vh;
+overflow: hidden;
+}
+
 .app-layout {
 display: flex;
-height: 100vh;
+flex: 1;
+min-height: 0;
 overflow: hidden;
 }
 

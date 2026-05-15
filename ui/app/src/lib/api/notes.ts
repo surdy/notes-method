@@ -1,4 +1,4 @@
-import { API_BASE, ApiError, encodePath } from './core.ts';
+import { API_BASE, ApiError, apiFetch, encodePath } from './core.ts';
 
 export interface NoteSummary {
 	path: string;
@@ -6,6 +6,8 @@ export interface NoteSummary {
 	type: string;
 	customer?: string;
 	date?: string;
+	created_at?: string;
+	updated_at?: string;
 	archived: boolean;
 }
 
@@ -47,25 +49,25 @@ export interface NoteTask {
 }
 
 export async function listNotes(vault: string): Promise<NoteSummary[]> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes`);
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes`);
 	if (!res.ok) throw new Error(`Failed to list notes: ${res.status}`);
 	return res.json();
 }
 
 export async function getNote(vault: string, path: string): Promise<NoteDetail> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes/${encodePath(path)}`);
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes/${encodePath(path)}`);
 	if (!res.ok) throw new ApiError(`Failed to get note: ${res.status}`, res.status);
 	return res.json();
 }
 
 export async function getNoteHtml(vault: string, path: string): Promise<string> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/html/${encodePath(path)}`);
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/html/${encodePath(path)}`);
 	if (!res.ok) throw new Error(`Failed to render note: ${res.status}`);
 	return res.text();
 }
 
 export async function getNoteHtmlInline(vault: string, path: string): Promise<string> {
-	const res = await fetch(
+	const res = await apiFetch(
 		`${API_BASE}/api/v/${encodeURIComponent(vault)}/html/${encodePath(path)}?inline_styles=true`
 	);
 	if (!res.ok) throw new Error(`Failed to render note HTML: ${res.status}`);
@@ -73,7 +75,7 @@ export async function getNoteHtmlInline(vault: string, path: string): Promise<st
 }
 
 export async function searchNotes(vault: string, query: string): Promise<NoteSummary[]> {
-	const res = await fetch(
+	const res = await apiFetch(
 		`${API_BASE}/api/v/${encodeURIComponent(vault)}/search?q=${encodeURIComponent(query)}`
 	);
 	if (!res.ok) throw new Error(`Search failed: ${res.status}`);
@@ -86,7 +88,7 @@ export async function createNote(
 	content: string,
 	folder?: string
 ): Promise<WriteNoteResponse> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes`, {
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ title, content, folder })
@@ -101,7 +103,7 @@ export async function putNote(
 	content: string,
 	expectedHash?: string | null
 ): Promise<WriteNoteResponse> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes/${encodePath(path)}`, {
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes/${encodePath(path)}`, {
 		method: 'PUT',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ content, expected_hash: expectedHash ?? undefined })
@@ -116,7 +118,7 @@ export async function toggleTaskStatus(
 	taskHash: string,
 	status: TaskMutationStatus
 ): Promise<WriteNoteResponse> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/tasks/toggle`, {
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/tasks/toggle`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
@@ -134,7 +136,7 @@ export async function ensureDaily(
 	date?: string
 ): Promise<{ path: string; created: boolean }> {
 	const day = date ?? new Date().toISOString().slice(0, 10);
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/daily/${day}`, {
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/daily/${day}`, {
 		method: 'POST'
 	});
 	if (!res.ok) throw new Error(`Failed to ensure daily: ${res.status}`);

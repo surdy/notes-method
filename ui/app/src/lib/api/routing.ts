@@ -1,4 +1,4 @@
-import { API_BASE } from './core.ts';
+import { API_BASE, apiFetch } from './core.ts';
 
 export interface RouteResult {
 	from: string;
@@ -12,7 +12,7 @@ export interface RouteApplyResponse {
 }
 
 export async function routeApply(vault: string, paths: string[]): Promise<RouteApplyResponse> {
-	const res = await fetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/route/apply`, {
+	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/route/apply`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ paths })
