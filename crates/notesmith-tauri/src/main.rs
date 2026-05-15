@@ -32,13 +32,21 @@ const MENU_OPEN: &str = "open";
 const MENU_CAPTURE: &str = "capture";
 const MENU_HIDE: &str = "hide";
 const MENU_QUIT: &str = "quit";
+const MENU_RESTART_SERVICE: &str = "restart-service";
+const MENU_STOP_SERVICE: &str = "stop-service";
+const MENU_VIEW_LOGS: &str = "view-logs";
+const MENU_QUIT_APP: &str = "quit-app";
 const WAKE_EVENT_SCRIPT: &str = "window.dispatchEvent(new Event('notesmith://wake'));";
 const DAEMON_CRASH_WINDOW: Duration = Duration::from_secs(60);
 const DAEMON_CRASH_THRESHOLD: usize = 2;
 const DAEMON_CRASH_LOG_LINES: usize = 200;
+const QUIT_CONFIRM_WINDOW: Duration = Duration::from_secs(5);
 
 #[derive(Default)]
 struct ExitState(AtomicBool);
+
+#[derive(Default)]
+struct LastQuitAttempt(Mutex<Option<Instant>>);
 
 struct DaemonUrlState(Mutex<String>);
 
@@ -92,6 +100,13 @@ enum CrashAction {
     ShowCrashLoop,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QuitRequestAction {
+    HideWindows,
+    ArmExit,
+    StopDaemonAndExit,
+}
+
 #[derive(Debug, Default)]
 struct CrashTracker {
     recent_crashes: VecDeque<Instant>,
@@ -123,6 +138,22 @@ impl CrashTracker {
 
     fn reset(&mut self) {
         self.recent_crashes.clear();
+    }
+}
+
+fn evaluate_quit_request(
+    has_visible_window: bool,
+    last_attempt: Option<Instant>,
+    now: Instant,
+) -> (QuitRequestAction, Option<Instant>) {
+    if has_visible_window {
+        return (QuitRequestAction::HideWindows, Some(now));
+    }
+
+    if last_attempt.is_some_and(|attempt| now.duration_since(attempt) < QUIT_CONFIRM_WINDOW) {
+        (QuitRequestAction::StopDaemonAndExit, None)
+    } else {
+        (QuitRequestAction::ArmExit, Some(now))
     }
 }
 
@@ -193,6 +224,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .manage(ExitState::default())
+        .manage(LastQuitAttempt::default())
         .manage(DaemonUrlState::default())
         .manage(DaemonProcessState::default())
         .manage(InternalHtmlState(Mutex::new(InternalPages {
@@ -416,9 +448,24 @@ fn emit_wake_event<R: Runtime>(app: &AppHandle<R>) {
 fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let open = MenuItem::with_id(app, MENU_OPEN, "Open Notesmith", true, None::<&str>)?;
     let capture = MenuItem::with_id(app, MENU_CAPTURE, "Quick Capture", true, None::<&str>)?;
-    let hide = MenuItem::with_id(app, MENU_HIDE, "Hide Window", true, None::<&str>)?;
+    let hide = MenuItem::with_id(app, MENU_HIDE, "Close Window", true, Some("CmdOrCtrl+W"))?;
     let quit = MenuItem::with_id(app, MENU_QUIT, "Quit", true, Some("CmdOrCtrl+Q"))?;
     let separator = PredefinedMenuItem::separator(app)?;
+    let restart_service = MenuItem::with_id(
+        app,
+        MENU_RESTART_SERVICE,
+        "Restart Service",
+        true,
+        None::<&str>,
+    )?;
+    let stop_service = MenuItem::with_id(
+        app,
+        MENU_STOP_SERVICE,
+        "Stop Background Service",
+        true,
+        None::<&str>,
+    )?;
+    let view_logs = MenuItem::with_id(app, MENU_VIEW_LOGS, "View Logs", true, None::<&str>)?;
     let copy = PredefinedMenuItem::copy(app, None::<&str>)?;
     let paste = PredefinedMenuItem::paste(app, None::<&str>)?;
     let select_all = PredefinedMenuItem::select_all(app, None::<&str>)?;
@@ -430,15 +477,45 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         &[&open, &capture, &separator, &hide, &quit],
     )?;
     let edit_submenu = Submenu::with_items(app, "Edit", true, &[&copy, &paste, &select_all])?;
+    let diagnostics_submenu = Submenu::with_items(
+        app,
+        "Diagnostics",
+        true,
+        &[&restart_service, &stop_service, &view_logs],
+    )?;
 
-    Menu::with_items(app, &[&app_submenu, &edit_submenu])
+    Menu::with_items(app, &[&app_submenu, &edit_submenu, &diagnostics_submenu])
 }
 
 fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
     let open = MenuItem::with_id(app, MENU_OPEN, "Open Notesmith", true, None::<&str>)?;
     let capture = MenuItem::with_id(app, MENU_CAPTURE, "Quick Capture", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, MENU_QUIT, "Quit", true, None::<&str>)?;
-    let tray_menu = Menu::with_items(app, &[&open, &capture, &quit])?;
+    let restart_service = MenuItem::with_id(
+        app,
+        MENU_RESTART_SERVICE,
+        "Restart Service",
+        true,
+        None::<&str>,
+    )?;
+    let stop_service =
+        MenuItem::with_id(app, MENU_STOP_SERVICE, "Stop Service", true, None::<&str>)?;
+    let view_logs = MenuItem::with_id(app, MENU_VIEW_LOGS, "View Logs", true, None::<&str>)?;
+    let quit_app = MenuItem::with_id(app, MENU_QUIT_APP, "Quit Notesmith", true, None::<&str>)?;
+    let separator1 = PredefinedMenuItem::separator(app)?;
+    let separator2 = PredefinedMenuItem::separator(app)?;
+    let tray_menu = Menu::with_items(
+        app,
+        &[
+            &open,
+            &capture,
+            &separator1,
+            &restart_service,
+            &stop_service,
+            &view_logs,
+            &separator2,
+            &quit_app,
+        ],
+    )?;
 
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&tray_menu)
@@ -457,8 +534,18 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<(), Dyn
     match id {
         MENU_OPEN | MENU_CAPTURE => show_main_window(app),
         MENU_HIDE => hide_main_window(app),
-        MENU_QUIT => {
-            request_exit(app);
+        MENU_QUIT => handle_quit_request(app),
+        MENU_RESTART_SERVICE => {
+            restart_service(app.clone());
+            Ok(())
+        }
+        MENU_STOP_SERVICE => {
+            stop_service(app.clone());
+            Ok(())
+        }
+        MENU_VIEW_LOGS => open_diagnostics_target(),
+        MENU_QUIT_APP => {
+            stop_daemon_and_exit(app.clone());
             Ok(())
         }
         _ => Ok(()),
@@ -466,6 +553,8 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<(), Dyn
 }
 
 fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
+    clear_last_quit_attempt(app);
+
     if let Some(window) = app.get_webview_window(SPLASH_WINDOW_LABEL) {
         let _ = window.show();
         let _ = window.set_focus();
@@ -495,6 +584,185 @@ fn hide_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
     }
 
     Ok(())
+}
+
+fn clear_last_quit_attempt<R: Runtime>(app: &AppHandle<R>) {
+    *app.state::<LastQuitAttempt>()
+        .0
+        .lock()
+        .expect("last quit attempt poisoned") = None;
+}
+
+fn admin_route_url(base_url: &str, route: &str) -> String {
+    format!(
+        "{}/admin/{}",
+        base_url.trim_end_matches('/'),
+        route.trim_start_matches('/')
+    )
+}
+
+fn has_visible_window<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.webview_windows()
+        .values()
+        .any(|window| window.is_visible().unwrap_or(false))
+}
+
+fn hide_all_windows<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
+    for window in app.webview_windows().values() {
+        window.hide()?;
+    }
+
+    Ok(())
+}
+
+fn notify_user<R: Runtime>(app: &AppHandle<R>, body: &str) {
+    if let Err(error) = app
+        .notification()
+        .builder()
+        .title("Notesmith")
+        .body(body)
+        .show()
+    {
+        tracing::warn!("failed to show notification: {error}");
+    }
+}
+
+fn set_expected_daemon_shutdown<R: Runtime>(app: &AppHandle<R>, expected: bool) {
+    if let Ok(mut state) = app.state::<DaemonProcessState>().0.try_lock() {
+        state.expected_shutdown = expected;
+    }
+}
+
+fn handle_quit_request<R: Runtime + 'static>(app: &AppHandle<R>) -> Result<(), DynError> {
+    let now = Instant::now();
+    let last_quit_state = app.state::<LastQuitAttempt>();
+    let mut last_quit_attempt = last_quit_state
+        .0
+        .lock()
+        .expect("last quit attempt poisoned");
+    let (action, next_attempt) =
+        evaluate_quit_request(has_visible_window(app), *last_quit_attempt, now);
+    *last_quit_attempt = next_attempt;
+    drop(last_quit_attempt);
+
+    match action {
+        QuitRequestAction::HideWindows => {
+            hide_all_windows(app)?;
+            notify_user(
+                app,
+                "Notesmith is still running in the menu bar. Quit again within 5 seconds to stop the background service and exit.",
+            );
+            Ok(())
+        }
+        QuitRequestAction::ArmExit => {
+            notify_user(
+                app,
+                "Quit again within 5 seconds to stop the background service and exit.",
+            );
+            Ok(())
+        }
+        QuitRequestAction::StopDaemonAndExit => {
+            stop_daemon_and_exit(app.clone());
+            Ok(())
+        }
+    }
+}
+
+async fn post_admin_command(url: String) -> Result<(), DynError> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()?
+        .post(url)
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(())
+}
+
+async fn daemon_is_reachable<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let url = format!("{}/ping", current_daemon_url(app).trim_end_matches('/'));
+    match reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+    {
+        Ok(client) => client
+            .get(url)
+            .send()
+            .await
+            .map(|response| response.status().is_success())
+            .unwrap_or(false),
+        Err(error) => {
+            tracing::warn!("failed to build client for daemon reachability probe: {error}");
+            false
+        }
+    }
+}
+
+async fn request_service_stop<R: Runtime>(app: &AppHandle<R>) -> Result<String, DynError> {
+    set_expected_daemon_shutdown(app, true);
+    let url = admin_route_url(&current_daemon_url(app), "shutdown");
+
+    match post_admin_command(url).await {
+        Ok(()) => Ok("Notesmith service is stopping.".to_string()),
+        Err(error) => {
+            if daemon_is_reachable(app).await {
+                set_expected_daemon_shutdown(app, false);
+                Err(error)
+            } else {
+                set_expected_daemon_shutdown(app, false);
+                Ok("Notesmith service is already stopped.".to_string())
+            }
+        }
+    }
+}
+
+async fn request_service_restart<R: Runtime>(app: &AppHandle<R>) -> Result<String, DynError> {
+    let url = admin_route_url(&current_daemon_url(app), "restart");
+
+    match post_admin_command(url).await {
+        Ok(()) => Ok("Notesmith service is restarting.".to_string()),
+        Err(error) => {
+            if daemon_is_reachable(app).await {
+                Err(error)
+            } else {
+                start_and_track_supervised_daemon(app.clone()).await?;
+                Ok("Notesmith service started.".to_string())
+            }
+        }
+    }
+}
+
+fn stop_service<R: Runtime + 'static>(app: AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        match request_service_stop(&app).await {
+            Ok(message) => notify_user(&app, &message),
+            Err(error) => {
+                tracing::error!("failed to stop daemon service: {error}");
+                notify_user(&app, &format!("Failed to stop service: {error}"));
+            }
+        }
+    });
+}
+
+fn restart_service<R: Runtime + 'static>(app: AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        match request_service_restart(&app).await {
+            Ok(message) => notify_user(&app, &message),
+            Err(error) => {
+                tracing::error!("failed to restart daemon service: {error}");
+                notify_user(&app, &format!("Failed to restart service: {error}"));
+            }
+        }
+    });
+}
+
+fn stop_daemon_and_exit<R: Runtime + 'static>(app: AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = request_service_stop(&app).await {
+            tracing::warn!("failed to stop daemon during quit: {error}");
+        }
+        request_exit(&app);
+    });
 }
 
 fn ensure_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
@@ -536,7 +804,7 @@ fn startup_settings() -> DaemonSettings {
     }
 }
 
-async fn run_startup_flow(app: &tauri::AppHandle) -> Result<String, DynError> {
+async fn run_startup_flow<R: Runtime>(app: &AppHandle<R>) -> Result<String, DynError> {
     show_splash_window(app)?;
     close_window(app, FALLBACK_WINDOW_LABEL)?;
 
@@ -545,8 +813,8 @@ async fn run_startup_flow(app: &tauri::AppHandle) -> Result<String, DynError> {
     handle_startup_state(app, &settings, outcome).await
 }
 
-async fn handle_startup_state(
-    app: &tauri::AppHandle,
+async fn handle_startup_state<R: Runtime>(
+    app: &AppHandle<R>,
     settings: &DaemonSettings,
     outcome: daemon::SupervisedStartup,
 ) -> Result<String, DynError> {
@@ -700,7 +968,7 @@ fn current_app_url<R: Runtime>(app: &AppHandle<R>) -> Result<Url, DynError> {
     .map_err(Into::into)
 }
 
-fn register_supervised_child(app: tauri::AppHandle, child: Child) {
+fn register_supervised_child<R: Runtime + 'static>(app: AppHandle<R>, child: Child) {
     let pid = child.id();
     let should_spawn_monitor = {
         let daemon_process = app.state::<DaemonProcessState>();
@@ -728,7 +996,9 @@ fn register_supervised_child(app: tauri::AppHandle, child: Child) {
     }
 }
 
-async fn start_and_track_supervised_daemon(app: tauri::AppHandle) -> Result<(), DynError> {
+async fn start_and_track_supervised_daemon<R: Runtime + 'static>(
+    app: AppHandle<R>,
+) -> Result<(), DynError> {
     let settings = startup_settings();
     let mut child = daemon::launch_daemon_supervised(settings.clone()).await?;
 
@@ -747,7 +1017,7 @@ async fn start_and_track_supervised_daemon(app: tauri::AppHandle) -> Result<(), 
     Ok(())
 }
 
-async fn monitor_daemon_process(app: tauri::AppHandle) {
+async fn monitor_daemon_process<R: Runtime + 'static>(app: AppHandle<R>) {
     loop {
         let mut child = {
             let daemon_process = app.state::<DaemonProcessState>();
@@ -828,8 +1098,8 @@ async fn monitor_daemon_process(app: tauri::AppHandle) {
     }
 }
 
-async fn record_crash_and_handle(
-    app: tauri::AppHandle,
+async fn record_crash_and_handle<R: Runtime + 'static>(
+    app: AppHandle<R>,
     crash_report: String,
     exit_status: Option<&std::process::ExitStatus>,
 ) -> Result<(), DynError> {
@@ -1182,6 +1452,12 @@ fn open_with_system_app(path: &Path) -> Result<(), DynError> {
     Err(std::io::Error::other("opening diagnostics is not supported on this platform").into())
 }
 
+fn open_diagnostics_target() -> Result<(), DynError> {
+    let path = diagnostics_target()
+        .ok_or_else(|| std::io::Error::other("Could not find Notesmith diagnostics on disk"))?;
+    open_with_system_app(&path)
+}
+
 #[tauri::command]
 async fn retry_daemon_connect(app: tauri::AppHandle) -> Result<String, String> {
     run_startup_flow(&app)
@@ -1191,14 +1467,12 @@ async fn retry_daemon_connect(app: tauri::AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 async fn open_diagnostics() -> Result<(), String> {
-    let path = diagnostics_target()
-        .ok_or_else(|| "Could not find Notesmith diagnostics on disk".to_string())?;
-    open_with_system_app(&path).map_err(|error| error.to_string())
+    open_diagnostics_target().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
-    request_exit(&app);
+    stop_daemon_and_exit(app);
 }
 
 #[tauri::command]
@@ -1256,7 +1530,9 @@ async fn restart_daemon_anyway(app: tauri::AppHandle) -> Result<String, String> 
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::{CrashAction, CrashTracker};
+    use super::{
+        CrashAction, CrashTracker, QuitRequestAction, admin_route_url, evaluate_quit_request,
+    };
 
     #[test]
     fn first_crash_restarts_daemon() {
@@ -1292,6 +1568,46 @@ mod tests {
         assert_eq!(
             tracker.record_crash(now + Duration::from_secs(61), Duration::from_secs(60), 2),
             CrashAction::Restart
+        );
+    }
+
+    #[test]
+    fn quit_request_hides_visible_windows_and_arms_second_quit() {
+        let now = Instant::now();
+
+        assert_eq!(
+            evaluate_quit_request(true, None, now),
+            (QuitRequestAction::HideWindows, Some(now))
+        );
+    }
+
+    #[test]
+    fn second_quit_with_hidden_windows_stops_daemon_and_exits() {
+        let now = Instant::now();
+        let first_attempt = now - Duration::from_secs(2);
+
+        assert_eq!(
+            evaluate_quit_request(false, Some(first_attempt), now),
+            (QuitRequestAction::StopDaemonAndExit, None)
+        );
+    }
+
+    #[test]
+    fn stale_hidden_quit_attempt_requires_another_confirmation() {
+        let now = Instant::now();
+        let first_attempt = now - Duration::from_secs(6);
+
+        assert_eq!(
+            evaluate_quit_request(false, Some(first_attempt), now),
+            (QuitRequestAction::ArmExit, Some(now))
+        );
+    }
+
+    #[test]
+    fn admin_route_url_reuses_current_daemon_origin() {
+        assert_eq!(
+            admin_route_url("http://127.0.0.1:27183/", "shutdown"),
+            "http://127.0.0.1:27183/admin/shutdown"
         );
     }
 }
