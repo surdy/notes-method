@@ -74,6 +74,7 @@ This tells Notesmith where your vault lives and which vault to use by default.
 Inside your vault root, create `.notesmith/vault.toml`:
 
 ```toml
+schema_version = 1
 name = "work"
 
 [capture]

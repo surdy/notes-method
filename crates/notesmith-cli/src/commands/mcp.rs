@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use clap::Subcommand;
-use notesmith_config::{GlobalConfig, VaultConfig, detect_vault};
+use notesmith_config::{GlobalConfig, VaultConfig, detect_vault, migration};
 use notesmith_core::VaultEngine;
 use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_vault::NativeVaultEngine;
@@ -42,16 +42,13 @@ async fn cmd_start(
     cache.reindex(&detected.name, &notes)?;
     let search_index = SearchIndex::open_in_memory()?;
     search_index.reindex(&detected.name, &notes)?;
-    let vault_config =
-        VaultConfig::load_from_vault(&detected.root).unwrap_or_else(|_| VaultConfig {
+    let vault_config = migration::load_and_migrate(&detected.root).unwrap_or_else(|error| {
+        eprintln!("Warning: failed to load/migrate vault config: {error}");
+        VaultConfig {
             name: detected.name.clone(),
-            homepage: None,
-            capture: Default::default(),
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
-        });
+            ..Default::default()
+        }
+    });
 
     let mcp = notesmith_mcp::NotesmithMcp::new(
         detected.name.clone(),

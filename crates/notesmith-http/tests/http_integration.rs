@@ -8,7 +8,7 @@ use std::{
 };
 
 use chrono::Utc;
-use notesmith_config::{GlobalConfig, VaultConfig, VaultRegistration};
+use notesmith_config::{GlobalConfig, VaultConfig, VaultRegistration, migration};
 use notesmith_core::VaultEngine;
 use notesmith_http::watcher::WatcherState;
 use notesmith_http::{AppState, VaultState, serve_with_listener};
@@ -28,14 +28,9 @@ fn build_vault_state(vault_name: &str, root: &Path) -> VaultState {
     let search_index = SearchIndex::open_in_memory().unwrap();
     search_index.reindex(vault_name, &notes).unwrap();
 
-    let vault_config = VaultConfig::load_from_vault(root).unwrap_or_else(|_| VaultConfig {
+    let vault_config = migration::load_and_migrate(root).unwrap_or_else(|_| VaultConfig {
         name: vault_name.to_string(),
-        capture: Default::default(),
-        daily: Default::default(),
-        editor: Default::default(),
-        git: Default::default(),
-        hooks: Default::default(),
-        homepage: None,
+        ..Default::default()
     });
 
     let template_engine = notesmith_templates::TemplateEngine::new(root.to_path_buf(), None);

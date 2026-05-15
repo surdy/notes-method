@@ -21,7 +21,7 @@ use tokio::{
 
 use crate::events::{ConfigDetail, EventType};
 use crate::server::SharedAppState;
-use notesmith_config::VaultConfig;
+use notesmith_config::migration;
 
 const DEBOUNCE_WINDOW: Duration = Duration::from_millis(300);
 const CANARY_INTERVAL: Duration = Duration::from_secs(300);
@@ -685,7 +685,7 @@ fn handle_config_change(
                     );
                 }
             },
-            ConfigKey::Vault => match VaultConfig::load_from_vault(root) {
+            ConfigKey::Vault => match migration::load_and_migrate(root) {
                 Ok(new_config) => {
                     vault.vault_config.store(std::sync::Arc::new(new_config));
                     crate::events::emit(
@@ -751,6 +751,7 @@ mod tests {
 
     use arc_swap::ArcSwap;
     use chrono::Utc;
+    use notesmith_config::VaultConfig;
     use notesmith_index::{SearchIndex, VaultCache};
     use notesmith_vault::NativeVaultEngine;
     use tokio::sync::RwLock;
@@ -900,12 +901,7 @@ mod tests {
                     root: vault_root.clone(),
                     vault_config: ArcSwap::from_pointee(VaultConfig {
                         name: "work".to_string(),
-                        capture: Default::default(),
-                        daily: Default::default(),
-                        editor: Default::default(),
-                        git: Default::default(),
-                        hooks: Default::default(),
-                        homepage: None,
+                        ..Default::default()
                     }),
                     watcher_state: watcher_state.clone(),
                     rebuilding: std::sync::atomic::AtomicBool::new(false),
@@ -961,24 +957,14 @@ mod tests {
 
         let config = VaultConfig {
             name: "test".to_string(),
-            capture: Default::default(),
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
-            homepage: None,
+            ..Default::default()
         };
         let swappable = ArcSwap::from_pointee(config);
         assert_eq!(swappable.load().name, "test");
 
         let new_config = VaultConfig {
             name: "updated".to_string(),
-            capture: Default::default(),
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
-            homepage: None,
+            ..Default::default()
         };
         swappable.store(Arc::new(new_config));
         assert_eq!(swappable.load().name, "updated");
@@ -990,12 +976,7 @@ mod tests {
 
         let config = VaultConfig {
             name: "original".to_string(),
-            capture: Default::default(),
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
-            homepage: None,
+            ..Default::default()
         };
         let swappable = ArcSwap::from_pointee(config);
 

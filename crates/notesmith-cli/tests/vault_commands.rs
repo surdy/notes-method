@@ -12,7 +12,6 @@ use tempfile::TempDir;
 fn create_vault(root: &std::path::Path, name: &str) {
     let config = VaultConfig {
         name: name.to_string(),
-        homepage: None,
         capture: notesmith_config::CaptureConfig {
             folder: "Inbox".to_string(),
             template: "generic-note".to_string(),
@@ -21,9 +20,7 @@ fn create_vault(root: &std::path::Path, name: &str) {
             folder: "Inbox/Daily".to_string(),
             ..Default::default()
         },
-        editor: Default::default(),
-        git: Default::default(),
-        hooks: Default::default(),
+        ..Default::default()
     };
     let config_dir = root.join(".notesmith");
     fs::create_dir_all(&config_dir).unwrap();

@@ -3,6 +3,7 @@ source: crates/notesmith-config/tests/snapshots_tests.rs
 assertion_line: 57
 expression: serialized
 ---
+schema_version = 1
 name = "work"
 homepage = "Dashboards/Home.md"
 

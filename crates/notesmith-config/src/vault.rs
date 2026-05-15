@@ -2,8 +2,13 @@ use crate::error::ConfigError;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// Current schema version for vault-local `vault.toml` files.
+pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VaultConfig {
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
     pub name: String,
     #[serde(default)]
     pub homepage: Option<String>,
@@ -17,6 +22,25 @@ pub struct VaultConfig {
     pub git: GitConfig,
     #[serde(default)]
     pub hooks: HooksConfig,
+}
+
+fn default_schema_version() -> u32 {
+    CURRENT_SCHEMA_VERSION
+}
+
+impl Default for VaultConfig {
+    fn default() -> Self {
+        Self {
+            schema_version: default_schema_version(),
+            name: String::new(),
+            homepage: None,
+            capture: Default::default(),
+            daily: Default::default(),
+            editor: Default::default(),
+            git: Default::default(),
+            hooks: Default::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -136,6 +160,10 @@ impl VaultConfig {
 
     pub fn load_from_vault(vault_root: &Path) -> Result<Self, ConfigError> {
         Self::load_from(&vault_root.join(".notesmith").join("vault.toml"))
+    }
+
+    pub fn save_to_vault(&self, vault_root: &Path) -> Result<(), ConfigError> {
+        self.save_to(&vault_root.join(".notesmith").join("vault.toml"))
     }
 
     pub fn save_to(&self, path: &Path) -> Result<(), ConfigError> {

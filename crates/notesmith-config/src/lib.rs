@@ -4,6 +4,7 @@ pub mod detection;
 pub mod error;
 pub mod global;
 pub mod lockfile;
+pub mod migration;
 pub mod vault;
 
 pub use detection::{
@@ -13,4 +14,7 @@ pub use detection::{
 pub use error::ConfigError;
 pub use global::{DaemonConfig, GlobalConfig, VaultRegistration};
 pub use lockfile::DaemonLockfile;
-pub use vault::{CaptureConfig, DailyConfig, EditorConfig, GitConfig, HooksConfig, VaultConfig};
+pub use vault::{
+    CURRENT_SCHEMA_VERSION, CaptureConfig, DailyConfig, EditorConfig, GitConfig, HooksConfig,
+    VaultConfig,
+};

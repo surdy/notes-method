@@ -114,7 +114,7 @@ curl http://127.0.0.1:27183/api/capabilities
 
 ### `GET /api/v/{vault}/config`
 
-Read the vault configuration from `.notesmith/vault.toml`. Returns the parsed config, a blake3 hash for ETag-based conflict detection, and any validation warnings.
+Read the vault configuration from `.notesmith/vault.toml`. Returns the parsed config, a blake3 hash for ETag-based conflict detection, and any validation warnings. Older supported config schemas are migrated on load before the response is returned.
 
 The response includes an `ETag` header with the config hash for use with `PUT` requests.
 
@@ -122,6 +122,7 @@ The response includes an `ETag` header with the config hash for use with `PUT` r
 ```json
 {
   "config": {
+    "schema_version": 1,
     "name": "work",
     "capture": { "folder": "", "template": "generic-note" },
     "daily": { "folder": "", "template": "daily-note", "generate_at": "06:00", "timezone": "America/Los_Angeles", "catch_up": false },
@@ -158,6 +159,7 @@ Update the vault configuration. Requires an `If-Match` header with the current c
 **Request body:** Full `VaultConfig` object:
 ```json
 {
+  "schema_version": 1,
   "name": "work",
   "capture": { "folder": "", "template": "generic-note" },
   "daily": { "folder": "", "template": "daily-note", "catch_up": false },
@@ -203,7 +205,7 @@ HASH=$(echo "$RESPONSE" | jq -r .hash)
 curl -X PUT http://127.0.0.1:27183/api/v/work/config \
   -H "Content-Type: application/json" \
   -H "If-Match: \"$HASH\"" \
-  -d '{"name":"work","capture":{"folder":"","template":"generic-note"},"daily":{"folder":"","template":"daily-note","catch_up":false},"editor":{"live_preview":true,"default_mode":"source"},"git":{"enabled":false},"hooks":{}}'
+  -d '{"schema_version":1,"name":"work","capture":{"folder":"","template":"generic-note"},"daily":{"folder":"","template":"daily-note","catch_up":false},"editor":{"live_preview":true,"default_mode":"source"},"git":{"enabled":false},"hooks":{}}'
 
 ### `GET /api/v/{vault}/notes`
 

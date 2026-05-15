@@ -317,12 +317,7 @@ mod tests {
                     root: vault_root.clone(),
                     vault_config: arc_swap::ArcSwap::from_pointee(VaultConfig {
                         name: "work".to_string(),
-                        capture: Default::default(),
-                        daily: Default::default(),
-                        editor: Default::default(),
-                        git: Default::default(),
-                        hooks: Default::default(),
-                        homepage: None,
+                        ..Default::default()
                     }),
                     watcher_state: WatcherState::new(),
                     template_engine: notesmith_templates::TemplateEngine::new(

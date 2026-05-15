@@ -65,6 +65,7 @@ my-vault/
 Main vault config file. `name` identifies the vault. All sections are optional with sensible defaults.
 
 ```toml
+schema_version = 1
 name = "work"
 homepage = "Home.md"
 
@@ -96,6 +97,7 @@ on_daily_create = "scripts/on-daily.sh"   # Script to run when a daily note is c
 ```
 
 Top-level fields:
+- `schema_version` — vault config schema version. Existing files without this field default to `1`, and daemon/runtime loads reject newer unknown versions.
 - `name` — vault identifier used in CLI and API output
 - `homepage` — vault-relative path to the home note
 

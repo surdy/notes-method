@@ -61,6 +61,7 @@ For each customer there would be a folder containing:
 - The daemon should watch `.notesmith/sidebar.yaml` and `.notesmith/vault.toml` alongside note files, debounce rapid file-system events, and publish vault-scoped SSE events.
 - Sidebar config is already loaded from disk on each `GET /api/v/{vault}/sidebar-config`; a sidebar config change only needs a `config.changed` SSE event so the frontend can refetch it.
 - Vault config is cached in daemon state and must be reloaded in place after `.notesmith/vault.toml` changes. Invalid TOML should leave the last valid config active and publish a config error event.
+- `vault.toml` should include a top-level `schema_version`; daemon loads must reject newer unknown schemas and automatically migrate older supported schemas before hot-swapping the in-memory config.
 - Config events should include the config key (`sidebar` or `vault`), vault-relative path, status (`changed`, `removed`, or `error`), and an optional parse error message.
 - The frontend should handle config events from the existing `/api/v/{vault}/events` stream: refetch sidebar config for `sidebar`, refresh app state derived from vault config for `vault`, and show non-blocking feedback for invalid config.
 
@@ -151,3 +152,5 @@ For each customer there would be a folder containing:
 - CLI reindexing should be available as `notesmith reindex` with `--cache-only` and `--search-only` flags, defaulting to all registered vaults unless `--vault` is supplied.
 - The daemon should write a JSON lockfile at the platform-specific Notesmith data/runtime location containing PID, port, version, start time, and binary path so desktop and other local clients can discover the live daemon and clean up stale entries.
 - The daemon should watch the global config file and hot-reload vault registrations (add, remove, rename/path changes) without requiring a restart, emitting SSE `vaults.changed` so clients can refresh the vault list.
+- Daemon-backed CLI commands should auto-start the HTTP daemon on first use when `[daemon].auto_start = true`, so workflows like capture, query, note CRUD, search, routing, templates, reindex, dailies, tasks, and `notesmith://` deep links do not require a manual `notesmith daemon start`.
+- `notesmith mcp start` remains a standalone stdio server with its own in-memory indexes rather than proxying through the HTTP daemon.

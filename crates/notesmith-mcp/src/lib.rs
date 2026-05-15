@@ -945,15 +945,11 @@ mod tests {
     fn vault_config() -> VaultConfig {
         VaultConfig {
             name: "test-vault".to_string(),
-            homepage: None,
             capture: notesmith_config::CaptureConfig {
                 folder: "Inbox".to_string(),
                 template: "generic-note".to_string(),
             },
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
+            ..Default::default()
         }
     }
 

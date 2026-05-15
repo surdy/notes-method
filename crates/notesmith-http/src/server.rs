@@ -17,7 +17,7 @@ use axum::{
     routing::{get, post},
 };
 use chrono::{DateTime, Utc};
-use notesmith_config::{DaemonLockfile, GlobalConfig, VaultConfig};
+use notesmith_config::{DaemonLockfile, GlobalConfig, VaultConfig, migration};
 use notesmith_core::VaultEngine;
 use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_vault::NativeVaultEngine;
@@ -446,8 +446,10 @@ pub fn create_vault_state(vault_name: &str, vault_path: &Path) -> anyhow::Result
     let cache = open_or_repair_cache(vault_name, &cache_path, &notes)?;
     let search_index_path = search_index_path_for_vault(vault_name)?;
     let search_index = open_or_repair_search_index(vault_name, &search_index_path, &notes)?;
-    let vault_config = VaultConfig::load_from_vault(vault_path)
-        .unwrap_or_else(|_| default_vault_config(vault_name));
+    let vault_config = migration::load_and_migrate(vault_path).unwrap_or_else(|error| {
+        tracing::warn!("Failed to load/migrate vault config for {vault_name}: {error}");
+        default_vault_config(vault_name)
+    });
     let cache_path = cache_path_for_vault(vault_name)?;
     let template_engine =
         notesmith_templates::TemplateEngine::new(vault_path.to_path_buf(), Some(cache_path));
@@ -467,12 +469,7 @@ pub fn create_vault_state(vault_name: &str, vault_path: &Path) -> anyhow::Result
 fn default_vault_config(vault_name: &str) -> VaultConfig {
     VaultConfig {
         name: vault_name.to_string(),
-        capture: Default::default(),
-        daily: Default::default(),
-        editor: Default::default(),
-        git: Default::default(),
-        hooks: Default::default(),
-        homepage: None,
+        ..Default::default()
     }
 }
 

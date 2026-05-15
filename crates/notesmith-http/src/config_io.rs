@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs, io::ErrorKind, path::Path};
 
-use notesmith_config::VaultConfig;
+use notesmith_config::{VaultConfig, migration};
 use serde::{Deserialize, Serialize};
 
 use crate::routes::{SidebarConfig, SidebarSection};
@@ -53,10 +53,10 @@ pub fn compute_config_hash(vault_root: &Path) -> anyhow::Result<String> {
 
 pub fn load_vault_config_with_hash(vault_root: &Path) -> anyhow::Result<(VaultConfig, String)> {
     let path = vault_root.join(".notesmith").join("vault.toml");
-    match fs::read_to_string(&path) {
-        Ok(content) => {
-            let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
-            let config: VaultConfig = toml::from_str(&content)?;
+    match fs::read(&path) {
+        Ok(_) => {
+            let config = migration::load_and_migrate(vault_root)?;
+            let hash = compute_config_hash(vault_root)?;
             Ok((config, hash))
         }
         Err(e) if e.kind() == ErrorKind::NotFound => {
@@ -75,12 +75,7 @@ fn default_vault_config(vault_root: &Path) -> VaultConfig {
         .to_string();
     VaultConfig {
         name,
-        homepage: None,
-        capture: Default::default(),
-        daily: Default::default(),
-        editor: Default::default(),
-        git: Default::default(),
-        hooks: Default::default(),
+        ..Default::default()
     }
 }
 
@@ -587,12 +582,7 @@ mod tests {
 
         let config = VaultConfig {
             name: "test".into(),
-            capture: Default::default(),
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
-            homepage: None,
+            ..Default::default()
         };
 
         let (errors, warnings) = validate_vault_config(&config, temp_dir.path());
@@ -605,12 +595,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mut config = VaultConfig {
             name: "test".into(),
-            capture: Default::default(),
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
-            homepage: None,
+            ..Default::default()
         };
         config.daily.generate_at = Some("25:00".into());
 
@@ -623,12 +608,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mut config = VaultConfig {
             name: "test".into(),
-            capture: Default::default(),
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
-            homepage: None,
+            ..Default::default()
         };
         config.daily.timezone = Some("Mars/Olympus".into());
 
@@ -641,12 +621,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mut config = VaultConfig {
             name: "test".into(),
-            capture: Default::default(),
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
-            homepage: None,
+            ..Default::default()
         };
         config.git.auto_commit_every = Some("banana".into());
 
@@ -659,12 +634,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = VaultConfig {
             name: "test".into(),
-            capture: Default::default(),
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
-            homepage: None,
+            ..Default::default()
         };
 
         let (errors, warnings) = validate_vault_config(&config, temp_dir.path());

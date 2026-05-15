@@ -15,7 +15,6 @@ const DAEMON_POLL_INTERVAL: Duration = Duration::from_millis(100);
 fn create_vault(root: &std::path::Path, name: &str) {
     let config = VaultConfig {
         name: name.to_string(),
-        homepage: None,
         capture: notesmith_config::CaptureConfig {
             folder: "Inbox".to_string(),
             template: "generic-note".to_string(),
@@ -24,9 +23,7 @@ fn create_vault(root: &std::path::Path, name: &str) {
             folder: "Inbox/Daily".to_string(),
             ..Default::default()
         },
-        editor: Default::default(),
-        git: Default::default(),
-        hooks: Default::default(),
+        ..Default::default()
     };
 
     let config_dir = root.join(".notesmith");
@@ -120,8 +117,8 @@ fn vault_reindex_creates_cache_file() {
     assert!(cache_home.join("notesmith/work/tantivy").exists());
 }
 
-#[test]
-fn top_level_reindex_requires_running_daemon() {
+#[tokio::test]
+async fn top_level_reindex_auto_starts_daemon() {
     let temp_dir = TempDir::new().unwrap();
     let vault_root = temp_dir.path().join("work");
     create_vault(&vault_root, "work");
@@ -134,23 +131,45 @@ fn top_level_reindex_requires_running_daemon() {
 
     let config_home = temp_dir.path().join("config-home");
     let cache_home = temp_dir.path().join("cache-home");
+    let runtime_dir = temp_dir.path().join("runtime");
     write_global_config(&config_home, "work", &vault_root, Some(bind.to_string()));
 
     let output = Command::new(notesmith_bin())
         .current_dir(&vault_root)
         .env("XDG_CONFIG_HOME", &config_home)
         .env("XDG_CACHE_HOME", &cache_home)
+        .env("HOME", temp_dir.path())
+        .env("XDG_RUNTIME_DIR", &runtime_dir)
         .args(["reindex", "--cache-only"])
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("could not reach the Notesmith daemon"),
+        output.status.success(),
         "stdout: {}\nstderr: {}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("Reindexed 1 notes for work"),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let response = reqwest::Client::new()
+        .get(format!("http://{bind}/ping"))
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+
+    let shutdown = reqwest::Client::new()
+        .post(format!("http://{bind}/admin/shutdown"))
+        .send()
+        .await
+        .unwrap();
+    assert!(shutdown.status().is_success());
 }
 
 #[tokio::test]

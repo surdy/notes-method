@@ -30,6 +30,7 @@ fn snapshot_global_config_full() {
 #[test]
 fn snapshot_vault_config_full() {
     let config = VaultConfig {
+        schema_version: CURRENT_SCHEMA_VERSION,
         name: "work".to_string(),
         homepage: Some("Dashboards/Home.md".to_string()),
         capture: CaptureConfig::default(),

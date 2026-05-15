@@ -357,12 +357,7 @@ mod tests {
     fn default_vault_config(vault_name: &str) -> VaultConfig {
         VaultConfig {
             name: vault_name.to_string(),
-            capture: Default::default(),
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
-            homepage: None,
+            ..Default::default()
         }
     }
 
