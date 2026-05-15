@@ -122,6 +122,252 @@
 	--ns-dirty-dot: #ffb347;
 }
 
+.theme-dark {
+	color-scheme: dark;
+}
+
+.theme-light {
+	color-scheme: light;
+	--ns-bg: #ffffff;
+	--ns-bg-secondary: #f5f5f5;
+	--ns-sidebar-bg: #f0f0f0;
+	--ns-surface: #ffffff;
+	--ns-surface-elevated: #f5f5f5;
+	--ns-surface-hover: #e8e8e8;
+	--ns-surface-hover-subtle: #ececec;
+	--ns-surface-hover-strong: #e0e0e0;
+	--ns-surface-active: #d8d8d8;
+	--ns-input-bg: #ffffff;
+	--ns-panel-bg: #f5f5f5;
+	--ns-panel-bg-strong: #eeeeee;
+	--ns-panel-hover: #e8e8e8;
+	--ns-panel-hover-strong: #e0e0e0;
+	--ns-selected-bg: #cce5ff;
+	--ns-selected-border: color-mix(in srgb, var(--ns-selected-bg) 76%, #0f3c69 24%);
+
+	/* Borders */
+	--ns-border: #d0d0d0;
+	--ns-border-strong: #b0b0b0;
+	--ns-border-input: #c0c0c0;
+	--ns-border-overlay: rgba(0, 0, 0, 0.08);
+	--ns-border-overlay-strong: rgba(0, 0, 0, 0.12);
+	--ns-border-translucent: rgba(0, 0, 0, 0.12);
+	--ns-border-translucent-strong: rgba(0, 0, 0, 0.2);
+	--ns-border-translucent-soft: rgba(0, 0, 0, 0.14);
+
+	/* Text */
+	--ns-text: #1a1a1a;
+	--ns-text-secondary: #333333;
+	--ns-text-muted: #666666;
+	--ns-text-muted-soft: #777777;
+	--ns-text-muted-strong: #555555;
+	--ns-text-subtle: #999999;
+	--ns-text-faint: #aaaaaa;
+	--ns-text-inverse: #ffffff;
+
+	/* Accent */
+	--ns-accent: #0078d4;
+	--ns-accent-bg: #e1f0ff;
+	--ns-accent-bg-hover: #cce5ff;
+	--ns-accent-surface: #e8f4fd;
+	--ns-accent-surface-text: #005a9e;
+
+	/* Semantic */
+	--ns-success: #2e7d32;
+	--ns-success-bg: #e8f5e9;
+	--ns-success-surface: rgba(46, 125, 50, 0.12);
+	--ns-success-border: rgba(46, 125, 50, 0.25);
+	--ns-success-text: #1b5e20;
+	--ns-warning: #ed6c02;
+	--ns-warning-bg: #fff3e0;
+	--ns-warning-banner-bg: #fff0d8;
+	--ns-warning-banner-text: #8a3f00;
+	--ns-warning-banner-hint: #ad5700;
+	--ns-warning-bg-soft: #fff7eb;
+	--ns-warning-border: #f0b37e;
+	--ns-warning-border-strong: #d88a3d;
+	--ns-warning-hover: #ffe6c2;
+	--ns-warning-surface: rgba(237, 108, 2, 0.12);
+	--ns-warning-surface-border: rgba(237, 108, 2, 0.24);
+	--ns-warning-text: #e65100;
+	--ns-warning-callout-bg: #fff6e6;
+	--ns-warning-callout-border: #ed6c02;
+	--ns-danger: #d32f2f;
+	--ns-danger-bg: #ffebee;
+	--ns-danger-bg-muted: #fff1f3;
+	--ns-danger-border: #ef9a9a;
+	--ns-danger-surface: rgba(211, 47, 47, 0.1);
+	--ns-danger-surface-border: rgba(211, 47, 47, 0.22);
+	--ns-danger-text: #c62828;
+	--ns-danger-text-muted: #d75b5b;
+	--ns-info: #1976d2;
+	--ns-info-bg: #e8f2ff;
+	--ns-info-banner: #1976d2;
+	--ns-info-banner-text: #ffffff;
+	--ns-info-banner-text-muted: rgba(255, 255, 255, 0.82);
+
+	/* Editor */
+	--ns-editor-bg: #ffffff;
+	--ns-editor-text: #1a1a1a;
+	--ns-editor-text-secondary: #999999;
+	--ns-editor-active-line: rgba(0, 0, 0, 0.04);
+	--ns-editor-selection: #b4d7ff;
+
+	/* Links */
+	--ns-link: #0078d4;
+
+	/* Misc */
+	--ns-overlay: rgba(0, 0, 0, 0.4);
+	--ns-overlay-soft: rgba(0, 0, 0, 0.08);
+	--ns-overlay-medium: rgba(0, 0, 0, 0.14);
+	--ns-overlay-panel: rgba(255, 255, 255, 0.94);
+	--ns-shadow: 0 24px 60px rgba(0, 0, 0, 0.15);
+	--ns-shadow-toast: 0 2px 8px rgba(0, 0, 0, 0.12);
+	--ns-shadow-soft: 0 10px 24px rgba(0, 0, 0, 0.08);
+	--ns-shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.12);
+	--ns-kbd-bg: #f0f0f0;
+	--ns-kbd-border: rgba(0, 0, 0, 0.1);
+	--ns-scrollbar: #c0c0c0;
+	--ns-surface-translucent: rgba(0, 0, 0, 0.05);
+	--ns-surface-translucent-hover: rgba(0, 0, 0, 0.08);
+	--ns-surface-translucent-emphasis: rgba(0, 0, 0, 0.12);
+	--ns-surface-translucent-strong: rgba(0, 0, 0, 0.07);
+	--ns-surface-translucent-subtle: rgba(0, 0, 0, 0.03);
+	--ns-surface-translucent-alt: rgba(0, 0, 0, 0.04);
+	--ns-status-connected: #2e7d32;
+	--ns-status-reconnecting: #ed6c02;
+	--ns-status-disconnected: #d32f2f;
+	--ns-status-restart: #1976d2;
+}
+
+.theme-manuscript {
+	color-scheme: dark;
+	--ns-editor-bg: #faf8f5;
+	--ns-editor-text: #2c2c2c;
+	--ns-editor-text-secondary: #888888;
+	--ns-editor-active-line: rgba(0, 0, 0, 0.04);
+	--ns-editor-selection: #b4d7ff;
+}
+
+.theme-hc-dark {
+	color-scheme: dark;
+	--ns-bg: #000000;
+	--ns-bg-secondary: #0a0a0a;
+	--ns-sidebar-bg: #000000;
+	--ns-surface: #000000;
+	--ns-surface-elevated: #0a0a0a;
+	--ns-surface-hover: #1a1a1a;
+	--ns-surface-hover-subtle: #121212;
+	--ns-surface-hover-strong: #242424;
+	--ns-surface-active: #2a2a2a;
+	--ns-input-bg: #0a0a0a;
+	--ns-panel-bg: #0a0a0a;
+	--ns-panel-bg-strong: #111111;
+	--ns-panel-hover: #141414;
+	--ns-panel-hover-strong: #1f1f1f;
+	--ns-selected-bg: #003366;
+	--ns-selected-border: #00e5ff;
+
+	/* Borders */
+	--ns-border: #00e5ff;
+	--ns-border-strong: #00e5ff;
+	--ns-border-input: #00e5ff;
+	--ns-border-overlay: rgba(0, 229, 255, 0.45);
+	--ns-border-overlay-strong: rgba(0, 229, 255, 0.65);
+	--ns-border-translucent: rgba(0, 229, 255, 0.35);
+	--ns-border-translucent-strong: rgba(0, 229, 255, 0.55);
+	--ns-border-translucent-soft: rgba(0, 229, 255, 0.4);
+
+	/* Text */
+	--ns-text: #ffffff;
+	--ns-text-secondary: #ffffff;
+	--ns-text-muted: #e0e0e0;
+	--ns-text-muted-soft: #d0d0d0;
+	--ns-text-muted-strong: #f2f2f2;
+	--ns-text-subtle: #c0c0c0;
+	--ns-text-faint: #b5b5b5;
+
+	/* Accent */
+	--ns-accent: #00e5ff;
+	--ns-accent-bg: #003344;
+	--ns-accent-bg-hover: #00485c;
+	--ns-accent-surface: #012a35;
+	--ns-accent-surface-text: #7ff5ff;
+
+	/* Semantic */
+	--ns-success: #00ff88;
+	--ns-success-bg: #002b18;
+	--ns-success-surface: rgba(0, 255, 136, 0.18);
+	--ns-success-border: rgba(0, 255, 136, 0.5);
+	--ns-success-text: #b9ffd8;
+	--ns-warning: #ffdd00;
+	--ns-warning-bg: #2f2600;
+	--ns-warning-banner-bg: #3a2f00;
+	--ns-warning-banner-text: #fff7bf;
+	--ns-warning-banner-hint: #ffe86a;
+	--ns-warning-bg-soft: #241c00;
+	--ns-warning-border: #ffdd00;
+	--ns-warning-border-strong: #ffee58;
+	--ns-warning-hover: #443800;
+	--ns-warning-surface: rgba(255, 221, 0, 0.16);
+	--ns-warning-surface-border: rgba(255, 221, 0, 0.45);
+	--ns-warning-text: #fff1a8;
+	--ns-warning-callout-bg: #302600;
+	--ns-warning-callout-border: #ffdd00;
+	--ns-danger: #ff4444;
+	--ns-danger-bg: #330000;
+	--ns-danger-bg-muted: #250000;
+	--ns-danger-border: #ff4444;
+	--ns-danger-surface: rgba(255, 68, 68, 0.18);
+	--ns-danger-surface-border: rgba(255, 68, 68, 0.5);
+	--ns-danger-text: #ffd0d0;
+	--ns-danger-text-muted: #ff9a9a;
+	--ns-info: #6ab8ff;
+	--ns-info-bg: #001f3d;
+	--ns-info-banner: #0057a8;
+	--ns-info-banner-text: #ffffff;
+	--ns-info-banner-text-muted: rgba(255, 255, 255, 0.88);
+
+	/* Editor */
+	--ns-editor-bg: #000000;
+	--ns-editor-text: #ffffff;
+	--ns-editor-text-secondary: #c0c0c0;
+	--ns-editor-active-line: rgba(255, 255, 255, 0.08);
+	--ns-editor-selection: #003366;
+
+	/* Links */
+	--ns-link: #00e5ff;
+
+	/* Misc */
+	--ns-overlay: rgba(0, 0, 0, 0.8);
+	--ns-overlay-soft: rgba(0, 0, 0, 0.28);
+	--ns-overlay-medium: rgba(0, 0, 0, 0.4);
+	--ns-overlay-panel: rgba(0, 0, 0, 0.95);
+	--ns-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
+	--ns-shadow-toast: 0 4px 12px rgba(0, 0, 0, 0.45);
+	--ns-shadow-soft: 0 12px 28px rgba(0, 0, 0, 0.38);
+	--ns-shadow-popover: 0 0 0 rgba(0, 0, 0, 0);
+	--ns-badge-bg: #ffdd00;
+	--ns-badge-text: #000000;
+	--ns-kbd-bg: #0f0f0f;
+	--ns-kbd-border: rgba(0, 229, 255, 0.4);
+	--ns-scrollbar: #00e5ff;
+	--ns-surface-translucent: rgba(0, 229, 255, 0.12);
+	--ns-surface-translucent-hover: rgba(0, 229, 255, 0.18);
+	--ns-surface-translucent-emphasis: rgba(0, 229, 255, 0.24);
+	--ns-surface-translucent-strong: rgba(0, 229, 255, 0.16);
+	--ns-surface-translucent-subtle: rgba(0, 229, 255, 0.08);
+	--ns-onboarding-border: #00e5ff;
+	--ns-onboarding-bg: #00161c;
+	--ns-surface-translucent-alt: rgba(0, 229, 255, 0.05);
+	--ns-status-connected: #00ff88;
+	--ns-status-reconnecting: #ffdd00;
+	--ns-status-disconnected: #ff4444;
+	--ns-status-restart: #00e5ff;
+	--ns-status-idle: #d0d0d0;
+	--ns-dirty-dot: #ffdd00;
+}
+
 body {
 	margin: 0;
 	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
