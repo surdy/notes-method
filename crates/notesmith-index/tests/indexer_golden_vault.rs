@@ -35,6 +35,22 @@ fn v_notes_view_works() {
 }
 
 #[test]
+fn v_notes_keeps_icon_frontmatter() {
+    let cache = build_cache();
+    let frontmatter_json: String = cache
+        .connection()
+        .query_row(
+            "SELECT frontmatter_json FROM v_notes WHERE path = ?1",
+            ["General/Prototype Notes.md"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let frontmatter: serde_json::Value = serde_json::from_str(&frontmatter_json).unwrap();
+
+    assert_eq!(frontmatter["_icon"], "🔬");
+}
+
+#[test]
 fn v_notes_has_typed_notes() {
     let cache = build_cache();
     let types: Vec<String> = {

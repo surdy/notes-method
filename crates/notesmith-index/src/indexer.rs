@@ -91,13 +91,7 @@ impl<'a> CacheIndexer<'a> {
             updated_at,
             archived,
         ) = extract_note_metadata(note);
-
-        let frontmatter_json = note
-            .frontmatter
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()?
-            .unwrap_or_else(|| "{}".to_string());
+        let frontmatter_json = serialize_frontmatter_json(note)?;
 
         let body_excerpt = note.body.chars().take(500).collect::<String>();
 
@@ -222,6 +216,23 @@ impl<'a> CacheIndexer<'a> {
 
         Ok(())
     }
+}
+
+fn serialize_frontmatter_json(note: &Note) -> anyhow::Result<String> {
+    if let Some(raw_frontmatter) = note.raw_frontmatter.as_deref() {
+        if raw_frontmatter.trim().is_empty() {
+            return Ok("{}".to_string());
+        }
+        let value: serde_yaml::Value = serde_yaml::from_str(raw_frontmatter)?;
+        return serde_json::to_string(&value).map_err(Into::into);
+    }
+
+    note.frontmatter
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map(|value| value.unwrap_or_else(|| "{}".to_string()))
+        .map_err(Into::into)
 }
 
 pub(crate) type NoteMetadata = (

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import FileTree from './FileTree.svelte';
 	import type { NoteSummary } from '$lib/api';
+	import { noteIcon } from '$lib/note-icons';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import type { FolderNode } from '$lib/tree-builder';
 
@@ -27,20 +28,6 @@
 		const parts = note.path.split('/');
 		return parts[parts.length - 1].replace(/\.md$/, '');
 	}
-
-	function typeIcon(type: string): string {
-		const icons: Record<string, string> = {
-			daily: '📅',
-			meeting: '🤝',
-			customer: '🏢',
-			stream: '🔀',
-			note: '📝',
-			'account-info': 'ℹ️',
-			glossary: '📖',
-			milestones: '🏁'
-		};
-		return icons[type] ?? '📄';
-	}
 </script>
 
 {#if node.name}
@@ -64,7 +51,7 @@
 			style={`padding-left: ${(depth + 1) * 16}px`}
 			onclick={() => selectNote(note)}
 		>
-			<span class="note-icon">{typeIcon(note.type)}</span>
+			<span class="note-icon">{noteIcon(note)}</span>
 			<span class="note-title">{noteTitle(note)}</span>
 		</button>
 	{/each}

@@ -1,9 +1,14 @@
 <script lang="ts">
+	import { noteIcon } from '$lib/note-icons';
+	import { vaultStore } from '$lib/stores.svelte';
 	import { tabStore, type Tab } from '$lib/tab-store.svelte';
 
 	let dragIndex = $state<number | null>(null);
 	let dropIndex = $state<number | null>(null);
 	let tabs = $derived(tabStore.tabs as Tab[]);
+	let notesByPath = $derived.by(
+		() => new Map(vaultStore.notes.map((note) => [note.path, note] as const))
+	);
 
 	function handleClose(event: MouseEvent, index: number) {
 		event.stopPropagation();
@@ -55,6 +60,7 @@
 {#if tabs.length > 0}
 	<div class="tab-bar" role="tablist" aria-label="Open notes">
 		{#each tabs as tab, index (tab.path)}
+			{@const note = notesByPath.get(tab.path)}
 			<div
 				class="tab-shell"
 				class:active={index === tabStore.activeTabIndex}
@@ -75,6 +81,7 @@
 					onmousedown={(event) => handleMousedown(event, index)}
 				>
 					<span class="tab-title">
+						<span class="tab-icon">{note ? noteIcon(note) : '📄'}</span>
 						{#if tab.dirty}
 							<span class="dirty-dot">●</span>
 						{/if}
@@ -157,6 +164,11 @@
 		gap: 6px;
 		min-width: 0;
 		font-size: 13px;
+	}
+
+	.tab-icon {
+		flex-shrink: 0;
+		line-height: 1;
 	}
 
 	.tab-label {

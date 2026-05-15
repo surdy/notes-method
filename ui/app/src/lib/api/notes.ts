@@ -5,10 +5,15 @@ export interface NoteSummary {
 	title: string;
 	type: string;
 	customer?: string;
+	stream?: string;
+	state?: string;
+	status?: string;
 	date?: string;
 	created_at?: string;
 	updated_at?: string;
 	archived: boolean;
+	mtime_unix?: number;
+	frontmatter?: Record<string, unknown> | null;
 }
 
 export interface NoteDetail {

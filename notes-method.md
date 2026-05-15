@@ -54,6 +54,7 @@ For each customer there would be a folder containing:
 - Folder-backed items in the middle pane default to `modified_at DESC` sort, configurable via YAML.
 - When `.notesmith/sidebar.yaml` does not exist, the app behaves as a plain Files-only notes app.
 - The main note workspace should also include a contextual, collapsible **right rail** with tabbed **Metadata**, **Links**, and **TOC** modes for the active note.
+- Notes can set `_icon:` in frontmatter to override their emoji in file trees, quick switchers, and editor tabs. Frontmatter keys prefixed with `_` are reserved for system/UI use and should stay hidden from metadata panels.
 - The **TOC** tab should be driven from live editor headings so it can highlight the current section and jump the editor to a selected heading.
 
 ## Reactive Configuration
