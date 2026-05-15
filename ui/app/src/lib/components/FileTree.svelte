@@ -28,12 +28,18 @@
 		const parts = note.path.split('/');
 		return parts[parts.length - 1].replace(/\.md$/, '');
 	}
+
+	const INDENT = 16;
 </script>
 
 {#if node.name}
-	<div class="folder" style={`padding-left: ${depth * 16}px`}>
+	<div class="folder" style={`padding-left: ${depth * INDENT}px`}>
+		<!-- indent guides -->
+		{#each Array(depth) as _, i}
+			<span class="indent-guide" style={`left: ${i * INDENT + 11}px`}></span>
+		{/each}
 		<button class="folder-toggle" onclick={toggle}>
-			<span class="folder-icon">{expanded ? '📂' : '📁'}</span>
+			<span class="disclosure" class:open={expanded}>▸</span>
 			<span class="folder-name">{node.name}</span>
 		</button>
 	</div>
@@ -48,9 +54,13 @@
 		<button
 			class="note-item"
 			class:selected={tabStore.selectedPath === note.path}
-			style={`padding-left: ${(depth + 1) * 16}px`}
+			style={`padding-left: ${(depth + 1) * INDENT}px`}
 			onclick={() => selectNote(note)}
 		>
+			<!-- indent guides -->
+			{#each Array(depth + 1) as _, i}
+				<span class="indent-guide" style={`left: ${i * INDENT + 11}px`}></span>
+			{/each}
 			<span class="note-icon">{noteIcon(note)}</span>
 			<span class="note-title">{noteTitle(note)}</span>
 		</button>
@@ -58,6 +68,10 @@
 {/if}
 
 <style>
+	.folder {
+		position: relative;
+	}
+
 	.folder-toggle {
 		display: flex;
 		align-items: center;
@@ -76,7 +90,33 @@
 		background: var(--ns-surface-hover);
 	}
 
+	.disclosure {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		font-size: 10px;
+		color: var(--ns-text-muted);
+		transition: transform 0.15s ease;
+		flex-shrink: 0;
+	}
+
+	.disclosure.open {
+		transform: rotate(90deg);
+	}
+
+	.indent-guide {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		width: 1px;
+		background: var(--ns-border);
+		pointer-events: none;
+	}
+
 	.note-item {
+		position: relative;
 		display: flex;
 		align-items: center;
 		gap: 4px;
