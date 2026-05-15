@@ -45,8 +45,8 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 ## Configuration
 
-- **VaultConfig** — Per-vault settings in `.notesmith/vault.toml`. Sections: capture, daily, editor, git, hooks.
-- **GlobalConfig** — App-wide settings in `~/.config/notesmith/config.toml`. Contains daemon bind address, auto-start, and vault registry.
+- **VaultConfig** — Per-vault settings in `.notesmith/vault.toml`. Sections: schema version, capture, daily, editor, git, hooks.
+- **GlobalConfig** — App-wide settings in `~/.config/notesmith/config.toml`. Contains daemon bind address, CLI auto-start policy, and the vault registry.
 - **SidebarConfig** — Per-vault sidebar view definitions in `.notesmith/sidebar.yaml`. Defines custom views with sections (recently-viewed, custom-folders, custom-items).
 
 ## Capture & Routing
@@ -54,6 +54,7 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 - **Capture** — The quick-capture workflow that writes timestamped notes to the configured capture folder. When `capture.folder = ""`, captures land in the vault root.
 - **Routing** — Rule-based note filing from captured or draft notes to destination folders. Rules match on frontmatter fields (type, customer, meeting-kind, stream). Defined in `.notesmith/routing.yaml`.
 - **Archive** — The act of routing a note: stamping `archived: true` and `archived-at` in frontmatter, then moving to the destination folder.
+- **Daemon-backed CLI commands** — `capture`, `query`, `note`, `search`, `template`, `route`, `daily`, `task`, `reindex`, and daemon-backed `notesmith://` handlers. They probe `/api/status` and auto-start the HTTP daemon when `[daemon].auto_start = true`.
 
 ## Templates
 
@@ -66,6 +67,7 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 - **Daily Note** — A date-stamped note generated into the configured daily folder (default: vault root when `daily.folder = ""`). Can be created by the scheduler, CLI, API, or an external agent.
 - **Catch-up** — Backfilling missing daily notes for recent days when `catch_up: true` in DailyConfig.
 - **DailyScheduler** — Background task that auto-generates daily notes at a configured time.
+- **MCP server** — The `notesmith mcp start` stdio server. It builds its own in-memory indexes for local MCP clients rather than proxying through the HTTP daemon.
 
 ## Runtime & Events
 

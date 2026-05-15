@@ -2,7 +2,6 @@
 
 use std::path::Path;
 
-use anyhow::Context;
 use clap::Subcommand;
 use notesmith_config::{GlobalConfig, detect_vault};
 use reqwest::Url;
@@ -73,6 +72,7 @@ impl TaskCommand {
         cwd: &Path,
         format: OutputFormat,
     ) -> anyhow::Result<()> {
+        crate::daemon_client::ensure_daemon(global_config).await?;
         match self {
             TaskCommand::List {
                 status,
@@ -311,12 +311,16 @@ fn build_vault_url(
     vault_name: &str,
     endpoint: &str,
 ) -> anyhow::Result<Url> {
-    let url_str = format!(
-        "http://{}/api/v/{vault_name}/{endpoint}",
-        global_config.daemon.bind
-    );
-    Url::parse(&url_str)
-        .with_context(|| format!("invalid daemon bind address: {}", global_config.daemon.bind))
+    let mut url = crate::daemon_client::daemon_url(global_config)?;
+    let mut path_segments = url
+        .path_segments_mut()
+        .map_err(|_| anyhow::anyhow!("daemon URL cannot be a base"))?;
+    path_segments.push("api").push("v").push(vault_name);
+    for segment in endpoint.split('/').filter(|segment| !segment.is_empty()) {
+        path_segments.push(segment);
+    }
+    drop(path_segments);
+    Ok(url)
 }
 
 fn map_request_error<'a>(
@@ -325,7 +329,7 @@ fn map_request_error<'a>(
     move |error| {
         if error.is_connect() {
             anyhow::anyhow!(
-                "could not reach the Notesmith daemon at {}. Start it with `notesmith daemon start`",
+                "could not reach the Notesmith daemon at {}",
                 global_config.daemon.bind
             )
         } else {

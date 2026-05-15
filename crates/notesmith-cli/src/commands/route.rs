@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use anyhow::Context;
 use clap::Subcommand;
 use notesmith_config::{GlobalConfig, detect_vault};
 
@@ -28,6 +27,7 @@ impl RouteCommand {
         cwd: &Path,
         format: OutputFormat,
     ) -> anyhow::Result<()> {
+        crate::daemon_client::ensure_daemon(global_config).await?;
         let detected = detect_vault(cwd, explicit_vault, global_config)?;
 
         match self {
@@ -84,8 +84,7 @@ fn build_route_url(
     vault_name: &str,
     action: &str,
 ) -> anyhow::Result<reqwest::Url> {
-    let url = reqwest::Url::parse(&format!("http://{}/", global_config.daemon.bind))
-        .with_context(|| format!("invalid daemon bind address: {}", global_config.daemon.bind))?;
+    let url = crate::daemon_client::daemon_url(global_config)?;
     Ok(url.join(&format!("api/v/{vault_name}/route/{action}"))?)
 }
 
@@ -95,7 +94,7 @@ fn map_request_error<'a>(
     move |error| {
         if error.is_connect() {
             anyhow::anyhow!(
-                "could not reach the Notesmith daemon at {}. Start it with `notesmith daemon start`",
+                "could not reach the Notesmith daemon at {}",
                 global_config.daemon.bind
             )
         } else {

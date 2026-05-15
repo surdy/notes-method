@@ -33,6 +33,8 @@ The daemon indexes all registered vaults on startup and watches for file changes
 It also writes daily-rotated daemon logs to the platform log directory (`~/Library/Logs/Notesmith/` on macOS, `$XDG_STATE_HOME/notesmith/` or `~/.local/state/notesmith/` on Linux) and retains the last 7 days.
 On startup it also runs SQLite/Tantivy integrity checks and automatically rebuilds corrupted cache artifacts from markdown files.
 
+Daemon-backed CLI commands auto-start the daemon when `[daemon].auto_start = true` (the default). Set `auto_start = false` to require manual `notesmith daemon start`.
+
 ---
 
 ## Desktop app
@@ -115,7 +117,7 @@ Output: `Reindexed 42 notes for work into ~/.cache/notesmith/work/cache.sqlite`
 
 ### `reindex`
 
-Ask the running daemon to rebuild one vault or all registered vaults.
+Ask the daemon to rebuild one vault or all registered vaults.
 
 ```bash
 notesmith reindex [--vault work] [--cache-only | --search-only]
@@ -127,7 +129,7 @@ notesmith reindex [--vault work] [--cache-only | --search-only]
 | `--cache-only` | Rebuild only the SQLite cache | rebuild both |
 | `--search-only` | Rebuild only the Tantivy search index | rebuild both |
 
-Requires the daemon to be running.
+The CLI auto-starts the daemon when needed unless `[daemon].auto_start = false`.
 
 ---
 
@@ -135,7 +137,7 @@ Requires the daemon to be running.
 
 ### `query sql`
 
-Execute read-only SQL against the daemon's SQLite cache. Requires the daemon to be running.
+Execute read-only SQL against the daemon's SQLite cache. The CLI auto-starts the daemon when needed unless `[daemon].auto_start = false`.
 
 ```bash
 notesmith query sql "SELECT title, type FROM v_notes LIMIT 10"
@@ -160,7 +162,7 @@ notesmith query sql "SELECT type, COUNT(*) as count FROM v_notes GROUP BY type O
 
 ## note
 
-Note CRUD commands go through the running daemon and operate on the detected vault.
+Note CRUD commands go through the daemon and auto-start it when needed.
 
 ### `note create`
 
@@ -237,7 +239,7 @@ The clipboard entry includes both `text/html` and a plain-text markdown fallback
 
 ## capture
 
-Quick-capture commands go through the running daemon.
+Quick-capture commands go through the daemon and auto-start it when needed.
 
 ### `capture`
 
@@ -268,7 +270,7 @@ notesmith capture "Quick thought" --format json
 
 ## task
 
-Task commands go through the running daemon and operate on the detected vault.
+Task commands go through the daemon and auto-start it when needed.
 
 ### `task list`
 
@@ -353,7 +355,7 @@ notesmith task set-status <note_path> <task_hash> <new_status>
 
 ## search
 
-Full-text search across note titles and body content. Requires the daemon to be running.
+Full-text search across note titles and body content. The CLI auto-starts the daemon when needed unless `[daemon].auto_start = false`.
 
 ```bash
 notesmith search <terms...> [--limit N]
@@ -525,7 +527,7 @@ notesmith daily open --date 2025-01-15 --format json
 
 ### `daily agent-create [--date YYYY-MM-DD] [--content "..."]`
 
-Agent-oriented daily note workflow. Without `--content`, the daemon assembles and returns the saved prompt template from `.notesmith/prompts/daily-note.md`. With `--content`, the daemon writes that pre-generated content as the day's daily note and rejects conflicts if the note already exists.
+Agent-oriented daily note workflow. Without `--content`, the daemon assembles and returns the saved prompt template from `.notesmith/prompts/daily-note.md`. With `--content`, the daemon writes that pre-generated content as the day's daily note and rejects conflicts if the note already exists. The CLI auto-starts the daemon when needed.
 
 ```bash
 notesmith daily agent-create
@@ -557,7 +559,7 @@ notesmith --format json skill print
 
 ### `url-open <URL>`
 
-Handle a `notesmith://` deep-link URL by translating it into daemon API calls.
+Handle a `notesmith://` deep-link URL by translating it into daemon API calls. The CLI auto-starts the daemon when the selected URL route needs it.
 
 ```bash
 notesmith url-open "notesmith://app/open/main/hello.md"

@@ -1676,6 +1676,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
+ "libc",
  "notesmith-config",
  "notesmith-core",
  "notesmith-git",

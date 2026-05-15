@@ -248,12 +248,11 @@ On Tauri self-update: detect bundled > running daemon version → auto-restart i
 
 Schema-versioned `vault.toml`. On load, detect old schema, apply migrations, write back. No silent field drops.
 
-### 4.4 CLI & MCP auto-start
+### 4.4 CLI auto-start
 
-- `notesmith capture`, `notesmith query`, etc. auto-spawn daemon if not running (Ollama pattern). CLI user never manually runs `daemon start`.
-- MCP server (`notesmith mcp start`) also auto-starts daemon if not running.
-- MCP retries failed HTTP calls once with 3s backoff before returning error.
-- MCP returns structured errors hinting agents to retry ("daemon restarting, try again in 5s").
+- `notesmith capture`, `notesmith query`, `notesmith note`, `notesmith search`, `notesmith route`, `notesmith template`, `notesmith reindex`, `notesmith daily`, `notesmith task`, and `notesmith url-open` auto-spawn the HTTP daemon if it is not already healthy (Ollama pattern).
+- `[daemon].auto_start = true` remains the default; setting it to `false` restores the manual `notesmith daemon start` flow.
+- `notesmith mcp start` stays independent because it serves stdio requests from its own in-memory indexes instead of calling the daemon HTTP API.
 
 ---
 
@@ -264,7 +263,7 @@ Phase 0:  /api/status → lockfile → logging → graceful shutdown  (sequentia
 Phase 1:  startup orchestration ‖ status indicator ‖ SSE reconnect ‖ sleep/wake ‖ vault hot-reload
 Phase 2:  crash recovery ‖ version negotiation ‖ optimistic save
 Phase 3:  index repair ‖ watcher diagnostics ‖ error messages ‖ quit semantics
-Phase 4:  onboarding ‖ upgrade flow ‖ config migration ‖ CLI/MCP auto-start
+Phase 4:  onboarding ‖ upgrade flow ‖ config migration ‖ CLI auto-start
 ```
 
 Phase 0 unblocks all of Phases 1–3.

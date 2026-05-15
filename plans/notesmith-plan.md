@@ -1034,6 +1034,8 @@ Vault selection works like git:
 - Human-readable text when attached to a TTY.
 - JSON when piped or when `--format json` is set.
 - Errors are structured for agent consumption.
+- Daemon-backed CLI commands auto-start the HTTP daemon when `[daemon].auto_start = true` and `/api/status` is not healthy.
+- `notesmith mcp start` remains independent of the HTTP daemon and serves stdio requests from its own in-memory indexes.
 
 ### 16.5 Pipe-friendly examples
 
@@ -1128,7 +1130,7 @@ notesmith route apply "2026-05-08 - Acme - External - QBR.md"
 
 ### 18.4 MCP scope
 
-The MCP adapter exposes only existing operations such as note read/write, SQL query, routing, capture workflows, and daily note creation. It exists for clients that cannot run the CLI directly.
+The MCP adapter exposes only existing operations such as note read/write, SQL query, routing, capture workflows, and daily note creation. It exists for clients that cannot run the CLI directly, and it serves those operations from its own in-memory indexes rather than proxying through the HTTP daemon.
 
 ## 19. GUI Design
 
@@ -1386,6 +1388,8 @@ path = "/Users/surdy/Notes/work"
 [vaults.personal]
 path = "/Users/surdy/Notes/personal"
 ```
+
+`daemon.auto_start = true` means daemon-backed CLI commands automatically spawn the HTTP daemon on first use. Setting it to `false` restores the manual `notesmith daemon start` flow.
 
 ### 22.3 Per-vault config example
 

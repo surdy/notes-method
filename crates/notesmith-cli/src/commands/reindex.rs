@@ -1,7 +1,5 @@
-use anyhow::Context;
 use clap::Args;
 use notesmith_config::GlobalConfig;
-use reqwest::Url;
 use serde_json::Value;
 
 use crate::commands::vault::OutputFormat;
@@ -24,15 +22,13 @@ impl ReindexCommand {
         explicit_vault: Option<&str>,
         format: OutputFormat,
     ) -> anyhow::Result<()> {
+        crate::daemon_client::ensure_daemon(global_config).await?;
         let vault_names = resolve_vault_names(global_config, explicit_vault)?;
         let client = reqwest::Client::new();
         let mut responses = Vec::with_capacity(vault_names.len());
 
         for vault_name in vault_names {
-            let mut url = Url::parse(&format!("http://{}/", global_config.daemon.bind))
-                .with_context(|| {
-                    format!("invalid daemon bind address: {}", global_config.daemon.bind)
-                })?;
+            let mut url = crate::daemon_client::daemon_url(global_config)?;
             url.path_segments_mut()
                 .map_err(|_| anyhow::anyhow!("daemon URL cannot be a base"))?
                 .push("api")
@@ -54,7 +50,7 @@ impl ReindexCommand {
             let response = client.post(url).send().await.map_err(|error| {
                 if error.is_connect() {
                     anyhow::anyhow!(
-                        "could not reach the Notesmith daemon at {}. Start it with `notesmith daemon start`",
+                        "could not reach the Notesmith daemon at {}",
                         global_config.daemon.bind
                     )
                 } else {
