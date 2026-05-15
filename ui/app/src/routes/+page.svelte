@@ -6,8 +6,8 @@
 	import { createAppShell } from '$lib/app-shell.svelte';
 	import { buildCommands } from '$lib/commands';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
-	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
 	import ConfigToast from '$lib/components/ConfigToast.svelte';
+	import InputPalette from '$lib/components/InputPalette.svelte';
 	import MiddlePane from '$lib/components/MiddlePane.svelte';
 	import NoteEditor from '$lib/components/NoteEditor.svelte';
 	import NoteToolbar from '$lib/components/NoteToolbar.svelte';
@@ -15,10 +15,13 @@
 	import QuickSwitcher from '$lib/components/QuickSwitcher.svelte';
 	import RightRail from '$lib/components/RightRail.svelte';
 	import SidebarViews from '$lib/components/SidebarViews.svelte';
+	import StatusBar from '$lib/components/StatusBar.svelte';
 	import TabBar from '$lib/components/TabBar.svelte';
+	import ToastStack from '$lib/components/ToastStack.svelte';
 	import VersionBanner from '$lib/components/VersionBanner.svelte';
 	import VaultSwitcher from '$lib/components/VaultSwitcher.svelte';
 	import { versionMismatch } from '$lib/api/core';
+	import { inputPalette } from '$lib/input-palette.svelte';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
@@ -125,11 +128,6 @@ bind:this={sidebarViewsRef}
 onActivateMiddlePane={(item) => (activeMiddlePaneItem = item)}
 onDeactivateMiddlePane={() => (activeMiddlePaneItem = null)}
 />
-<ConnectionStatus
-currentVault={vaultStore.currentVault}
-onToast={showConfigToast}
-restartRequired={Boolean($versionMismatch)}
-/>
 </aside>
 
 {#if activeMiddlePaneItem}
@@ -154,6 +152,12 @@ onClose={() => (activeMiddlePaneItem = null)}
 <RightRail bind:this={rightRailRef} />
 </aside>
 </div>
+
+<StatusBar
+	currentVault={vaultStore.currentVault}
+	onToast={showConfigToast}
+	restartRequired={Boolean($versionMismatch)}
+/>
 </div>
 
 {#if showCommandPalette}
@@ -165,6 +169,12 @@ onClose={() => (activeMiddlePaneItem = null)}
 {/if}
 
 <ConfigToast bind:this={configToastRef} />
+
+{#if inputPalette.request}
+<InputPalette />
+{/if}
+
+<ToastStack />
 
 <style>
 .page-shell {

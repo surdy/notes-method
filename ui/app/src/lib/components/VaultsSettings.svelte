@@ -10,6 +10,7 @@
 		type VaultInfo,
 		type Capabilities
 	} from '$lib/api';
+	import { toastStore } from '$lib/toast-store.svelte';
 
 	interface Props {
 		capabilities: Capabilities | null;
@@ -145,7 +146,7 @@
 		try {
 			const result = await reindexVault(name);
 			reindexingVault = null;
-			window.alert(`Reindexed ${result.notes} notes in "${name}".`);
+			toastStore.add(`Reindexed ${result.notes} notes in "${name}".`, 'success');
 		} catch (e) {
 			reindexingVault = null;
 			error = e instanceof Error ? e.message : 'Failed to reindex vault';

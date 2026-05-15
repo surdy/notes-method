@@ -150,12 +150,13 @@ selected?.scrollIntoView({ block: 'nearest' });
 
 <div
 class="palette-backdrop"
-onclick={onClose}
+onclick={(event) => event.target === event.currentTarget && onClose()}
 onkeydown={handleKeydown}
 role="dialog"
 aria-modal="true"
+tabindex="-1"
 >
-<div class="palette" onclick={(event) => event.stopPropagation()}>
+<div class="palette">
 <input
 bind:this={inputRef}
 bind:value={query}
@@ -194,6 +195,12 @@ type="button"
 </section>
 {/each}
 {/if}
+</div>
+
+<div class="palette-footer">
+<span class="hint"><kbd>↑↓</kbd> navigate</span>
+<span class="hint"><kbd>Enter</kbd> select</span>
+<span class="hint"><kbd>Esc</kbd> cancel</span>
 </div>
 </div>
 </div>
@@ -302,5 +309,32 @@ color: var(--ns-text);
 padding: 24px;
 text-align: center;
 color: var(--ns-text-muted-soft);
+}
+
+.palette-footer {
+display: flex;
+align-items: center;
+gap: 12px;
+flex-wrap: wrap;
+padding: 12px 16px;
+border-top: 1px solid var(--ns-border-overlay);
+background: var(--ns-surface-translucent-subtle);
+}
+
+.hint {
+display: inline-flex;
+align-items: center;
+gap: 6px;
+font-size: 12px;
+color: var(--ns-text-muted-strong);
+}
+
+.hint kbd {
+padding: 3px 8px;
+border-radius: 999px;
+background: var(--ns-kbd-bg);
+border: 1px solid var(--ns-kbd-border);
+font-size: 12px;
+color: var(--ns-text);
 }
 </style>

@@ -13,6 +13,7 @@
 	import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte';
 	import GitSettings from '$lib/components/settings/GitSettings.svelte';
 	import HooksSettings from '$lib/components/settings/HooksSettings.svelte';
+	import ToastStack from '$lib/components/ToastStack.svelte';
 
 	type Section =
 		| 'general'
@@ -263,6 +264,8 @@
 		{/if}
 	</main>
 </div>
+
+<ToastStack />
 
 <style>
 	.settings-layout {
