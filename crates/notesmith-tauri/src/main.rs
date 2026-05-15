@@ -419,7 +419,16 @@ fn handle_startup_state<R: Runtime>(
         DaemonState::Ready => {
             close_window(app, FALLBACK_WINDOW_LABEL)?;
             set_current_daemon_url(app, daemon::resolve_daemon_url(settings));
-            show_main_window(app)?;
+            // Call ensure_main_window directly rather than show_main_window.
+            // show_main_window has splash/fallback guards that check the window
+            // manager, but destroy() dispatches asynchronously to the platform,
+            // so the splash may still be registered when checked.
+            ensure_main_window(app)?;
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
             Ok("Notesmith is ready".to_string())
         }
         DaemonState::VersionMismatch { running, bundled } => {
@@ -514,7 +523,10 @@ fn show_fallback_window<R: Runtime>(
 
 fn close_window<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<(), DynError> {
     if let Some(window) = app.get_webview_window(label) {
-        window.close()?;
+        // Use destroy() instead of close() to force-remove the window from the
+        // manager synchronously. close() dispatches an event that requires the
+        // event loop, which isn't running during block_on in setup().
+        window.destroy()?;
     }
 
     Ok(())
