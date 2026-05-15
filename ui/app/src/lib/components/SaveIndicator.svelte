@@ -3,10 +3,12 @@
 
 	let {
 		state,
-		onRetry = () => {}
+		onRetry = () => {},
+		variant = 'floating'
 	}: {
 		state: SaveState;
 		onRetry?: () => void;
+		variant?: 'floating' | 'inline';
 	} = $props();
 
 	let label = $derived.by(() => {
@@ -33,7 +35,7 @@
 
 <button
 	type="button"
-	class={`save-indicator ${state === 'idle' ? 'hidden' : state}`}
+	class={`save-indicator ${variant} ${state === 'idle' ? 'hidden' : state}`}
 	onclick={handleClick}
 	disabled={state !== 'failed'}
 	aria-hidden={state === 'idle'}
@@ -54,13 +56,6 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 8px;
-		align-self: flex-end;
-		margin: 12px 16px 0;
-		padding: 8px 12px;
-		border-radius: 999px;
-		border: 1px solid transparent;
-		background: var(--ns-overlay-panel);
-		color: var(--ns-text);
 		font-size: 12px;
 		line-height: 1;
 		transition:
@@ -70,6 +65,26 @@
 			border-color 160ms ease,
 			margin 160ms ease,
 			padding 160ms ease;
+	}
+
+	.save-indicator.floating {
+		align-self: flex-end;
+		margin: 12px 16px 0;
+		padding: 8px 12px;
+		border-radius: 999px;
+		border: 1px solid transparent;
+		background: var(--ns-overlay-panel);
+		color: var(--ns-text);
+	}
+
+	.save-indicator.inline {
+		margin: 0;
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		background: none;
+		color: var(--ns-text-muted);
+		gap: 6px;
 	}
 
 	.save-indicator:disabled {
@@ -89,21 +104,42 @@
 		border-width: 0;
 	}
 
-	.save-indicator.saved {
+	.save-indicator.inline.hidden {
+		display: none;
+	}
+
+	.save-indicator.floating.saved {
 		background: var(--ns-success-surface);
 		border-color: var(--ns-success-border);
 		color: var(--ns-success-text);
 	}
 
-	.save-indicator.failed-retrying {
+	.save-indicator.floating.failed-retrying {
 		background: var(--ns-warning-surface);
 		border-color: var(--ns-warning-surface-border);
 		color: var(--ns-warning-text);
 	}
 
-	.save-indicator.failed {
+	.save-indicator.floating.failed {
 		background: var(--ns-danger-surface);
 		border-color: var(--ns-danger-surface-border);
+		color: var(--ns-danger-text);
+		cursor: pointer;
+	}
+
+	.save-indicator.inline.saved {
+		color: var(--ns-success-text);
+	}
+
+	.save-indicator.inline.saving {
+		color: var(--ns-text-muted);
+	}
+
+	.save-indicator.inline.failed-retrying {
+		color: var(--ns-warning-text);
+	}
+
+	.save-indicator.inline.failed {
 		color: var(--ns-danger-text);
 		cursor: pointer;
 	}

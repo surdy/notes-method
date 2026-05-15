@@ -23,11 +23,15 @@
 	let {
 		currentVault,
 		onToast = (_message: string, _type: 'info' | 'error') => {},
-		restartRequired = false
+		restartRequired = false,
+		variant = 'sidebar',
+		showQueueBadge = variant === 'sidebar'
 	}: {
 		currentVault: string;
 		onToast?: (message: string, type: 'info' | 'error') => void;
 		restartRequired?: boolean;
+		variant?: 'sidebar' | 'inline';
+		showQueueBadge?: boolean;
 	} = $props();
 
 	let container = $state<HTMLElement | null>(null);
@@ -198,7 +202,7 @@
 	}
 </script>
 
-<div class="status-footer" bind:this={container}>
+<div class={`status-shell ${variant}`} bind:this={container}>
 	{#if showPopover}
 		<div class="status-popover" role="dialog" aria-label="Connection status details">
 			{#if showLogs}
@@ -298,19 +302,28 @@
 	>
 		<span class={`status-dot ${visualState}`} aria-hidden="true"></span>
 		<span class="status-label">{pillLabel}</span>
-		{#if $queuedCount > 0}
+		{#if showQueueBadge && $queuedCount > 0}
 			<span class="queue-badge" aria-label={`${$queuedCount} queued saves`}>{$queuedCount}</span>
 		{/if}
 	</button>
 </div>
 
 <style>
-	.status-footer {
+	.status-shell {
 		position: relative;
+		flex-shrink: 0;
+	}
+
+	.status-shell.sidebar {
 		margin-top: auto;
 		padding: 8px 12px 12px;
 		border-top: 1px solid var(--ns-border);
-		flex-shrink: 0;
+	}
+
+	.status-shell.inline {
+		display: flex;
+		align-items: center;
+		min-width: 0;
 	}
 
 	.status-pill {
@@ -328,6 +341,11 @@
 		text-align: left;
 	}
 
+	.status-shell.inline .status-pill {
+		width: auto;
+		padding: 2px 6px;
+	}
+
 	.status-pill:hover {
 		background: var(--ns-surface-hover);
 	}
@@ -337,6 +355,10 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.status-shell.inline .status-label {
+		flex: 0 1 auto;
 	}
 
 	.queue-badge {
@@ -398,6 +420,12 @@
 		overflow-y: auto;
 		color: var(--ns-text);
 		font-size: 12px;
+	}
+
+	.status-shell.inline .status-popover {
+		right: auto;
+		min-width: 320px;
+		max-width: min(420px, calc(100vw - 24px));
 	}
 
 	.summary-line,
