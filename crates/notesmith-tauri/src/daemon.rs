@@ -60,6 +60,167 @@ impl DaemonSettings {
     }
 }
 
+async fn resolve_supervised_version(
+    settings: DaemonSettings,
+    child: Option<tokio::process::Child>,
+) -> SupervisedStartup {
+    let current_child = child;
+    match fetch_daemon_status(settings.clone()).await {
+        Ok(status) => {
+            reconcile_supervised_version(
+                settings,
+                status.version,
+                current_child,
+                shutdown_daemon,
+                wait_for_supervised_daemon_exit,
+                launch_daemon_supervised,
+                fetch_daemon_status,
+            )
+            .await
+        }
+        Err(error) => {
+            tracing::error!("failed to fetch daemon status: {error}");
+            SupervisedStartup {
+                state: DaemonState::Unreachable,
+                child: current_child,
+                upgraded_daemon: false,
+            }
+        }
+    }
+}
+
+async fn reconcile_supervised_version<
+    C,
+    Shutdown,
+    ShutdownFuture,
+    Wait,
+    WaitFuture,
+    Launch,
+    LaunchFuture,
+    Status,
+    StatusFuture,
+>(
+    settings: DaemonSettings,
+    running: String,
+    child: Option<C>,
+    shutdown: Shutdown,
+    wait_for_exit: Wait,
+    launch: Launch,
+    fetch_status: Status,
+) -> SupervisedStartup<C>
+where
+    Shutdown: Fn(DaemonSettings) -> ShutdownFuture,
+    ShutdownFuture: Future<Output = Result<(), DynError>>,
+    Wait: Fn(C, Duration) -> WaitFuture,
+    WaitFuture: Future<Output = Result<(), DynError>>,
+    Launch: Fn(DaemonSettings) -> LaunchFuture,
+    LaunchFuture: Future<Output = Result<C, DynError>>,
+    Status: Fn(DaemonSettings) -> StatusFuture,
+    StatusFuture: Future<Output = Result<DaemonStatus, DynError>>,
+{
+    let bundled = env!("CARGO_PKG_VERSION").to_string();
+    match compare_version_status(&running, &bundled) {
+        VersionStatus::Match => SupervisedStartup {
+            state: DaemonState::Ready,
+            child,
+            upgraded_daemon: false,
+        },
+        VersionStatus::Different => SupervisedStartup {
+            state: DaemonState::VersionMismatch { running, bundled },
+            child,
+            upgraded_daemon: false,
+        },
+        VersionStatus::Outdated => {
+            let Some(child) = child else {
+                return SupervisedStartup {
+                    state: DaemonState::VersionMismatch { running, bundled },
+                    child: None,
+                    upgraded_daemon: false,
+                };
+            };
+
+            if let Err(error) = shutdown(settings.clone()).await {
+                tracing::error!("failed to shut down outdated daemon: {error}");
+                return SupervisedStartup {
+                    state: DaemonState::VersionMismatch { running, bundled },
+                    child: Some(child),
+                    upgraded_daemon: false,
+                };
+            }
+
+            if let Err(error) = wait_for_exit(child, settings.startup_wait).await {
+                tracing::error!("failed waiting for outdated daemon to exit: {error}");
+                return SupervisedStartup {
+                    state: DaemonState::Unreachable,
+                    child: None,
+                    upgraded_daemon: false,
+                };
+            }
+
+            let new_child = match launch(settings.clone()).await {
+                Ok(child) => child,
+                Err(error) => {
+                    tracing::error!("failed to relaunch daemon after upgrade shutdown: {error}");
+                    return SupervisedStartup {
+                        state: DaemonState::Unreachable,
+                        child: None,
+                        upgraded_daemon: false,
+                    };
+                }
+            };
+
+            match wait_for_status(settings.clone(), &fetch_status).await {
+                Ok(status) if status.version == bundled => SupervisedStartup {
+                    state: DaemonState::Ready,
+                    child: Some(new_child),
+                    upgraded_daemon: true,
+                },
+                Ok(status) => SupervisedStartup {
+                    state: DaemonState::VersionMismatch {
+                        running: status.version,
+                        bundled,
+                    },
+                    child: Some(new_child),
+                    upgraded_daemon: false,
+                },
+                Err(error) => {
+                    tracing::error!("relaunched daemon never became ready: {error}");
+                    SupervisedStartup {
+                        state: DaemonState::Unreachable,
+                        child: Some(new_child),
+                        upgraded_daemon: false,
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn wait_for_status<Status, StatusFuture>(
+    settings: DaemonSettings,
+    fetch_status: &Status,
+) -> Result<DaemonStatus, DynError>
+where
+    Status: Fn(DaemonSettings) -> StatusFuture,
+    StatusFuture: Future<Output = Result<DaemonStatus, DynError>>,
+{
+    let deadline = Instant::now() + settings.startup_wait;
+
+    loop {
+        match fetch_status(settings.clone()).await {
+            Ok(status) => return Ok(status),
+            Err(error) if Instant::now() >= deadline => return Err(error),
+            Err(_) => {}
+        }
+
+        if Instant::now() >= deadline {
+            return Err(io::Error::other("daemon status probe timed out").into());
+        }
+
+        tokio::time::sleep(settings.startup_poll_interval).await;
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DaemonState {
     Ready,
@@ -73,9 +234,17 @@ pub struct DaemonStatus {
     pub version: String,
 }
 
-pub struct SupervisedStartup {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VersionStatus {
+    Match,
+    Outdated,
+    Different,
+}
+
+pub struct SupervisedStartup<C = tokio::process::Child> {
     pub state: DaemonState,
-    pub child: Option<tokio::process::Child>,
+    pub child: Option<C>,
+    pub upgraded_daemon: bool,
 }
 
 pub struct DaemonSupervisor<P, L, R = fn() -> Result<Option<DaemonLockfile>, DynError>> {
@@ -319,15 +488,13 @@ pub async fn orchestrate_startup_supervised(settings: &DaemonSettings) -> Superv
         Ok(Some(lockfile)) => {
             let settings = daemon_settings_for_lockfile(&settings, &lockfile);
             if wait_for_status_ready(settings.clone()).await {
-                return SupervisedStartup {
-                    state: check_version_for_settings(settings).await,
-                    child: None,
-                };
+                return resolve_supervised_version(settings, None).await;
             }
 
             return SupervisedStartup {
                 state: DaemonState::PortConflict { pid: lockfile.pid },
                 child: None,
+                upgraded_daemon: false,
             };
         }
         Ok(None) => {}
@@ -335,25 +502,20 @@ pub async fn orchestrate_startup_supervised(settings: &DaemonSettings) -> Superv
     }
 
     if probe_daemon(settings.clone()).await {
-        return SupervisedStartup {
-            state: check_version_for_settings(settings).await,
-            child: None,
-        };
+        return resolve_supervised_version(settings, None).await;
     }
 
     match launch_daemon_supervised(settings.clone()).await {
         Ok(mut child) => {
             if wait_for_status_ready(settings.clone()).await {
-                SupervisedStartup {
-                    state: check_version_for_settings(settings).await,
-                    child: Some(child),
-                }
+                resolve_supervised_version(settings, Some(child)).await
             } else {
                 let _ = child.start_kill();
                 let _ = child.wait().await;
                 SupervisedStartup {
                     state: DaemonState::Unreachable,
                     child: None,
+                    upgraded_daemon: false,
                 }
             }
         }
@@ -362,6 +524,7 @@ pub async fn orchestrate_startup_supervised(settings: &DaemonSettings) -> Superv
             SupervisedStartup {
                 state: DaemonState::Unreachable,
                 child: None,
+                upgraded_daemon: false,
             }
         }
     }
@@ -465,6 +628,35 @@ pub async fn wait_for_daemon_status(settings: &DaemonSettings) -> bool {
     wait_for_status_ready(settings.clone()).await
 }
 
+async fn shutdown_daemon(settings: DaemonSettings) -> Result<(), DynError> {
+    reqwest::Client::builder()
+        .timeout(settings.ping_timeout)
+        .build()?
+        .post(format!(
+            "{}/admin/shutdown",
+            settings.daemon_url.trim_end_matches('/')
+        ))
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(())
+}
+
+async fn wait_for_supervised_daemon_exit(
+    mut child: tokio::process::Child,
+    timeout: Duration,
+) -> Result<(), DynError> {
+    match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(Ok(_status)) => Ok(()),
+        Ok(Err(error)) => Err(error.into()),
+        Err(_) => {
+            child.start_kill()?;
+            child.wait().await?;
+            Ok(())
+        }
+    }
+}
+
 async fn spawn_daemon(
     settings: DaemonSettings,
     detach: bool,
@@ -510,19 +702,35 @@ async fn wait_for_status_ready(settings: DaemonSettings) -> bool {
     }
 }
 
-async fn check_version_for_settings(settings: DaemonSettings) -> DaemonState {
-    let bundled = env!("CARGO_PKG_VERSION").to_string();
-    match fetch_daemon_status(settings).await {
-        Ok(status) if status.version == bundled => DaemonState::Ready,
-        Ok(status) => DaemonState::VersionMismatch {
-            running: status.version,
-            bundled,
-        },
-        Err(error) => {
-            tracing::error!("failed to fetch daemon status: {error}");
-            DaemonState::Unreachable
-        }
+fn compare_version_status(running: &str, bundled: &str) -> VersionStatus {
+    if running == bundled {
+        return VersionStatus::Match;
     }
+
+    match (
+        parse_semver_components(running),
+        parse_semver_components(bundled),
+    ) {
+        (Some(running), Some(bundled)) if running < bundled => VersionStatus::Outdated,
+        _ => VersionStatus::Different,
+    }
+}
+
+fn parse_semver_components(version: &str) -> Option<(u64, u64, u64)> {
+    let mut parts = version
+        .split(['-', '+'])
+        .next()?
+        .split('.')
+        .map(|part| part.parse::<u64>().ok());
+    let major = parts.next()??;
+    let minor = parts.next()??;
+    let patch = parts.next()??;
+
+    if parts.next().is_some() {
+        return None;
+    }
+
+    Some((major, minor, patch))
 }
 
 #[cfg(test)]
@@ -540,7 +748,10 @@ mod tests {
     use notesmith_config::DaemonLockfile;
     use tokio::sync::Mutex;
 
-    use super::{DaemonSettings, DaemonState, DaemonSupervisor, DynError, StartupOrchestrator};
+    use super::{
+        DaemonSettings, DaemonState, DaemonStatus, DaemonSupervisor, DynError, StartupOrchestrator,
+        VersionStatus,
+    };
 
     fn test_settings() -> DaemonSettings {
         DaemonSettings {
@@ -561,6 +772,14 @@ mod tests {
             started_at: Utc::now(),
             binary_path: PathBuf::from("/Applications/Notesmith.app/Contents/MacOS/notesmith"),
         }
+    }
+
+    #[test]
+    fn compare_version_status_identifies_outdated_daemon() {
+        assert_eq!(
+            super::compare_version_status("0.0.1", env!("CARGO_PKG_VERSION")),
+            VersionStatus::Outdated
+        );
     }
 
     #[tokio::test]
@@ -750,6 +969,115 @@ mod tests {
                 bundled: env!("CARGO_PKG_VERSION").to_string(),
             }
         );
+    }
+
+    #[tokio::test]
+    async fn app_owned_outdated_daemon_is_restarted() {
+        let shutdowns = Arc::new(AtomicUsize::new(0));
+        let waits = Arc::new(AtomicUsize::new(0));
+        let launches = Arc::new(AtomicUsize::new(0));
+
+        let outcome = super::reconcile_supervised_version(
+            test_settings(),
+            "0.0.1".to_string(),
+            Some("old-child"),
+            {
+                let shutdowns = shutdowns.clone();
+                move |_| {
+                    let shutdowns = shutdowns.clone();
+                    async move {
+                        shutdowns.fetch_add(1, Ordering::SeqCst);
+                        Ok::<(), DynError>(())
+                    }
+                }
+            },
+            {
+                let waits = waits.clone();
+                move |child, timeout| {
+                    let waits = waits.clone();
+                    async move {
+                        waits.fetch_add(1, Ordering::SeqCst);
+                        assert_eq!(child, "old-child");
+                        assert_eq!(timeout, test_settings().startup_wait);
+                        Ok::<(), DynError>(())
+                    }
+                }
+            },
+            {
+                let launches = launches.clone();
+                move |_| {
+                    let launches = launches.clone();
+                    async move {
+                        launches.fetch_add(1, Ordering::SeqCst);
+                        Ok::<_, DynError>("new-child")
+                    }
+                }
+            },
+            |_| async {
+                Ok::<_, DynError>(DaemonStatus {
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                })
+            },
+        )
+        .await;
+
+        assert_eq!(outcome.state, DaemonState::Ready);
+        assert_eq!(outcome.child, Some("new-child"));
+        assert!(outcome.upgraded_daemon);
+        assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
+        assert_eq!(waits.load(Ordering::SeqCst), 1);
+        assert_eq!(launches.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn user_owned_outdated_daemon_returns_version_mismatch() {
+        let shutdowns = Arc::new(AtomicUsize::new(0));
+        let launches = Arc::new(AtomicUsize::new(0));
+
+        let outcome = super::reconcile_supervised_version(
+            test_settings(),
+            "0.0.1".to_string(),
+            None::<&'static str>,
+            {
+                let shutdowns = shutdowns.clone();
+                move |_| {
+                    let shutdowns = shutdowns.clone();
+                    async move {
+                        shutdowns.fetch_add(1, Ordering::SeqCst);
+                        Ok::<(), DynError>(())
+                    }
+                }
+            },
+            |_, _| async { Ok::<(), DynError>(()) },
+            {
+                let launches = launches.clone();
+                move |_| {
+                    let launches = launches.clone();
+                    async move {
+                        launches.fetch_add(1, Ordering::SeqCst);
+                        Ok::<_, DynError>("new-child")
+                    }
+                }
+            },
+            |_| async {
+                Ok::<_, DynError>(DaemonStatus {
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                })
+            },
+        )
+        .await;
+
+        assert_eq!(
+            outcome.state,
+            DaemonState::VersionMismatch {
+                running: "0.0.1".to_string(),
+                bundled: env!("CARGO_PKG_VERSION").to_string(),
+            }
+        );
+        assert!(outcome.child.is_none());
+        assert!(!outcome.upgraded_daemon);
+        assert_eq!(shutdowns.load(Ordering::SeqCst), 0);
+        assert_eq!(launches.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

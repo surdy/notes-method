@@ -789,6 +789,21 @@ fn ensure_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
     Ok(())
 }
 
+fn show_main_app_window<R: Runtime>(
+    app: &AppHandle<R>,
+    settings: &DaemonSettings,
+) -> Result<(), DynError> {
+    close_window(app, FALLBACK_WINDOW_LABEL)?;
+    set_current_daemon_url(app, daemon::resolve_daemon_url(settings));
+    ensure_main_window(app)?;
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+    Ok(())
+}
+
 fn request_exit<R: Runtime>(app: &AppHandle<R>) {
     if let Ok(mut state) = app.state::<DaemonProcessState>().0.try_lock() {
         state.expected_shutdown = true;
@@ -820,40 +835,31 @@ async fn handle_startup_state<R: Runtime>(
 ) -> Result<String, DynError> {
     close_window(app, SPLASH_WINDOW_LABEL)?;
 
-    if let Some(child) = outcome.child {
+    let daemon::SupervisedStartup {
+        state,
+        child,
+        upgraded_daemon,
+    } = outcome;
+
+    if let Some(child) = child {
         register_supervised_child(app.clone(), child);
     }
 
-    match outcome.state {
+    match state {
         DaemonState::Ready => {
-            close_window(app, FALLBACK_WINDOW_LABEL)?;
-            set_current_daemon_url(app, daemon::resolve_daemon_url(settings));
-            // Call ensure_main_window directly rather than show_main_window.
-            // show_main_window has splash/fallback guards that check the window
-            // manager, but destroy() dispatches asynchronously to the platform,
-            // so the splash may still be registered when checked.
-            ensure_main_window(app)?;
-            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
+            show_main_app_window(app, settings)?;
+            if upgraded_daemon {
+                notify_user(app, "Updated background service to latest version.");
             }
             Ok("Notesmith is ready".to_string())
         }
-        DaemonState::VersionMismatch { running, bundled } => {
-            hide_main_window(app)?;
-            show_fallback_window(
-                app,
-                StartupFallbackView::startup(
-                    "Restart to finish updating?",
-                    format!(
-                        "Notesmith found daemon version {running}, but this app bundles {bundled}. Restart the desktop app to finish the update."
-                    ),
-                    "Restart App",
-                    "restart_app",
-                ),
-            )?;
-            Ok("Notesmith needs a restart".to_string())
+        DaemonState::VersionMismatch { .. } => {
+            // The version mismatch is already handled by the auto-restart in
+            // orchestrate_startup_supervised. If we still get VersionMismatch
+            // here, it means the daemon is user-owned, so show the main window
+            // and let the VersionBanner handle the prompt.
+            show_main_app_window(app, settings)?;
+            Ok("Notesmith daemon needs an update".to_string())
         }
         DaemonState::Unreachable => {
             hide_main_window(app)?;
