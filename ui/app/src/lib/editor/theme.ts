@@ -98,9 +98,10 @@ accentColor: '#b180d7'
 opacity: '0.6',
 accentColor: '#ffb347'
 },
-'.cm-header-1': { fontSize: '1.6em', fontWeight: 'bold' },
-'.cm-header-2': { fontSize: '1.3em', fontWeight: 'bold' },
-'.cm-header-3': { fontSize: '1.1em', fontWeight: 'bold' },
+'.cm-header-1': { fontSize: '1.6em', fontWeight: 'bold', textDecoration: 'none' },
+'.cm-header-2': { fontSize: '1.3em', fontWeight: 'bold', textDecoration: 'none' },
+'.cm-header-3': { fontSize: '1.1em', fontWeight: 'bold', textDecoration: 'none' },
+'.cm-header-4, .cm-header-5, .cm-header-6': { textDecoration: 'none' },
 '.cm-strong': { fontWeight: 'bold' },
 '.cm-emphasis': { fontStyle: 'italic' },
 '.cm-link': { color: 'var(--ns-accent)', textDecoration: 'underline' },
