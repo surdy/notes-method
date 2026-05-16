@@ -85,9 +85,13 @@
 	--ns-editor-bg: #1e1e1e;
 	--ns-editor-text: #e0e0e0;
 	--ns-editor-text-secondary: #555;
+	--ns-editor-text-muted: #888;
+	--ns-editor-text-faint: #aaa;
 	--ns-editor-active-line: #2a2d2e44;
 	--ns-editor-selection: #264f78;
 	--ns-editor-frontmatter-bg: #252526;
+	--ns-editor-border: #444;
+	--ns-editor-link: #7ec8e3;
 
 	/* Links */
 	--ns-link: #7ec8e3;
@@ -211,9 +215,13 @@
 	--ns-editor-bg: #ffffff;
 	--ns-editor-text: #1a1a1a;
 	--ns-editor-text-secondary: #999999;
+	--ns-editor-text-muted: #666666;
+	--ns-editor-text-faint: #aaaaaa;
 	--ns-editor-active-line: rgba(0, 0, 0, 0.04);
 	--ns-editor-selection: #b4d7ff;
 	--ns-editor-frontmatter-bg: #f5f5f5;
+	--ns-editor-border: #b0b0b0;
+	--ns-editor-link: #0078d4;
 
 	/* Links */
 	--ns-link: #0078d4;
@@ -247,9 +255,13 @@
 	--ns-editor-bg: #faf8f5;
 	--ns-editor-text: #2c2c2c;
 	--ns-editor-text-secondary: #888888;
+	--ns-editor-text-muted: #666666;
+	--ns-editor-text-faint: #999999;
 	--ns-editor-active-line: rgba(0, 0, 0, 0.04);
 	--ns-editor-selection: #b4d7ff;
 	--ns-editor-frontmatter-bg: #f0ede8;
+	--ns-editor-border: #c0b8a8;
+	--ns-editor-link: #0078d4;
 }
 
 .theme-hc-dark {
@@ -335,9 +347,13 @@
 	--ns-editor-bg: #000000;
 	--ns-editor-text: #ffffff;
 	--ns-editor-text-secondary: #c0c0c0;
+	--ns-editor-text-muted: #e0e0e0;
+	--ns-editor-text-faint: #b5b5b5;
 	--ns-editor-active-line: rgba(255, 255, 255, 0.08);
 	--ns-editor-selection: #003366;
 	--ns-editor-frontmatter-bg: #0a0a0a;
+	--ns-editor-border: #00e5ff;
+	--ns-editor-link: #00e5ff;
 
 	/* Links */
 	--ns-link: #00e5ff;

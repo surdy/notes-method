@@ -125,7 +125,8 @@
 		flex: 1;
 		overflow-y: auto;
 		padding: 24px 32px;
-		color: var(--ns-text);
+		background: var(--ns-editor-bg);
+		color: var(--ns-editor-text);
 	}
 
 	.empty-state {
@@ -133,7 +134,7 @@
 		align-items: center;
 		justify-content: center;
 		height: 100%;
-		color: var(--ns-text-muted);
+		color: var(--ns-editor-text-muted);
 	}
 
 	.content :global(h1) {
@@ -152,7 +153,7 @@
 	}
 
 	.content :global(a.wikilink) {
-		color: var(--ns-link);
+		color: var(--ns-editor-link);
 		cursor: pointer;
 		text-decoration: underline;
 		text-decoration-style: dotted;
@@ -165,15 +166,15 @@
 
 	.content :global(th),
 	.content :global(td) {
-		border: 1px solid var(--ns-border-strong);
+		border: 1px solid var(--ns-editor-border);
 		padding: 6px 12px;
 	}
 
 	.content :global(blockquote) {
-		border-left: 3px solid var(--ns-border-strong);
+		border-left: 3px solid var(--ns-editor-border);
 		margin: 1em 0;
 		padding: 0.5em 1em;
-		color: var(--ns-text-faint);
+		color: var(--ns-editor-text-faint);
 	}
 
 	.content :global(.callout) {
@@ -204,7 +205,7 @@
 	}
 
 	.content :global(li) {
-		color: var(--ns-text);
+		color: var(--ns-editor-text);
 	}
 
 	.loading,
