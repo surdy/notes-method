@@ -1710,6 +1710,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "toml",
+ "tracing",
 ]
 
 [[package]]
@@ -1762,6 +1763,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "comrak",
+ "insta",
  "notesmith-core",
  "pretty_assertions",
  "regex",
@@ -1821,6 +1823,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tantivy",
  "tempfile",
  "tracing",

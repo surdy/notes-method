@@ -2,11 +2,15 @@
 source: crates/notesmith-html/tests/ofm_snapshots.rs
 expression: html
 ---
-<p>Use `You can't see this text
+<p>Use <code>%%</code> to enclose comments, which will be parsed as Markdown, but will not show up in the preview.</p>
+<pre><code class="language-md">Here is an inline comment: %%You can't see this text%% (can't see it in preview)
+
+Here is a block comment: (can't see it in preview either)
+%%
 It can span
 multiple lines
-You can't see this text
-It can span
-multiple lines
-%%</p>
+%%
+</code></pre>
+<p>Here is an inline comment:  (can't see it in preview)</p>
+<p>Here is a block comment: (can't see it in preview either)</p>
 <div class="callout callout-note"><div class="callout-title">Note</div><div class="callout-body">For ease of editing, comments remain visible in the Live Preview mode.</div></div>

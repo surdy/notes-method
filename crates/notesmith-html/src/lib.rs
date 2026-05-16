@@ -181,9 +181,25 @@ fn convert_styled_wikilinks(html: &str) -> String {
 
 /// Strip `%%...%%` comments from markdown before rendering.
 /// Handles both inline (`%%text%%`) and block comments.
+/// Respects fenced code blocks and inline code — comments inside code are preserved.
 fn strip_comments(markdown: &str) -> String {
-    let re = Regex::new(r"(?s)%%.*?%%").expect("valid comment regex");
-    re.replace_all(markdown, "").to_string()
+    // Regex that matches (in priority order):
+    // 1. Fenced code blocks (``` ... ```) — captured in group 1 to preserve
+    // 2. Inline code (`...`) — captured in group 2 to preserve
+    // 3. %%...%% comments — matched without a group to strip
+    let re = Regex::new(r"(?s)(```[^\n]*\n.*?```)|(`[^`\n]+`)|%%.*?%%")
+        .expect("valid comment-aware regex");
+
+    re.replace_all(markdown, |caps: &regex::Captures| {
+        // If group 1 (fenced code) or group 2 (inline code) matched, preserve it
+        if caps.get(1).is_some() || caps.get(2).is_some() {
+            caps[0].to_string()
+        } else {
+            // It's a %%...%% comment — strip it
+            String::new()
+        }
+    })
+    .to_string()
 }
 
 /// Convert `==text==` highlights to `<mark>text</mark>`.
