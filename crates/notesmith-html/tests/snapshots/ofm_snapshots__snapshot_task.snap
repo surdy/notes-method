@@ -1,0 +1,19 @@
+---
+source: crates/notesmith-html/tests/ofm_snapshots.rs
+expression: html
+---
+<pre><code class="language-md">- [x] #tags, [links](), **formatting** supported
+- [x] list syntax required (any unordered or ordered list supported)
+- [x] this is a complete item
+- [?] this is also a complete item (works with every character)
+- [ ] this is an incomplete item
+- [ ] tasks can be clicked in Preview to be checked off
+</code></pre>
+<ul>
+<li><input type="checkbox" checked="" disabled="" /> #tags, <a href="">links</a>, <strong>formatting</strong> supported</li>
+<li><input type="checkbox" checked="" disabled="" /> list syntax required (any unordered or ordered list supported)</li>
+<li><input type="checkbox" checked="" disabled="" /> this is a complete item</li>
+<li class="task-list-item"><input type="checkbox" checked="" disabled="" data-task="?"> this is also a complete item (works with every character)</li>
+<li><input type="checkbox" disabled="" /> this is an incomplete item</li>
+<li><input type="checkbox" disabled="" /> tasks can be clicked in Preview to be checked off</li>
+</ul>

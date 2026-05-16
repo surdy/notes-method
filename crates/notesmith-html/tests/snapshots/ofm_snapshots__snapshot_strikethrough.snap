@@ -1,0 +1,7 @@
+---
+source: crates/notesmith-html/tests/ofm_snapshots.rs
+expression: html
+---
+<pre><code class="language-md">Any word wrapped with two tildes (like ~~this~~) will appear crossed out.
+</code></pre>
+<p>Any word wrapped with two tildes (like <del>this</del>) will appear crossed out.</p>

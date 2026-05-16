@@ -1,0 +1,8 @@
+{
+  "id": "notesmith-html-export",
+  "name": "Notesmith HTML Export",
+  "version": "0.1.0",
+  "description": "Export rendered HTML for OFM test fixture comparison",
+  "author": "Notesmith",
+  "isDesktopOnly": true
+}

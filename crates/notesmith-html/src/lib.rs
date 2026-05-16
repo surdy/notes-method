@@ -116,8 +116,12 @@ pub fn render_to_html(markdown: &str) -> String {
     options.extension.footnotes = true;
     options.render.unsafe_ = true;
 
-    let html = markdown_to_html(markdown, &options);
+    let preprocessed = strip_comments(markdown);
+    let html = markdown_to_html(&preprocessed, &options);
+    let html = convert_embeds(&html);
     let html = convert_wikilinks(&html);
+    let html = convert_highlights(&html);
+    let html = convert_extended_tasks(&html);
     convert_callouts(&html)
 }
 
@@ -175,25 +179,135 @@ fn convert_styled_wikilinks(html: &str) -> String {
     re.replace_all(html, r#"<a href="$1">"#).to_string()
 }
 
+/// Strip `%%...%%` comments from markdown before rendering.
+/// Handles both inline (`%%text%%`) and block comments.
+fn strip_comments(markdown: &str) -> String {
+    let re = Regex::new(r"(?s)%%.*?%%").expect("valid comment regex");
+    re.replace_all(markdown, "").to_string()
+}
+
+/// Convert `==text==` highlights to `<mark>text</mark>`.
+/// Skips content inside `<code>` and `<pre>` elements.
+fn convert_highlights(html: &str) -> String {
+    let highlight_re = Regex::new(r"==([^=]+)==").expect("valid highlight regex");
+    // Split by code/pre tags to avoid converting highlights inside them
+    let tag_re =
+        Regex::new(r"(?s)(<code>.*?</code>|<pre>.*?</pre>)").expect("valid code tag regex");
+
+    let mut result = String::with_capacity(html.len());
+    let mut last_end = 0;
+
+    for m in tag_re.find_iter(html) {
+        // Process text before this code/pre block
+        let before = &html[last_end..m.start()];
+        result.push_str(&highlight_re.replace_all(before, r#"<mark>$1</mark>"#));
+        // Preserve the code/pre block as-is
+        result.push_str(m.as_str());
+        last_end = m.end();
+    }
+
+    // Process remaining text after last code/pre block
+    let remaining = &html[last_end..];
+    result.push_str(&highlight_re.replace_all(remaining, r#"<mark>$1</mark>"#));
+
+    result
+}
+
+/// Convert `![[target]]` embeds to appropriate HTML elements.
+/// Image embeds produce `<img>`, note embeds produce a placeholder div.
+fn convert_embeds(html: &str) -> String {
+    let re = Regex::new(r"!\[\[([^\]]+?)\]\]").expect("valid embed regex");
+    re.replace_all(html, |caps: &regex::Captures<'_>| {
+        let target = &caps[1];
+        let lower = target.to_lowercase();
+        if lower.ends_with(".png")
+            || lower.ends_with(".jpg")
+            || lower.ends_with(".jpeg")
+            || lower.ends_with(".gif")
+            || lower.ends_with(".svg")
+            || lower.ends_with(".webp")
+            || lower.ends_with(".bmp")
+        {
+            format!(r#"<img src="{target}" alt="{target}" class="embed-image">"#)
+        } else {
+            let display = target.split('#').next().unwrap_or(target);
+            format!(
+                r#"<div class="embed" data-target="{target}"><a class="embed-link" href="{target}">{display}</a></div>"#
+            )
+        }
+    })
+    .to_string()
+}
+
+/// Convert extended task markers that comrak doesn't handle.
+/// Obsidian treats any character in `- [x]` brackets as a completed task
+/// (e.g., `[?]`, `[!]`, `[b]`, `[-]`, `[/]`).
+/// comrak only handles `[ ]` and `[x]`/`[X]`, so we post-process the HTML
+/// for extended markers that comrak rendered as plain list items.
+fn convert_extended_tasks(html: &str) -> String {
+    let re = Regex::new(r"<li>\[([^\]\s])\]\s*").expect("valid extended task regex");
+    re.replace_all(html, |caps: &regex::Captures<'_>| {
+        let marker = &caps[1];
+        format!(
+            r#"<li class="task-list-item"><input type="checkbox" checked="" disabled="" data-task="{marker}"> "#
+        )
+    })
+    .to_string()
+}
+
 fn convert_callouts(html: &str) -> String {
-    let re = Regex::new(r"(?s)<blockquote>\s*<p>\[!(\w+)\]\s*(.*?)</p>\s*</blockquote>")
-        .expect("valid callout regex");
+    let re = Regex::new(
+        r"(?s)<blockquote>\s*<p>\[!([\w-]+)\]([+-])? ?([^\n]*)(.*?)</p>(.*?)</blockquote>",
+    )
+    .expect("valid callout regex");
     re.replace_all(html, |caps: &regex::Captures<'_>| {
         let callout_type = caps[1].to_lowercase();
-        let content = &caps[2];
-        let (title, body) = content.split_once('\n').unwrap_or((content, ""));
-        let title = title.trim();
-        let body = body.trim();
+        let fold_marker = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+        let title_text = caps[3].trim();
+        let first_body = caps[4].trim();
+        let rest = caps.get(5).map(|m| m.as_str().trim()).unwrap_or("");
+
+        let title = if title_text.is_empty() {
+            capitalize(&callout_type)
+        } else {
+            title_text.to_string()
+        };
+
+        let fold_attr = match fold_marker {
+            "+" => r#" data-fold="open""#,
+            "-" => r#" data-fold="closed""#,
+            _ => "",
+        };
+
+        // Combine body from first paragraph remainder and subsequent blockquote content
+        let mut body_parts = Vec::new();
+        if !first_body.is_empty() {
+            body_parts.push(first_body.to_string());
+        }
+        if !rest.is_empty() {
+            body_parts.push(rest.to_string());
+        }
+        let body = body_parts.join("\n");
+
         let body_html = if body.is_empty() {
             String::new()
         } else {
             format!(r#"<div class="callout-body">{body}</div>"#)
         };
+
         format!(
-            r#"<div class="callout callout-{callout_type}"><div class="callout-title">{title}</div>{body_html}</div>"#
+            r#"<div class="callout callout-{callout_type}"{fold_attr}><div class="callout-title">{title}</div>{body_html}</div>"#
         )
     })
     .to_string()
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+    }
 }
 
 #[cfg(test)]
@@ -260,9 +374,119 @@ mod tests {
             html.contains(r#"<div class="callout-title">Title</div>"#),
             "html was: {html}"
         );
+        assert!(html.contains("callout-body"), "html was: {html}");
+        assert!(html.contains("body"), "html was: {html}");
+    }
+
+    #[test]
+    fn renders_callout_without_title() {
+        let html = render_to_html("> [!note]\n> Some content here");
         assert!(
-            html.contains(r#"<div class="callout-body">body</div>"#),
+            html.contains(r#"<div class="callout-title">Note</div>"#),
+            "expected default title: {html}"
+        );
+    }
+
+    #[test]
+    fn renders_foldable_callout_collapsed() {
+        let html = render_to_html("> [!faq]- Are callouts foldable?\n> Yes!");
+        assert!(
+            html.contains(r#"data-fold="closed""#),
+            "expected fold=closed: {html}"
+        );
+    }
+
+    #[test]
+    fn renders_foldable_callout_expanded() {
+        let html = render_to_html("> [!tip]+ Expanded\n> Content");
+        assert!(
+            html.contains(r#"data-fold="open""#),
+            "expected fold=open: {html}"
+        );
+    }
+
+    #[test]
+    fn renders_highlights() {
+        let html = render_to_html("Use ==highlight text== here.");
+        assert!(
+            html.contains("<mark>highlight text</mark>"),
             "html was: {html}"
+        );
+    }
+
+    #[test]
+    fn strips_inline_comments() {
+        let html = render_to_html("visible %%hidden%% text");
+        assert!(!html.contains("hidden"), "comment not stripped: {html}");
+        assert!(html.contains("visible"), "visible text missing: {html}");
+        assert!(html.contains("text"), "text missing: {html}");
+    }
+
+    #[test]
+    fn strips_block_comments() {
+        let html = render_to_html("before\n%%\nblock comment\n%%\nafter");
+        assert!(
+            !html.contains("block comment"),
+            "block comment not stripped: {html}"
+        );
+        assert!(html.contains("before"), "html was: {html}");
+        assert!(html.contains("after"), "html was: {html}");
+    }
+
+    #[test]
+    fn renders_note_embeds() {
+        let html = render_to_html("![[My Note]]");
+        assert!(
+            html.contains(r#"class="embed""#),
+            "embed not rendered: {html}"
+        );
+        assert!(
+            html.contains(r#"data-target="My Note""#),
+            "embed target missing: {html}"
+        );
+    }
+
+    #[test]
+    fn renders_image_embeds() {
+        let html = render_to_html("![[photo.png]]");
+        assert!(
+            html.contains(r#"<img src="photo.png""#),
+            "image embed not rendered: {html}"
+        );
+    }
+
+    #[test]
+    fn renders_section_embeds() {
+        let html = render_to_html("![[Note#Section]]");
+        assert!(
+            html.contains(r#"data-target="Note#Section""#),
+            "section embed missing: {html}"
+        );
+        assert!(
+            html.contains(">Note</a>"),
+            "display should show note name without section: {html}"
+        );
+    }
+
+    #[test]
+    fn renders_extended_task_markers() {
+        let html = render_to_html("- [?] custom marker\n- [!] another\n- [-] cancelled");
+        assert!(
+            html.contains(r#"data-task="?""#),
+            "? marker missing: {html}"
+        );
+        assert!(
+            html.contains(r#"data-task="!""#),
+            "! marker missing: {html}"
+        );
+        assert!(
+            html.contains(r#"data-task="-""#),
+            "- marker missing: {html}"
+        );
+        // All extended markers should be checked
+        assert!(
+            html.matches(r#"checked="""#).count() == 3,
+            "all extended markers should be checked: {html}"
         );
     }
 

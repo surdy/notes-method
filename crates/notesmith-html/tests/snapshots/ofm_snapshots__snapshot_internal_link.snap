@@ -1,0 +1,7 @@
+---
+source: crates/notesmith-html/tests/ofm_snapshots.rs
+expression: html
+---
+<pre><code class="language-md">Link to a page: <a class="wikilink" data-target="Embeds">Embeds</a>.
+</code></pre>
+<p>Link to a page: <a class="wikilink" data-target="Embeds">Embeds</a>.</p>

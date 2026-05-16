@@ -1,0 +1,51 @@
+---
+source: crates/notesmith-html/tests/ofm_snapshots.rs
+expression: html
+---
+<p>As of v0.14.0, Obsidian supports callout blocks, sometimes called &quot;admonitions&quot;. Callout blocks are written as a blockquote, inspired by the &quot;alert&quot; syntax from Microsoft Docs.</p>
+<p>Callouts are also supported natively on Obsidian Publish.</p>
+<div class="callout callout-note"><div class="callout-title">Note</div><div class="callout-body">For compatibility reasons, if you're also using the Admonitions plugin, you should update it to at least v8.0.0 to avoid problems with the new callout system.</div></div>
+<p>Use the following syntax to denote a callout block: <code>&gt; [!INFO]</code>.</p>
+<pre><code class="language-markdown">&gt; [!INFO]
+&gt; Here's a callout block.
+&gt; It supports **markdown** and <a class="wikilink" data-target="Internal link">wikilinks</a>.
+</code></pre>
+<p>It will show up like this:</p>
+<div class="callout callout-info"><div class="callout-title">Info</div><div class="callout-body">Here's a callout block.
+It supports <strong>markdown</strong> and <a class="wikilink" data-target="Internal link">wikilinks</a>.</div></div>
+<h3>Types</h3>
+<p>By default, there are 12 distinct callout types, each with several aliases. Each type comes with a different background color and icon.</p>
+<p>To use these default styles, replace <code>INFO</code> in the examples with any of these types. Any unrecognized type will default to the &quot;note&quot; type, unless they are <a class="wikilink" data-target="#Customizations">customized</a>. The type identifier is case insensitive.</p>
+<ul>
+<li>note</li>
+<li>abstract, summary, tldr</li>
+<li>info, todo</li>
+<li>tip, hint, important</li>
+<li>success, check, done</li>
+<li>question, help, faq</li>
+<li>warning, caution, attention</li>
+<li>failure, fail, missing</li>
+<li>danger, error</li>
+<li>bug</li>
+<li>example</li>
+<li>quote, cite</li>
+</ul>
+<h3>Title and body</h3>
+<p>You can define the title of the callout block, and you can also have a callout without body content.</p>
+<pre><code class="language-markdown">&gt; [!TIP] Callouts can have custom titles, which also supports **markdown**!
+</code></pre>
+<h3>Folding</h3>
+<p>Additionally, you can create a folding callout by adding <code>+</code> (default expanded) or <code>-</code> (default collapsed) after the block.</p>
+<pre><code class="language-markdown">&gt; [!FAQ]- Are callouts foldable?
+&gt; Yes! In a foldable callout, the contents are hidden until it is expanded.
+</code></pre>
+<p>Will show up as:</p>
+<div class="callout callout-faq" data-fold="closed"><div class="callout-title">Are callouts foldable?</div><div class="callout-body">Yes! In a foldable callout, the contents are hidden until it is expanded.</div></div>
+<h3>Customizations</h3>
+<p>Snippets and plugins can define custom callouts too, or overwrite the default options. Callout types and icons are defined in CSS, where the color is an <code>r, g, b</code> tuple and the icon is the icon ID from any internally supported icon (like <code>lucide-info</code>). Alternatively, you can specify an SVG icon as a string.</p>
+<pre><code class="language-CSS">.callout[data-callout=&quot;my-callout-type&quot;] {
+    --callout-color: 0, 0, 0;
+    --callout-icon: icon-id;
+    --callout-icon: '&lt;svg&gt;...custom svg...&lt;/svg&gt;';
+}
+</code></pre>

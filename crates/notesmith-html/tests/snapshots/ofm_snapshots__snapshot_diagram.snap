@@ -1,0 +1,42 @@
+---
+source: crates/notesmith-html/tests/ofm_snapshots.rs
+expression: html
+---
+<p>Obsidian uses <a href="https://mermaid-js.github.io/">Mermaid</a> to render diagrams and charts. Mermaid also provides <a href="https://mermaid-js.github.io/mermaid-live-editor">a helpful live editor</a>.</p>
+<pre><code>```mermaid
+sequenceDiagram
+    Alice->>+John: Hello John, how are you?
+    Alice->>+John: John, can you hear me?
+    John-->>-Alice: Hi Alice, I can hear you!
+    John-->>-Alice: I feel great!
+```</code></pre>
+<pre><code class="language-mermaid">sequenceDiagram
+    Alice-&gt;&gt;+John: Hello John, how are you?
+    Alice-&gt;&gt;+John: John, can you hear me?
+    John--&gt;&gt;-Alice: Hi Alice, I can hear you!
+    John--&gt;&gt;-Alice: I feel great!
+</code></pre>
+<p>Obsidian supports linking to notes in Mermaid:</p>
+<pre><code>```mermaid
+graph TD
+
+Biology --> Chemistry
+
+class Biology,Chemistry internal-link;
+```</code></pre>
+<p>An easier way to do it is the following: ^376b9d</p>
+<pre><code>```mermaid
+graph TD
+
+A[Biology]
+B[Chemistry]
+
+A --> B
+
+class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z internal-link;
+```</code></pre>
+<p>This way, all the note names (at least until <code>Z[note name]</code>) are all automatically assigned the class <code>internal-link</code> when you use this snippet.</p>
+<p>If you use special characters in your note names, you need to put the note name in double quotes.
+<code>&quot;⨳ special character&quot;</code>
+It looks like this if you follow the <a class="wikilink" data-target="Format your notes#^376b9d">second option</a>:
+<code>A[&quot;⨳ special character&quot;]</code></p>

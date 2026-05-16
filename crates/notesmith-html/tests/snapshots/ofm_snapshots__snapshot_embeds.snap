@@ -1,0 +1,8 @@
+---
+source: crates/notesmith-html/tests/ofm_snapshots.rs
+expression: html
+---
+<p>Embed another file (read more about <a class="wikilink" data-target="Embeds">Embeds</a>). Here's an embedded section:</p>
+<pre><code class="language-md"><div class="embed" data-target="Plugins makes Obsidian special for you"><a class="embed-link" href="Plugins makes Obsidian special for you">Plugins makes Obsidian special for you</a></div>
+</code></pre>
+<p><div class="embed" data-target="Plugins make Obsidian special for you"><a class="embed-link" href="Plugins make Obsidian special for you">Plugins make Obsidian special for you</a></div></p>
