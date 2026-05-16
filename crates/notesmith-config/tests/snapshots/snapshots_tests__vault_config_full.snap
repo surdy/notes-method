@@ -1,6 +1,6 @@
 ---
 source: crates/notesmith-config/tests/snapshots_tests.rs
-assertion_line: 57
+assertion_line: 58
 expression: serialized
 ---
 schema_version = 1
@@ -21,6 +21,7 @@ catch_up = true
 [editor]
 live_preview = true
 default_mode = "source"
+strict_line_breaks = false
 
 [git]
 enabled = true

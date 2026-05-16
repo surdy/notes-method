@@ -104,6 +104,8 @@ pub struct EditorConfig {
     pub live_preview: bool,
     #[serde(default = "default_editor_mode")]
     pub default_mode: String,
+    #[serde(default)]
+    pub strict_line_breaks: bool,
 }
 
 fn default_true() -> bool {
@@ -119,6 +121,7 @@ impl Default for EditorConfig {
         Self {
             live_preview: default_true(),
             default_mode: default_editor_mode(),
+            strict_line_breaks: false,
         }
     }
 }

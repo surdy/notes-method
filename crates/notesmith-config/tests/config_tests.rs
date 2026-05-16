@@ -135,6 +135,7 @@ catch_up = true
 [editor]
 live_preview = true
 default_mode = "source"
+strict_line_breaks = true
 
 [git]
 enabled = true
@@ -159,6 +160,7 @@ on_daily_create = "Assets/scripts/on-daily-create.py"
     assert!(config.daily.catch_up);
     assert!(config.editor.live_preview);
     assert_eq!(config.editor.default_mode, "source");
+    assert!(config.editor.strict_line_breaks);
     assert!(config.git.enabled);
     assert_eq!(config.git.auto_commit_every.as_deref(), Some("15m"));
     assert!(config.hooks.on_note_create.is_some());
@@ -176,6 +178,7 @@ fn vault_config_minimal() {
     assert_eq!(config.capture.folder, "");
     assert_eq!(config.daily.folder, "");
     assert!(config.editor.live_preview);
+    assert!(!config.editor.strict_line_breaks);
     assert!(!config.git.enabled);
 }
 

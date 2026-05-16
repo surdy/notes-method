@@ -21,7 +21,7 @@ export interface VaultConfigData {
 		timezone?: string | null;
 		catch_up: boolean;
 	};
-	editor: { live_preview: boolean; default_mode: string };
+	editor: { live_preview: boolean; default_mode: string; strict_line_breaks: boolean };
 	git: {
 		enabled: boolean;
 		auto_commit_every?: string | null;

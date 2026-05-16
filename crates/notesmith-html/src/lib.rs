@@ -109,12 +109,18 @@ input[type="checkbox"] {
 
 /// Render markdown content to HTML.
 pub fn render_to_html(markdown: &str) -> String {
+    render_to_html_opts(markdown, true)
+}
+
+/// Render markdown content to HTML with configurable hardbreak handling.
+pub fn render_to_html_opts(markdown: &str, hardbreaks: bool) -> String {
     let mut options = Options::default();
     options.extension.strikethrough = true;
     options.extension.table = true;
     options.extension.tasklist = true;
     options.extension.footnotes = true;
     options.render.unsafe_ = true;
+    options.render.hardbreaks = hardbreaks;
 
     let preprocessed = strip_comments(markdown);
     let html = markdown_to_html(&preprocessed, &options);
@@ -127,7 +133,13 @@ pub fn render_to_html(markdown: &str) -> String {
 
 /// Render markdown content to a complete HTML document with embedded styles.
 pub fn render_to_html_with_inline_styles(markdown: &str) -> String {
-    let html = render_to_html(strip_frontmatter(markdown));
+    render_to_html_with_inline_styles_opts(markdown, true)
+}
+
+/// Render markdown content to a complete HTML document with embedded styles and configurable
+/// hardbreak handling.
+pub fn render_to_html_with_inline_styles_opts(markdown: &str, hardbreaks: bool) -> String {
+    let html = render_to_html_opts(strip_frontmatter(markdown), hardbreaks);
     let html = convert_styled_wikilinks(&html);
     format!(
         r#"<!DOCTYPE html>
@@ -279,8 +291,21 @@ fn convert_callouts(html: &str) -> String {
     re.replace_all(html, |caps: &regex::Captures<'_>| {
         let callout_type = caps[1].to_lowercase();
         let fold_marker = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-        let title_text = caps[3].trim();
-        let first_body = caps[4].trim();
+        let mut title_text = caps[3].trim();
+        let mut first_body = caps[4].trim().to_string();
+        if let Some((before_break, after_break)) = split_once_break_tag(title_text) {
+            title_text = before_break.trim();
+            let after_break = after_break.trim();
+            if !after_break.is_empty() {
+                first_body = if first_body.is_empty() {
+                    after_break.to_string()
+                } else {
+                    format!("{after_break}\n{first_body}")
+                };
+            }
+        }
+        title_text = trim_trailing_break_tags(title_text);
+        let first_body = trim_leading_break_tags(&first_body);
         let rest = caps.get(5).map(|m| m.as_str().trim()).unwrap_or("");
 
         let title = if title_text.is_empty() {
@@ -318,6 +343,36 @@ fn convert_callouts(html: &str) -> String {
     .to_string()
 }
 
+fn split_once_break_tag(s: &str) -> Option<(&str, &str)> {
+    s.split_once("<br />").or_else(|| s.split_once("<br>"))
+}
+
+fn trim_leading_break_tags(s: &str) -> &str {
+    let mut trimmed = s.trim();
+    loop {
+        if let Some(rest) = trimmed.strip_prefix("<br />") {
+            trimmed = rest.trim_start();
+        } else if let Some(rest) = trimmed.strip_prefix("<br>") {
+            trimmed = rest.trim_start();
+        } else {
+            return trimmed;
+        }
+    }
+}
+
+fn trim_trailing_break_tags(s: &str) -> &str {
+    let mut trimmed = s.trim();
+    loop {
+        if let Some(rest) = trimmed.strip_suffix("<br />") {
+            trimmed = rest.trim_end();
+        } else if let Some(rest) = trimmed.strip_suffix("<br>") {
+            trimmed = rest.trim_end();
+        } else {
+            return trimmed;
+        }
+    }
+}
+
 fn capitalize(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
@@ -328,7 +383,9 @@ fn capitalize(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{render_to_html, render_to_html_with_inline_styles, strip_frontmatter};
+    use super::{
+        render_to_html, render_to_html_opts, render_to_html_with_inline_styles, strip_frontmatter,
+    };
 
     #[test]
     fn renders_basic_markdown() {
@@ -362,6 +419,18 @@ mod tests {
         assert!(html.contains("<table>"), "html was: {html}");
         assert!(html.contains("<thead>"), "html was: {html}");
         assert!(html.contains("<td>One</td>"), "html was: {html}");
+    }
+
+    #[test]
+    fn hardbreaks_converts_single_newline_to_br() {
+        let html = render_to_html("Line one\nLine two");
+        assert!(html.contains("<br"), "expected <br> in: {html}");
+    }
+
+    #[test]
+    fn no_hardbreaks_keeps_soft_break() {
+        let html = render_to_html_opts("Line one\nLine two", false);
+        assert!(!html.contains("<br"), "expected no <br> in: {html}");
     }
 
     #[test]

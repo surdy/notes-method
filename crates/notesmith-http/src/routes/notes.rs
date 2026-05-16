@@ -386,10 +386,11 @@ pub async fn render_note_html(
         .engine
         .read(&vault.root, &vault_path)
         .map_err(note_error)?;
+    let hardbreaks = !vault.vault_config.load().editor.strict_line_breaks;
     let html = if query.inline_styles {
-        notesmith_html::render_to_html_with_inline_styles(&content)
+        notesmith_html::render_to_html_with_inline_styles_opts(&content, hardbreaks)
     } else {
-        notesmith_html::render_to_html(notesmith_html::strip_frontmatter(&content))
+        notesmith_html::render_to_html_opts(notesmith_html::strip_frontmatter(&content), hardbreaks)
     };
     Ok(Html(html))
 }

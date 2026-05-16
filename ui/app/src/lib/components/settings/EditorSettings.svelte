@@ -38,6 +38,19 @@ cfg.editor.default_mode = v;
 <option value="live-preview">Live Preview</option>
 </select>
 </label>
+<label class="field field-toggle field-toggle-stack">
+<span class="field-label">Strict line breaks</span>
+<input
+type="checkbox"
+{...toggleField(saveImmediate, 'editor', cfg.editor.strict_line_breaks, (v) => {
+cfg.editor.strict_line_breaks = v;
+})}
+/>
+<span class="field-description">
+Require two newlines or trailing spaces for line breaks (standard Markdown). When off,
+single newlines create line breaks (Obsidian default).
+</span>
+</label>
 </section>
 
 <style>
@@ -70,9 +83,25 @@ accent-color: var(--ns-accent-bg);
 order: 1;
 }
 
+.field-toggle-stack {
+align-items: flex-start;
+}
+
+.field-toggle-stack .field-description {
+order: 2;
+margin-left: 26px;
+}
+
 .field-label {
 font-size: 12px;
 color: var(--ns-text-muted);
+}
+
+.field-description {
+font-size: 11px;
+color: var(--ns-text-muted);
+line-height: 1.4;
+max-width: 420px;
 }
 
 .field select {

@@ -764,7 +764,7 @@ async fn get_note_returns_full_note_metadata() {
 async fn get_note_html_renders_markdown_without_frontmatter() {
     let server = TestServer::with_files(&[(
         "Inbox/Rendered.md",
-        "---\nstatus: draft\n---\n# Heading\n\n[[Target]]\n\n> [!info] Title\n> body\n",
+        "---\nstatus: draft\n---\n# Heading\n\nLine one\nLine two\n\n[[Target]]\n\n> [!info] Title\n> body\n",
     )])
     .await;
 
@@ -777,6 +777,7 @@ async fn get_note_html_renders_markdown_without_frontmatter() {
     let body = response.text().await.unwrap();
     assert!(body.contains("<h1>Heading</h1>"), "body was: {body}");
     assert!(!body.contains("status: draft"), "body was: {body}");
+    assert!(body.contains("<br"), "body was: {body}");
     assert!(
         body.contains(r#"<a class="wikilink" data-target="Target">Target</a>"#),
         "body was: {body}"
@@ -787,6 +788,39 @@ async fn get_note_html_renders_markdown_without_frontmatter() {
     );
 
     server.server.abort();
+}
+
+#[tokio::test]
+async fn get_note_html_respects_strict_line_breaks_config() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path().join("vault");
+    fs::create_dir_all(root.join(".notesmith")).unwrap();
+    fs::write(
+        root.join(".notesmith/vault.toml"),
+        "name = \"test-vault\"\n\n[editor]\nstrict_line_breaks = true\n",
+    )
+    .unwrap();
+    write_note(&root, "Inbox/Rendered.md", "Line one\nLine two\n");
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = build_test_state(&root);
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, state).await.unwrap();
+    });
+
+    let response = reqwest::get(format!(
+        "http://{address}/api/v/test-vault/html/Inbox/Rendered.md"
+    ))
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.text().await.unwrap();
+    assert!(!body.contains("<br"), "body was: {body}");
+
+    server.abort();
 }
 
 #[tokio::test]
@@ -2256,6 +2290,7 @@ async fn get_vault_config_returns_config_with_etag() {
 
     let body = response.json::<serde_json::Value>().await.unwrap();
     assert_eq!(body["config"]["name"], "test-vault");
+    assert_eq!(body["config"]["editor"]["strict_line_breaks"], false);
     assert!(body["hash"].as_str().unwrap().len() > 10);
     assert_eq!(body["path"], ".notesmith/vault.toml");
     assert!(body["warnings"].is_object());
@@ -2295,7 +2330,7 @@ async fn put_vault_config_succeeds_with_correct_if_match() {
         "name": "test-vault",
         "capture": { "folder": "MyInbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source" },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2337,7 +2372,7 @@ async fn put_vault_config_returns_409_on_stale_if_match() {
         "name": "test-vault",
         "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source" },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2370,7 +2405,7 @@ async fn put_vault_config_returns_428_without_if_match() {
         "name": "test-vault",
         "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source" },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2416,7 +2451,7 @@ async fn put_vault_config_returns_422_with_invalid_data() {
             "timezone": "Mars/Olympus",
             "catch_up": false
         },
-        "editor": { "live_preview": true, "default_mode": "source" },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
         "git": { "enabled": false, "auto_commit_every": "banana" },
         "hooks": {}
     });
@@ -2451,7 +2486,7 @@ async fn put_vault_config_rejects_disallowed_origin() {
         "name": "test-vault",
         "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source" },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2491,7 +2526,7 @@ async fn get_after_put_reflects_changes() {
         "name": "test-vault",
         "capture": { "folder": "CustomInbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source" },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
         "git": { "enabled": false },
         "hooks": {}
     });

@@ -36,7 +36,7 @@ A --> B
 class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z internal-link;
 ```</code></pre>
 <p>This way, all the note names (at least until <code>Z[note name]</code>) are all automatically assigned the class <code>internal-link</code> when you use this snippet.</p>
-<p>If you use special characters in your note names, you need to put the note name in double quotes.
-<code>&quot;⨳ special character&quot;</code>
-It looks like this if you follow the <a class="wikilink" data-target="Format your notes#^376b9d">second option</a>:
+<p>If you use special characters in your note names, you need to put the note name in double quotes.<br />
+<code>&quot;⨳ special character&quot;</code><br />
+It looks like this if you follow the <a class="wikilink" data-target="Format your notes#^376b9d">second option</a>:<br />
 <code>A[&quot;⨳ special character&quot;]</code></p>

@@ -5,12 +5,12 @@ expression: html
 <pre><code class="language-md">*This text will be italic*
 _This will also be italic_
 </code></pre>
-<p><em>This text will be italic</em>
+<p><em>This text will be italic</em><br />
 <em>This will also be italic</em></p>
 <pre><code class="language-md">**This text will be bold**
 __This will also be bold__
 </code></pre>
-<p><strong>This text will be bold</strong>
+<p><strong>This text will be bold</strong><br />
 <strong>This will also be bold</strong></p>
 <pre><code class="language-md">_You **can** combine them_
 </code></pre>

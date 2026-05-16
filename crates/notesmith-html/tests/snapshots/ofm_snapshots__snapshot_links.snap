@@ -7,7 +7,7 @@ expression: html
 <pre><code class="language-md">http://obsidian.md - automatic!
 [Obsidian](http://obsidian.md)
 </code></pre>
-<p>http://obsidian.md - automatic!
+<p>http://obsidian.md - automatic!<br />
 <a href="http://obsidian.md">Obsidian</a></p>
 <h4>Obsidian URI links</h4>
 <p>Obsidian URI links can be used to open notes in Obsidian either from another Obsidian vault or another program.</p>

@@ -73,6 +73,7 @@ For each customer there would be a folder containing:
 - Notes should auto-save shortly after edits and support explicit save with the platform save shortcut.
 - If a file changes on disk while the editor is clean, the editor should silently reload; if it is dirty, the editor should warn and let me reload or keep my in-memory edits.
 - OFM affordances should stay visible while editing, especially wikilinks, tags, task checkboxes, callout markers, inline fields, and YAML frontmatter.
+- Reading and preview rendering should default to Obsidian-style single-newline line breaks, with an editor config toggle to restore strict CommonMark line-break behavior when desired.
 - Dashboard notes should stay as normal markdown files in the editor; fenced `notesmith` and `notesmith sql` blocks should execute read-only SQL against the cache and render inline result tables.
 
 ## Desktop App UX

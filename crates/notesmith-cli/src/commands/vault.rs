@@ -162,6 +162,10 @@ fn cmd_info(
             println!("[editor]");
             println!("  live_preview:  {}", vault_config.editor.live_preview);
             println!("  default_mode:  {}", vault_config.editor.default_mode);
+            println!(
+                "  strict_line_breaks:  {}",
+                vault_config.editor.strict_line_breaks
+            );
             println!();
             println!("[git]");
             println!("  enabled: {}", vault_config.git.enabled);
@@ -189,6 +193,7 @@ fn cmd_info(
                     "editor": {
                         "live_preview": vault_config.editor.live_preview,
                         "default_mode": vault_config.editor.default_mode,
+                        "strict_line_breaks": vault_config.editor.strict_line_breaks,
                     },
                     "git": {
                         "enabled": vault_config.git.enabled,

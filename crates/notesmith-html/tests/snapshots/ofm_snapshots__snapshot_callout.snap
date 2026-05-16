@@ -11,7 +11,7 @@ expression: html
 &gt; It supports **markdown** and <a class="wikilink" data-target="Internal link">wikilinks</a>.
 </code></pre>
 <p>It will show up like this:</p>
-<div class="callout callout-info"><div class="callout-title">Info</div><div class="callout-body">Here's a callout block.
+<div class="callout callout-info"><div class="callout-title">Info</div><div class="callout-body">Here's a callout block.<br />
 It supports <strong>markdown</strong> and <a class="wikilink" data-target="Internal link">wikilinks</a>.</div></div>
 <h3>Types</h3>
 <p>By default, there are 12 distinct callout types, each with several aliases. Each type comes with a different background color and icon.</p>
