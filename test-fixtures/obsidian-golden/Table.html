@@ -1,0 +1,62 @@
+<p>You can create tables by assembling a list of words and dividing them with hyphens <code>-</code> (for the first row), and then separating each column with a pipe <code>|</code>:</p>
+<pre class="language-md"><code class="language-md is-loaded"><span class="token table"><span class="token table-header-row"><span class="token table-header important">First Header </span><span class="token punctuation">|</span><span class="token table-header important"> Second Header</span>
+</span><span class="token table-line"><span class="token punctuation">------------</span> <span class="token punctuation">|</span> <span class="token punctuation">------------</span>
+</span><span class="token table-data-rows"><span class="token table-data">Content from cell 1 </span><span class="token punctuation">|</span><span class="token table-data"> Content from cell 2</span>
+<span class="token table-data">Content in the first column </span><span class="token punctuation">|</span><span class="token table-data"> Content in the second column</span>
+</span></span></code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<table>
+<thead>
+<tr>
+<th>First Header</th>
+<th>Second Header</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Content from cell 1</td>
+<td>Content from cell 2</td>
+</tr>
+<tr>
+<td>Content in the first column</td>
+<td>Content in the second column</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<pre class="language-md"><code class="language-md is-loaded"><span class="token table"><span class="token table-header-row"><span class="token table-header important">Tables can be justified with a colon </span><span class="token punctuation">|</span><span class="token table-header important"> Another example with a long title</span>
+</span><span class="token table-line"><span class="token punctuation">:----------------</span><span class="token punctuation">|</span><span class="token punctuation">-------------:</span>
+</span><span class="token table-data-rows"><span class="token table-data">because of the <span class="token code-snippet code keyword">`:`</span> </span><span class="token punctuation">|</span><span class="token table-data"> these will be justified</span>
+</span></span></code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<table>
+<thead>
+<tr>
+<th align="left">Tables can be justified with a colon</th>
+<th align="right">Another example with a long title</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="left">because of the <code>:</code></td>
+<td align="right">these will be justified</td>
+</tr>
+</tbody>
+</table>
+<p>If you put links in tables, they will work, but if you use Piped Links, the pipe must be escaped with a <code>\</code> to prevent it being read as a table element.</p>
+<pre class="language-md"><code class="language-md is-loaded"><span class="token table"><span class="token table-header-row"><span class="token table-header important">First Header </span><span class="token punctuation">|</span><span class="token table-header important"> Second Header</span>
+</span><span class="token table-line"><span class="token punctuation">------------</span> <span class="token punctuation">|</span> <span class="token punctuation">------------</span>
+</span><span class="token table-data-rows"><span class="token table-data">[[Format your notes\|Formatting]]	</span><span class="token punctuation">|</span><span class="token table-data">  [[Callouts\|Callouts]]</span>
+</span></span></code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<table>
+<thead>
+<tr>
+<th>First Header</th>
+<th>Second Header</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a data-tooltip-position="top" aria-label="Format your notes" data-href="Format your notes" href="Format your notes" class="internal-link" target="_blank" rel="noopener nofollow">Formatting</a></td>
+<td><a data-tooltip-position="top" aria-label="Callout" data-href="Callout" href="Callout" class="internal-link" target="_blank" rel="noopener nofollow">Callouts</a></td>
+</tr>
+</tbody>
+</table>

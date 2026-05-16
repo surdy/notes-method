@@ -1,0 +1,53 @@
+<p>As of v0.14.0, Obsidian supports callout blocks, sometimes called "admonitions". Callout blocks are written as a blockquote, inspired by the "alert" syntax from Microsoft Docs.</p>
+<p>Callouts are also supported natively on Obsidian Publish.</p>
+<div data-callout-metadata="" data-callout-fold="" data-callout="note" class="callout node-insert-event"><div class="callout-title"><div class="callout-icon"><svg width="16" height="16"></svg></div><div class="callout-title-inner">Note</div></div><div class="callout-content">
+<p>For compatibility reasons, if you're also using the Admonitions plugin, you should update it to at least v8.0.0 to avoid problems with the new callout system.</p>
+</div></div>
+<p>Use the following syntax to denote a callout block: <code>&gt; [!INFO]</code>.</p>
+<pre class="language-markdown"><code class="language-markdown is-loaded"><span class="token blockquote punctuation">&gt;</span> [!INFO]
+<span class="token blockquote punctuation">&gt;</span> Here's a callout block.
+<span class="token blockquote punctuation">&gt;</span> It supports <span class="token bold"><span class="token punctuation">**</span><span class="token content">markdown</span><span class="token punctuation">**</span></span> and [[Internal link|wikilinks]].
+</code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<p>It will show up like this:</p>
+<div data-callout-metadata="" data-callout-fold="" data-callout="info" class="callout node-insert-event"><div class="callout-title"><div class="callout-icon"><svg width="16" height="16"></svg></div><div class="callout-title-inner">Info</div></div><div class="callout-content">
+<p>Here's a callout block.<br>
+It supports <strong>markdown</strong> and <a data-tooltip-position="top" aria-label="Internal link" data-href="Internal link" href="Internal link" class="internal-link" target="_blank" rel="noopener nofollow">wikilinks</a>.</p>
+</div></div>
+<h3 data-heading="Types">Types</h3>
+<p>By default, there are 12 distinct callout types, each with several aliases. Each type comes with a different background color and icon.</p>
+<p>To use these default styles, replace <code>INFO</code> in the examples with any of these types. Any unrecognized type will default to the "note" type, unless they are <a data-tooltip-position="top" aria-label="Customizations" data-href="#Customizations" href="#Customizations" class="internal-link" target="_blank" rel="noopener nofollow">customized</a>. The type identifier is case insensitive.</p>
+<ul>
+<li>note</li>
+<li>abstract, summary, tldr</li>
+<li>info, todo</li>
+<li>tip, hint, important</li>
+<li>success, check, done</li>
+<li>question, help, faq</li>
+<li>warning, caution, attention</li>
+<li>failure, fail, missing</li>
+<li>danger, error</li>
+<li>bug</li>
+<li>example</li>
+<li>quote, cite</li>
+</ul>
+<h3 data-heading="Title and body">Title and body</h3>
+<p>You can define the title of the callout block, and you can also have a callout without body content.</p>
+<pre class="language-markdown"><code class="language-markdown is-loaded"><span class="token blockquote punctuation">&gt;</span> [!TIP] Callouts can have custom titles, which also supports <span class="token bold"><span class="token punctuation">**</span><span class="token content">markdown</span><span class="token punctuation">**</span></span>!
+</code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<h3 data-heading="Folding">Folding</h3>
+<p>Additionally, you can create a folding callout by adding <code>+</code> (default expanded) or <code>-</code> (default collapsed) after the block.</p>
+<pre class="language-markdown"><code class="language-markdown is-loaded"><span class="token blockquote punctuation">&gt;</span> [!FAQ]- Are callouts foldable?
+<span class="token blockquote punctuation">&gt;</span> Yes! In a foldable callout, the contents are hidden until it is expanded.
+</code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<p>Will show up as:</p>
+<div data-callout-metadata="" data-callout-fold="-" data-callout="faq" class="callout is-collapsible is-collapsed node-insert-event"><div class="callout-title"><div class="callout-icon"><svg width="16" height="16"></svg></div><div class="callout-title-inner">Are callouts foldable?</div><div class="callout-fold is-collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-chevron-down"><path d="m6 9 6 6 6-6"></path></svg></div></div><div class="callout-content" style="display: none;">
+<p>Yes! In a foldable callout, the contents are hidden until it is expanded.</p>
+</div></div>
+<h3 data-heading="Customizations">Customizations</h3>
+<p>Snippets and plugins can define custom callouts too, or overwrite the default options. Callout types and icons are defined in CSS, where the color is an <code>r, g, b</code> tuple and the icon is the icon ID from any internally supported icon (like <code>lucide-info</code>). Alternatively, you can specify an SVG icon as a string.</p>
+<pre class="language-css"><code class="language-css is-loaded"><span class="token selector"><span class="token class">.callout</span><span class="token attribute"><span class="token punctuation">[</span><span class="token attr-name">data-callout</span><span class="token operator">=</span><span class="token attr-value">"my-callout-type"</span><span class="token punctuation">]</span></span></span> <span class="token punctuation">{</span>
+    <span class="token variable">--callout-color</span><span class="token punctuation">:</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">;</span>
+    <span class="token variable">--callout-icon</span><span class="token punctuation">:</span> icon-id<span class="token punctuation">;</span>
+    <span class="token variable">--callout-icon</span><span class="token punctuation">:</span> <span class="token string">'&lt;svg&gt;...custom svg...&lt;/svg&gt;'</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
