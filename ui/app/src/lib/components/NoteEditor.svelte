@@ -31,7 +31,7 @@ import { findActiveHeadingIndex, parseHeadings } from '$lib/editor/headings';
 import { createLivePreviewExtension } from '$lib/editor/live-preview';
 import { createOFMDecorations } from '$lib/editor/ofm-decorations';
 import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-blocks';
-import { notesmithTheme } from '$lib/editor/theme';
+import { headingHighlightOverride, notesmithTheme } from '$lib/editor/theme';
 import { headingStore } from '$lib/heading-store.svelte';
 import { shouldLoadSelectedNote } from '$lib/note-loading';
 import { isDashboardNote } from '$lib/right-rail';
@@ -288,6 +288,7 @@ return true;
 ]),
 markdown({ base: markdownLanguage, codeLanguages: languages }),
 syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+headingHighlightOverride,
 notesmithTheme,
 createSqlBlockPlugin(() => vaultStore.currentVault),
 createOFMDecorations({

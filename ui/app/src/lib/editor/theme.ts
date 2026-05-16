@@ -1,4 +1,13 @@
 import { EditorView } from '@codemirror/view';
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
+
+/** Override defaultHighlightStyle's heading underline */
+export const headingHighlightOverride = syntaxHighlighting(
+	HighlightStyle.define([
+		{ tag: tags.heading, textDecoration: 'none' }
+	])
+);
 
 export const notesmithTheme = EditorView.theme(
 {
@@ -98,10 +107,9 @@ accentColor: '#b180d7'
 opacity: '0.6',
 accentColor: '#ffb347'
 },
-'.cm-header-1': { fontSize: '1.6em', fontWeight: 'bold', textDecoration: 'none' },
-'.cm-header-2': { fontSize: '1.3em', fontWeight: 'bold', textDecoration: 'none' },
-'.cm-header-3': { fontSize: '1.1em', fontWeight: 'bold', textDecoration: 'none' },
-'.cm-header-4, .cm-header-5, .cm-header-6': { textDecoration: 'none' },
+'.cm-header-1': { fontSize: '1.6em', fontWeight: 'bold' },
+'.cm-header-2': { fontSize: '1.3em', fontWeight: 'bold' },
+'.cm-header-3': { fontSize: '1.1em', fontWeight: 'bold' },
 '.cm-strong': { fontWeight: 'bold' },
 '.cm-emphasis': { fontStyle: 'italic' },
 '.cm-link': { color: 'var(--ns-accent)', textDecoration: 'underline' },
