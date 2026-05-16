@@ -60,8 +60,11 @@ letterSpacing: '0.03em',
 textTransform: 'uppercase'
 },
 '.cm-frontmatter-line': {
-backgroundColor: 'var(--ns-surface-elevated)',
+backgroundColor: 'var(--ns-editor-frontmatter-bg)',
 color: 'var(--ns-text-muted)'
+},
+'.cm-frontmatter-gutter': {
+backgroundColor: 'var(--ns-editor-frontmatter-bg)'
 },
 '.cm-frontmatter-delimiter': {
 color: '#6a9955',

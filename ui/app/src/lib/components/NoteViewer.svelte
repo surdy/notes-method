@@ -112,23 +112,6 @@
 	{:else if error}
 		<div class="error">{error}</div>
 	{:else}
-		{#if Object.keys(frontmatter).length > 0}
-			<div class="frontmatter">
-				<table>
-					<tbody>
-						{#each Object.entries(frontmatter) as [key, value] (key)}
-							<tr>
-								<td class="fm-key">{key}</td>
-								<td class="fm-value">
-									{typeof value === 'object' ? JSON.stringify(value) : String(value)}
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
-
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="content" onclick={handleClick}>
@@ -151,31 +134,6 @@
 		justify-content: center;
 		height: 100%;
 		color: var(--ns-text-muted);
-	}
-
-	.frontmatter {
-		background: var(--ns-surface);
-		border: 1px solid var(--ns-border);
-		border-radius: 6px;
-		padding: 12px 16px;
-		margin-bottom: 20px;
-		font-size: 13px;
-	}
-
-	.frontmatter table {
-		width: 100%;
-		border-collapse: collapse;
-	}
-
-	.fm-key {
-		font-weight: 600;
-		padding: 2px 12px 2px 0;
-		color: var(--ns-accent);
-		white-space: nowrap;
-	}
-
-	.fm-value {
-		padding: 2px 0;
 	}
 
 	.content :global(h1) {
