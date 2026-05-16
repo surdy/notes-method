@@ -985,9 +985,17 @@ The daemon keeps a ring buffer of the most recent 100 SSE events. Clients may al
   "vault": "work",
   "type": "note.created",
   "path": "Follow Up.md",
-  "timestamp": "2026-05-09T16:30:00.123-0700"
+  "timestamp": "2026-05-09T16:30:00.123-0700",
+  "hash": "8f1c7e..."
 }
 ```
+
+The `hash` field is present on `note.created` and `note.updated` events and
+holds the Blake3 hex digest of the saved note contents. Clients can compare
+this to the hash returned by their preceding write to recognise echoes of
+their own saves and suppress spurious "file changed on disk" warnings.
+Events that do not announce a content change (e.g. `note.deleted`,
+`note.moved`, `task.updated`) omit the field.
 
 **Config event payloads:**
 

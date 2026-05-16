@@ -79,6 +79,8 @@ pub struct VaultEvent {
     pub timestamp: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<ConfigDetail>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -143,7 +145,17 @@ impl VaultEvent {
             path: path.into(),
             timestamp: Local::now().format("%Y-%m-%dT%H:%M:%S%.3f%z").to_string(),
             config: None,
+            hash: None,
         }
+    }
+
+    /// Attach the blake3 hex hash of the note contents to this event. Used by
+    /// clients to recognise echoes of their own writes and suppress spurious
+    /// "file changed on disk" warnings.
+    #[must_use]
+    pub fn with_hash(mut self, hash: impl Into<String>) -> Self {
+        self.hash = Some(hash.into());
+        self
     }
 
     pub fn config_event(
@@ -159,6 +171,7 @@ impl VaultEvent {
             path: path.into(),
             timestamp: Local::now().format("%Y-%m-%dT%H:%M:%S%.3f%z").to_string(),
             config: Some(detail),
+            hash: None,
         }
     }
 }
@@ -205,6 +218,21 @@ mod tests {
         let event = VaultEvent::new("v", EventType::NoteUpdated, "x.md");
         let json: serde_json::Value = serde_json::to_value(&event).unwrap();
         assert!(json.get("config").is_none());
+    }
+
+    #[test]
+    fn event_omits_hash_when_unset() {
+        let event = VaultEvent::new("v", EventType::NoteUpdated, "x.md");
+        let json: serde_json::Value = serde_json::to_value(&event).unwrap();
+        assert!(json.get("hash").is_none());
+    }
+
+    #[test]
+    fn event_includes_hash_when_set() {
+        let event =
+            VaultEvent::new("v", EventType::NoteUpdated, "x.md").with_hash("deadbeef".to_string());
+        let json: serde_json::Value = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["hash"], "deadbeef");
     }
 
     #[test]

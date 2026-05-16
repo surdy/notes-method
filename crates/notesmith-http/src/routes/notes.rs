@@ -340,7 +340,8 @@ pub async fn create_note(
     events::emit(
         &state.event_tx,
         &state.event_buffer,
-        VaultEvent::new(&vault_name, EventType::NoteCreated, note_path.as_str()),
+        VaultEvent::new(&vault_name, EventType::NoteCreated, note_path.as_str())
+            .with_hash(response.hash.clone()),
     );
 
     Ok((StatusCode::CREATED, Json(response)))
@@ -419,7 +420,8 @@ pub async fn put_note(
     events::emit(
         &state.event_tx,
         &state.event_buffer,
-        VaultEvent::new(&vault_name, EventType::NoteUpdated, note_path.as_str()),
+        VaultEvent::new(&vault_name, EventType::NoteUpdated, note_path.as_str())
+            .with_hash(response.hash.clone()),
     );
 
     Ok(Json(response))
@@ -462,7 +464,8 @@ pub async fn patch_note(
     events::emit(
         &state.event_tx,
         &state.event_buffer,
-        VaultEvent::new(&vault_name, EventType::NoteUpdated, note_path.as_str()),
+        VaultEvent::new(&vault_name, EventType::NoteUpdated, note_path.as_str())
+            .with_hash(response.hash.clone()),
     );
 
     Ok(Json(response))
@@ -525,7 +528,8 @@ pub async fn append_note(
     events::emit(
         &state.event_tx,
         &state.event_buffer,
-        VaultEvent::new(&vault_name, EventType::NoteUpdated, note_path.as_str()),
+        VaultEvent::new(&vault_name, EventType::NoteUpdated, note_path.as_str())
+            .with_hash(response.hash.clone()),
     );
 
     Ok(Json(response))

@@ -616,7 +616,8 @@ fn handle_note_change(
                     event_context.vault_name,
                     EventType::NoteUpdated,
                     relative_path,
-                ),
+                )
+                .with_hash(note.hash.clone()),
             );
         }
     }

@@ -27,6 +27,7 @@ import { classifyError } from '$lib/api/error-classify';
 import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 import { countWords, editorStatus, getCursorPosition } from '$lib/editor-status.svelte';
 import { createAutoSave } from '$lib/editor/auto-save';
+import { createExternalChangeDedup } from '$lib/editor/external-change-dedup';
 import { findActiveHeadingIndex, parseHeadings } from '$lib/editor/headings';
 import { createLivePreviewExtension } from '$lib/editor/live-preview';
 import { createOFMDecorations } from '$lib/editor/ofm-decorations';
@@ -60,13 +61,38 @@ let error = $state<EditorErrorState | null>(null);
 let conflictBanner = $state<{ show: boolean; path: string } | null>(null);
 let dirty = $state(false);
 let saveError = $state<EditorErrorState | null>(null);
-let ignoreExternalChange: { path: string; expiresAt: number } | null = null;
+const externalChangeDedup = createExternalChangeDedup(() => currentHash);
 let headingTimer: number | null = null;
 let wordCountTimer: number | null = null;
 let loadBanner = $derived(error ? classifyError(error.cause, error.endpointHint) : null);
 let saveBanner = $derived(saveError ? classifyError(saveError.cause, saveError.endpointHint) : null);
 
 const livePreviewCompartment = new Compartment();
+
+function applyExternalChangeOutcome(
+	changedPath: string,
+	outcome: ReturnType<typeof externalChangeDedup.handle>
+) {
+	switch (outcome.kind) {
+		case 'suppress':
+		case 'buffered':
+			return;
+		case 'reload':
+			void loadNote(changedPath);
+			return;
+		case 'conflict':
+			conflictBanner = { show: true, path: changedPath };
+	}
+}
+
+function drainOutcomes(outcomes: ReturnType<typeof externalChangeDedup.recordSavedHash>) {
+	if (!currentPath) {
+		return;
+	}
+	for (const outcome of outcomes) {
+		applyExternalChangeOutcome(currentPath, outcome);
+	}
+}
 
 function setEditorError(
 	cause: unknown,
@@ -135,6 +161,7 @@ return saveQueue.save(vaultStore.currentVault, currentPath, content, {
 });
 },
 onSaving: () => {
+externalChangeDedup.beginSave();
 saveError = null;
 clearApiError();
 },
@@ -145,19 +172,18 @@ saveError = null;
 clearApiError();
 if (currentPath) {
 tabStore.markDirty(currentPath, false);
-ignoreExternalChange = {
-path: currentPath,
-expiresAt: Date.now() + 1500
-};
 }
+drainOutcomes(externalChangeDedup.recordSavedHash(hash));
 },
 onError: (cause) => {
+const outcomes = externalChangeDedup.cancelSave();
 if (cause instanceof ApiError && cause.status === 409) {
 if (currentPath) {
 conflictBanner = { show: true, path: currentPath };
 }
 return;
 }
+drainOutcomes(outcomes);
 setSaveError(cause, 'save-note', () => void retryCurrentSave());
 console.error('Auto-save failed', cause);
 }
@@ -341,6 +367,7 @@ saveError = null;
 clearApiError();
 conflictBanner = null;
 dirty = false;
+externalChangeDedup.reset();
 destroyEditor();
 currentPath = null;
 currentHash = null;
@@ -393,11 +420,11 @@ return;
 }
 
 try {
-await toggleTaskStatus(vaultStore.currentVault, currentPath, taskHash, status);
-ignoreExternalChange = {
-path: currentPath,
-expiresAt: Date.now() + 1500
-};
+const response = await toggleTaskStatus(vaultStore.currentVault, currentPath, taskHash, status);
+// Remember the hash the server just wrote so the watcher's NoteUpdated
+// echo for this toggle is suppressed when it arrives.
+currentHash = response.hash;
+externalChangeDedup.rememberHash(response.hash);
 await loadNote(currentPath);
 } catch (cause) {
 	setSaveError(cause, 'toggle-task', () => void handleTaskToggle(taskHash, status));
@@ -405,26 +432,12 @@ console.error('Failed to toggle task', cause);
 }
 }
 
-export function handleExternalChange(changedPath: string) {
+export function handleExternalChange(changedPath: string, changedHash?: string) {
 if (changedPath !== currentPath) {
 return;
 }
-
-if (
-ignoreExternalChange?.path === changedPath &&
-ignoreExternalChange.expiresAt > Date.now()
-) {
-ignoreExternalChange = null;
-return;
-}
-ignoreExternalChange = null;
-
-if (!dirty) {
-void loadNote(changedPath);
-return;
-}
-
-conflictBanner = { show: true, path: changedPath };
+const outcome = externalChangeDedup.handle({ path: changedPath, hash: changedHash }, dirty);
+applyExternalChangeOutcome(changedPath, outcome);
 }
 
 export function refreshSqlBlocks() {

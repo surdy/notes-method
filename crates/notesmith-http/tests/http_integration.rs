@@ -2063,6 +2063,101 @@ async fn sse_receives_note_created_event() {
 }
 
 #[tokio::test]
+async fn sse_note_updated_event_includes_hash_matching_put_response() {
+    let server = TestServer::empty().await;
+
+    // Seed an existing note via API.
+    let client = reqwest::Client::new();
+    let create_resp = client
+        .post(server.url("/api/v/test-vault/notes"))
+        .json(&serde_json::json!({
+            "title": "Hash Echo Test",
+            "content": "initial body"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create_resp.status(), reqwest::StatusCode::CREATED);
+    let created: serde_json::Value = create_resp.json().await.unwrap();
+    let note_path = created["path"].as_str().unwrap().to_string();
+
+    // Connect SSE *after* the create so we only see the upcoming update.
+    let sse_url = server.url("/api/v/test-vault/events");
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(10);
+    let sse_client = reqwest::Client::new();
+    let sse_task = tokio::spawn(async move {
+        use futures::StreamExt;
+        let response = sse_client.get(&sse_url).send().await.unwrap();
+        let mut stream = response.bytes_stream();
+        while let Some(Ok(chunk)) = stream.next().await {
+            let text = String::from_utf8_lossy(&chunk).to_string();
+            let _ = tx.send(text).await;
+        }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let put_resp = client
+        .put(server.url(&format!("/api/v/test-vault/notes/{note_path}")))
+        .json(&serde_json::json!({
+            "content": "updated body"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(put_resp.status(), reqwest::StatusCode::OK);
+    let put_body: serde_json::Value = put_resp.json().await.unwrap();
+    let response_hash = put_body["hash"].as_str().unwrap().to_string();
+    assert!(
+        !response_hash.is_empty(),
+        "PUT response must include a hash"
+    );
+
+    // Collect SSE chunks until we see a note.updated payload.
+    let mut buffered = String::new();
+    let event_payload = loop {
+        let chunk = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv())
+            .await
+            .expect("timeout waiting for note.updated SSE event")
+            .unwrap();
+        buffered.push_str(&chunk);
+        if let Some(payload) = extract_note_updated_payload(&buffered) {
+            break payload;
+        }
+    };
+
+    let parsed: serde_json::Value = serde_json::from_str(&event_payload)
+        .unwrap_or_else(|err| panic!("SSE payload was not valid JSON ({err}): {event_payload}"));
+    assert_eq!(parsed["type"], "note.updated");
+    assert_eq!(parsed["path"], note_path);
+    assert_eq!(
+        parsed["hash"].as_str().unwrap(),
+        response_hash,
+        "event hash must match the PUT response hash to enable client-side dedup"
+    );
+
+    sse_task.abort();
+    server.server.abort();
+}
+
+/// Scan a buffered SSE chunk stream for the first `data: { ... }` payload whose
+/// event type is `note.updated`. Returns the JSON-encoded payload, if any.
+fn extract_note_updated_payload(buffer: &str) -> Option<String> {
+    for line in buffer.lines() {
+        let Some(payload) = line.strip_prefix("data:") else {
+            continue;
+        };
+        let payload = payload.trim();
+        if !payload.starts_with('{') {
+            continue;
+        }
+        if payload.contains("\"type\":\"note.updated\"") {
+            return Some(payload.to_string());
+        }
+    }
+    None
+}
+
+#[tokio::test]
 async fn sse_filters_events_by_vault() {
     let server = TestServer::empty().await;
     let client = reqwest::Client::new();

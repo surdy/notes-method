@@ -31,7 +31,7 @@
 	let sidebarViewsRef = $state<{ refresh: () => void; reloadConfig: () => void } | null>(null);
 	let noteEditorRef = $state<
 		| {
-				handleExternalChange: (path: string) => void;
+				handleExternalChange: (path: string, hash?: string) => void;
 				refreshSqlBlocks: () => void;
 				flushSave: () => Promise<void>;
 		  }
@@ -85,8 +85,8 @@
 		onOpenSettings: () =>
 			void goto(`${base}/settings?vault=${encodeURIComponent(vaultStore.currentVault)}`),
 		onNotesChanged: refreshContextPanels,
-		onExternalNoteChange: (path) => {
-			noteEditorRef?.handleExternalChange(path);
+		onExternalNoteChange: (path, hash) => {
+			noteEditorRef?.handleExternalChange(path, hash);
 		},
 		onTaskUpdated: refreshContextPanels,
 		onSidebarConfigChanged: () => {

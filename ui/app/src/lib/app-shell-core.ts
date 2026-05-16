@@ -17,7 +17,7 @@ export interface AppShellCallbacks {
 	onToggleRightRail: () => void;
 	onOpenSettings: () => void;
 	onNotesChanged: () => void;
-	onExternalNoteChange: (path: string) => void;
+	onExternalNoteChange: (path: string, hash?: string) => void;
 	onTaskUpdated: () => void;
 	onSidebarConfigChanged: () => void;
 	onVaultConfigChanged: () => void;
@@ -28,6 +28,7 @@ export interface AppShellCallbacks {
 export interface AppShellEvent {
 	refreshNotes: boolean;
 	externalNotePath: string | null;
+	externalNoteHash: string | null;
 	taskUpdated: boolean;
 	sidebarConfigChanged: boolean;
 	vaultConfigChanged: boolean;
@@ -104,10 +105,12 @@ export function classifyAppShellEvent(event: VaultEvent): AppShellEvent {
 		}
 	}
 
+	const isExternalNoteEvent = event.type === 'note.updated' || event.type === 'note.created';
+
 	return {
 		refreshNotes,
-		externalNotePath:
-			event.type === 'note.updated' || event.type === 'note.created' ? event.path : null,
+		externalNotePath: isExternalNoteEvent ? event.path : null,
+		externalNoteHash: isExternalNoteEvent ? (event.hash ?? null) : null,
 		taskUpdated: event.type === 'task.updated',
 		sidebarConfigChanged,
 		vaultConfigChanged,
@@ -201,7 +204,10 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 		}
 
 		if (appEvent.externalNotePath) {
-			callbacks.onExternalNoteChange(appEvent.externalNotePath);
+			callbacks.onExternalNoteChange(
+				appEvent.externalNotePath,
+				appEvent.externalNoteHash ?? undefined
+			);
 		}
 
 		if (!appEvent.refreshNotes && appEvent.taskUpdated) {

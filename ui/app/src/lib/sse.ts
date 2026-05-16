@@ -16,6 +16,13 @@ export interface VaultEvent {
 	path: string;
 	timestamp: string;
 	config?: ConfigDetail;
+	/**
+	 * Blake3 hex hash of the note contents. Present on `note.created`,
+	 * `note.updated`, and other content-change events; absent otherwise.
+	 * Clients use this to recognise echoes of their own writes and
+	 * suppress spurious "file changed on disk" warnings.
+	 */
+	hash?: string;
 }
 
 const NAMED_EVENT_TYPES = [

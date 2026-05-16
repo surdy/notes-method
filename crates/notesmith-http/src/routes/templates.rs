@@ -102,10 +102,14 @@ pub async fn instantiate_template(
         .instantiate(&template_name, &prompts, &vault.engine)
     {
         Ok(rendered) => {
+            let hash = blake3::hash(rendered.content.as_bytes())
+                .to_hex()
+                .to_string();
             events::emit(
                 &state.event_tx,
                 &state.event_buffer,
-                VaultEvent::new(&vault_name, EventType::NoteCreated, &rendered.path),
+                VaultEvent::new(&vault_name, EventType::NoteCreated, &rendered.path)
+                    .with_hash(hash),
             );
             Ok((StatusCode::CREATED, Json(json!({ "path": rendered.path }))))
         }

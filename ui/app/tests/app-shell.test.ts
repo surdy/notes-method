@@ -71,7 +71,7 @@ function createCallbacks() {
 		toggleRightRail: 0,
 		openSettings: 0,
 		notesChanged: 0,
-		externalNoteChanges: [] as string[],
+		externalNoteChanges: [] as Array<{ path: string; hash?: string }>,
 		taskUpdated: 0,
 		sidebarConfigChanged: 0,
 		vaultConfigChanged: 0,
@@ -100,8 +100,8 @@ function createCallbacks() {
 			onNotesChanged: () => {
 				calls.notesChanged += 1;
 			},
-			onExternalNoteChange: (path: string) => {
-				calls.externalNoteChanges.push(path);
+			onExternalNoteChange: (path: string, hash?: string) => {
+				calls.externalNoteChanges.push({ path, hash });
 			},
 			onTaskUpdated: () => {
 				calls.taskUpdated += 1;
@@ -252,13 +252,16 @@ test('createAppShell dispatches SSE events to the right page callbacks', { concu
 			vault: 'work',
 			type: 'note.updated',
 			path: 'Inbox/Refactor.md',
-			timestamp: new Date().toISOString()
+			timestamp: new Date().toISOString(),
+			hash: 'cafebabe'
 		});
 		await Promise.resolve();
 
 		assert.equal(vaultStore.loadNotesCalls, 2);
 		assert.equal(calls.notesChanged, 1);
-		assert.deepEqual(calls.externalNoteChanges, ['Inbox/Refactor.md']);
+		assert.deepEqual(calls.externalNoteChanges, [
+			{ path: 'Inbox/Refactor.md', hash: 'cafebabe' }
+		]);
 
 		onEvent?.({
 			vault: 'work',
@@ -542,4 +545,55 @@ test('createAppShell flushes queued saves after SSE reconnects', { concurrency: 
 	} finally {
 		globalThis.fetch = originalFetch;
 	}
+});
+
+test('classifyAppShellEvent surfaces hash for note.updated and note.created events', async () => {
+const { classifyAppShellEvent } = await import('../src/lib/app-shell-core.ts');
+
+const updated = classifyAppShellEvent({
+vault: 'work',
+type: 'note.updated',
+path: 'Inbox/Refactor.md',
+timestamp: new Date().toISOString(),
+hash: 'cafebabe'
+});
+assert.equal(updated.externalNotePath, 'Inbox/Refactor.md');
+assert.equal(updated.externalNoteHash, 'cafebabe');
+assert.equal(updated.refreshNotes, true);
+
+const created = classifyAppShellEvent({
+vault: 'work',
+type: 'note.created',
+path: 'Inbox/New.md',
+timestamp: new Date().toISOString(),
+hash: 'deadbeef'
+});
+assert.equal(created.externalNotePath, 'Inbox/New.md');
+assert.equal(created.externalNoteHash, 'deadbeef');
+});
+
+test('classifyAppShellEvent leaves hash null when event payload omits it', async () => {
+const { classifyAppShellEvent } = await import('../src/lib/app-shell-core.ts');
+
+const updated = classifyAppShellEvent({
+vault: 'work',
+type: 'note.updated',
+path: 'Inbox/Refactor.md',
+timestamp: new Date().toISOString()
+});
+assert.equal(updated.externalNotePath, 'Inbox/Refactor.md');
+assert.equal(updated.externalNoteHash, null);
+});
+
+test('classifyAppShellEvent ignores hash for non-note events', async () => {
+const { classifyAppShellEvent } = await import('../src/lib/app-shell-core.ts');
+
+const deleted = classifyAppShellEvent({
+vault: 'work',
+type: 'note.deleted',
+path: 'Inbox/Old.md',
+timestamp: new Date().toISOString()
+});
+assert.equal(deleted.externalNotePath, null);
+assert.equal(deleted.externalNoteHash, null);
 });
