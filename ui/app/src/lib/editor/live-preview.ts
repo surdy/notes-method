@@ -56,10 +56,22 @@ function cursorLines(view: EditorView): Set<number> {
 	return lines;
 }
 
+function frontmatterEndLine(view: EditorView): number {
+	const doc = view.state.doc;
+	if (doc.lines < 1) return 0;
+	const first = doc.line(1);
+	if (first.text !== '---') return 0;
+	for (let i = 2; i <= doc.lines; i++) {
+		if (doc.line(i).text === '---') return i;
+	}
+	return 0;
+}
+
 function buildLivePreviewDecorations(view: EditorView): DecorationSet {
 	const decorations: Range<Decoration>[] = [];
 	const activeLines = cursorLines(view);
 	const tree = syntaxTree(view.state);
+	const fmEnd = frontmatterEndLine(view);
 
 	for (const { from, to } of view.visibleRanges) {
 		tree.iterate({
@@ -195,6 +207,8 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
 
 				// Bullet list markers: replace `- ` / `* ` / `+ ` with a bullet
 				if (name === 'ListMark') {
+					// Skip markers inside frontmatter
+					if (nodeStartLine <= fmEnd) return;
 					const parent = node.node.parent;
 					if (parent?.parent?.type.name === 'BulletList') {
 						const markText = view.state.doc.sliceString(node.from, node.to);
