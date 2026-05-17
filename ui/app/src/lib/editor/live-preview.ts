@@ -10,6 +10,16 @@ class HorizontalRuleWidget extends WidgetType {
 	}
 }
 
+class BulletWidget extends WidgetType {
+	toDOM(): HTMLElement {
+		const span = document.createElement('span');
+		span.className = 'cm-lp-bullet';
+		span.textContent = '•';
+		return span;
+	}
+}
+
+const bulletReplace = Decoration.replace({ widget: new BulletWidget() });
 const hideMark = Decoration.replace({});
 
 const renderedHeading1 = Decoration.line({ class: 'cm-lp-h1' });
@@ -181,6 +191,19 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
 						cursor = cursor.nextSibling;
 					}
 					return false;
+				}
+
+				// Bullet list markers: replace `- ` / `* ` / `+ ` with a bullet
+				if (name === 'ListMark') {
+					const parent = node.node.parent;
+					if (parent?.parent?.type.name === 'BulletList') {
+						const markText = view.state.doc.sliceString(node.from, node.to);
+						if (markText === '-' || markText === '*' || markText === '+') {
+							// Replace the marker character (keep trailing space)
+							decorations.push(bulletReplace.range(node.from, node.to));
+						}
+					}
+					return;
 				}
 
 				// Horizontal rule: replace with widget

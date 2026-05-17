@@ -184,6 +184,11 @@ accentColor: '#ffb347'
 	borderTop: '1px solid var(--ns-border-strong)',
 	margin: '8px 0',
 	display: 'block'
+},
+'.cm-lp-bullet': {
+	color: 'var(--ns-editor-text-secondary)',
+	fontSize: '1.1em',
+	marginRight: '1px'
 }
 },
 { dark: true }
