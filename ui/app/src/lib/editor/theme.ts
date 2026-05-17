@@ -9,6 +9,66 @@ export const headingHighlightOverride = syntaxHighlighting(
 	])
 );
 
+export const livePreviewTableTheme = {
+'.cm-lp-table-wrapper': {
+	margin: '1em 16px',
+	overflowX: 'auto',
+	position: 'relative'
+},
+'.cm-lp-table-toolbar': {
+	display: 'flex',
+	gap: '6px',
+	position: 'absolute',
+	top: '-22px',
+	right: '0',
+	zIndex: '1',
+	opacity: '0.72'
+},
+'.cm-lp-table-wrapper:hover .cm-lp-table-toolbar, .cm-lp-table-toolbar:focus-within': {
+	opacity: '1'
+},
+'.cm-lp-table-button': {
+	border: '1px solid var(--ns-editor-border)',
+	borderRadius: '999px',
+	backgroundColor: 'var(--ns-editor-bg)',
+	color: 'var(--ns-editor-text-secondary)',
+	font: 'inherit',
+	fontSize: '12px',
+	lineHeight: '1',
+	padding: '5px 8px',
+	cursor: 'pointer'
+},
+'.cm-lp-table-button:hover': {
+	backgroundColor: 'var(--ns-surface-hover)',
+	color: 'var(--ns-editor-text)'
+},
+'.cm-lp-table': {
+	borderCollapse: 'collapse'
+},
+'.cm-lp-table th': {
+	border: '1px solid var(--ns-editor-border)',
+	padding: '6px 12px',
+	textAlign: 'left',
+	verticalAlign: 'top',
+	color: 'var(--ns-editor-text)',
+	fontWeight: '600'
+},
+'.cm-lp-table td': {
+	border: '1px solid var(--ns-editor-border)',
+	padding: '6px 12px',
+	verticalAlign: 'top'
+},
+'.cm-lp-table-cell': {
+	minWidth: '72px',
+	cursor: 'text',
+	outline: 'none'
+},
+'.cm-lp-table-cell:focus': {
+	backgroundColor: 'var(--ns-editor-selection)',
+	boxShadow: '0 0 0 1px var(--ns-accent) inset'
+}
+} as const;
+
 export const notesmithTheme = EditorView.theme(
 {
 '&': {
@@ -190,60 +250,7 @@ accentColor: '#ffb347'
 	fontSize: '1.1em',
 	marginRight: '1px'
 },
-'.cm-lp-table-wrapper': {
-	margin: '8px 16px',
-	overflowX: 'auto'
-},
-'.cm-lp-table-toolbar': {
-	display: 'flex',
-	gap: '6px',
-	marginBottom: '6px'
-},
-'.cm-lp-table-button': {
-	border: '1px solid var(--ns-border)',
-	borderRadius: '999px',
-	backgroundColor: 'var(--ns-surface)',
-	color: 'var(--ns-text-secondary)',
-	font: 'inherit',
-	fontSize: '12px',
-	lineHeight: '1',
-	padding: '5px 8px',
-	cursor: 'pointer'
-},
-'.cm-lp-table-button:hover': {
-	backgroundColor: 'var(--ns-surface-hover)',
-	color: 'var(--ns-text)'
-},
-'.cm-lp-table': {
-	width: '100%',
-	borderCollapse: 'collapse',
-	fontFamily: 'var(--ns-editor-font, ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace)',
-	fontSize: '14px'
-},
-'.cm-lp-table th': {
-	textAlign: 'left',
-	padding: '6px 10px',
-	borderBottom: '2px solid var(--ns-border-strong)',
-	color: 'var(--ns-editor-text)',
-	fontWeight: '600'
-},
-'.cm-lp-table td': {
-	padding: '5px 10px',
-	borderBottom: '1px solid var(--ns-border)'
-},
-'.cm-lp-table tr:hover td': {
-	backgroundColor: 'var(--ns-surface-hover)'
-},
-'.cm-lp-table-cell': {
-	minWidth: '72px',
-	cursor: 'text',
-	borderRadius: '4px',
-	outline: 'none'
-},
-'.cm-lp-table-cell:focus': {
-	backgroundColor: 'var(--ns-editor-selection)',
-	boxShadow: '0 0 0 1px var(--ns-accent) inset'
-}
+...livePreviewTableTheme
 },
 { dark: true }
 );
