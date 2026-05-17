@@ -1,5 +1,5 @@
-import { type Extension, type Range } from '@codemirror/state';
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
+import { type EditorState, type Extension, type Range } from '@codemirror/state';
+import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import {
 	addMarkdownTableColumn,
@@ -201,11 +201,11 @@ const strikethroughMark = Decoration.mark({ class: 'cm-lp-strikethrough' });
 const linkTextMark = Decoration.mark({ class: 'cm-lp-link-text' });
 const inlineCodeMark = Decoration.mark({ class: 'cm-lp-inline-code' });
 
-function cursorLines(view: EditorView): Set<number> {
+function cursorLines(state: EditorState): Set<number> {
 	const lines = new Set<number>();
-	for (const range of view.state.selection.ranges) {
-		const startLine = view.state.doc.lineAt(range.from).number;
-		const endLine = view.state.doc.lineAt(range.to).number;
+	for (const range of state.selection.ranges) {
+		const startLine = state.doc.lineAt(range.from).number;
+		const endLine = state.doc.lineAt(range.to).number;
 		for (let n = startLine; n <= endLine; n++) {
 			lines.add(n);
 		}
@@ -213,8 +213,8 @@ function cursorLines(view: EditorView): Set<number> {
 	return lines;
 }
 
-function frontmatterEndLine(view: EditorView): number {
-	const doc = view.state.doc;
+function frontmatterEndLine(state: EditorState): number {
+	const doc = state.doc;
 	if (doc.lines < 1) return 0;
 	const first = doc.line(1);
 	if (first.text !== '---') return 0;
@@ -224,19 +224,20 @@ function frontmatterEndLine(view: EditorView): number {
 	return 0;
 }
 
-function buildLivePreviewDecorations(view: EditorView): DecorationSet {
+export function buildLivePreviewDecorationsForState(state: EditorState): DecorationSet {
 	const decorations: Range<Decoration>[] = [];
-	const activeLines = cursorLines(view);
-	const tree = syntaxTree(view.state);
-	const fmEnd = frontmatterEndLine(view);
+	const activeLines = cursorLines(state);
+	const tree = syntaxTree(state);
+	const fmEnd = frontmatterEndLine(state);
+	const doc = state.doc;
 
-	for (const { from, to } of view.visibleRanges) {
+	for (const { from, to } of [{ from: 0, to: doc.length }]) {
 		tree.iterate({
 			from,
 			to,
 			enter(node) {
-				const nodeStartLine = view.state.doc.lineAt(node.from).number;
-				const nodeEndLine = view.state.doc.lineAt(node.to).number;
+				const nodeStartLine = doc.lineAt(node.from).number;
+				const nodeEndLine = doc.lineAt(Math.max(node.from, node.to - 1)).number;
 
 				// Check if any line of this node intersects with cursor lines
 				let onCursorLine = false;
@@ -250,9 +251,9 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
 				const name = node.type.name;
 
 				if (name === 'Table') {
-					const rawText = view.state.doc.sliceString(node.from, node.to);
-					const startLine = view.state.doc.lineAt(node.from);
-					const endLine = view.state.doc.lineAt(Math.max(node.from, node.to - 1));
+					const rawText = doc.sliceString(node.from, node.to);
+					const startLine = doc.lineAt(node.from);
+					const endLine = doc.lineAt(Math.max(node.from, node.to - 1));
 					decorations.push(
 						Decoration.replace({
 							widget: new TableWidget(rawText, node.from, node.to),
@@ -268,7 +269,7 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
 				if (name.startsWith('ATXHeading') && name.length === 11) {
 					const level = parseInt(name[10], 10);
 					if (level >= 1 && level <= 6) {
-						const line = view.state.doc.lineAt(node.from);
+						const line = doc.lineAt(node.from);
 						decorations.push(headingDecorations[level - 1].range(line.from));
 
 						// Find and hide the HeaderMark (the # chars + trailing space)
@@ -381,7 +382,7 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
 					if (nodeStartLine <= fmEnd) return;
 					const parent = node.node.parent;
 					if (parent?.parent?.type.name === 'BulletList') {
-						const markText = view.state.doc.sliceString(node.from, node.to);
+						const markText = doc.sliceString(node.from, node.to);
 						if (markText === '-' || markText === '*' || markText === '+') {
 							// Replace the marker character (keep trailing space)
 							decorations.push(bulletReplace.range(node.from, node.to));
@@ -408,22 +409,5 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
 }
 
 export function createLivePreviewExtension(): Extension {
-	return ViewPlugin.fromClass(
-		class {
-			decorations: DecorationSet;
-
-			constructor(view: EditorView) {
-				this.decorations = buildLivePreviewDecorations(view);
-			}
-
-			update(update: { docChanged: boolean; selectionSet: boolean; viewportChanged: boolean; view: EditorView }) {
-				if (update.docChanged || update.selectionSet || update.viewportChanged) {
-					this.decorations = buildLivePreviewDecorations(update.view);
-				}
-			}
-		},
-		{
-			decorations: (value) => value.decorations
-		}
-	);
+	return EditorView.decorations.compute(['doc', 'selection'], buildLivePreviewDecorationsForState);
 }
