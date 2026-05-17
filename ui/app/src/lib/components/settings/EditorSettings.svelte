@@ -39,6 +39,18 @@ cfg.editor.default_mode = v;
 </select>
 </label>
 <label class="field field-toggle field-toggle-stack">
+<span class="field-label">Show line numbers</span>
+<input
+type="checkbox"
+{...toggleField(saveImmediate, 'editor', cfg.editor.show_line_numbers, (v) => {
+cfg.editor.show_line_numbers = v;
+})}
+/>
+<span class="field-description">
+Show line numbers in Source and Live Preview editor modes.
+</span>
+</label>
+<label class="field field-toggle field-toggle-stack">
 <span class="field-label">Strict line breaks</span>
 <input
 type="checkbox"

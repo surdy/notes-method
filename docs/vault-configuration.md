@@ -84,6 +84,7 @@ catch_up = false              # Create missed daily notes on startup (default: f
 live_preview = true           # Enable Live Preview mode (default: true)
 default_mode = "source"       # Default view mode: "source", "live-preview", or "reading"
 strict_line_breaks = false   # Use standard Markdown soft breaks instead of Obsidian-style single-newline breaks
+show_line_numbers = true      # Show line numbers in Source and Live Preview modes (default: true)
 
 [git]
 enabled = false               # Enable git integration (default: false)
@@ -117,6 +118,7 @@ Top-level fields:
 - `live_preview` — enable Live Preview mode (default: `true`)
 - `default_mode` — `source`, `live-preview`, or `reading` (default: `source`)
 - `strict_line_breaks` — require standard Markdown line breaks; when `false`, single newlines render as line breaks like Obsidian (default: `false`)
+- `show_line_numbers` — show line numbers in Source and Live Preview editor modes (default: `true`)
 
 `[git]`:
 - `enabled` — enable per-vault git integration (default: `false`)

@@ -95,7 +95,7 @@ Detection order:
 
 ### `vault info`
 
-Show vault configuration summary (name, root, capture/daily/editor/git settings).
+Show vault configuration summary (name, root, capture/daily/editor/git settings, including editor line-number visibility).
 
 ```bash
 notesmith vault info

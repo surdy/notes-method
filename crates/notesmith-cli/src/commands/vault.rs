@@ -166,6 +166,10 @@ fn cmd_info(
                 "  strict_line_breaks:  {}",
                 vault_config.editor.strict_line_breaks
             );
+            println!(
+                "  show_line_numbers:  {}",
+                vault_config.editor.show_line_numbers
+            );
             println!();
             println!("[git]");
             println!("  enabled: {}", vault_config.git.enabled);
@@ -194,6 +198,7 @@ fn cmd_info(
                         "live_preview": vault_config.editor.live_preview,
                         "default_mode": vault_config.editor.default_mode,
                         "strict_line_breaks": vault_config.editor.strict_line_breaks,
+                        "show_line_numbers": vault_config.editor.show_line_numbers,
                     },
                     "git": {
                         "enabled": vault_config.git.enabled,

@@ -2291,6 +2291,7 @@ async fn get_vault_config_returns_config_with_etag() {
     let body = response.json::<serde_json::Value>().await.unwrap();
     assert_eq!(body["config"]["name"], "test-vault");
     assert_eq!(body["config"]["editor"]["strict_line_breaks"], false);
+    assert_eq!(body["config"]["editor"]["show_line_numbers"], true);
     assert!(body["hash"].as_str().unwrap().len() > 10);
     assert_eq!(body["path"], ".notesmith/vault.toml");
     assert!(body["warnings"].is_object());

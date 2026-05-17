@@ -24,6 +24,7 @@
 	import { inputPalette } from '$lib/input-palette.svelte';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
+	import { settingsStore } from '$lib/settings.svelte';
 
 	let vaults = $state<string[]>([]);
 	let showCommandPalette = $state(false);
@@ -92,7 +93,11 @@
 		onSidebarConfigChanged: () => {
 			sidebarViewsRef?.reloadConfig();
 		},
-		onVaultConfigChanged: () => {},
+		onVaultConfigChanged: () => {
+			if (vaultStore.currentVault) {
+				void settingsStore.handleExternalConfigChange(vaultStore.currentVault);
+			}
+		},
 		onConfigError: (error) => {
 			showConfigToast(error, 'error');
 		},
@@ -106,6 +111,13 @@
 		void shell.init(vaultParam, vaults);
 
 		return shell.teardown;
+	});
+
+	$effect(() => {
+		const vault = vaultStore.currentVault;
+		if (vault) {
+			void settingsStore.loadConfig(vault);
+		}
 	});
 </script>
 

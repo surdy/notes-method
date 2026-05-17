@@ -6,9 +6,7 @@ EditorView,
 drawSelection,
 dropCursor,
 highlightActiveLine,
-highlightActiveLineGutter,
-keymap,
-lineNumbers
+keymap
 } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
@@ -29,6 +27,7 @@ import { countWords, editorStatus, getCursorPosition } from '$lib/editor-status.
 import { createAutoSave } from '$lib/editor/auto-save';
 import { createExternalChangeDedup } from '$lib/editor/external-change-dedup';
 import { findActiveHeadingIndex, parseHeadings } from '$lib/editor/headings';
+import { createLineNumberExtensions } from '$lib/editor/line-numbers';
 import { createLivePreviewExtension } from '$lib/editor/live-preview';
 import { createOFMDecorations } from '$lib/editor/ofm-decorations';
 import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-blocks';
@@ -37,6 +36,7 @@ import { headingStore } from '$lib/heading-store.svelte';
 import { shouldLoadSelectedNote } from '$lib/note-loading';
 import { isDashboardNote } from '$lib/right-rail';
 import { saveQueue } from '$lib/save-queue';
+import { settingsStore } from '$lib/settings.svelte';
 import { clearApiError, reportApiError } from '$lib/stores/api-errors.svelte';
 import { tabStore } from '$lib/tab-store.svelte';
 import { vaultStore } from '$lib/stores.svelte';
@@ -68,6 +68,11 @@ let loadBanner = $derived(error ? classifyError(error.cause, error.endpointHint)
 let saveBanner = $derived(saveError ? classifyError(saveError.cause, saveError.endpointHint) : null);
 
 const livePreviewCompartment = new Compartment();
+const lineNumbersCompartment = new Compartment();
+
+function showLineNumbers(): boolean {
+	return settingsStore.draftConfig?.editor.show_line_numbers ?? true;
+}
 
 function applyExternalChangeOutcome(
 	changedPath: string,
@@ -284,8 +289,7 @@ const documentText = buildEditorDocument(note);
 const state = EditorState.create({
 doc: documentText,
 extensions: [
-lineNumbers(),
-highlightActiveLineGutter(),
+lineNumbersCompartment.of(createLineNumberExtensions(showLineNumbers())),
 highlightActiveLine(),
 drawSelection(),
 dropCursor(),
@@ -526,6 +530,16 @@ untrack(() => {
 		effects: livePreviewCompartment.reconfigure(
 			mode === 'live-preview' ? createLivePreviewExtension() : []
 		)
+	});
+});
+});
+
+$effect(() => {
+const enabled = showLineNumbers();
+untrack(() => {
+	if (!view) return;
+	view.dispatch({
+		effects: lineNumbersCompartment.reconfigure(createLineNumberExtensions(enabled))
 	});
 });
 });
