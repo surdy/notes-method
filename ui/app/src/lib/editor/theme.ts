@@ -189,6 +189,60 @@ accentColor: '#ffb347'
 	color: 'var(--ns-editor-text-secondary)',
 	fontSize: '1.1em',
 	marginRight: '1px'
+},
+'.cm-lp-table-wrapper': {
+	margin: '8px 16px',
+	overflowX: 'auto'
+},
+'.cm-lp-table-toolbar': {
+	display: 'flex',
+	gap: '6px',
+	marginBottom: '6px'
+},
+'.cm-lp-table-button': {
+	border: '1px solid var(--ns-border)',
+	borderRadius: '999px',
+	backgroundColor: 'var(--ns-surface)',
+	color: 'var(--ns-text-secondary)',
+	font: 'inherit',
+	fontSize: '12px',
+	lineHeight: '1',
+	padding: '5px 8px',
+	cursor: 'pointer'
+},
+'.cm-lp-table-button:hover': {
+	backgroundColor: 'var(--ns-surface-hover)',
+	color: 'var(--ns-text)'
+},
+'.cm-lp-table': {
+	width: '100%',
+	borderCollapse: 'collapse',
+	fontFamily: 'var(--ns-editor-font, ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace)',
+	fontSize: '14px'
+},
+'.cm-lp-table th': {
+	textAlign: 'left',
+	padding: '6px 10px',
+	borderBottom: '2px solid var(--ns-border-strong)',
+	color: 'var(--ns-editor-text)',
+	fontWeight: '600'
+},
+'.cm-lp-table td': {
+	padding: '5px 10px',
+	borderBottom: '1px solid var(--ns-border)'
+},
+'.cm-lp-table tr:hover td': {
+	backgroundColor: 'var(--ns-surface-hover)'
+},
+'.cm-lp-table-cell': {
+	minWidth: '72px',
+	cursor: 'text',
+	borderRadius: '4px',
+	outline: 'none'
+},
+'.cm-lp-table-cell:focus': {
+	backgroundColor: 'var(--ns-editor-selection)',
+	boxShadow: '0 0 0 1px var(--ns-accent) inset'
 }
 },
 { dark: true }
