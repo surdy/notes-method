@@ -9,7 +9,7 @@
 	type RailLink = { path: string; label: string };
 	type RailTab = 'metadata' | 'links' | 'toc';
 
-	let collapsed = $state(false);
+	let { collapsed = false }: { collapsed?: boolean } = $props();
 	let activeTab = $state<RailTab>('metadata');
 	let backlinks = $state<SqlQueryResult>(emptySqlResult());
 	let outgoingLinks = $state<SqlQueryResult>(emptySqlResult());
@@ -146,22 +146,9 @@
 		}
 	}
 
-	export function toggle() {
-		collapsed = !collapsed;
-	}
 </script>
 
 <div class="rail-shell" class:collapsed>
-	<button
-		class="rail-toggle"
-		type="button"
-		aria-expanded={!collapsed}
-		aria-label={collapsed ? 'Expand right rail' : 'Collapse right rail'}
-		onclick={toggle}
-	>
-		{collapsed ? '◀' : '▶'}
-	</button>
-
 	<div class="rail-panel">
 		<div class="rail-header">
 			<div>
@@ -276,29 +263,9 @@
 <style>
 	.rail-shell {
 		position: relative;
-		width: 260px;
+		width: 100%;
 		height: 100%;
-		transition: width 180ms ease;
-		flex: 0 0 auto;
-		overflow: visible;
-	}
-
-	.rail-shell.collapsed {
-		width: 0;
-	}
-
-	.rail-toggle {
-		position: absolute;
-		top: 12px;
-		left: -28px;
-		width: 28px;
-		height: 32px;
-		border-radius: 8px 0 0 8px;
-		border: 1px solid var(--ns-border);
-		border-right: none;
-		background: var(--ns-sidebar-bg);
-		color: inherit;
-		z-index: 2;
+		overflow: hidden;
 	}
 
 	.rail-panel {

@@ -105,13 +105,13 @@
 	.tab-bar {
 		display: flex;
 		align-items: stretch;
+		flex: 1;
 		gap: 1px;
 		min-height: 36px;
 		padding: 0 8px;
 		overflow-x: auto;
 		overflow-y: hidden;
-		background: var(--ns-panel-bg-strong);
-		border-bottom: 1px solid var(--ns-border);
+		background: transparent;
 		scrollbar-width: thin;
 	}
 
