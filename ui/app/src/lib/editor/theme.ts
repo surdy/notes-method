@@ -13,13 +13,14 @@ export const livePreviewTableTheme = {
 '.cm-lp-table-wrapper': {
 	margin: '1em 16px',
 	overflowX: 'auto',
+	paddingTop: '28px',
 	position: 'relative'
 },
 '.cm-lp-table-toolbar': {
 	display: 'flex',
 	gap: '6px',
 	position: 'absolute',
-	top: '-22px',
+	top: '0',
 	right: '0',
 	zIndex: '1',
 	opacity: '0.72'

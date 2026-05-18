@@ -7,11 +7,12 @@ describe('live preview table theme', () => {
 		expect(livePreviewTableTheme['.cm-lp-table-wrapper']).toMatchObject({
 			margin: '1em 16px',
 			overflowX: 'auto',
+			paddingTop: '28px',
 			position: 'relative'
 		});
 		expect(livePreviewTableTheme['.cm-lp-table-toolbar']).toMatchObject({
 			position: 'absolute',
-			top: '-22px',
+			top: '0',
 			right: '0'
 		});
 		expect(livePreviewTableTheme['.cm-lp-table']).toMatchObject({
