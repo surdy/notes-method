@@ -121,3 +121,27 @@ export function addMarkdownTableColumn(table: MarkdownTable): MarkdownTable {
 		rows: table.rows.map((row) => [...row, ''])
 	};
 }
+
+export function removeMarkdownTableRow(table: MarkdownTable): MarkdownTable {
+	return {
+		headers: [...table.headers],
+		alignments: [...table.alignments],
+		rows: table.rows.slice(0, -1).map((row) => [...row])
+	};
+}
+
+export function removeMarkdownTableColumn(table: MarkdownTable): MarkdownTable {
+	if (table.headers.length <= 1) {
+		return {
+			headers: [...table.headers],
+			alignments: [...table.alignments],
+			rows: table.rows.map((row) => [...row])
+		};
+	}
+
+	return {
+		headers: table.headers.slice(0, -1),
+		alignments: table.alignments.slice(0, -1),
+		rows: table.rows.map((row) => row.slice(0, -1))
+	};
+}

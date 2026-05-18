@@ -5,6 +5,8 @@ import {
 	addMarkdownTableColumn,
 	addMarkdownTableRow,
 	parseMarkdownTable,
+	removeMarkdownTableColumn,
+	removeMarkdownTableRow,
 	serializeMarkdownTable,
 	updateMarkdownTableCell,
 	type MarkdownTable,
@@ -70,7 +72,17 @@ class TableWidget extends WidgetType {
 		toolbar.className = 'cm-lp-table-toolbar';
 		toolbar.append(
 			this.createButton('+ Row', () => replaceTable(addMarkdownTableRow(latestTable()))),
-			this.createButton('+ Column', () => replaceTable(addMarkdownTableColumn(latestTable())))
+			this.createButton(
+				'- Row',
+				() => replaceTable(removeMarkdownTableRow(latestTable())),
+				table.rows.length === 0
+			),
+			this.createButton('+ Column', () => replaceTable(addMarkdownTableColumn(latestTable()))),
+			this.createButton(
+				'- Column',
+				() => replaceTable(removeMarkdownTableColumn(latestTable())),
+				table.headers.length <= 1
+			)
 		);
 		wrapper.appendChild(toolbar);
 
@@ -124,14 +136,18 @@ class TableWidget extends WidgetType {
 		return wrapper;
 	}
 
-	private createButton(label: string, onClick: () => void): HTMLButtonElement {
+	private createButton(label: string, onClick: () => void, disabled = false): HTMLButtonElement {
 		const button = document.createElement('button');
 		button.type = 'button';
 		button.className = 'cm-lp-table-button';
 		button.textContent = label;
+		button.disabled = disabled;
 		button.addEventListener('click', (event) => {
 			event.preventDefault();
 			event.stopPropagation();
+			if (button.disabled) {
+				return;
+			}
 			onClick();
 		});
 		return button;

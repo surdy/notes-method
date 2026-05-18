@@ -75,7 +75,7 @@ For each customer there would be a folder containing:
 - OFM affordances should stay visible while editing, especially wikilinks, tags, task checkboxes, callout markers, inline fields, and YAML frontmatter.
 - Reading and preview rendering should default to Obsidian-style single-newline line breaks, with an editor config toggle to restore strict CommonMark line-break behavior when desired.
 - Source and Live Preview editor modes should support a setting to show or hide CodeMirror line numbers, defaulting to visible.
-- Live Preview should render markdown tables as editable table widgets: cell text can be edited visually, and rows/columns can be appended without dropping into raw pipe syntax.
+- Live Preview should render markdown tables as editable table widgets: cell text can be edited visually, and rows/columns can be appended or removed without dropping into raw pipe syntax.
 - Dashboard notes should stay as normal markdown files in the editor; fenced `notesmith` and `notesmith sql` blocks should execute read-only SQL against the cache and render inline result tables.
 
 ## Desktop App UX

@@ -4,6 +4,8 @@ import {
 	addMarkdownTableColumn,
 	addMarkdownTableRow,
 	parseMarkdownTable,
+	removeMarkdownTableColumn,
+	removeMarkdownTableRow,
 	serializeMarkdownTable,
 	updateMarkdownTableCell
 } from './markdown-table.ts';
@@ -73,5 +75,29 @@ describe('markdown table model', () => {
 | --- | --- | --- |
 | Jane | CTO |  |
 |  |  |  |`);
+	});
+
+	it('visually removes the last row and column from the markdown table', () => {
+		const table = parseMarkdownTable(`| Name | Role | Column 3 |
+| --- | --- | --- |
+| Jane | CTO |  |
+|  |  |  |`);
+
+		const withoutRow = removeMarkdownTableRow(table);
+		const withoutColumn = removeMarkdownTableColumn(withoutRow);
+
+		expect(serializeMarkdownTable(withoutColumn)).toBe(`| Name | Role |
+| --- | --- |
+| Jane | CTO |`);
+	});
+
+	it('keeps at least one column when removing columns visually', () => {
+		const table = parseMarkdownTable(`| Name |
+| --- |
+| Jane |`);
+
+		expect(serializeMarkdownTable(removeMarkdownTableColumn(table))).toBe(`| Name |
+| --- |
+| Jane |`);
 	});
 });

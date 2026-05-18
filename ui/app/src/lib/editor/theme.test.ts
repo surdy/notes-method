@@ -33,5 +33,9 @@ describe('live preview table theme', () => {
 			'boxShadow',
 			'0 0 0 1px var(--ns-accent) inset'
 		);
+		expect(livePreviewTableTheme['.cm-lp-table-button:disabled']).toMatchObject({
+			opacity: '0.45',
+			cursor: 'not-allowed'
+		});
 	});
 });
