@@ -88,16 +88,23 @@ input[type="checkbox"] {
     margin-right: 0.5em;
 }
 .callout {
+    --callout-color: #448aff;
     margin: 1em 0;
     padding: 0.9em 1em;
-    border: 1px solid #bfdbfe;
+    border: 1px solid color-mix(in srgb, var(--callout-color) 42%, transparent);
+    border-left: 4px solid var(--callout-color);
     border-radius: 8px;
-    background: #eff6ff;
+    background: color-mix(in srgb, var(--callout-color) 13%, white);
 }
 .callout-title {
     margin-bottom: 0.35em;
     font-weight: 600;
-    color: #1d4ed8;
+    color: var(--callout-color);
+}
+.callout-title::before {
+    content: var(--callout-icon, "✎");
+    display: inline-block;
+    margin-right: 0.45em;
 }
 .callout-body > :first-child {
     margin-top: 0;
@@ -105,6 +112,22 @@ input[type="checkbox"] {
 .callout-body > :last-child {
     margin-bottom: 0;
 }
+.callout[data-fold="closed"] .callout-body {
+    display: none;
+}
+.callout-note { --callout-color: #448aff; --callout-icon: "✎"; }
+.callout-abstract { --callout-color: #00b0ff; --callout-icon: "☷"; }
+.callout-info { --callout-color: #00b8d4; --callout-icon: "ⓘ"; }
+.callout-todo { --callout-color: #00b8d4; --callout-icon: "☑"; }
+.callout-tip { --callout-color: #00bfa5; --callout-icon: "🔥"; }
+.callout-success { --callout-color: #00c853; --callout-icon: "✓"; }
+.callout-question { --callout-color: #64dd17; --callout-icon: "?"; }
+.callout-warning { --callout-color: #ff9100; --callout-icon: "⚠"; }
+.callout-failure { --callout-color: #ff5252; --callout-icon: "✕"; }
+.callout-danger { --callout-color: #ff1744; --callout-icon: "⚡"; }
+.callout-bug { --callout-color: #f50057; --callout-icon: "◉"; }
+.callout-example { --callout-color: #7c4dff; --callout-icon: "▦"; }
+.callout-quote { --callout-color: #9e9e9e; --callout-icon: "❝"; }
 "#;
 
 /// Render markdown content to HTML.
@@ -283,13 +306,60 @@ fn convert_extended_tasks(html: &str) -> String {
     .to_string()
 }
 
+fn canonical_callout_type(identifier: &str) -> &'static str {
+    match identifier {
+        "note" => "note",
+        "abstract" | "summary" | "tldr" => "abstract",
+        "info" => "info",
+        "todo" => "todo",
+        "tip" | "hint" | "important" => "tip",
+        "success" | "check" | "done" => "success",
+        "question" | "help" | "faq" => "question",
+        "warning" | "caution" | "attention" => "warning",
+        "failure" | "fail" | "missing" => "failure",
+        "danger" | "error" => "danger",
+        "bug" => "bug",
+        "example" => "example",
+        "quote" | "cite" => "quote",
+        _ => "note",
+    }
+}
+
 fn convert_callouts(html: &str) -> String {
+    let mut converted = html.to_string();
+    while let Some(next) = convert_one_innermost_callout(&converted) {
+        converted = next;
+    }
+    converted
+}
+
+fn convert_one_innermost_callout(html: &str) -> Option<String> {
+    let mut search_end = html.len();
+    while let Some(start) = html[..search_end].rfind("<blockquote>") {
+        let after_start = &html[start..];
+        let Some(close_start) = after_start.find("</blockquote>") else {
+            search_end = start;
+            continue;
+        };
+        let end = start + close_start + "</blockquote>".len();
+        let candidate = &html[start..end];
+        if let Some(replacement) = convert_callout_block(candidate) {
+            return Some(format!("{}{}{}", &html[..start], replacement, &html[end..]));
+        }
+        search_end = start;
+    }
+    None
+}
+
+fn convert_callout_block(html: &str) -> Option<String> {
     let re = Regex::new(
-        r"(?s)<blockquote>\s*<p>\[!([\w-]+)\]([+-])? ?([^\n]*)(.*?)</p>(.*?)</blockquote>",
+        r"(?s)^<blockquote>\s*<p>\[!([\w-]+)\]([+-])? ?([^\n]*)(.*?)</p>(.*?)</blockquote>$",
     )
     .expect("valid callout regex");
-    re.replace_all(html, |caps: &regex::Captures<'_>| {
-        let callout_type = caps[1].to_lowercase();
+    let caps = re.captures(html)?;
+    Some({
+        let callout_identifier = caps[1].to_lowercase();
+        let callout_type = canonical_callout_type(&callout_identifier);
         let fold_marker = caps.get(2).map(|m| m.as_str()).unwrap_or("");
         let mut title_text = caps[3].trim();
         let mut first_body = caps[4].trim().to_string();
@@ -309,14 +379,14 @@ fn convert_callouts(html: &str) -> String {
         let rest = caps.get(5).map(|m| m.as_str().trim()).unwrap_or("");
 
         let title = if title_text.is_empty() {
-            capitalize(&callout_type)
+            capitalize(&callout_identifier)
         } else {
             title_text.to_string()
         };
 
         let fold_attr = match fold_marker {
-            "+" => r#" data-fold="open""#,
-            "-" => r#" data-fold="closed""#,
+            "+" => r#" data-callout-fold="+" data-fold="open""#,
+            "-" => r#" data-callout-fold="-" data-fold="closed""#,
             _ => "",
         };
 
@@ -337,10 +407,9 @@ fn convert_callouts(html: &str) -> String {
         };
 
         format!(
-            r#"<div class="callout callout-{callout_type}"{fold_attr}><div class="callout-title">{title}</div>{body_html}</div>"#
+            r#"<div class="callout callout-{callout_type}" data-callout="{callout_identifier}"{fold_attr}><div class="callout-title">{title}</div>{body_html}</div>"#
         )
     })
-    .to_string()
 }
 
 fn split_once_break_tag(s: &str) -> Option<(&str, &str)> {
@@ -452,7 +521,7 @@ mod tests {
         let html = render_to_html("> [!info] Title\n> body");
 
         assert!(
-            html.contains(r#"<div class="callout callout-info">"#),
+            html.contains(r#"<div class="callout callout-info" data-callout="info">"#),
             "html was: {html}"
         );
         assert!(

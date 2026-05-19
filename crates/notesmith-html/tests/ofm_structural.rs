@@ -95,6 +95,7 @@ fn embed_with_section_ref_shows_note_name() {
 fn callout_produces_div_with_type_class() {
     let html = render_to_html("> [!warning] Watch out\n> Danger ahead");
     assert!(html.contains(r#"class="callout callout-warning""#));
+    assert!(html.contains(r#"data-callout="warning""#));
     assert!(html.contains("Watch out"));
 }
 
@@ -113,9 +114,13 @@ fn callout_without_title_uses_type_name() {
 #[test]
 fn foldable_callout_has_data_fold() {
     let collapsed = render_to_html("> [!faq]- Question\n> Answer");
+    assert!(collapsed.contains(r#"class="callout callout-question""#));
+    assert!(collapsed.contains(r#"data-callout="faq""#));
+    assert!(collapsed.contains(r#"data-callout-fold="-""#));
     assert!(collapsed.contains(r#"data-fold="closed""#));
 
     let expanded = render_to_html("> [!info]+ Details\n> Content");
+    assert!(expanded.contains(r#"data-callout-fold="+""#));
     assert!(expanded.contains(r#"data-fold="open""#));
 }
 
@@ -132,6 +137,58 @@ fn all_builtin_callout_types_recognized() {
             "callout type {ty} not recognized in: {html}"
         );
     }
+}
+
+#[test]
+fn builtin_callout_aliases_use_canonical_styles() {
+    let aliases = [
+        ("summary", "abstract"),
+        ("tldr", "abstract"),
+        ("hint", "tip"),
+        ("important", "tip"),
+        ("check", "success"),
+        ("done", "success"),
+        ("help", "question"),
+        ("faq", "question"),
+        ("caution", "warning"),
+        ("attention", "warning"),
+        ("fail", "failure"),
+        ("missing", "failure"),
+        ("error", "danger"),
+        ("cite", "quote"),
+    ];
+
+    for (alias, canonical) in aliases {
+        let html = render_to_html(&format!("> [!{alias}]"));
+        assert!(
+            html.contains(&format!(r#"class="callout callout-{canonical}""#)),
+            "callout alias {alias} should use {canonical} style: {html}"
+        );
+        assert!(
+            html.contains(&format!(r#"data-callout="{alias}""#)),
+            "callout alias should preserve identifier: {html}"
+        );
+    }
+}
+
+#[test]
+fn unsupported_callout_type_defaults_to_note_style() {
+    let html = render_to_html("> [!custom-type] Custom title\n> Body");
+
+    assert!(html.contains(r#"class="callout callout-note""#));
+    assert!(html.contains(r#"data-callout="custom-type""#));
+    assert!(html.contains("Custom title"));
+}
+
+#[test]
+fn nested_callouts_render_at_multiple_levels() {
+    let html = render_to_html(
+        "> [!question] Can callouts be nested?\n> > [!todo] Yes, they can.\n> > > [!example] Multiple layers.",
+    );
+
+    assert!(html.contains(r#"class="callout callout-question""#));
+    assert!(html.contains(r#"class="callout callout-todo""#));
+    assert!(html.contains(r#"class="callout callout-example""#));
 }
 
 // --- Extended Tasks ---

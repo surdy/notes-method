@@ -58,6 +58,16 @@
 			return;
 		}
 
+		const calloutTitle = target.closest('.callout[data-fold] .callout-title') as HTMLElement | null;
+		if (calloutTitle) {
+			const callout = calloutTitle.closest('.callout') as HTMLElement | null;
+			if (callout) {
+				event.preventDefault();
+				callout.dataset.fold = callout.dataset.fold === 'closed' ? 'open' : 'closed';
+			}
+			return;
+		}
+
 		// Handle wikilink clicks
 		const link = target.closest('a.wikilink') as HTMLAnchorElement | null;
 		if (!link) return;
@@ -178,25 +188,123 @@
 	}
 
 	.content :global(.callout) {
-		border-radius: 6px;
+		--ns-callout-current: var(--ns-callout-note);
+		--ns-callout-icon: '✎';
+		border: 1px solid color-mix(in srgb, var(--ns-callout-current) 42%, transparent);
+		border-left: 4px solid var(--ns-callout-current);
+		border-radius: 8px;
 		padding: 12px 16px;
 		margin: 1em 0;
-		border-left: 4px solid;
+		background: color-mix(in srgb, var(--ns-callout-current) 13%, var(--ns-editor-bg));
+		color: var(--ns-editor-text);
+	}
+
+	.content :global(.callout-title) {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		color: var(--ns-callout-current);
+		font-weight: 700;
+	}
+
+	.content :global(.callout-title::before) {
+		content: var(--ns-callout-icon);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		flex: 0 0 18px;
+	}
+
+	.content :global(.callout[data-fold] .callout-title) {
+		cursor: pointer;
+	}
+
+	.content :global(.callout[data-fold] .callout-title::after) {
+		content: '⌄';
+		margin-left: auto;
+		color: var(--ns-editor-text-muted);
+	}
+
+	.content :global(.callout[data-fold='closed'] .callout-title::after) {
+		content: '›';
+	}
+
+	.content :global(.callout[data-fold='closed'] .callout-body) {
+		display: none;
+	}
+
+	.content :global(.callout-body > :first-child) {
+		margin-top: 0;
+	}
+
+	.content :global(.callout-body > :last-child) {
+		margin-bottom: 0;
+	}
+
+	.content :global(.callout-note) {
+		--ns-callout-current: var(--ns-callout-note);
+		--ns-callout-icon: '✎';
+	}
+
+	.content :global(.callout-abstract) {
+		--ns-callout-current: var(--ns-callout-abstract);
+		--ns-callout-icon: '☷';
 	}
 
 	.content :global(.callout-info) {
-		border-color: var(--ns-info);
-		background: var(--ns-info-bg);
+		--ns-callout-current: var(--ns-callout-info);
+		--ns-callout-icon: 'ⓘ';
 	}
 
-	.content :global(.callout-warning) {
-		border-color: var(--ns-warning-callout-border);
-		background: var(--ns-warning-callout-bg);
+	.content :global(.callout-todo) {
+		--ns-callout-current: var(--ns-callout-todo);
+		--ns-callout-icon: '☑';
 	}
 
 	.content :global(.callout-tip) {
-		border-color: var(--ns-success);
-		background: var(--ns-success-bg);
+		--ns-callout-current: var(--ns-callout-tip);
+		--ns-callout-icon: '🔥';
+	}
+
+	.content :global(.callout-success) {
+		--ns-callout-current: var(--ns-callout-success);
+		--ns-callout-icon: '✓';
+	}
+
+	.content :global(.callout-question) {
+		--ns-callout-current: var(--ns-callout-question);
+		--ns-callout-icon: '?';
+	}
+
+	.content :global(.callout-warning) {
+		--ns-callout-current: var(--ns-callout-warning);
+		--ns-callout-icon: '⚠';
+	}
+
+	.content :global(.callout-failure) {
+		--ns-callout-current: var(--ns-callout-failure);
+		--ns-callout-icon: '✕';
+	}
+
+	.content :global(.callout-danger) {
+		--ns-callout-current: var(--ns-callout-danger);
+		--ns-callout-icon: '⚡';
+	}
+
+	.content :global(.callout-bug) {
+		--ns-callout-current: var(--ns-callout-bug);
+		--ns-callout-icon: '◉';
+	}
+
+	.content :global(.callout-example) {
+		--ns-callout-current: var(--ns-callout-example);
+		--ns-callout-icon: '▦';
+	}
+
+	.content :global(.callout-quote) {
+		--ns-callout-current: var(--ns-callout-quote);
+		--ns-callout-icon: '❝';
 	}
 
 	.content :global(input[type='checkbox']) {

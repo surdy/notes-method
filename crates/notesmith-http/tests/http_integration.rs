@@ -783,7 +783,7 @@ async fn get_note_html_renders_markdown_without_frontmatter() {
         "body was: {body}"
     );
     assert!(
-        body.contains(r#"<div class="callout callout-info">"#),
+        body.contains(r#"<div class="callout callout-info" data-callout="info">"#),
         "body was: {body}"
     );
 

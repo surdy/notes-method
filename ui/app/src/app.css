@@ -81,6 +81,22 @@
 	--ns-info-banner-text: #f3f8ff;
 	--ns-info-banner-text-muted: #d9ecff;
 
+	/* Callouts */
+	--ns-callout-current: var(--ns-callout-note);
+	--ns-callout-note: #448aff;
+	--ns-callout-abstract: #00b0ff;
+	--ns-callout-info: #00b8d4;
+	--ns-callout-todo: #00b8d4;
+	--ns-callout-tip: #00bfa5;
+	--ns-callout-success: #00c853;
+	--ns-callout-question: #64dd17;
+	--ns-callout-warning: #ff9100;
+	--ns-callout-failure: #ff5252;
+	--ns-callout-danger: #ff1744;
+	--ns-callout-bug: #f50057;
+	--ns-callout-example: #7c4dff;
+	--ns-callout-quote: #9e9e9e;
+
 	/* Editor */
 	--ns-editor-bg: #1e1e1e;
 	--ns-editor-text: #e0e0e0;
