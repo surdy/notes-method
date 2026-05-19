@@ -36,15 +36,18 @@ type CalloutBlock = {
 const CALLOUT_RE = /^\s*>\s*\[!([\w-]+)\]([+-])?\s*(.*)$/;
 
 class CodeBlockWidget extends WidgetType {
-	constructor(private rawText: string) {
+	constructor(
+		private rawText: string,
+		private from: number
+	) {
 		super();
 	}
 
 	eq(other: CodeBlockWidget): boolean {
-		return this.rawText === other.rawText;
+		return this.rawText === other.rawText && this.from === other.from;
 	}
 
-	toDOM(): HTMLElement {
+	toDOM(view: EditorView): HTMLElement {
 		const { language, code } = parseFencedCodeBlock(this.rawText);
 		const pre = document.createElement('pre');
 		pre.className = 'cm-lp-code-block';
@@ -58,7 +61,21 @@ class CodeBlockWidget extends WidgetType {
 			console.error('Failed to highlight live preview code block', cause);
 		});
 
+		pre.addEventListener('mousedown', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			view.dispatch({
+				selection: { anchor: Math.min(this.from, view.state.doc.length) },
+				scrollIntoView: true
+			});
+			view.focus();
+		});
+
 		return pre;
+	}
+
+	ignoreEvent(event: Event): boolean {
+		return event.type !== 'mousedown';
 	}
 }
 
@@ -557,7 +574,7 @@ export function buildLivePreviewDecorationsForState(state: EditorState): Decorat
 						const endLine = doc.lineAt(Math.max(node.from, node.to - 1));
 						decorations.push(
 							Decoration.replace({
-								widget: new CodeBlockWidget(rawText),
+								widget: new CodeBlockWidget(rawText, node.from),
 								block: true
 							}).range(startLine.from, endLine.to)
 						);

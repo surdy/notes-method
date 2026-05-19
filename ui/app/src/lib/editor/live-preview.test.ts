@@ -139,4 +139,25 @@ const answer = 42;
 			block: true
 		});
 	});
+
+	it('allows rendered fenced code blocks to receive mouse input so clicking can move the cursor into source', () => {
+		const state = EditorState.create({
+			doc: `# Code
+
+\`\`\`ts
+const answer = 42;
+\`\`\``,
+			extensions: [markdown({ base: markdownLanguage })]
+		});
+
+		const decorations = buildLivePreviewDecorationsForState(state);
+		const widgets: Array<{ ignoreEvent: (event: Event) => boolean }> = [];
+		decorations.between(0, state.doc.length, (_from, _to, value) => {
+			if (value.spec.widget) {
+				widgets.push(value.spec.widget as { ignoreEvent: (event: Event) => boolean });
+			}
+		});
+
+		expect(widgets[0]?.ignoreEvent(new Event('mousedown'))).toBe(false);
+	});
 });
