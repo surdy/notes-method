@@ -175,6 +175,25 @@ export const livePreviewCalloutTheme = {
 }
 } as const;
 
+export const livePreviewCodeBlockTheme = {
+	'.cm-lp-code-block': {
+		margin: '1em 16px',
+		padding: '1em',
+		border: '1px solid var(--ns-editor-border)',
+		borderRadius: '8px',
+		backgroundColor: 'var(--ns-panel-bg-strong)',
+		color: 'var(--ns-editor-text)',
+		overflowX: 'auto'
+	},
+	'.cm-lp-code': {
+		padding: '0',
+		backgroundColor: 'transparent',
+		fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace',
+		fontSize: '0.9em',
+		lineHeight: '1.5'
+	}
+} as const;
+
 export const notesmithTheme = EditorView.theme(
 {
 '&': {
@@ -355,9 +374,10 @@ accentColor: '#ffb347'
 	color: 'var(--ns-editor-text-secondary)',
 	fontSize: '1.1em',
 	marginRight: '1px'
-},
-...livePreviewCalloutTheme,
-...livePreviewTableTheme
-},
-{ dark: true }
+	},
+	...livePreviewCalloutTheme,
+	...livePreviewCodeBlockTheme,
+	...livePreviewTableTheme
+	},
+	{ dark: true }
 );

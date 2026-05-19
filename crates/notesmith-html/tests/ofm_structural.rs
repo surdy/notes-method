@@ -43,6 +43,16 @@ fn highlight_does_not_match_inside_fenced_code_block() {
     assert!(!html.contains("<mark>"));
 }
 
+#[test]
+fn fenced_code_block_preserves_language_class_for_client_highlighting() {
+    let html = render_to_html("```rust\nlet answer = 42;\n```");
+
+    assert!(
+        html.contains(r#"<code class="language-rust">"#),
+        "expected code block language class for syntax highlighting, got: {html}"
+    );
+}
+
 // --- Comments ---
 
 #[test]

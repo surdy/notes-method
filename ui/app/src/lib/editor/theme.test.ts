@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { livePreviewCalloutTheme, livePreviewTableTheme } from './theme.ts';
+import { livePreviewCalloutTheme, livePreviewCodeBlockTheme, livePreviewTableTheme } from './theme.ts';
 
 describe('live preview table theme', () => {
 	it('matches the reading view table baseline while preserving editing affordances', () => {
@@ -55,6 +55,22 @@ describe('live preview callout theme', () => {
 		expect(livePreviewCalloutTheme['.cm-lp-callout.callout-warning']).toMatchObject({
 			'--ns-callout-current': 'var(--ns-callout-warning)',
 			'--ns-callout-icon': "'⚠'"
+		});
+	});
+});
+
+describe('live preview code block theme', () => {
+	it('matches reading-view code block styling', () => {
+		expect(livePreviewCodeBlockTheme['.cm-lp-code-block']).toMatchObject({
+			margin: '1em 16px',
+			padding: '1em',
+			border: '1px solid var(--ns-editor-border)',
+			backgroundColor: 'var(--ns-panel-bg-strong)',
+			overflowX: 'auto'
+		});
+		expect(livePreviewCodeBlockTheme['.cm-lp-code']).toMatchObject({
+			fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace',
+			backgroundColor: 'transparent'
 		});
 	});
 });

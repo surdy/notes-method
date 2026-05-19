@@ -12,6 +12,7 @@ import {
 	type MarkdownTable,
 	type MarkdownTableCellUpdate
 } from './markdown-table.ts';
+import { highlightCodeElement, parseFencedCodeBlock } from './code-highlighting.ts';
 
 type CalloutFold = 'open' | 'closed' | null;
 
@@ -33,6 +34,33 @@ type CalloutBlock = {
 };
 
 const CALLOUT_RE = /^\s*>\s*\[!([\w-]+)\]([+-])?\s*(.*)$/;
+
+class CodeBlockWidget extends WidgetType {
+	constructor(private rawText: string) {
+		super();
+	}
+
+	eq(other: CodeBlockWidget): boolean {
+		return this.rawText === other.rawText;
+	}
+
+	toDOM(): HTMLElement {
+		const { language, code } = parseFencedCodeBlock(this.rawText);
+		const pre = document.createElement('pre');
+		pre.className = 'cm-lp-code-block';
+
+		const codeElement = document.createElement('code');
+		codeElement.className = language ? `cm-lp-code language-${language}` : 'cm-lp-code';
+		codeElement.textContent = code;
+		pre.appendChild(codeElement);
+
+		void highlightCodeElement(codeElement, code, language).catch((cause) => {
+			console.error('Failed to highlight live preview code block', cause);
+		});
+
+		return pre;
+	}
+}
 
 class HorizontalRuleWidget extends WidgetType {
 	toDOM(): HTMLElement {
@@ -504,6 +532,21 @@ export function buildLivePreviewDecorationsForState(state: EditorState): Decorat
 				const name = node.type.name;
 
 				if (rangeContainedBy(node.from, node.to, calloutRanges)) return false;
+
+				if (name === 'FencedCode') {
+					if (!onCursorLine) {
+						const rawText = doc.sliceString(node.from, node.to);
+						const startLine = doc.lineAt(node.from);
+						const endLine = doc.lineAt(Math.max(node.from, node.to - 1));
+						decorations.push(
+							Decoration.replace({
+								widget: new CodeBlockWidget(rawText),
+								block: true
+							}).range(startLine.from, endLine.to)
+						);
+					}
+					return false;
+				}
 
 				if (name === 'Table') {
 					const rawText = doc.sliceString(node.from, node.to);

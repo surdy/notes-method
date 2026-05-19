@@ -109,6 +109,20 @@
 	--ns-editor-border: #444;
 	--ns-editor-link: #7ec8e3;
 
+	/* Syntax highlighting */
+	--ns-syntax-keyword: #c586c0;
+	--ns-syntax-atom: #569cd6;
+	--ns-syntax-string: #ce9178;
+	--ns-syntax-number: #b5cea8;
+	--ns-syntax-comment: #6a9955;
+	--ns-syntax-variable: #9cdcfe;
+	--ns-syntax-definition: #4fc1ff;
+	--ns-syntax-type: #4ec9b0;
+	--ns-syntax-property: #dcdcaa;
+	--ns-syntax-operator: #d4d4d4;
+	--ns-syntax-punctuation: #d4d4d4;
+	--ns-syntax-invalid: #f44747;
+
 	/* Links */
 	--ns-link: #7ec8e3;
 
@@ -239,6 +253,20 @@
 	--ns-editor-border: #b0b0b0;
 	--ns-editor-link: #0078d4;
 
+	/* Syntax highlighting */
+	--ns-syntax-keyword: #0000ff;
+	--ns-syntax-atom: #0000ff;
+	--ns-syntax-string: #a31515;
+	--ns-syntax-number: #098658;
+	--ns-syntax-comment: #008000;
+	--ns-syntax-variable: #001080;
+	--ns-syntax-definition: #795e26;
+	--ns-syntax-type: #267f99;
+	--ns-syntax-property: #795e26;
+	--ns-syntax-operator: #000000;
+	--ns-syntax-punctuation: #000000;
+	--ns-syntax-invalid: #cd3131;
+
 	/* Links */
 	--ns-link: #0078d4;
 
@@ -278,6 +306,20 @@
 	--ns-editor-frontmatter-bg: #f0ede8;
 	--ns-editor-border: #c0b8a8;
 	--ns-editor-link: #0078d4;
+
+	/* Syntax highlighting */
+	--ns-syntax-keyword: #0000ff;
+	--ns-syntax-atom: #0000ff;
+	--ns-syntax-string: #a31515;
+	--ns-syntax-number: #098658;
+	--ns-syntax-comment: #008000;
+	--ns-syntax-variable: #001080;
+	--ns-syntax-definition: #795e26;
+	--ns-syntax-type: #267f99;
+	--ns-syntax-property: #795e26;
+	--ns-syntax-operator: #2c2c2c;
+	--ns-syntax-punctuation: #2c2c2c;
+	--ns-syntax-invalid: #cd3131;
 }
 
 .theme-manuscript .content-area {
@@ -382,6 +424,20 @@
 	--ns-editor-border: #00e5ff;
 	--ns-editor-link: #00e5ff;
 
+	/* Syntax highlighting */
+	--ns-syntax-keyword: #ff66ff;
+	--ns-syntax-atom: #00e5ff;
+	--ns-syntax-string: #ffdd00;
+	--ns-syntax-number: #00ff88;
+	--ns-syntax-comment: #c0c0c0;
+	--ns-syntax-variable: #ffffff;
+	--ns-syntax-definition: #00e5ff;
+	--ns-syntax-type: #00ff88;
+	--ns-syntax-property: #ffdd00;
+	--ns-syntax-operator: #ffffff;
+	--ns-syntax-punctuation: #ffffff;
+	--ns-syntax-invalid: #ff4444;
+
 	/* Links */
 	--ns-link: #00e5ff;
 
@@ -432,4 +488,74 @@ select,
 textarea {
 	color: inherit;
 	font: inherit;
+}
+
+.ns-highlighted-code .tok-keyword,
+.ns-highlighted-code .tok-modifier {
+	color: var(--ns-syntax-keyword);
+}
+
+.ns-highlighted-code .tok-atom,
+.ns-highlighted-code .tok-bool,
+.ns-highlighted-code .tok-url,
+.ns-highlighted-code .tok-labelName {
+	color: var(--ns-syntax-atom);
+}
+
+.ns-highlighted-code .tok-string,
+.ns-highlighted-code .tok-character,
+.ns-highlighted-code .tok-special\(tok-string\) {
+	color: var(--ns-syntax-string);
+}
+
+.ns-highlighted-code .tok-number,
+.ns-highlighted-code .tok-integer,
+.ns-highlighted-code .tok-float {
+	color: var(--ns-syntax-number);
+}
+
+.ns-highlighted-code .tok-comment,
+.ns-highlighted-code .tok-lineComment,
+.ns-highlighted-code .tok-blockComment,
+.ns-highlighted-code .tok-docComment {
+	color: var(--ns-syntax-comment);
+}
+
+.ns-highlighted-code .tok-variableName {
+	color: var(--ns-syntax-variable);
+}
+
+.ns-highlighted-code .tok-definition,
+.ns-highlighted-code .tok-function\(tok-variableName\) {
+	color: var(--ns-syntax-definition);
+}
+
+.ns-highlighted-code .tok-typeName,
+.ns-highlighted-code .tok-className,
+.ns-highlighted-code .tok-namespace {
+	color: var(--ns-syntax-type);
+}
+
+.ns-highlighted-code .tok-propertyName,
+.ns-highlighted-code .tok-attributeName {
+	color: var(--ns-syntax-property);
+}
+
+.ns-highlighted-code .tok-operator,
+.ns-highlighted-code .tok-compareOperator,
+.ns-highlighted-code .tok-arithmeticOperator,
+.ns-highlighted-code .tok-logicOperator,
+.ns-highlighted-code .tok-bitwiseOperator {
+	color: var(--ns-syntax-operator);
+}
+
+.ns-highlighted-code .tok-punctuation,
+.ns-highlighted-code .tok-brace,
+.ns-highlighted-code .tok-paren,
+.ns-highlighted-code .tok-squareBracket {
+	color: var(--ns-syntax-punctuation);
+}
+
+.ns-highlighted-code .tok-invalid {
+	color: var(--ns-syntax-invalid);
 }

@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { getNote, getNoteHtml, toggleTaskStatus, type NoteTask, type TaskMutationStatus } from '$lib/api';
+	import { applySyntaxHighlighting } from '$lib/editor/code-highlighting';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
@@ -8,6 +10,7 @@
 	let tasks = $state<NoteTask[]>([]);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
+	let contentElement = $state<HTMLElement | null>(null);
 
 	interface Props {
 		path: string | null;
@@ -23,6 +26,22 @@
 			frontmatter = {};
 			tasks = [];
 		}
+	});
+
+	$effect(() => {
+		const element = contentElement;
+		const renderedHtml = html;
+		if (!element || !renderedHtml) return;
+
+		void tick()
+			.then(() => {
+				if (contentElement === element && html === renderedHtml) {
+					return applySyntaxHighlighting(element);
+				}
+			})
+			.catch((cause) => {
+				console.error('Failed to highlight reading view code blocks', cause);
+			});
 	});
 
 	async function loadNote(notePath: string) {
@@ -124,7 +143,7 @@
 	{:else}
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="content" onclick={handleClick}>
+		<div class="content" bind:this={contentElement} onclick={handleClick}>
 			{@html html}
 		</div>
 	{/if}
@@ -185,6 +204,28 @@
 		margin: 1em 0;
 		padding: 0.5em 1em;
 		color: var(--ns-editor-text-faint);
+	}
+
+	.content :global(code) {
+		padding: 0.15em 0.35em;
+		border-radius: 4px;
+		background: var(--ns-panel-bg-strong);
+		font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+		font-size: 0.9em;
+	}
+
+	.content :global(pre) {
+		margin: 1em 0;
+		padding: 1em;
+		border: 1px solid var(--ns-editor-border);
+		border-radius: 8px;
+		background: var(--ns-panel-bg-strong);
+		overflow-x: auto;
+	}
+
+	.content :global(pre code) {
+		padding: 0;
+		background: transparent;
 	}
 
 	.content :global(.callout) {

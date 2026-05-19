@@ -72,4 +72,51 @@ describe('live preview decorations', () => {
 			block: true
 		});
 	});
+
+	it('renders fenced code blocks as block replacements when the cursor is outside the code block', () => {
+		const state = EditorState.create({
+			doc: `# Code
+
+\`\`\`ts
+const answer = 42;
+\`\`\``,
+			extensions: [markdown({ base: markdownLanguage })]
+		});
+
+		const decorations = buildLivePreviewDecorationsForState(state);
+		const blocks: Array<{ from: number; to: number; block: boolean | undefined }> = [];
+		decorations.between(0, state.doc.length, (from, to, value) => {
+			blocks.push({ from, to, block: value.spec.block });
+		});
+
+		expect(blocks).toContainEqual({
+			from: state.doc.line(3).from,
+			to: state.doc.line(5).to,
+			block: true
+		});
+	});
+
+	it('keeps fenced code blocks in source form when the cursor is inside the code block', () => {
+		const state = EditorState.create({
+			doc: `# Code
+
+\`\`\`ts
+const answer = 42;
+\`\`\``,
+			selection: { anchor: 15 },
+			extensions: [markdown({ base: markdownLanguage })]
+		});
+
+		const decorations = buildLivePreviewDecorationsForState(state);
+		const blocks: Array<{ from: number; to: number; block: boolean | undefined }> = [];
+		decorations.between(0, state.doc.length, (from, to, value) => {
+			blocks.push({ from, to, block: value.spec.block });
+		});
+
+		expect(blocks).not.toContainEqual({
+			from: state.doc.line(3).from,
+			to: state.doc.line(5).to,
+			block: true
+		});
+	});
 });
