@@ -264,6 +264,17 @@
 	--ns-editor-link: #0078d4;
 }
 
+.theme-manuscript .content-area {
+	--ns-accent-surface: #e8f4fd;
+	--ns-accent-surface-text: #005a9e;
+	--ns-info: #1976d2;
+	--ns-info-bg: #e8f2ff;
+	--ns-warning-callout-bg: #fff6e6;
+	--ns-warning-callout-border: #ed6c02;
+	--ns-success: #2e7d32;
+	--ns-success-bg: #e8f5e9;
+}
+
 .theme-hc-dark {
 	color-scheme: dark;
 	--ns-bg: #000000;
