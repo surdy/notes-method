@@ -76,6 +76,7 @@ For each customer there would be a folder containing:
 - Reading and preview rendering should default to Obsidian-style single-newline line breaks, with an editor config toggle to restore strict CommonMark line-break behavior when desired.
 - Source and Live Preview editor modes should support a setting to show or hide CodeMirror line numbers, defaulting to visible.
 - Live Preview should render markdown tables as editable table widgets: cell text can be edited visually, and rows/columns can be appended or removed without dropping into raw pipe syntax.
+- Live Preview should render callout blocks with the same built-in Obsidian-style callout chrome as Reading View when the cursor is outside the block. When the cursor enters any line in the callout block, the whole block should switch back to editable source text.
 - Reading View callouts should follow Obsidian's built-in callout behavior, including supported type identifiers and aliases, note fallback for unsupported types, custom titles, title-only callouts, nested callouts, and foldable callouts. Custom callout CSS/plugin definitions are out of scope for now.
 - Dashboard notes should stay as normal markdown files in the editor; fenced `notesmith` and `notesmith sql` blocks should execute read-only SQL against the cache and render inline result tables.
 

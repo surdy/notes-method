@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { livePreviewTableTheme } from './theme.ts';
+import { livePreviewCalloutTheme, livePreviewTableTheme } from './theme.ts';
 
 describe('live preview table theme', () => {
 	it('matches the reading view table baseline while preserving editing affordances', () => {
@@ -36,6 +36,25 @@ describe('live preview table theme', () => {
 		expect(livePreviewTableTheme['.cm-lp-table-button:disabled']).toMatchObject({
 			opacity: '0.45',
 			cursor: 'not-allowed'
+		});
+	});
+});
+
+describe('live preview callout theme', () => {
+	it('matches reading-view callout styling and supports folded state', () => {
+		expect(livePreviewCalloutTheme['.cm-lp-callout']).toMatchObject({
+			borderLeft: '4px solid var(--ns-callout-current)',
+			backgroundColor: 'color-mix(in srgb, var(--ns-callout-current) 13%, var(--ns-editor-bg))'
+		});
+		expect(livePreviewCalloutTheme['.cm-lp-callout-title::before']).toMatchObject({
+			content: 'var(--ns-callout-icon)'
+		});
+		expect(livePreviewCalloutTheme[".cm-lp-callout[data-fold='closed'] .cm-lp-callout-body"]).toMatchObject({
+			display: 'none'
+		});
+		expect(livePreviewCalloutTheme['.cm-lp-callout.callout-warning']).toMatchObject({
+			'--ns-callout-current': 'var(--ns-callout-warning)',
+			'--ns-callout-icon': "'⚠'"
 		});
 	});
 });

@@ -13,6 +13,27 @@ import {
 	type MarkdownTableCellUpdate
 } from './markdown-table.ts';
 
+type CalloutFold = 'open' | 'closed' | null;
+
+type ParsedCallout = {
+	identifier: string;
+	type: string;
+	title: string;
+	fold: CalloutFold;
+	bodyLines: string[];
+};
+
+type CalloutBlock = {
+	from: number;
+	to: number;
+	startLine: number;
+	endLine: number;
+	rawText: string;
+	render: boolean;
+};
+
+const CALLOUT_RE = /^\s*>\s*\[!([\w-]+)\]([+-])?\s*(.*)$/;
+
 class HorizontalRuleWidget extends WidgetType {
 	toDOM(): HTMLElement {
 		const hr = document.createElement('hr');
@@ -27,6 +48,20 @@ class BulletWidget extends WidgetType {
 		span.className = 'cm-lp-bullet';
 		span.textContent = '•';
 		return span;
+	}
+}
+
+class CalloutWidget extends WidgetType {
+	constructor(private rawText: string) {
+		super();
+	}
+
+	eq(other: CalloutWidget): boolean {
+		return this.rawText === other.rawText;
+	}
+
+	toDOM(): HTMLElement {
+		return createCalloutElement(this.rawText);
 	}
 }
 
@@ -192,6 +227,150 @@ class TableWidget extends WidgetType {
 	}
 }
 
+function canonicalCalloutType(identifier: string): string {
+	switch (identifier) {
+		case 'abstract':
+		case 'summary':
+		case 'tldr':
+			return 'abstract';
+		case 'tip':
+		case 'hint':
+		case 'important':
+			return 'tip';
+		case 'success':
+		case 'check':
+		case 'done':
+			return 'success';
+		case 'question':
+		case 'help':
+		case 'faq':
+			return 'question';
+		case 'warning':
+		case 'caution':
+		case 'attention':
+			return 'warning';
+		case 'failure':
+		case 'fail':
+		case 'missing':
+			return 'failure';
+		case 'danger':
+		case 'error':
+			return 'danger';
+		case 'quote':
+		case 'cite':
+			return 'quote';
+		case 'note':
+		case 'info':
+		case 'todo':
+		case 'bug':
+		case 'example':
+			return identifier;
+		default:
+			return 'note';
+	}
+}
+
+function titleCase(value: string): string {
+	return value.length === 0 ? value : `${value[0].toUpperCase()}${value.slice(1)}`;
+}
+
+function stripOneBlockquoteMarker(line: string): string {
+	return line.replace(/^\s*>\s?/, '');
+}
+
+function parseCallout(rawText: string): ParsedCallout | null {
+	const lines = rawText.split(/\r?\n/);
+	const match = lines[0]?.match(CALLOUT_RE);
+	if (!match) {
+		return null;
+	}
+
+	const identifier = match[1].toLowerCase();
+	const marker = match[2] ?? '';
+	const title = match[3].trim() || titleCase(identifier);
+	const fold = marker === '-' ? 'closed' : marker === '+' ? 'open' : null;
+
+	return {
+		identifier,
+		type: canonicalCalloutType(identifier),
+		title,
+		fold,
+		bodyLines: lines.slice(1).map(stripOneBlockquoteMarker)
+	};
+}
+
+function createCalloutElement(rawText: string): HTMLElement {
+	const parsed = parseCallout(rawText);
+	const callout = document.createElement('div');
+	if (!parsed) {
+		callout.textContent = rawText;
+		return callout;
+	}
+
+	callout.className = `cm-lp-callout callout-${parsed.type}`;
+	callout.dataset.callout = parsed.identifier;
+	if (parsed.fold) {
+		callout.dataset.fold = parsed.fold;
+	}
+
+	const title = document.createElement('div');
+	title.className = 'cm-lp-callout-title';
+	title.textContent = parsed.title;
+	if (parsed.fold) {
+		title.addEventListener('click', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			callout.dataset.fold = callout.dataset.fold === 'closed' ? 'open' : 'closed';
+		});
+	}
+	callout.appendChild(title);
+
+	const body = createCalloutBody(parsed.bodyLines);
+	if (body.childNodes.length > 0) {
+		callout.appendChild(body);
+	}
+
+	return callout;
+}
+
+function createCalloutBody(lines: string[]): HTMLElement {
+	const body = document.createElement('div');
+	body.className = 'cm-lp-callout-body';
+	let paragraph: string[] = [];
+
+	const flushParagraph = () => {
+		if (paragraph.length === 0) {
+			return;
+		}
+		const p = document.createElement('p');
+		p.textContent = paragraph.join('\n');
+		body.appendChild(p);
+		paragraph = [];
+	};
+
+	for (let index = 0; index < lines.length; index += 1) {
+		const line = lines[index];
+		if (CALLOUT_RE.test(line)) {
+			flushParagraph();
+			const nested = [line];
+			while (index + 1 < lines.length && /^\s*>/.test(lines[index + 1])) {
+				index += 1;
+				nested.push(lines[index]);
+			}
+			body.appendChild(createCalloutElement(nested.join('\n')));
+			continue;
+		}
+		if (line.trim() === '') {
+			flushParagraph();
+			continue;
+		}
+		paragraph.push(line);
+	}
+
+	flushParagraph();
+	return body;
+}
+
 const bulletReplace = Decoration.replace({ widget: new BulletWidget() });
 const hideMark = Decoration.replace({});
 
@@ -240,12 +419,70 @@ function frontmatterEndLine(state: EditorState): number {
 	return 0;
 }
 
+function rangeContainedBy(from: number, to: number, ranges: Array<{ from: number; to: number }>): boolean {
+	return ranges.some((range) => from >= range.from && to <= range.to);
+}
+
+function findCalloutBlocks(state: EditorState, activeLines: Set<number>, fmEnd: number): CalloutBlock[] {
+	const blocks: CalloutBlock[] = [];
+	const doc = state.doc;
+	let lineNumber = 1;
+
+	while (lineNumber <= doc.lines) {
+		const line = doc.line(lineNumber);
+		if (lineNumber <= fmEnd || !CALLOUT_RE.test(line.text)) {
+			lineNumber += 1;
+			continue;
+		}
+
+		let endLineNumber = lineNumber;
+		while (endLineNumber + 1 <= doc.lines && /^\s*>/.test(doc.line(endLineNumber + 1).text)) {
+			endLineNumber += 1;
+		}
+
+		const endLine = doc.line(endLineNumber);
+		let render = true;
+		for (let n = lineNumber; n <= endLineNumber; n += 1) {
+			if (activeLines.has(n)) {
+				render = false;
+				break;
+			}
+		}
+
+		blocks.push({
+			from: line.from,
+			to: endLine.to,
+			startLine: lineNumber,
+			endLine: endLineNumber,
+			rawText: doc.sliceString(line.from, endLine.to),
+			render
+		});
+		lineNumber = endLineNumber + 1;
+	}
+
+	return blocks;
+}
+
 export function buildLivePreviewDecorationsForState(state: EditorState): DecorationSet {
 	const decorations: Range<Decoration>[] = [];
 	const activeLines = cursorLines(state);
 	const tree = syntaxTree(state);
 	const fmEnd = frontmatterEndLine(state);
 	const doc = state.doc;
+	const calloutBlocks = findCalloutBlocks(state, activeLines, fmEnd);
+	const calloutRanges = calloutBlocks.map(({ from, to }) => ({ from, to }));
+
+	for (const block of calloutBlocks) {
+		if (!block.render) {
+			continue;
+		}
+		decorations.push(
+			Decoration.replace({
+				widget: new CalloutWidget(block.rawText),
+				block: true
+			}).range(block.from, block.to)
+		);
+	}
 
 	for (const { from, to } of [{ from: 0, to: doc.length }]) {
 		tree.iterate({
@@ -265,6 +502,8 @@ export function buildLivePreviewDecorationsForState(state: EditorState): Decorat
 				}
 
 				const name = node.type.name;
+
+				if (rangeContainedBy(node.from, node.to, calloutRanges)) return false;
 
 				if (name === 'Table') {
 					const rawText = doc.sliceString(node.from, node.to);

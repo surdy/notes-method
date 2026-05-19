@@ -74,6 +74,107 @@ export const livePreviewTableTheme = {
 }
 } as const;
 
+export const livePreviewCalloutTheme = {
+'.cm-lp-callout': {
+	'--ns-callout-current': 'var(--ns-callout-note)',
+	'--ns-callout-icon': "'✎'",
+	margin: '1em 16px',
+	padding: '12px 16px',
+	border: '1px solid color-mix(in srgb, var(--ns-callout-current) 42%, transparent)',
+	borderLeft: '4px solid var(--ns-callout-current)',
+	borderRadius: '8px',
+	backgroundColor: 'color-mix(in srgb, var(--ns-callout-current) 13%, var(--ns-editor-bg))',
+	color: 'var(--ns-editor-text)'
+},
+'.cm-lp-callout-title': {
+	display: 'flex',
+	alignItems: 'center',
+	gap: '8px',
+	color: 'var(--ns-callout-current)',
+	fontWeight: '700'
+},
+'.cm-lp-callout-title::before': {
+	content: 'var(--ns-callout-icon)',
+	display: 'inline-flex',
+	alignItems: 'center',
+	justifyContent: 'center',
+	width: '18px',
+	flex: '0 0 18px'
+},
+'.cm-lp-callout[data-fold] .cm-lp-callout-title': {
+	cursor: 'pointer'
+},
+'.cm-lp-callout[data-fold] .cm-lp-callout-title::after': {
+	content: "'⌄'",
+	marginLeft: 'auto',
+	color: 'var(--ns-editor-text-muted)'
+},
+".cm-lp-callout[data-fold='closed'] .cm-lp-callout-title::after": {
+	content: "'›'"
+},
+".cm-lp-callout[data-fold='closed'] .cm-lp-callout-body": {
+	display: 'none'
+},
+'.cm-lp-callout-body > :first-child': {
+	marginTop: '0'
+},
+'.cm-lp-callout-body > :last-child': {
+	marginBottom: '0'
+},
+'.cm-lp-callout.callout-note': {
+	'--ns-callout-current': 'var(--ns-callout-note)',
+	'--ns-callout-icon': "'✎'"
+},
+'.cm-lp-callout.callout-abstract': {
+	'--ns-callout-current': 'var(--ns-callout-abstract)',
+	'--ns-callout-icon': "'☷'"
+},
+'.cm-lp-callout.callout-info': {
+	'--ns-callout-current': 'var(--ns-callout-info)',
+	'--ns-callout-icon': "'ⓘ'"
+},
+'.cm-lp-callout.callout-todo': {
+	'--ns-callout-current': 'var(--ns-callout-todo)',
+	'--ns-callout-icon': "'☑'"
+},
+'.cm-lp-callout.callout-tip': {
+	'--ns-callout-current': 'var(--ns-callout-tip)',
+	'--ns-callout-icon': "'🔥'"
+},
+'.cm-lp-callout.callout-success': {
+	'--ns-callout-current': 'var(--ns-callout-success)',
+	'--ns-callout-icon': "'✓'"
+},
+'.cm-lp-callout.callout-question': {
+	'--ns-callout-current': 'var(--ns-callout-question)',
+	'--ns-callout-icon': "'?'"
+},
+'.cm-lp-callout.callout-warning': {
+	'--ns-callout-current': 'var(--ns-callout-warning)',
+	'--ns-callout-icon': "'⚠'"
+},
+'.cm-lp-callout.callout-failure': {
+	'--ns-callout-current': 'var(--ns-callout-failure)',
+	'--ns-callout-icon': "'✕'"
+},
+'.cm-lp-callout.callout-danger': {
+	'--ns-callout-current': 'var(--ns-callout-danger)',
+	'--ns-callout-icon': "'⚡'"
+},
+'.cm-lp-callout.callout-bug': {
+	'--ns-callout-current': 'var(--ns-callout-bug)',
+	'--ns-callout-icon': "'◉'"
+},
+'.cm-lp-callout.callout-example': {
+	'--ns-callout-current': 'var(--ns-callout-example)',
+	'--ns-callout-icon': "'▦'"
+},
+'.cm-lp-callout.callout-quote': {
+	'--ns-callout-current': 'var(--ns-callout-quote)',
+	'--ns-callout-icon': "'❝'"
+}
+} as const;
+
 export const notesmithTheme = EditorView.theme(
 {
 '&': {
@@ -255,6 +356,7 @@ accentColor: '#ffb347'
 	fontSize: '1.1em',
 	marginRight: '1px'
 },
+...livePreviewCalloutTheme,
 ...livePreviewTableTheme
 },
 { dark: true }
