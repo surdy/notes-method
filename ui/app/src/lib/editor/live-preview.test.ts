@@ -73,6 +73,26 @@ describe('live preview decorations', () => {
 		});
 	});
 
+	it('allows rendered callouts to receive mouse input so clicking can move the cursor into source', () => {
+		const state = EditorState.create({
+			doc: `# Callouts
+
+> [!warning] Watch out
+> Check the migration plan.`,
+			extensions: [markdown({ base: markdownLanguage })]
+		});
+
+		const decorations = buildLivePreviewDecorationsForState(state);
+		const widgets: Array<{ ignoreEvent: (event: Event) => boolean }> = [];
+		decorations.between(0, state.doc.length, (_from, _to, value) => {
+			if (value.spec.widget) {
+				widgets.push(value.spec.widget as { ignoreEvent: (event: Event) => boolean });
+			}
+		});
+
+		expect(widgets[0]?.ignoreEvent(new Event('mousedown'))).toBe(false);
+	});
+
 	it('renders fenced code blocks as block replacements when the cursor is outside the code block', () => {
 		const state = EditorState.create({
 			doc: `# Code

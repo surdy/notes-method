@@ -80,16 +80,33 @@ class BulletWidget extends WidgetType {
 }
 
 class CalloutWidget extends WidgetType {
-	constructor(private rawText: string) {
+	constructor(
+		private rawText: string,
+		private from: number
+	) {
 		super();
 	}
 
 	eq(other: CalloutWidget): boolean {
-		return this.rawText === other.rawText;
+		return this.rawText === other.rawText && this.from === other.from;
 	}
 
-	toDOM(): HTMLElement {
-		return createCalloutElement(this.rawText);
+	toDOM(view: EditorView): HTMLElement {
+		const callout = createCalloutElement(this.rawText);
+		callout.addEventListener('mousedown', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			view.dispatch({
+				selection: { anchor: Math.min(this.from, view.state.doc.length) },
+				scrollIntoView: true
+			});
+			view.focus();
+		});
+		return callout;
+	}
+
+	ignoreEvent(event: Event): boolean {
+		return event.type !== 'mousedown';
 	}
 }
 
@@ -506,7 +523,7 @@ export function buildLivePreviewDecorationsForState(state: EditorState): Decorat
 		}
 		decorations.push(
 			Decoration.replace({
-				widget: new CalloutWidget(block.rawText),
+				widget: new CalloutWidget(block.rawText, block.from),
 				block: true
 			}).range(block.from, block.to)
 		);
