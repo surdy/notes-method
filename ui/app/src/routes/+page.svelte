@@ -153,7 +153,7 @@
 	aria-controls="left-sidebar"
 	title={chromeLayout.leftToggleLabel}
 >
-	{leftSidebarCollapsed ? '▶' : '◀'}
+	<span class={`sidebar-panel-icon ${chromeLayout.leftToggleIcon}`} aria-hidden="true"></span>
 </button>
 {#if !leftSidebarCollapsed}
 <h1 class="app-title">📝 Notesmith</h1>
@@ -186,7 +186,7 @@
 	aria-controls="right-rail"
 	title={chromeLayout.rightToggleLabel}
 >
-	{rightRailCollapsed ? '◀' : '▶'}
+	<span class={`sidebar-panel-icon ${chromeLayout.rightToggleIcon}`} aria-hidden="true"></span>
 </button>
 </section>
 </div>
@@ -338,6 +338,33 @@ flex-shrink: 0;
 background: var(--ns-surface-hover);
 color: var(--ns-text);
 outline: none;
+}
+
+.sidebar-panel-icon {
+position: relative;
+display: inline-block;
+width: 18px;
+height: 18px;
+border: 1.5px solid currentColor;
+border-radius: 4px;
+}
+
+.sidebar-panel-icon::before {
+content: '';
+position: absolute;
+top: 2px;
+bottom: 2px;
+width: 1.5px;
+border-radius: 999px;
+background: currentColor;
+}
+
+.sidebar-panel-icon.panel-left::before {
+left: 5px;
+}
+
+.sidebar-panel-icon.panel-right::before {
+right: 5px;
 }
 
 .app-layout {

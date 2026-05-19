@@ -8,6 +8,8 @@ export type WorkspaceChromeLayout = {
 	rightChromeWidth: string;
 	leftToggleLabel: string;
 	rightToggleLabel: string;
+	leftToggleIcon: 'panel-left';
+	rightToggleIcon: 'panel-right';
 };
 
 const LEFT_SIDEBAR_WIDTH = '280px';
@@ -22,6 +24,8 @@ export function workspaceChromeLayout({
 		leftChromeWidth: leftSidebarCollapsed ? COLLAPSED_SIDE_WIDTH : LEFT_SIDEBAR_WIDTH,
 		rightChromeWidth: rightRailCollapsed ? COLLAPSED_SIDE_WIDTH : RIGHT_RAIL_WIDTH,
 		leftToggleLabel: leftSidebarCollapsed ? 'Expand left sidebar' : 'Collapse left sidebar',
-		rightToggleLabel: rightRailCollapsed ? 'Expand right sidebar' : 'Collapse right sidebar'
+		rightToggleLabel: rightRailCollapsed ? 'Expand right sidebar' : 'Collapse right sidebar',
+		leftToggleIcon: 'panel-left',
+		rightToggleIcon: 'panel-right'
 	};
 }
