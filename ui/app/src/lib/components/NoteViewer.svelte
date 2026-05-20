@@ -156,6 +156,7 @@
 		padding: 24px 32px;
 		background: var(--ns-editor-bg);
 		color: var(--ns-editor-text);
+		line-height: var(--ns-line-height-normal);
 	}
 
 	.empty-state {
@@ -164,6 +165,24 @@
 		justify-content: center;
 		height: 100%;
 		color: var(--ns-editor-text-muted);
+	}
+
+	.content :global(p) {
+		margin: 0 0 var(--ns-paragraph-spacing);
+	}
+
+	.content :global(p:last-child) {
+		margin-bottom: 0;
+	}
+
+	.content :global(ul),
+	.content :global(ol) {
+		margin: 0 0 var(--ns-paragraph-spacing);
+		padding-left: 1.5em;
+	}
+
+	.content :global(li) > :global(p) {
+		margin: 0;
 	}
 
 	.content :global(h1) {

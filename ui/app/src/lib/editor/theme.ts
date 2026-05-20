@@ -208,7 +208,7 @@ fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace'
 '.cm-content': {
 fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace',
 fontSize: '14px',
-lineHeight: '1.6',
+lineHeight: '1.5',
 padding: '16px 0',
 caretColor: 'var(--ns-editor-text)'
 },

@@ -155,6 +155,11 @@
 	--ns-status-idle: #9e9e9e;
 	--ns-border-translucent-soft: rgba(255, 255, 255, 0.2);
 	--ns-dirty-dot: #ffb347;
+
+	/* Typography — Obsidian-aligned defaults */
+	--ns-line-height-normal: 1.5;
+	--ns-line-height-tight: 1.3;
+	--ns-paragraph-spacing: 1rem;
 }
 
 .theme-dark {
