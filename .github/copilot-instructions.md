@@ -65,6 +65,26 @@
 - When building decoration sets from mixed line, mark, replace, or widget decorations, prefer `Decoration.set(ranges, true)` unless the ordering is proven valid. This avoids `Ranges must be added sorted by from position and startSide` crashes.
 - Validate CodeMirror decoration changes with a headless browser flow against notes containing the relevant syntax (SQL fences, frontmatter, tasks, callouts), not just TypeScript checks.
 
+## Resilience to Malformed User Content
+
+All `.md` content is **untrusted input**. A single malformed note must never crash the daemon, the desktop app, or any indexing pass. See [`docs/adr/0009-resilience-to-malformed-content.md`](../docs/adr/0009-resilience-to-malformed-content.md) for the full policy.
+
+When writing or reviewing code that touches note content:
+
+- **Isolate at the per-note boundary.** Any parse/render/index operation on a single note must catch errors locally, log `WARN note=<path> stage=<...> reason=<...>`, and continue with the next note. Never let a per-note error propagate up to startup or to a transaction that touches multiple notes.
+- **Forbidden in hot paths:** `?` propagation of `serde_yaml::from_str(...)` (or any `serde_json` / `toml` parse of note-derived bytes) above the per-note boundary. Use `.ok()` and fall back to `None` / `"{}"` / empty.
+- **`unwrap` / `expect` are forbidden** on values derived from file content. Allowed only for: regex compile at module init, mutex locks (programmer bugs), and test code.
+- **Indexer loops use per-note savepoints**, not one big transaction. One bad note must not roll back the whole vault.
+- **HTTP handlers** that accept arbitrary bodies return structured 4xx, never let parse failures become 500s (model: `routes::routing::preview`).
+
+### Tests required for any new parser, renderer, or indexer touching note content
+
+1. Happy-path test with well-formed input.
+2. **Malformed-content test** — broken YAML/Markdown/link syntax produces a degraded-but-valid result and logs a warning. Add a fixture under `test-fixtures/malformed-vault/` if no existing fixture covers the case.
+3. **No-panic test** — pathological input (e.g. unclosed code fences, nested `{{` placeholders, non-UTF-8 sequences via fuzz, deeply nested YAML) does not panic and completes in bounded time.
+
+When fixing a resilience bug, add the offending content to `test-fixtures/malformed-vault/` as a regression fixture in the same commit. Label related issues with `resilience`.
+
 ## Sub-Agent Delegation
 
 - Use sub-agents (via the `task` tool) to parallelize independent work and to delegate complex implementation that benefits from a focused context window.
