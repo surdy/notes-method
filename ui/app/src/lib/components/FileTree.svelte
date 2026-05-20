@@ -1,13 +1,17 @@
 <script lang="ts">
 	import FileTree from './FileTree.svelte';
-	import type { NoteSummary } from '$lib/api';
+	import { createNote, type NoteSummary } from '$lib/api';
+	import { createOrOpenFolderNote, folderNotePath } from '$lib/folder-notes';
 	import { noteIcon } from '$lib/note-icons';
 	import { tabStore } from '$lib/tab-store.svelte';
+	import { toastStore } from '$lib/toast-store.svelte';
 	import type { FolderNode } from '$lib/tree-builder';
+	import { vaultStore } from '$lib/stores.svelte';
 
 	let { node, depth = 0 }: { node: FolderNode; depth?: number } = $props();
 	let expanded = $state(false);
 	let seeded = false;
+	let contextMenu = $state<{ x: number; y: number } | null>(null);
 
 	$effect(() => {
 		if (seeded) return;
@@ -26,6 +30,42 @@
 	function openFolderNote(note: NoteSummary | undefined) {
 		if (!note) return;
 		selectNote(note);
+	}
+
+	function openFolderNoteFromMenu(note: NoteSummary | undefined) {
+		contextMenu = null;
+		openFolderNote(note);
+	}
+
+	function handleFolderContextMenu(event: MouseEvent) {
+		if (!folderNotePath(node.path)) return;
+		event.preventDefault();
+		contextMenu = { x: event.clientX, y: event.clientY };
+	}
+
+	async function createFolderNoteFromMenu() {
+		contextMenu = null;
+		if (!vaultStore.currentVault) {
+			toastStore.add('Select a vault first.', 'warning');
+			return;
+		}
+
+		try {
+			const result = await createOrOpenFolderNote({
+				vault: vaultStore.currentVault,
+				folderPath: node.path,
+				notes: vaultStore.notes,
+				createNote
+			});
+			if (!result.created) {
+				toastStore.add('Folder note already exists.', 'success');
+			}
+			await vaultStore.loadNotes();
+			tabStore.selectNote(result.path);
+		} catch (cause) {
+			console.error('Failed to create folder note', cause);
+			toastStore.add('Failed to create folder note.', 'error');
+		}
 	}
 
 	function noteTitle(note: NoteSummary): string {
@@ -48,6 +88,7 @@
 				class="folder-disclosure-button"
 				type="button"
 				onclick={toggle}
+				oncontextmenu={handleFolderContextMenu}
 				aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.name}`}
 				aria-expanded={expanded}
 			>
@@ -57,17 +98,35 @@
 				class="folder-name-button"
 				type="button"
 				onclick={() => openFolderNote(node.folderNote)}
+				oncontextmenu={handleFolderContextMenu}
 				title={node.folderNote.path}
 			>
 				<span class="folder-name">{node.name}</span>
 			</button>
 		{:else}
-		<button class="folder-toggle" onclick={toggle}>
+		<button class="folder-toggle" type="button" onclick={toggle} oncontextmenu={handleFolderContextMenu}>
 			<span class="disclosure" class:open={expanded}>▸</span>
 			<span class="folder-name">{node.name}</span>
 		</button>
 		{/if}
 	</div>
+	{#if contextMenu}
+		<div
+			class="folder-context-menu"
+			role="menu"
+			tabindex="-1"
+			style={`left: ${contextMenu.x}px; top: ${contextMenu.y}px`}
+			onmouseleave={() => (contextMenu = null)}
+		>
+			{#if node.folderNote}
+				<button type="button" role="menuitem" onclick={() => openFolderNoteFromMenu(node.folderNote)}>
+					Open Folder Note
+				</button>
+			{:else}
+				<button type="button" role="menuitem" onclick={createFolderNoteFromMenu}>Create Folder Note</button>
+			{/if}
+		</div>
+	{/if}
 {/if}
 
 {#if expanded || !node.name}
@@ -183,5 +242,32 @@
 	.note-item.selected {
 		background: var(--ns-selected-bg);
 		color: var(--ns-text-inverse);
+	}
+
+	.folder-context-menu {
+		position: fixed;
+		z-index: 1000;
+		min-width: 160px;
+		padding: 4px;
+		border: 1px solid var(--ns-border);
+		border-radius: 6px;
+		background: var(--ns-surface-elevated);
+		box-shadow: var(--ns-shadow-soft);
+	}
+
+	.folder-context-menu button {
+		display: block;
+		width: 100%;
+		padding: 6px 8px;
+		border: none;
+		border-radius: 4px;
+		background: transparent;
+		color: var(--ns-text);
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.folder-context-menu button:hover {
+		background: var(--ns-surface-hover);
 	}
 </style>

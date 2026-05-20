@@ -10,6 +10,7 @@ import {
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
 import { OPEN_QUICK_SWITCHER_EVENT } from './command-events';
+import { createOrOpenFolderNote, listFolderPickerItems } from './folder-notes';
 import { inputPalette } from './input-palette.svelte';
 import { tabStore } from './tab-store.svelte';
 import { toastStore } from './toast-store.svelte';
@@ -120,6 +121,50 @@ onComplete: async ([content, title]) => {
 		await reloadAndNavigate(created.path, onNavigate);
 	} catch (cause) {
 		notifyError('Failed to capture note.', cause);
+	}
+}
+});
+}
+},
+{
+id: 'create-folder-note',
+label: 'Create Folder Note',
+category: 'Notes',
+execute: () => {
+const currentVault = requireVault();
+if (!currentVault) return;
+
+const folders = listFolderPickerItems(vaultStore.tree);
+if (folders.length === 0) {
+toastStore.add('No folders available.', 'warning');
+return;
+}
+
+inputPalette.open({
+steps: [
+	{
+		mode: 'list',
+		label: 'Choose a folder',
+		items: folders,
+		placeholder: 'Search folders...'
+	}
+],
+onComplete: async ([folderPath]) => {
+	if (!folderPath) return;
+
+	try {
+		const result = await createOrOpenFolderNote({
+			vault: currentVault,
+			folderPath,
+			notes: vaultStore.notes,
+			createNote
+		});
+		if (!result.created) {
+			toastStore.add('Folder note already exists.', 'success');
+		}
+		await reloadAndNavigate(result.path, onNavigate);
+	} catch (cause) {
+		notifyError('Failed to create folder note.', cause);
 	}
 }
 });
