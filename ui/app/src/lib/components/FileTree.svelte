@@ -1,7 +1,7 @@
 <script lang="ts">
 	import FileTree from './FileTree.svelte';
 	import { createNote, type NoteSummary } from '$lib/api';
-	import { createOrOpenFolderNote, folderNotePath } from '$lib/folder-notes';
+	import { createOrOpenFolderNote, folderNotePath, isFolderNoteSelected } from '$lib/folder-notes';
 	import { noteIcon } from '$lib/note-icons';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { toastStore } from '$lib/toast-store.svelte';
@@ -86,6 +86,7 @@
 		{#if node.folderNote}
 			<button
 				class="folder-disclosure-button"
+				class:selected={isFolderNoteSelected(node, tabStore.selectedPath)}
 				type="button"
 				onclick={toggle}
 				oncontextmenu={handleFolderContextMenu}
@@ -96,6 +97,7 @@
 			</button>
 			<button
 				class="folder-name-button"
+				class:selected={isFolderNoteSelected(node, tabStore.selectedPath)}
 				type="button"
 				onclick={() => openFolderNote(node.folderNote)}
 				oncontextmenu={handleFolderContextMenu}
@@ -193,6 +195,12 @@
 	.folder-disclosure-button:hover,
 	.folder-name-button:hover {
 		background: var(--ns-surface-hover);
+	}
+
+	.folder-disclosure-button.selected,
+	.folder-name-button.selected {
+		background: var(--ns-selected-bg);
+		color: var(--ns-text-inverse);
 	}
 
 	.disclosure {

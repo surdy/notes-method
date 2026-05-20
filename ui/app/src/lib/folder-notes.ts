@@ -45,6 +45,10 @@ export function listFolderPickerItems(
 	return items;
 }
 
+export function isFolderNoteSelected(node: FolderNode, selectedPath: string | null | undefined): boolean {
+	return Boolean(selectedPath && node.folderNote?.path === selectedPath);
+}
+
 export async function createOrOpenFolderNote({
 	vault,
 	folderPath,
