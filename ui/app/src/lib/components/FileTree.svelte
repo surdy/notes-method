@@ -23,6 +23,11 @@
 		tabStore.selectNote(note.path);
 	}
 
+	function openFolderNote(note: NoteSummary | undefined) {
+		if (!note) return;
+		selectNote(note);
+	}
+
 	function noteTitle(note: NoteSummary): string {
 		if (note.title) return note.title;
 		const parts = note.path.split('/');
@@ -38,10 +43,30 @@
 		{#each Array(depth) as _, i}
 			<span class="indent-guide" style={`left: ${i * INDENT + 11}px`}></span>
 		{/each}
+		{#if node.folderNote}
+			<button
+				class="folder-disclosure-button"
+				type="button"
+				onclick={toggle}
+				aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.name}`}
+				aria-expanded={expanded}
+			>
+				<span class="disclosure" class:open={expanded}>▸</span>
+			</button>
+			<button
+				class="folder-name-button"
+				type="button"
+				onclick={() => openFolderNote(node.folderNote)}
+				title={node.folderNote.path}
+			>
+				<span class="folder-name">{node.name}</span>
+			</button>
+		{:else}
 		<button class="folder-toggle" onclick={toggle}>
 			<span class="disclosure" class:open={expanded}>▸</span>
 			<span class="folder-name">{node.name}</span>
 		</button>
+		{/if}
 	</div>
 {/if}
 
@@ -70,14 +95,15 @@
 <style>
 	.folder {
 		position: relative;
-	}
-
-	.folder-toggle {
 		display: flex;
 		align-items: center;
-		gap: 4px;
-		width: 100%;
-		padding: 4px 8px;
+	}
+
+	.folder-toggle,
+	.folder-disclosure-button,
+	.folder-name-button {
+		display: flex;
+		align-items: center;
 		border: none;
 		background: none;
 		cursor: pointer;
@@ -86,7 +112,27 @@
 		color: var(--ns-text);
 	}
 
-	.folder-toggle:hover {
+	.folder-toggle {
+		gap: 4px;
+		width: 100%;
+		padding: 4px 8px;
+	}
+
+	.folder-disclosure-button {
+		justify-content: center;
+		padding: 4px 0 4px 8px;
+		flex: 0 0 24px;
+	}
+
+	.folder-name-button {
+		flex: 1;
+		min-width: 0;
+		padding: 4px 8px 4px 0;
+	}
+
+	.folder-toggle:hover,
+	.folder-disclosure-button:hover,
+	.folder-name-button:hover {
 		background: var(--ns-surface-hover);
 	}
 

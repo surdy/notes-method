@@ -7,6 +7,7 @@ export interface FolderNode {
 	path: string;
 	children: FolderNode[];
 	notes: NoteSummary[];
+	folderNote?: NoteSummary;
 }
 
 export function buildTree(notes: NoteSummary[]): FolderNode {
@@ -34,11 +35,26 @@ export function buildTree(notes: NoteSummary[]): FolderNode {
 }
 
 export function sortTree(node: FolderNode): FolderNode {
+	const folderNote = findFolderNote(node);
+	const notes = folderNote
+		? node.notes.filter((note) => note.path !== folderNote.path)
+		: node.notes;
+
 	return {
 		...node,
 		children: [...node.children]
 			.map((child) => sortTree(child))
 			.sort((left, right) => left.name.localeCompare(right.name)),
-		notes: [...node.notes].sort((left, right) => left.path.localeCompare(right.path))
+		notes: [...notes].sort((left, right) => left.path.localeCompare(right.path)),
+		...(folderNote ? { folderNote } : {})
 	};
+}
+
+function findFolderNote(node: FolderNode): NoteSummary | undefined {
+	if (!node.name || node.path.split('/').some((part) => part.startsWith('.'))) {
+		return undefined;
+	}
+
+	const expectedPath = `${node.path}/${node.name}.md`;
+	return node.notes.find((note) => note.path === expectedPath);
 }
