@@ -13,6 +13,7 @@ import {
 	type MarkdownTableCellUpdate
 } from './markdown-table.ts';
 import { highlightCodeElement, parseFencedCodeBlock } from './code-highlighting.ts';
+import { isExternalLinkUrl } from './link-classification.ts';
 
 type CalloutFold = 'open' | 'closed' | null;
 
@@ -456,6 +457,7 @@ const boldMark = Decoration.mark({ class: 'cm-lp-bold' });
 const italicMark = Decoration.mark({ class: 'cm-lp-italic' });
 const strikethroughMark = Decoration.mark({ class: 'cm-lp-strikethrough' });
 const linkTextMark = Decoration.mark({ class: 'cm-lp-link-text' });
+const linkExternalMark = Decoration.mark({ class: 'cm-lp-link-external' });
 const inlineCodeMark = Decoration.mark({ class: 'cm-lp-inline-code' });
 
 function cursorLines(state: EditorState): Set<number> {
@@ -663,32 +665,20 @@ export function buildLivePreviewDecorationsForState(state: EditorState): Decorat
 
 				// Links: hide [, ](url), show text styled as link
 				if (name === 'Link') {
-					const child = node.node;
-					let linkLabel: { from: number; to: number } | null = null;
-					let urlStart = -1;
-					let cursor = child.firstChild;
-
-					while (cursor) {
-						if (cursor.type.name === 'LinkMark') {
-							if (cursor.from === node.from) {
-								// Opening [ — hide it
-								decorations.push(hideMark.range(cursor.from, cursor.to));
-							} else {
-								// ]( or ] — start of URL portion
-								urlStart = cursor.from;
-							}
-						}
-						if (cursor.type.name === 'LinkLabel') {
-							linkLabel = { from: cursor.from, to: cursor.to };
-						}
-						cursor = cursor.nextSibling;
-					}
-
-					if (linkLabel) {
-						decorations.push(linkTextMark.range(linkLabel.from, linkLabel.to));
-					}
-					// Hide from ]( to end of link )
-					if (urlStart >= 0) {
+					const slice = state.doc.sliceString(node.from, node.to);
+					const match = slice.match(/^\[([^\]]*)\]\(([^)]*)\)\s*$/);
+					if (match) {
+						const labelText = match[1];
+						const url = match[2].trim();
+						const labelFrom = node.from + 1;
+						const labelTo = labelFrom + labelText.length;
+						const urlStart = labelTo + 1; // the ']('
+						// Hide opening [
+						decorations.push(hideMark.range(node.from, node.from + 1));
+						// Style the label
+						const mark = isExternalLinkUrl(url) ? linkExternalMark : linkTextMark;
+						decorations.push(mark.range(labelFrom, labelTo));
+						// Hide ](...) tail
 						decorations.push(hideMark.range(urlStart, node.to));
 					}
 					return false;

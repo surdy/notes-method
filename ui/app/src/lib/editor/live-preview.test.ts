@@ -160,4 +160,29 @@ const answer = 42;
 
 		expect(widgets[0]?.ignoreEvent(new Event('mousedown'))).toBe(false);
 	});
+
+	it('marks markdown links with web URLs as external', () => {
+		const state = EditorState.create({
+			doc: `# Heading\n\nSee [docs](https://example.com) and [note](some-note.md).`,
+			selection: { anchor: 0 },
+			extensions: [markdown({ base: markdownLanguage })]
+		});
+
+		const decorations = buildLivePreviewDecorationsForState(state);
+		const marks: Array<{ from: number; to: number; class?: string }> = [];
+		decorations.between(0, state.doc.length, (from, to, value) => {
+			if (value.spec.class) {
+				marks.push({ from, to, class: value.spec.class as string });
+			}
+		});
+
+		const linkMarks = marks.filter(
+			(m) => m.class === 'cm-lp-link-text' || m.class === 'cm-lp-link-external'
+		);
+		const externalDocs = linkMarks.find((m) => state.doc.sliceString(m.from, m.to) === 'docs');
+		const internalNote = linkMarks.find((m) => state.doc.sliceString(m.from, m.to) === 'note');
+
+		expect(externalDocs?.class).toBe('cm-lp-link-external');
+		expect(internalNote?.class).toBe('cm-lp-link-text');
+	});
 });

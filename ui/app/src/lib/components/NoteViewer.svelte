@@ -207,6 +207,24 @@
 		text-decoration-style: dotted;
 	}
 
+	/* External links (not wikilinks): add an arrow icon to distinguish from
+	   internal vault links. Matches common URL schemes plus protocol-relative. */
+	.content :global(a[href^='http://']:not(.wikilink))::after,
+	.content :global(a[href^='https://']:not(.wikilink))::after,
+	.content :global(a[href^='//']:not(.wikilink))::after,
+	.content :global(a[href^='mailto:']:not(.wikilink))::after,
+	.content :global(a[href^='tel:']:not(.wikilink))::after,
+	.content :global(a[href^='ftp://']:not(.wikilink))::after,
+	.content :global(a[href^='obsidian://']:not(.wikilink))::after,
+	.content :global(a[href^='notesmith://']:not(.wikilink))::after {
+		content: '↗';
+		display: inline-block;
+		margin-left: 0.15em;
+		font-size: 0.85em;
+		vertical-align: baseline;
+		opacity: 0.7;
+	}
+
 	.content :global(table) {
 		border-collapse: collapse;
 		margin: 1em 0;

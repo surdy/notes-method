@@ -357,6 +357,19 @@ accentColor: '#ffb347'
 	textDecoration: 'underline',
 	cursor: 'pointer'
 },
+'.cm-lp-link-external': {
+	color: 'var(--ns-link)',
+	textDecoration: 'underline',
+	cursor: 'pointer'
+},
+'.cm-lp-link-external::after': {
+	content: '"↗"',
+	display: 'inline-block',
+	marginLeft: '0.15em',
+	fontSize: '0.85em',
+	verticalAlign: 'baseline',
+	opacity: '0.7'
+},
 '.cm-lp-inline-code': {
 	backgroundColor: 'var(--ns-panel-bg-strong)',
 	padding: '1px 4px',

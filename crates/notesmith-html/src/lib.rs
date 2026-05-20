@@ -41,6 +41,21 @@ a {
 a:hover {
     text-decoration: underline;
 }
+a[href^="http://"]:not(.wikilink)::after,
+a[href^="https://"]:not(.wikilink)::after,
+a[href^="//"]:not(.wikilink)::after,
+a[href^="mailto:"]:not(.wikilink)::after,
+a[href^="tel:"]:not(.wikilink)::after,
+a[href^="ftp://"]:not(.wikilink)::after,
+a[href^="obsidian://"]:not(.wikilink)::after,
+a[href^="notesmith://"]:not(.wikilink)::after {
+    content: "↗";
+    display: inline-block;
+    margin-left: 0.15em;
+    font-size: 0.85em;
+    vertical-align: baseline;
+    opacity: 0.7;
+}
 strong {
     font-weight: 600;
 }
