@@ -5,7 +5,8 @@ import {
 	createOrOpenFolderNote,
 	folderNotePath,
 	isFolderNoteSelected,
-	listFolderPickerItems
+	listFolderPickerItems,
+	remapPathAfterFolderRename
 } from './folder-notes.ts';
 import { buildTree } from './tree-builder.ts';
 
@@ -85,5 +86,24 @@ describe('folder notes', () => {
 		expect(isFolderNoteSelected(acme, 'Customers/Acme/Acme.md')).toBe(true);
 		expect(isFolderNoteSelected(customers, 'Customers/Acme/Acme.md')).toBe(false);
 		expect(isFolderNoteSelected(contacts, 'Customers/Acme/Contacts/Jane Doe.md')).toBe(false);
+	});
+
+	it('remaps open paths after a folder rename and folder-note sync', () => {
+		const rename = {
+			from: 'Customers/Acme',
+			to: 'Customers/Globex',
+			folder_note_from: 'Customers/Acme/Acme.md',
+			folder_note_to: 'Customers/Globex/Globex.md'
+		};
+
+		expect(remapPathAfterFolderRename('Customers/Acme/Acme.md', rename)).toBe(
+			'Customers/Globex/Globex.md'
+		);
+		expect(remapPathAfterFolderRename('Customers/Acme/Contacts/Jane.md', rename)).toBe(
+			'Customers/Globex/Contacts/Jane.md'
+		);
+		expect(remapPathAfterFolderRename('Customers/Other/Other.md', rename)).toBe(
+			'Customers/Other/Other.md'
+		);
 	});
 });

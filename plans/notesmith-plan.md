@@ -1154,6 +1154,8 @@ Sidebar views are user-defined in `.notesmith/sidebar.yaml`. By default (no YAML
 
 When ≥1 custom view is configured, a tab bar appears at the top of the sidebar. Files is always present and always first. Tabs use a **fixed 2-column grid** (icon + name), wrapping to additional rows as needed. Views support an optional `badge_query` for tab-level badge counts.
 
+FileTree supports Obsidian-style folder notes through the same-name markdown convention: `Customers/Acme/Acme.md` represents `Customers/Acme/`. The folder name opens the folder note, the disclosure chevron expands/collapses children, and the duplicate child note is hidden only in that tree position. Folder context menus support opening/creating folder notes and renaming folders; Notesmith-initiated folder renames sync the same-name folder-note filename when present and block collisions instead of rewriting links.
+
 Each view contains **sections** stacked vertically with horizontal separators. Sections are collapsible (state persisted in localStorage) and show item count badges on headers.
 
 #### Section types

@@ -19,6 +19,7 @@ export {
 	getNoteHtmlInline,
 	listNotes,
 	putNote,
+	renameFolder,
 	searchNotes,
 	toggleTaskStatus
 } from './notes.ts';
@@ -26,6 +27,7 @@ export type {
 	NoteDetail,
 	NoteSummary,
 	NoteTask,
+	RenameFolderResponse,
 	SourcePosition,
 	TaskMutationStatus,
 	WriteNoteResponse

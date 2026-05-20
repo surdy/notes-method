@@ -1172,6 +1172,138 @@ async fn move_note_changes_path() {
 }
 
 #[tokio::test]
+async fn rename_folder_syncs_same_name_folder_note() {
+    let server = TestServer::with_files(&[
+        ("Customers/Acme/Acme.md", "# Acme\n"),
+        ("Customers/Acme/Child.md", "# Child\n"),
+    ])
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/folders-rename/Customers/Acme"))
+        .json(&serde_json::json!({ "name": "Globex" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["from"], serde_json::json!("Customers/Acme"));
+    assert_eq!(body["to"], serde_json::json!("Customers/Globex"));
+    assert_eq!(
+        body["folder_note_from"],
+        serde_json::json!("Customers/Acme/Acme.md")
+    );
+    assert_eq!(
+        body["folder_note_to"],
+        serde_json::json!("Customers/Globex/Globex.md")
+    );
+    assert!(!server.root.join("Customers/Acme").exists());
+    assert!(server.root.join("Customers/Globex/Globex.md").exists());
+    assert!(server.root.join("Customers/Globex/Child.md").exists());
+    assert!(!server.root.join("Customers/Globex/Acme.md").exists());
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_folder_without_folder_note_moves_folder_contents() {
+    let server = TestServer::with_files(&[("Projects/Alpha/Brief.md", "# Brief\n")]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/folders-rename/Projects/Alpha"))
+        .json(&serde_json::json!({ "name": "Beta" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["from"], serde_json::json!("Projects/Alpha"));
+    assert_eq!(body["to"], serde_json::json!("Projects/Beta"));
+    assert_eq!(body["folder_note_from"], serde_json::Value::Null);
+    assert_eq!(body["folder_note_to"], serde_json::Value::Null);
+    assert!(!server.root.join("Projects/Alpha").exists());
+    assert!(server.root.join("Projects/Beta/Brief.md").exists());
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_folder_blocks_destination_collision() {
+    let server = TestServer::with_files(&[
+        ("Customers/Acme/Acme.md", "# Acme\n"),
+        ("Customers/Globex/Other.md", "# Existing\n"),
+    ])
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/folders-rename/Customers/Acme"))
+        .json(&serde_json::json!({ "name": "Globex" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
+    assert!(server.root.join("Customers/Acme/Acme.md").exists());
+    assert!(server.root.join("Customers/Globex/Other.md").exists());
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_folder_blocks_folder_note_filename_collision_inside_source() {
+    let server = TestServer::with_files(&[
+        ("Customers/Acme/Acme.md", "# Folder note\n"),
+        ("Customers/Acme/Globex.md", "# Existing unrelated note\n"),
+    ])
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/folders-rename/Customers/Acme"))
+        .json(&serde_json::json!({ "name": "Globex" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
+    assert!(server.root.join("Customers/Acme/Acme.md").exists());
+    assert!(server.root.join("Customers/Acme/Globex.md").exists());
+    assert!(!server.root.join("Customers/Globex").exists());
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_folder_rejects_unsafe_paths_and_names() {
+    let server = TestServer::with_files(&[("Customers/Acme/Acme.md", "# Acme\n")]).await;
+    let client = reqwest::Client::new();
+
+    let unsafe_source = client
+        .post(server.url("/api/v/test-vault/folders-rename/Customers%5CAcme"))
+        .json(&serde_json::json!({ "name": "Globex" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unsafe_source.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    let unsafe_name = client
+        .post(server.url("/api/v/test-vault/folders-rename/Customers/Acme"))
+        .json(&serde_json::json!({ "name": "../Globex" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unsafe_name.status(), reqwest::StatusCode::BAD_REQUEST);
+    assert!(server.root.join("Customers/Acme/Acme.md").exists());
+
+    server.server.abort();
+}
+
+#[tokio::test]
 async fn save_pipeline_stamps_created_updated() {
     let server = TestServer::empty().await;
     let client = reqwest::Client::new();

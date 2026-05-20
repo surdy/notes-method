@@ -13,6 +13,13 @@ export type FolderNoteCreationResult = {
 	created: boolean;
 };
 
+export type FolderRenameResult = {
+	from: string;
+	to: string;
+	folder_note_from: string | null;
+	folder_note_to: string | null;
+};
+
 export function folderNotePath(folderPath: string): string | null {
 	const parts = folderPath.split('/').filter(Boolean);
 	if (parts.length === 0 || parts.some((part) => part.startsWith('.'))) {
@@ -47,6 +54,19 @@ export function listFolderPickerItems(
 
 export function isFolderNoteSelected(node: FolderNode, selectedPath: string | null | undefined): boolean {
 	return Boolean(selectedPath && node.folderNote?.path === selectedPath);
+}
+
+export function remapPathAfterFolderRename(path: string, rename: FolderRenameResult): string {
+	if (rename.folder_note_from && rename.folder_note_to && path === rename.folder_note_from) {
+		return rename.folder_note_to;
+	}
+
+	const prefix = `${rename.from}/`;
+	if (path.startsWith(prefix)) {
+		return `${rename.to}/${path.slice(prefix.length)}`;
+	}
+
+	return path;
 }
 
 export async function createOrOpenFolderNote({

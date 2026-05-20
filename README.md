@@ -49,6 +49,7 @@ ui/app/                  # SvelteKit frontend
 - **Status bar** — Connection status, vault name, cursor position, word count, save state
 - **Tabbed right rail** — Metadata, Links, and live TOC with click-to-scroll (⌘\\)
 - **Per-note icons** — `_icon` frontmatter for custom emoji in file tree and tabs
+- **Folder notes** — Same-name markdown folder notes with create/open/rename support in the file tree
 - **Quick switcher** — Fuzzy note search (⌘O)
 - **Tabbed editor** — Source, Live Preview, and Reading View modes with persistence
 

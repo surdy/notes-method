@@ -1,7 +1,13 @@
 <script lang="ts">
 	import FileTree from './FileTree.svelte';
-	import { createNote, type NoteSummary } from '$lib/api';
-	import { createOrOpenFolderNote, folderNotePath, isFolderNoteSelected } from '$lib/folder-notes';
+	import { createNote, renameFolder, type NoteSummary } from '$lib/api';
+	import {
+		createOrOpenFolderNote,
+		folderNotePath,
+		isFolderNoteSelected,
+		remapPathAfterFolderRename
+	} from '$lib/folder-notes';
+	import { inputPalette } from '$lib/input-palette.svelte';
 	import { noteIcon } from '$lib/note-icons';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { toastStore } from '$lib/toast-store.svelte';
@@ -68,6 +74,40 @@
 		}
 	}
 
+	function renameFolderFromMenu() {
+		contextMenu = null;
+		if (!vaultStore.currentVault) {
+			toastStore.add('Select a vault first.', 'warning');
+			return;
+		}
+
+		inputPalette.open({
+			steps: [
+				{
+					mode: 'text',
+					label: `Rename ${node.name}`,
+					placeholder: node.name,
+					required: true,
+					defaultValue: node.name
+				}
+			],
+			onComplete: async ([name]) => {
+				const nextName = name?.trim();
+				if (!nextName || nextName === node.name) return;
+
+				try {
+					const result = await renameFolder(vaultStore.currentVault, node.path, nextName);
+					tabStore.rewritePaths((path) => remapPathAfterFolderRename(path, result));
+					await vaultStore.loadNotes();
+					toastStore.add('Folder renamed.', 'success');
+				} catch (cause) {
+					console.error('Failed to rename folder', cause);
+					toastStore.add('Failed to rename folder.', 'error');
+				}
+			}
+		});
+	}
+
 	function noteTitle(note: NoteSummary): string {
 		if (note.title) return note.title;
 		const parts = note.path.split('/');
@@ -127,6 +167,7 @@
 			{:else}
 				<button type="button" role="menuitem" onclick={createFolderNoteFromMenu}>Create Folder Note</button>
 			{/if}
+			<button type="button" role="menuitem" onclick={renameFolderFromMenu}>Rename Folder</button>
 		</div>
 	{/if}
 {/if}

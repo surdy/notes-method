@@ -30,6 +30,13 @@ export interface WriteNoteResponse {
 	hash: string;
 }
 
+export interface RenameFolderResponse {
+	from: string;
+	to: string;
+	folder_note_from: string | null;
+	folder_note_to: string | null;
+}
+
 export type TaskMutationStatus =
 	| 'todo'
 	| 'in_progress'
@@ -99,6 +106,23 @@ export async function createNote(
 		body: JSON.stringify({ title, content, folder })
 	});
 	if (!res.ok) throw new Error(`Failed to create note: ${res.status}`);
+	return res.json();
+}
+
+export async function renameFolder(
+	vault: string,
+	folderPath: string,
+	name: string
+): Promise<RenameFolderResponse> {
+	const res = await apiFetch(
+		`${API_BASE}/api/v/${encodeURIComponent(vault)}/folders-rename/${encodePath(folderPath)}`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name })
+		}
+	);
+	if (!res.ok) throw new ApiError(`Failed to rename folder: ${res.status}`, res.status);
 	return res.json();
 }
 

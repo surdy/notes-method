@@ -1,4 +1,7 @@
-use std::{fs, path::Path as StdPath};
+use std::{
+    fs,
+    path::{Component, Path as StdPath, PathBuf},
+};
 
 use axum::{
     Json,
@@ -122,6 +125,19 @@ pub struct MoveNoteRequest {
 pub struct MoveNoteResponse {
     pub from: String,
     pub to: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenameFolderRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RenameFolderResponse {
+    pub from: String,
+    pub to: String,
+    pub folder_note_from: Option<String>,
+    pub folder_note_to: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -566,6 +582,223 @@ pub async fn move_note(
         from: from.to_string(),
         to: to.to_string(),
     }))
+}
+
+pub async fn rename_folder(
+    State(state): State<SharedAppState>,
+    Path((vault_name, folder_path)): Path<(String, String)>,
+    Json(request): Json<RenameFolderRequest>,
+) -> Result<Json<RenameFolderResponse>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    let from = validate_folder_path(&folder_path)?;
+    let new_name = validate_folder_name(&request.name)?;
+    let from_abs = vault.root.join(&from);
+    if !from_abs.is_dir() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "folder not found", "path": from })),
+        ));
+    }
+
+    let from_path = StdPath::new(&from);
+    let from_name = from_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| bad_request("folder path must include a folder name"))?;
+    let parent = from_path
+        .parent()
+        .and_then(|parent| parent.to_str())
+        .unwrap_or("");
+    let to = if parent.is_empty() {
+        new_name.clone()
+    } else {
+        format!("{parent}/{new_name}")
+    };
+    let to_abs = vault.root.join(&to);
+
+    preflight_folder_destination(&from_abs, &to_abs, &to)?;
+
+    let source_folder_note_name = format!("{from_name}.md");
+    let target_folder_note_name = format!("{new_name}.md");
+    let source_folder_note_abs = from_abs.join(&source_folder_note_name);
+    let source_folder_note_rel = format!("{from}/{source_folder_note_name}");
+    let folder_note_exists = source_folder_note_abs.is_file();
+    if folder_note_exists {
+        preflight_folder_note_destination(
+            &source_folder_note_abs,
+            &from_abs.join(&target_folder_note_name),
+            &format!("{from}/{target_folder_note_name}"),
+        )?;
+    }
+
+    rename_path_with_case_support(&from_abs, &to_abs).map_err(internal_error)?;
+
+    let mut folder_note_from = None;
+    let mut folder_note_to = None;
+    if folder_note_exists {
+        let moved_folder_note_abs = to_abs.join(&source_folder_note_name);
+        let target_folder_note_abs = to_abs.join(&target_folder_note_name);
+        let target_folder_note_rel = format!("{to}/{target_folder_note_name}");
+        if let Err(error) =
+            rename_path_with_case_support(&moved_folder_note_abs, &target_folder_note_abs)
+        {
+            match fs::rename(&to_abs, &from_abs) {
+                Ok(()) => {}
+                Err(rollback_error) => {
+                    tracing::error!(
+                        "failed to roll back folder rename from {} to {} after folder-note rename error: {}; rollback error: {}",
+                        from,
+                        to,
+                        error,
+                        rollback_error
+                    );
+                }
+            }
+            return Err(internal_error(format!(
+                "folder renamed but folder note rename failed: {error}"
+            )));
+        }
+
+        folder_note_from = Some(source_folder_note_rel);
+        folder_note_to = Some(target_folder_note_rel.clone());
+        events::emit(
+            &state.event_tx,
+            &state.event_buffer,
+            VaultEvent::new(&vault_name, EventType::NoteMoved, &target_folder_note_rel),
+        );
+    }
+
+    Ok(Json(RenameFolderResponse {
+        from,
+        to,
+        folder_note_from,
+        folder_note_to,
+    }))
+}
+
+fn bad_request(message: impl Into<String>) -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "error": message.into() })),
+    )
+}
+
+fn conflict(message: impl Into<String>, path: impl Into<String>) -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::CONFLICT,
+        Json(json!({ "error": message.into(), "path": path.into() })),
+    )
+}
+
+fn validate_folder_path(path: &str) -> Result<String, (StatusCode, Json<Value>)> {
+    let trimmed = path.trim_matches('/');
+    if trimmed.is_empty() {
+        return Err(bad_request("folder path must not be empty"));
+    }
+    if trimmed.contains('\\') {
+        return Err(bad_request("folder path must use '/' separators"));
+    }
+
+    let candidate = StdPath::new(trimmed);
+    if candidate.is_absolute() {
+        return Err(bad_request("folder path must be vault-relative"));
+    }
+    if candidate.components().any(|component| {
+        !matches!(component, Component::Normal(_))
+            || component.as_os_str().to_string_lossy().is_empty()
+    }) {
+        return Err(bad_request("folder path contains unsafe segments"));
+    }
+
+    Ok(trimmed.to_string())
+}
+
+fn validate_folder_name(name: &str) -> Result<String, (StatusCode, Json<Value>)> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(bad_request("folder name must not be empty"));
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return Err(bad_request("folder name must not contain path separators"));
+    }
+    if trimmed == "." || trimmed == ".." {
+        return Err(bad_request("folder name contains unsafe segments"));
+    }
+
+    Ok(trimmed.to_string())
+}
+
+fn preflight_folder_destination(
+    from_abs: &StdPath,
+    to_abs: &StdPath,
+    to: &str,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    if !to_abs.exists() {
+        return Ok(());
+    }
+    if paths_reference_same_entry(from_abs, to_abs).map_err(internal_error)? {
+        return Ok(());
+    }
+
+    Err(conflict("destination folder already exists", to))
+}
+
+fn preflight_folder_note_destination(
+    source_abs: &StdPath,
+    target_abs: &StdPath,
+    target: &str,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    if !target_abs.exists() {
+        return Ok(());
+    }
+    if paths_reference_same_entry(source_abs, target_abs).map_err(internal_error)? {
+        return Ok(());
+    }
+
+    Err(conflict("folder note target already exists", target))
+}
+
+fn paths_reference_same_entry(left: &StdPath, right: &StdPath) -> std::io::Result<bool> {
+    Ok(fs::canonicalize(left)? == fs::canonicalize(right)?)
+}
+
+fn rename_path_with_case_support(from: &StdPath, to: &StdPath) -> std::io::Result<()> {
+    if from == to || paths_reference_same_entry(from, to).unwrap_or(false) {
+        let temp = sibling_temp_path(from);
+        fs::rename(from, &temp)?;
+        if let Err(error) = fs::rename(&temp, to) {
+            let _ = fs::rename(&temp, from);
+            return Err(error);
+        }
+        return Ok(());
+    }
+
+    fs::rename(from, to)
+}
+
+fn sibling_temp_path(path: &StdPath) -> PathBuf {
+    let parent = path.parent().unwrap_or_else(|| StdPath::new(""));
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("folder");
+    let process_id = std::process::id();
+    for index in 0..1000 {
+        let candidate = parent.join(format!(
+            ".notesmith-rename-{process_id}-{index}-{file_name}"
+        ));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    parent.join(format!(".notesmith-rename-{process_id}-{file_name}"))
 }
 
 fn collect_visible_directories(

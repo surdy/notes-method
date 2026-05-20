@@ -83,6 +83,24 @@ this._applyTabState(toggleViewModeState(this._tabState()));
 this._persistTabs();
 }
 
+rewritePaths(mapPath: (path: string) => string) {
+const tabs = this.tabs.map((tab) => {
+const path = mapPath(tab.path);
+if (path === tab.path) {
+return tab;
+}
+
+return {
+...tab,
+path,
+title: path.split('/').at(-1)?.replace(/\.md$/, '') || path
+};
+});
+this.tabs = tabs;
+this.selectedPath = this.selectedPath ? mapPath(this.selectedPath) : null;
+this._persistTabs();
+}
+
 restoreTabs() {
 try {
 const restored = restoreTabState(localStorage.getItem(STORAGE_KEY));

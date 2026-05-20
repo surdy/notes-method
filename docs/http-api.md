@@ -387,6 +387,34 @@ Move a note to another vault-relative path.
 }
 ```
 
+### `POST /api/v/{vault}/folders-rename/{path...}`
+
+Rename a folder within its current parent folder. If the folder contains a same-name folder note, the daemon also renames that note to match the new folder name. Wikilinks and embeds are not rewritten.
+
+**Request body:**
+```json
+{
+  "name": "Globex"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "from": "Customers/Acme",
+  "to": "Customers/Globex",
+  "folder_note_from": "Customers/Acme/Acme.md",
+  "folder_note_to": "Customers/Globex/Globex.md"
+}
+```
+
+When no same-name folder note exists, `folder_note_from` and `folder_note_to` are `null`.
+
+**Errors:**
+- `400` — unsafe folder path or folder name
+- `404` — vault or source folder not found
+- `409` — destination folder exists, or the synced folder-note filename would collide with an existing note
+
 ### Save pipeline
 
 Every write path (`POST /notes`, `PUT /notes/{path...}`, `PATCH /notes/{path...}`, and `POST /notes-append/{path...}`) runs the save pipeline:

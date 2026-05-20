@@ -137,6 +137,7 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
         )
         .route("/api/v/{vault}/folders", get(get_folders))
         .route("/api/v/{vault}/folder-notes", get(get_folder_notes))
+        .route("/api/v/{vault}/folders-rename/{*path}", post(rename_folder))
         .route("/api/v/{vault}/query/sql", post(execute_sql_query))
         .route("/api/v/{vault}/tasks", get(list_tasks).post(create_task))
         .route("/api/v/{vault}/tasks/toggle", post(toggle_task_status))
