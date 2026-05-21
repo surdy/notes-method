@@ -26,6 +26,7 @@
 	import { vaultStore } from '$lib/stores.svelte';
 	import { settingsStore } from '$lib/settings.svelte';
 	import { workspaceChromeLayout } from '$lib/workspace-chrome';
+	import { pushWindowTitle } from '$lib/window-title';
 
 	let vaults = $state<string[]>([]);
 	let showCommandPalette = $state(false);
@@ -136,6 +137,12 @@
 		if (vault) {
 			void settingsStore.loadConfig(vault);
 		}
+	});
+
+	$effect(() => {
+		const vault = vaultStore.currentVault;
+		const activeTitle = tabStore.activeTab?.title ?? null;
+		void pushWindowTitle(vault, activeTitle);
 	});
 </script>
 

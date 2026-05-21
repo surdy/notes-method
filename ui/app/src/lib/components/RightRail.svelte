@@ -118,9 +118,17 @@
 		tabStore.selectNote(path);
 	}
 
+	function railTabKey(): string | null {
+		const vault = vaultStore.currentVault;
+		if (!vault) return null;
+		return `notesmith:rail-tab:${vault}`;
+	}
+
 	function loadTab(): RailTab {
 		try {
-			const saved = localStorage.getItem('notesmith:rail-tab');
+			const key = railTabKey();
+			if (!key) return 'metadata';
+			const saved = localStorage.getItem(key);
 			if (saved === 'metadata' || saved === 'links' || saved === 'toc') {
 				return saved;
 			}
@@ -132,7 +140,9 @@
 	function setTab(tab: RailTab) {
 		activeTab = tab;
 		try {
-			localStorage.setItem('notesmith:rail-tab', tab);
+			const key = railTabKey();
+			if (!key) return;
+			localStorage.setItem(key, tab);
 		} catch {}
 	}
 
