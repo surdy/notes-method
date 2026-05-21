@@ -50,18 +50,34 @@ export async function attachWindowCloseConfirm(
   return unlisten;
 }
 
-function resolveTauri(): TauriAdapter | null {
+export function resolveTauri(): TauriAdapter | null {
   if (typeof window === 'undefined') {
     return null;
   }
   const t = (window as unknown as { __TAURI__?: TauriRuntime }).__TAURI__;
-  if (!t?.event?.listen || !t.core?.invoke) {
+  if (!t?.core?.invoke) {
     return null;
   }
+  const invoke = t.core.invoke;
+  const currentTarget =
+    t.webviewWindow?.getCurrentWebviewWindow?.() ?? t.window?.getCurrentWindow?.();
+
+  if (currentTarget?.listen) {
+    return {
+      listen: (event, handler) =>
+        currentTarget.listen(event, (envelope: { payload: unknown }) => handler(envelope.payload)),
+      invoke: (cmd, args) => invoke(cmd, args ?? {})
+    };
+  }
+
+  if (!t.event?.listen) {
+    return null;
+  }
+
   return {
     listen: (event, handler) =>
       t.event!.listen(event, (envelope: { payload: unknown }) => handler(envelope.payload)),
-    invoke: (cmd, args) => t.core!.invoke(cmd, args ?? {})
+    invoke: (cmd, args) => invoke(cmd, args ?? {})
   };
 }
 
@@ -75,4 +91,17 @@ interface TauriRuntime {
   core?: {
     invoke: (cmd: string, args: Record<string, unknown>) => Promise<unknown>;
   };
+  window?: {
+    getCurrentWindow?: () => ScopedTauriEventTarget;
+  };
+  webviewWindow?: {
+    getCurrentWebviewWindow?: () => ScopedTauriEventTarget;
+  };
+}
+
+interface ScopedTauriEventTarget {
+  listen: (
+    event: string,
+    handler: (envelope: { payload: unknown }) => void
+  ) => Promise<() => void>;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { attachWindowCloseConfirm, type TauriAdapter } from './window-lifecycle';
+import { attachWindowCloseConfirm, resolveTauri, type TauriAdapter } from './window-lifecycle';
 
 function makeTauri(): {
   adapter: TauriAdapter;
@@ -112,5 +112,35 @@ describe('attachWindowCloseConfirm', () => {
 
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+});
+
+describe('resolveTauri', () => {
+  it('uses the current WebviewWindow listener instead of the global event listener', async () => {
+    const scopedListen = vi.fn(async () => vi.fn());
+    const globalListen = vi.fn(async () => vi.fn());
+    const invoke = vi.fn(async () => undefined);
+    vi.stubGlobal('window', {
+      __TAURI__: {
+        core: { invoke },
+        event: { listen: globalListen },
+        webviewWindow: {
+          getCurrentWebviewWindow: () => ({
+            listen: scopedListen
+          })
+        }
+      }
+    });
+
+    const adapter = resolveTauri();
+    await adapter?.listen('notesmith://close-requested', () => {});
+
+    expect(scopedListen).toHaveBeenCalledWith(
+      'notesmith://close-requested',
+      expect.any(Function)
+    );
+    expect(globalListen).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
   });
 });

@@ -399,7 +399,7 @@ fn main() {
                         // window mount.
                         api.prevent_close();
                         let _ = window.app_handle().emit_to(
-                            EventTarget::webview_window(&label),
+                            EventTarget::labeled(&label),
                             CLOSE_REQUESTED_EVENT,
                             label.clone(),
                         );
