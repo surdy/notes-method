@@ -1,8 +1,10 @@
 <script lang="ts">
 import { fuzzyFilter, type FuzzyMatch } from '$lib/fuzzy';
 import type { Command } from '$lib/commands';
+import { vaultStore } from '$lib/stores.svelte';
 
 let { commands, onClose }: { commands: Command[]; onClose: () => void } = $props();
+
 
 type CommandSection = {
 id: string;
@@ -24,9 +26,17 @@ let inputRef: HTMLInputElement | undefined;
 let resultsRef: HTMLDivElement | undefined;
 let recentIds = $state<string[]>(loadRecentIds());
 
+function recentCommandsKey(): string | null {
+const vault = vaultStore.currentVault;
+if (!vault) return null;
+return `notesmith:recent-commands:${vault}`;
+}
+
 function loadRecentIds(): string[] {
 try {
-const stored = localStorage.getItem('notesmith:recent-commands');
+const key = recentCommandsKey();
+if (!key) return [];
+const stored = localStorage.getItem(key);
 if (!stored) return [];
 const parsed = JSON.parse(stored);
 return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [];
@@ -37,7 +47,9 @@ return [];
 
 function saveRecentIds(ids: string[]) {
 try {
-localStorage.setItem('notesmith:recent-commands', JSON.stringify(ids));
+const key = recentCommandsKey();
+if (!key) return;
+localStorage.setItem(key, JSON.stringify(ids));
 } catch {
 // Ignore storage failures.
 }

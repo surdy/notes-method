@@ -159,6 +159,7 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 	let handleOpenQuickSwitcher: EventListener | null = null;
 	let availableVaults: string[] | null = null;
 	let lastResyncTime = 0;
+	let urlPinnedVault = false;
 
 	async function performResync(flushQueuedSaves = false) {
 		try {
@@ -241,6 +242,14 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 			return;
 		}
 
+		// Sticky window: once a vault was URL-pinned for this window, never
+		// auto-swap it away — even if the vault disappears from the registry.
+		// The window stays bound to the original vault; the user can close it
+		// manually.
+		if (urlPinnedVault) {
+			return;
+		}
+
 		const nextVault =
 			registrations.find((vault) => vault.is_default)?.name ?? vaultNames[0] ?? '';
 		if (!nextVault) {
@@ -256,6 +265,7 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 	async function init(vaultParam: string | null, vaults: string[]) {
 		teardown();
 		availableVaults = vaults;
+		urlPinnedVault = vaultParam !== null && vaultParam !== '';
 
 		handleOpenQuickSwitcher = () => callbacks.onOpenQuickSwitcher();
 		dependencies.targetWindow.addEventListener(
@@ -301,6 +311,7 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 		removeVisibilityListener = () => {};
 		lastResyncTime = 0;
 		availableVaults = null;
+		urlPinnedVault = false;
 	}
 
 	return { init, teardown };
