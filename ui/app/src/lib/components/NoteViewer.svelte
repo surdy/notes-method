@@ -2,6 +2,7 @@
 	import { tick } from 'svelte';
 	import { getNote, getNoteHtml, toggleTaskStatus, type NoteTask, type TaskMutationStatus } from '$lib/api';
 	import { applySyntaxHighlighting } from '$lib/editor/code-highlighting';
+	import { displayTitleFor } from '$lib/display-title';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
@@ -144,6 +145,7 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="content" bind:this={contentElement} onclick={handleClick}>
+			<h1 class="note-title">{displayTitleFor({ path, frontmatter })}</h1>
 			{@html html}
 		</div>
 	{/if}
@@ -188,6 +190,16 @@
 	.content :global(h1) {
 		font-size: 1.8em;
 		margin: 0.5em 0;
+	}
+
+	.content .note-title {
+		font-size: 2em;
+		font-weight: 700;
+		margin: 0 0 0.6em;
+		padding-bottom: 0.3em;
+		border-bottom: 1px solid var(--ns-border);
+		color: var(--ns-editor-text);
+		line-height: 1.2;
 	}
 
 	.content :global(h2) {

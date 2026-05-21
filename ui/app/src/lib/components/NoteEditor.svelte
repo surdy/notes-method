@@ -32,6 +32,7 @@ import { createLivePreviewExtension } from '$lib/editor/live-preview';
 import { createOFMDecorations } from '$lib/editor/ofm-decorations';
 import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-blocks';
 import { headingHighlightOverride, notesmithTheme } from '$lib/editor/theme';
+import { displayTitleFor } from '$lib/display-title';
 import { headingStore } from '$lib/heading-store.svelte';
 import { shouldLoadSelectedNote } from '$lib/note-loading';
 import { isDashboardNote } from '$lib/right-rail';
@@ -61,6 +62,7 @@ let error = $state<EditorErrorState | null>(null);
 let conflictBanner = $state<{ show: boolean; path: string } | null>(null);
 let dirty = $state(false);
 let saveError = $state<EditorErrorState | null>(null);
+let currentFrontmatter = $state<Record<string, unknown> | null>(null);
 const externalChangeDedup = createExternalChangeDedup(() => currentHash);
 let headingTimer: number | null = null;
 let wordCountTimer: number | null = null;
@@ -375,6 +377,7 @@ externalChangeDedup.reset();
 destroyEditor();
 currentPath = null;
 currentHash = null;
+currentFrontmatter = null;
 currentTaskHashes = new Map();
 setDashboardMode(false);
 
@@ -387,6 +390,7 @@ return;
 
 currentPath = path;
 currentHash = note.hash;
+currentFrontmatter = note.frontmatter ?? null;
 currentTaskHashes = buildTaskHashes(note);
 loading = false;
 await tick();
@@ -587,6 +591,7 @@ onAction={handleSaveErrorAction}
 onDismiss={clearSaveError}
 />
 {/if}
+<div class="editor-title-header">{displayTitleFor({ path: tabStore.selectedPath ?? '', frontmatter: currentFrontmatter })}</div>
 <div class="editor-container" bind:this={editorContainer}></div>
 {/if}
 </div>
@@ -599,6 +604,17 @@ display: flex;
 flex-direction: column;
 background: var(--ns-editor-bg);
 color: var(--ns-text);
+}
+
+.editor-title-header {
+padding: 16px 32px 8px;
+font-size: 2em;
+font-weight: 700;
+line-height: 1.2;
+color: var(--ns-editor-text);
+border-bottom: 1px solid var(--ns-border);
+margin-bottom: 4px;
+user-select: text;
 }
 
 .editor-container {

@@ -1,4 +1,5 @@
 import type { NoteSummary } from './api';
+import { displayTitleFor } from './display-title';
 import { recordView } from './recently-viewed';
 import {
 closeTab as closeTabState,
@@ -43,7 +44,7 @@ if (note && vaultStore.currentVault) {
 recordView(
 vaultStore.currentVault,
 path,
-note.title || path.split('/').pop()?.replace(/\.md$/, '') || path
+displayTitleFor({ path, frontmatter: note.frontmatter ?? null })
 );
 }
 }
@@ -93,7 +94,7 @@ return tab;
 return {
 ...tab,
 path,
-title: path.split('/').at(-1)?.replace(/\.md$/, '') || path
+title: displayTitleFor({ path })
 };
 });
 this.tabs = tabs;

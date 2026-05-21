@@ -14,14 +14,17 @@
 </script>
 
 {#if activeTab}
+	{@const segments = pathSegments(activeTab.path)}
 	<div class="note-toolbar">
 		<div class="toolbar-left"></div>
 
 		<div class="toolbar-center">
 			<span class="note-path">
-				{#each pathSegments(activeTab.path) as segment, i}
+				{#each segments as segment, i}
 					{#if i > 0}<span class="path-separator">/</span>{/if}
-					<span class="path-segment" class:path-leaf={i === pathSegments(activeTab.path).length - 1}>{segment}</span>
+					<span class="path-segment" class:path-leaf={i === segments.length - 1}
+						>{i === segments.length - 1 ? activeTab.title : segment}</span
+					>
 				{/each}
 			</span>
 		</div>
