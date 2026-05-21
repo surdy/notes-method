@@ -387,6 +387,33 @@ Move a note to another vault-relative path.
 }
 ```
 
+### `POST /api/v/{vault}/notes-rename/{path...}`
+
+Rename a note within its current folder. The `.md` extension is added automatically; users supply only the bare name. Case-only renames (e.g. `Foo.md` → `foo.md`) are supported on case-insensitive filesystems.
+
+After the rename succeeds, the daemon rewrites every `[[wikilink]]` and `![[embed]]` whose target matches the old basename across the vault. Frontmatter, fenced code blocks, and inline code spans are left untouched. The wikilink rewrite is best-effort: if it fails, the rename still succeeds and an error is logged.
+
+**Request body:**
+```json
+{
+  "name": "New Name"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "from": "Inbox/Old Name.md",
+  "to": "Inbox/New Name.md",
+  "references_rewritten": 3
+}
+```
+
+**Errors:**
+- `400` — empty name, contains `/`, `\`, or reserved chars (`:`, `*`, `?`, `"`, `<`, `>`, `|`).
+- `404` — source note does not exist.
+- `409` — destination filename already exists in the same folder.
+
 ### `POST /api/v/{vault}/folders-rename/{path...}`
 
 Rename a folder within its current parent folder. If the folder contains a same-name folder note, the daemon also renames that note to match the new folder name. Wikilinks and embeds are not rewritten.

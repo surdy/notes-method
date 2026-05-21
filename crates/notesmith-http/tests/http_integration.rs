@@ -1172,6 +1172,148 @@ async fn move_note_changes_path() {
 }
 
 #[tokio::test]
+async fn rename_note_renames_file_and_rewrites_wikilinks() {
+    let server = TestServer::with_files(&[
+        ("Inbox/Old Name.md", "# Old\n"),
+        ("Inbox/Other.md", "see [[Old Name]] and [[Old Name|alias]]"),
+        ("Sub/Embed.md", "![[Old Name#section]]"),
+    ])
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-rename/Inbox/Old Name.md"))
+        .json(&serde_json::json!({ "name": "New Name" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["from"], "Inbox/Old Name.md");
+    assert_eq!(body["to"], "Inbox/New Name.md");
+    assert_eq!(body["references_rewritten"], 3);
+
+    let old_resp = client
+        .get(server.url("/api/v/test-vault/notes/Inbox/Old Name.md"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(old_resp.status(), reqwest::StatusCode::NOT_FOUND);
+
+    let new_resp = client
+        .get(server.url("/api/v/test-vault/notes/Inbox/New Name.md"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(new_resp.status(), reqwest::StatusCode::OK);
+
+    let other_body = client
+        .get(server.url("/api/v/test-vault/notes/Inbox/Other.md"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(
+        other_body["body"],
+        serde_json::json!("see [[New Name]] and [[New Name|alias]]")
+    );
+
+    let embed_body = client
+        .get(server.url("/api/v/test-vault/notes/Sub/Embed.md"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(
+        embed_body["body"],
+        serde_json::json!("![[New Name#section]]")
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_note_returns_409_on_collision() {
+    let server =
+        TestServer::with_files(&[("Inbox/Foo.md", "# Foo\n"), ("Inbox/Bar.md", "# Bar\n")]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-rename/Inbox/Foo.md"))
+        .json(&serde_json::json!({ "name": "Bar" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_note_returns_400_on_invalid_name() {
+    let server = TestServer::with_files(&[("Inbox/Foo.md", "# Foo\n")]).await;
+    let client = reqwest::Client::new();
+
+    for bad in ["", "   ", "a/b", "a\\b", "name:with:colons", "?"] {
+        let response = client
+            .post(server.url("/api/v/test-vault/notes-rename/Inbox/Foo.md"))
+            .json(&serde_json::json!({ "name": bad }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::BAD_REQUEST,
+            "expected 400 for name {bad:?}"
+        );
+    }
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_note_returns_404_when_missing() {
+    let server = TestServer::with_files(&[]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-rename/Inbox/Missing.md"))
+        .json(&serde_json::json!({ "name": "New" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_note_strips_md_suffix_from_user_input() {
+    let server = TestServer::with_files(&[("Foo.md", "# Foo\n")]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-rename/Foo.md"))
+        .json(&serde_json::json!({ "name": "Bar.md" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["to"], "Bar.md");
+
+    server.server.abort();
+}
+
+#[tokio::test]
 async fn rename_folder_syncs_same_name_folder_note() {
     let server = TestServer::with_files(&[
         ("Customers/Acme/Acme.md", "# Acme\n"),

@@ -128,6 +128,18 @@ pub struct MoveNoteResponse {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct RenameNoteRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RenameNoteResponse {
+    pub from: String,
+    pub to: String,
+    pub references_rewritten: usize,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct RenameFolderRequest {
     pub name: String,
 }
@@ -584,6 +596,85 @@ pub async fn move_note(
     }))
 }
 
+pub async fn rename_note(
+    State(state): State<SharedAppState>,
+    Path((vault_name, note_path)): Path<(String, String)>,
+    Json(request): Json<RenameNoteRequest>,
+) -> Result<Json<RenameNoteResponse>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    let new_name = validate_note_name(&request.name)?;
+
+    let from = note_path.trim_matches('/').to_string();
+    if from.is_empty() {
+        return Err(bad_request("note path must not be empty"));
+    }
+    let from_path = StdPath::new(&from);
+    let parent = from_path.parent().and_then(|p| p.to_str()).unwrap_or("");
+    let target_filename = format!("{new_name}.md");
+    let to = if parent.is_empty() {
+        target_filename.clone()
+    } else {
+        format!("{parent}/{target_filename}")
+    };
+
+    let from_abs = vault.root.join(&from);
+    if !from_abs.is_file() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "note not found", "path": from })),
+        ));
+    }
+    let to_abs = vault.root.join(&to);
+
+    if from == to {
+        return Ok(Json(RenameNoteResponse {
+            from,
+            to,
+            references_rewritten: 0,
+        }));
+    }
+
+    if to_abs.exists() && !paths_reference_same_entry(&from_abs, &to_abs).unwrap_or(false) {
+        return Err(conflict("a note with that name already exists", to));
+    }
+
+    rename_path_with_case_support(&from_abs, &to_abs).map_err(internal_error)?;
+
+    // Rewrite wikilinks vault-wide. Best-effort: if rewrite fails we log and
+    // continue — the rename has already succeeded and is not rolled back.
+    let old_stem = from_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let references_rewritten = if old_stem.is_empty() || old_stem == new_name {
+        0
+    } else {
+        match notesmith_vault::rewrite_wikilinks(&vault.root, old_stem, &new_name) {
+            Ok(result) => result.references_rewritten,
+            Err(error) => {
+                tracing::warn!("wikilink rewrite after rename failed for {from} -> {to}: {error}");
+                0
+            }
+        }
+    };
+
+    events::emit(
+        &state.event_tx,
+        &state.event_buffer,
+        VaultEvent::new(&vault_name, EventType::NoteMoved, &to),
+    );
+
+    Ok(Json(RenameNoteResponse {
+        from,
+        to,
+        references_rewritten,
+    }))
+}
+
 pub async fn rename_folder(
     State(state): State<SharedAppState>,
     Path((vault_name, folder_path)): Path<(String, String)>,
@@ -733,6 +824,33 @@ fn validate_folder_name(name: &str) -> Result<String, (StatusCode, Json<Value>)>
     }
 
     Ok(trimmed.to_string())
+}
+
+fn validate_note_name(name: &str) -> Result<String, (StatusCode, Json<Value>)> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(bad_request("note name must not be empty"));
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return Err(bad_request("note name must not contain path separators"));
+    }
+    if trimmed == "." || trimmed == ".." {
+        return Err(bad_request("note name contains unsafe segments"));
+    }
+    if trimmed
+        .chars()
+        .any(|c| matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control())
+    {
+        return Err(bad_request(
+            "note name contains characters not allowed in filenames",
+        ));
+    }
+    // Strip trailing .md if user supplied it; we always append it.
+    let stripped = trimmed.strip_suffix(".md").unwrap_or(trimmed).trim();
+    if stripped.is_empty() {
+        return Err(bad_request("note name must not be empty"));
+    }
+    Ok(stripped.to_string())
 }
 
 fn preflight_folder_destination(
