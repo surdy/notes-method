@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::borrow::Cow;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -12,6 +12,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use notesmith_tauri::daemon::{self, DaemonSettings, DaemonState, DynError};
+use notesmith_tauri::vault_window::{is_vault_window_label, vault_app_url, vault_window_label};
 use tauri::{
     AppHandle, Manager, RunEvent, Runtime, UriSchemeContext, Url, WebviewUrl, WebviewWindowBuilder,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
@@ -29,7 +30,6 @@ const SPLASH_WINDOW_LABEL: &str = "startup-splash";
 const FALLBACK_WINDOW_LABEL: &str = "startup-fallback";
 const TRAY_ID: &str = "notesmith-tray";
 const MENU_OPEN: &str = "open";
-const MENU_CAPTURE: &str = "capture";
 const MENU_HIDE: &str = "hide";
 const MENU_QUIT: &str = "quit";
 const MENU_RESTART_SERVICE: &str = "restart-service";
@@ -218,6 +218,33 @@ impl Default for DaemonUrlState {
     }
 }
 
+/// Map of vault-name → window-label for currently-known vault windows.
+///
+/// Used to implement focus-existing: opening a vault that already has a window
+/// re-focuses that window rather than creating a duplicate. Entries are added
+/// when [`ensure_vault_window`] creates a window. Entries are **not** removed
+/// on close while #105 (real close semantics) is unimplemented — close still
+/// hides the window today, so the map entry remains valid.
+#[derive(Default)]
+struct VaultWindows(Mutex<HashMap<String, String>>);
+
+impl VaultWindows {
+    fn get_label(&self, vault: &str) -> Option<String> {
+        self.0
+            .lock()
+            .expect("vault windows state poisoned")
+            .get(vault)
+            .cloned()
+    }
+
+    fn insert(&self, vault: String, label: String) {
+        self.0
+            .lock()
+            .expect("vault windows state poisoned")
+            .insert(vault, label);
+    }
+}
+
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
@@ -227,6 +254,7 @@ fn main() {
         .manage(LastQuitAttempt::default())
         .manage(DaemonUrlState::default())
         .manage(DaemonProcessState::default())
+        .manage(VaultWindows::default())
         .manage(InternalHtmlState(Mutex::new(InternalPages {
             fallback: None,
         })))
@@ -238,7 +266,9 @@ fn main() {
             quit_app,
             restart_app,
             view_crash_report,
-            restart_daemon_anyway
+            restart_daemon_anyway,
+            open_vault_window,
+            set_window_title
         ])
         .menu(build_app_menu)
         .on_menu_event(|app, event| {
@@ -258,7 +288,8 @@ fn main() {
             }
         })
         .on_window_event(|window, event| {
-            if window.label() == MAIN_WINDOW_LABEL
+            let label = window.label();
+            if (label == MAIN_WINDOW_LABEL || is_vault_window_label(label))
                 && let tauri::WindowEvent::CloseRequested { api, .. } = event
             {
                 api.prevent_close();
@@ -338,23 +369,17 @@ fn setup_deep_links<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
 fn handle_deep_link<R: Runtime>(app: &AppHandle<R>, parsed: notesmith_core::NotesmithUrl) {
     use notesmith_core::NotesmithUrl;
 
-    // Ensure the main window is visible before navigating
-    if let Err(error) = show_main_window(app) {
-        tracing::error!("failed to show main window for deep link: {error}");
-        return;
-    }
-
     let daemon_base = current_daemon_url(app);
 
     match parsed {
         NotesmithUrl::Open { vault, path } => {
-            navigate_webview(app, &format!("/vault/{vault}/note/{path}"));
+            focus_vault_and_navigate(app, &vault, &format!("/vault/{vault}/note/{path}"));
         }
         NotesmithUrl::Daily { vault } => {
-            navigate_webview(app, &format!("/vault/{vault}/daily"));
+            focus_vault_and_navigate(app, &vault, &format!("/vault/{vault}/daily"));
         }
         NotesmithUrl::Search { vault, query } => {
-            navigate_webview(app, &format!("/vault/{vault}/search?q={query}"));
+            focus_vault_and_navigate(app, &vault, &format!("/vault/{vault}/search?q={query}"));
         }
         NotesmithUrl::New {
             vault,
@@ -373,7 +398,7 @@ fn handle_deep_link<R: Runtime>(app: &AppHandle<R>, parsed: notesmith_core::Note
                 route.push('?');
                 route.push_str(&params.join("&"));
             }
-            navigate_webview(app, &route);
+            focus_vault_and_navigate(app, &vault, &route);
         }
         NotesmithUrl::Capture { vault, text } => {
             let url = format!("{daemon_base}/api/v/{vault}/capture");
@@ -415,39 +440,77 @@ fn handle_deep_link<R: Runtime>(app: &AppHandle<R>, parsed: notesmith_core::Note
             });
         }
         NotesmithUrl::Command { command_name, .. } => {
-            navigate_webview(app, &format!("/command/{command_name}"));
+            if let Err(error) = show_main_window(app) {
+                tracing::error!("failed to show main window for command deep link: {error}");
+                return;
+            }
+            navigate_default_webview(app, &format!("/command/{command_name}"));
         }
         NotesmithUrl::UserAction {
             action_name,
             params,
         } => {
             tracing::info!("user action: {action_name} (params: {params:?})");
+            if let Err(error) = show_main_window(app) {
+                tracing::error!("failed to show main window for action deep link: {error}");
+                return;
+            }
             // User actions are best handled via the CLI; log and navigate to a status page
-            navigate_webview(app, &format!("/action/{action_name}"));
+            navigate_default_webview(app, &format!("/action/{action_name}"));
         }
     }
 }
 
-fn navigate_webview<R: Runtime>(app: &AppHandle<R>, route: &str) {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+/// Open (or focus) the window bound to `vault`, then evaluate the navigation
+/// script in it. Used by vault-scoped deep links.
+fn focus_vault_and_navigate<R: Runtime>(app: &AppHandle<R>, vault: &str, route: &str) {
+    let label = match ensure_vault_window(app, vault) {
+        Ok(label) => label,
+        Err(error) => {
+            tracing::error!("failed to ensure window for vault {vault}: {error}");
+            return;
+        }
+    };
+
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
         let script = format!("window.location.hash = '{}';", route.replace('\'', "\\'"));
         if let Err(error) = window.eval(&script) {
-            tracing::error!("failed to navigate webview: {error}");
+            tracing::error!("failed to navigate webview for vault {vault}: {error}");
         }
+    }
+}
+
+/// Navigate the most appropriate non-vault-scoped window (e.g. the onboarding
+/// window if no vaults are open, otherwise the first vault window).
+fn navigate_default_webview<R: Runtime>(app: &AppHandle<R>, route: &str) {
+    let script = format!("window.location.hash = '{}';", route.replace('\'', "\\'"));
+    let label = first_known_vault_window_label(app).or_else(|| {
+        app.get_webview_window(MAIN_WINDOW_LABEL)
+            .map(|_| MAIN_WINDOW_LABEL.to_string())
+    });
+    if let Some(label) = label
+        && let Some(window) = app.get_webview_window(&label)
+        && let Err(error) = window.eval(&script)
+    {
+        tracing::error!("failed to navigate webview: {error}");
     }
 }
 
 fn emit_wake_event<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL)
-        && let Err(error) = window.eval(WAKE_EVENT_SCRIPT)
-    {
-        tracing::error!("failed to emit wake event: {error}");
+    for label in all_app_window_labels(app) {
+        if let Some(window) = app.get_webview_window(&label)
+            && let Err(error) = window.eval(WAKE_EVENT_SCRIPT)
+        {
+            tracing::error!("failed to emit wake event for {label}: {error}");
+        }
     }
 }
 
 fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let open = MenuItem::with_id(app, MENU_OPEN, "Open Notesmith", true, None::<&str>)?;
-    let capture = MenuItem::with_id(app, MENU_CAPTURE, "Quick Capture", true, None::<&str>)?;
     let hide = MenuItem::with_id(app, MENU_HIDE, "Close Window", true, Some("CmdOrCtrl+W"))?;
     let quit = MenuItem::with_id(app, MENU_QUIT, "Quit", true, Some("CmdOrCtrl+Q"))?;
     let separator = PredefinedMenuItem::separator(app)?;
@@ -470,12 +533,8 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let paste = PredefinedMenuItem::paste(app, None::<&str>)?;
     let select_all = PredefinedMenuItem::select_all(app, None::<&str>)?;
 
-    let app_submenu = Submenu::with_items(
-        app,
-        "Notesmith",
-        true,
-        &[&open, &capture, &separator, &hide, &quit],
-    )?;
+    let app_submenu =
+        Submenu::with_items(app, "Notesmith", true, &[&open, &separator, &hide, &quit])?;
     let edit_submenu = Submenu::with_items(app, "Edit", true, &[&copy, &paste, &select_all])?;
     let diagnostics_submenu = Submenu::with_items(
         app,
@@ -489,7 +548,6 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
 fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
     let open = MenuItem::with_id(app, MENU_OPEN, "Open Notesmith", true, None::<&str>)?;
-    let capture = MenuItem::with_id(app, MENU_CAPTURE, "Quick Capture", true, None::<&str>)?;
     let restart_service = MenuItem::with_id(
         app,
         MENU_RESTART_SERVICE,
@@ -507,7 +565,6 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
         app,
         &[
             &open,
-            &capture,
             &separator1,
             &restart_service,
             &stop_service,
@@ -532,7 +589,7 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
 
 fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<(), DynError> {
     match id {
-        MENU_OPEN | MENU_CAPTURE => show_main_window(app),
+        MENU_OPEN => show_main_window(app),
         MENU_HIDE => hide_main_window(app),
         MENU_QUIT => handle_quit_request(app),
         MENU_RESTART_SERVICE => {
@@ -567,20 +624,45 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
         return Ok(());
     }
 
-    ensure_main_window(app)?;
-
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+    // Prefer focusing an existing vault window. If none exist, open the
+    // default vault (or fall back to the onboarding main window if no
+    // vault is registered).
+    if let Some(label) = first_known_vault_window_label(app)
+        && let Some(window) = app.get_webview_window(&label)
+    {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+        return Ok(());
+    }
+
+    match resolve_default_vault() {
+        Some(vault) => {
+            let label = ensure_vault_window(app, &vault)?;
+            if let Some(window) = app.get_webview_window(&label) {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
+        None => {
+            ensure_main_window(app)?;
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
     }
 
     Ok(())
 }
 
 fn hide_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-        window.hide()?;
+    for label in all_app_window_labels(app) {
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.hide();
+        }
     }
 
     Ok(())
@@ -789,17 +871,115 @@ fn ensure_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
     Ok(())
 }
 
+/// Ensure a window exists for the given vault, returning its label.
+///
+/// If a window for this vault already exists in the [`VaultWindows`] map and
+/// the underlying webview is still present, this is a no-op. Otherwise a new
+/// window is created by cloning the `main` window config from `tauri.conf.json`,
+/// rewriting the label and URL (with `?vault=<vault>` appended) so the
+/// frontend can read the binding from `window.location.search`.
+///
+/// The caller is responsible for `.show()/.set_focus()` on the returned window.
+fn ensure_vault_window<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<String, DynError> {
+    let label = vault_window_label(vault);
+    let target_url = Url::parse(&vault_app_url(&current_daemon_url(app), vault))?;
+
+    if let Some(window) = app.get_webview_window(&label) {
+        if window.url()?.as_str() != target_url.as_str() {
+            window.navigate(target_url)?;
+        }
+        app.state::<VaultWindows>()
+            .insert(vault.to_string(), label.clone());
+        return Ok(label);
+    }
+
+    let mut window_config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == MAIN_WINDOW_LABEL)
+        .cloned()
+        .ok_or_else(|| std::io::Error::other("missing main window config"))?;
+
+    window_config.label = label.clone();
+    window_config.url = WebviewUrl::External(target_url);
+    window_config.title = vault.to_string();
+    WebviewWindowBuilder::from_config(app, &window_config)?.build()?;
+
+    app.state::<VaultWindows>()
+        .insert(vault.to_string(), label.clone());
+    Ok(label)
+}
+
+/// Returns the configured default vault, or the first registered vault when
+/// no explicit default is set, or `None` when no vaults are registered.
+fn resolve_default_vault() -> Option<String> {
+    notesmith_config::GlobalConfig::load()
+        .ok()
+        .and_then(|config| config.effective_default().map(str::to_string))
+}
+
+/// Return any known vault window label (preferring the default vault's) for
+/// "focus the active app window" actions like a tray click.
+fn first_known_vault_window_label<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    if let Some(default) = resolve_default_vault()
+        && let Some(label) = app.state::<VaultWindows>().get_label(&default)
+        && app.get_webview_window(&label).is_some()
+    {
+        return Some(label);
+    }
+
+    let state = app.state::<VaultWindows>();
+    let map = state.0.lock().expect("vault windows state poisoned");
+    for label in map.values() {
+        if app.get_webview_window(label).is_some() {
+            return Some(label.clone());
+        }
+    }
+    None
+}
+
+/// Labels of every app-facing window (vault windows + onboarding main).
+fn all_app_window_labels<R: Runtime>(app: &AppHandle<R>) -> Vec<String> {
+    let mut labels: Vec<String> = app
+        .state::<VaultWindows>()
+        .0
+        .lock()
+        .expect("vault windows state poisoned")
+        .values()
+        .cloned()
+        .collect();
+    if app.get_webview_window(MAIN_WINDOW_LABEL).is_some() {
+        labels.push(MAIN_WINDOW_LABEL.to_string());
+    }
+    labels
+}
+
 fn show_main_app_window<R: Runtime>(
     app: &AppHandle<R>,
     settings: &DaemonSettings,
 ) -> Result<(), DynError> {
     close_window(app, FALLBACK_WINDOW_LABEL)?;
     set_current_daemon_url(app, daemon::resolve_daemon_url(settings));
-    ensure_main_window(app)?;
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+
+    match resolve_default_vault() {
+        Some(vault) => {
+            let label = ensure_vault_window(app, &vault)?;
+            if let Some(window) = app.get_webview_window(&label) {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
+        None => {
+            ensure_main_window(app)?;
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
     }
     Ok(())
 }
@@ -1522,14 +1702,59 @@ async fn restart_daemon_anyway(app: tauri::AppHandle) -> Result<String, String> 
         .await
         .map_err(|error| error.to_string())?;
     close_window(&app, FALLBACK_WINDOW_LABEL).map_err(|error| error.to_string())?;
-    ensure_main_window(&app).map_err(|error| error.to_string())?;
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+
+    match resolve_default_vault() {
+        Some(vault) => {
+            let label = ensure_vault_window(&app, &vault).map_err(|error| error.to_string())?;
+            if let Some(window) = app.get_webview_window(&label) {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
+        None => {
+            ensure_main_window(&app).map_err(|error| error.to_string())?;
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
+    }
+
+    Ok("Notesmith service restarted".to_string())
+}
+
+/// Open (or focus) the window bound to the given vault.
+///
+/// If the vault is not registered in the global config, returns an error.
+/// Otherwise creates a new window with `?vault=<vault>` in the URL, or
+/// focuses the existing window if one is already open for that vault.
+#[tauri::command]
+async fn open_vault_window(app: tauri::AppHandle, vault: String) -> Result<(), String> {
+    // Validate the vault is registered so we don't create a window pointing
+    // at a non-existent vault (the frontend would surface a confusing error).
+    let config = notesmith_config::GlobalConfig::load().map_err(|error| error.to_string())?;
+    if config.vault(&vault).is_none() {
+        return Err(format!("Vault '{vault}' is not registered"));
+    }
+
+    let label = ensure_vault_window(&app, &vault).map_err(|error| error.to_string())?;
+    if let Some(window) = app.get_webview_window(&label) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+    Ok(())
+}
 
-    Ok("Notesmith service restarted".to_string())
+/// Update the title of the calling Tauri window.
+///
+/// The frontend pushes `<vault> — <note>` (or just `<vault>` when no note
+/// is open) on tab changes so the OS window switcher shows distinct titles.
+#[tauri::command]
+fn set_window_title(window: tauri::Window, title: String) -> Result<(), String> {
+    window.set_title(&title).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
