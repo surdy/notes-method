@@ -108,6 +108,8 @@ pub struct EditorConfig {
     pub strict_line_breaks: bool,
     #[serde(default = "default_true")]
     pub show_line_numbers: bool,
+    #[serde(default = "default_true")]
+    pub hide_duplicate_h1: bool,
 }
 
 fn default_true() -> bool {
@@ -125,6 +127,7 @@ impl Default for EditorConfig {
             default_mode: default_editor_mode(),
             strict_line_breaks: false,
             show_line_numbers: default_true(),
+            hide_duplicate_h1: default_true(),
         }
     }
 }

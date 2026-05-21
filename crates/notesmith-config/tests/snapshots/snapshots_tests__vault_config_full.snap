@@ -23,6 +23,7 @@ live_preview = true
 default_mode = "source"
 strict_line_breaks = false
 show_line_numbers = true
+hide_duplicate_h1 = true
 
 [git]
 enabled = true

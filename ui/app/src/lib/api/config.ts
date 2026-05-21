@@ -26,6 +26,7 @@ export interface VaultConfigData {
 		default_mode: string;
 		strict_line_breaks: boolean;
 		show_line_numbers: boolean;
+		hide_duplicate_h1: boolean;
 	};
 	git: {
 		enabled: boolean;

@@ -3,6 +3,8 @@
 	import { getNote, getNoteHtml, toggleTaskStatus, type NoteTask, type TaskMutationStatus } from '$lib/api';
 	import { applySyntaxHighlighting } from '$lib/editor/code-highlighting';
 	import { displayTitleFor } from '$lib/display-title';
+	import { stripFirstH1IfMatchesTitle } from '$lib/duplicate-h1';
+	import { settingsStore } from '$lib/settings.svelte';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
@@ -18,6 +20,13 @@
 	}
 
 	let { path }: Props = $props();
+
+	let title = $derived(displayTitleFor({ path: path ?? '', frontmatter }));
+	let renderedHtml = $derived(
+		(settingsStore.draftConfig?.editor.hide_duplicate_h1 ?? true)
+			? stripFirstH1IfMatchesTitle(html, title)
+			: html
+	);
 
 	$effect(() => {
 		if (path) {
@@ -145,8 +154,8 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="content" bind:this={contentElement} onclick={handleClick}>
-			<h1 class="note-title">{displayTitleFor({ path, frontmatter })}</h1>
-			{@html html}
+			<h1 class="note-title">{title}</h1>
+			{@html renderedHtml}
 		</div>
 	{/if}
 </div>

@@ -29,6 +29,10 @@ import { createExternalChangeDedup } from '$lib/editor/external-change-dedup';
 import { findActiveHeadingIndex, parseHeadings } from '$lib/editor/headings';
 import { createLineNumberExtensions } from '$lib/editor/line-numbers';
 import { createLivePreviewExtension } from '$lib/editor/live-preview';
+import {
+	duplicateH1HideExtension,
+	setDuplicateH1TitleEffect
+} from '$lib/editor/duplicate-h1-extension';
 import { createOFMDecorations } from '$lib/editor/ofm-decorations';
 import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-blocks';
 import { headingHighlightOverride, notesmithTheme } from '$lib/editor/theme';
@@ -329,6 +333,7 @@ taskHashes: () => currentTaskHashes,
 onNavigate: (path) => tabStore.selectNote(path),
 onTaskToggle: handleTaskToggle
 }),
+duplicateH1HideExtension(),
 livePreviewCompartment.of(
 	tabStore.activeViewMode === 'live-preview' ? createLivePreviewExtension() : []
 ),
@@ -357,9 +362,21 @@ EditorView.updateListener.of((update) => {
 });
 
 view = new EditorView({ state, parent: editorContainer });
+syncDuplicateH1Title();
 updateEditorWordCount(state);
 updateHeadings(documentText);
 updateActiveHeading(state.selection.main.head);
+}
+
+function syncDuplicateH1Title() {
+	if (!view) return;
+	const enabled = settingsStore.draftConfig?.editor.hide_duplicate_h1 ?? true;
+	const path = tabStore.selectedPath ?? currentPath ?? '';
+	const title =
+		enabled && path
+			? displayTitleFor({ path, frontmatter: currentFrontmatter })
+			: null;
+	view.dispatch({ effects: setDuplicateH1TitleEffect.of(title) });
 }
 
 async function loadNote(path: string) {
@@ -546,6 +563,17 @@ untrack(() => {
 		effects: lineNumbersCompartment.reconfigure(createLineNumberExtensions(enabled))
 	});
 });
+});
+
+$effect(() => {
+	// Re-dispatch the duplicate-H1 hide title when the toggle or
+	// frontmatter `title:` changes for the active note.
+	void settingsStore.draftConfig?.editor.hide_duplicate_h1;
+	void currentFrontmatter;
+	void tabStore.selectedPath;
+	untrack(() => {
+		syncDuplicateH1Title();
+	});
 });
 
 onMount(() => {

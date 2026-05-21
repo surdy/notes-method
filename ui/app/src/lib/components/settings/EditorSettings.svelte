@@ -63,6 +63,19 @@ Require two newlines or trailing spaces for line breaks (standard Markdown). Whe
 single newlines create line breaks (Obsidian default).
 </span>
 </label>
+<label class="field field-toggle field-toggle-stack">
+<span class="field-label">Hide duplicate H1</span>
+<input
+type="checkbox"
+{...toggleField(saveImmediate, 'editor', cfg.editor.hide_duplicate_h1, (v) => {
+cfg.editor.hide_duplicate_h1 = v;
+})}
+/>
+<span class="field-description">
+When a note's first heading duplicates the note title, hide it in reading view and
+live preview so the title isn't shown twice. The source file is not modified.
+</span>
+</label>
 </section>
 
 <style>
