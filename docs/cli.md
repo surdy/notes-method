@@ -54,6 +54,16 @@ cd crates/notesmith-tauri && cargo tauri build
 
 > Building with `cargo tauri ...` requires the Tauri CLI (`cargo install tauri-cli`) and platform tooling such as Xcode command line tools on macOS.
 
+### Desktop launch flags
+
+The desktop binary accepts a small set of flags before any Tauri-specific arguments:
+
+| Flag | Description |
+|------|-------------|
+| `--no-restore` | Skip the per-vault window restore on launch. Opens a single window on the default vault instead of replaying `windows.json`. The file is **not deleted** — only ignored for this launch. Useful when a saved window position has become problematic (e.g. a stale monitor layout). |
+
+`windows.json` lives in the platform app-config directory (`~/Library/Application Support/com.notesmith.desktop/windows.json` on macOS) and stores `{ vault, x, y, w, h }` for every currently-open vault window. It is rewritten atomically on window create, move, resize, real close, and app quit.
+
 ---
 
 ## mcp

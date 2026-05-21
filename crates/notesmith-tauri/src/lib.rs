@@ -2,3 +2,4 @@
 
 pub mod daemon;
 pub mod vault_window;
+pub mod windows_persist;
