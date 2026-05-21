@@ -20,6 +20,7 @@
 	import ToastStack from '$lib/components/ToastStack.svelte';
 	import VersionBanner from '$lib/components/VersionBanner.svelte';
 	import VaultSwitcher from '$lib/components/VaultSwitcher.svelte';
+	import OpenFolderAsVaultModal from '$lib/components/OpenFolderAsVaultModal.svelte';
 	import { versionMismatch } from '$lib/api/core';
 	import { inputPalette } from '$lib/input-palette.svelte';
 	import { tabStore } from '$lib/tab-store.svelte';
@@ -44,6 +45,7 @@
 	>(null);
 	let rightRailRef = $state<{ refresh: () => void } | null>(null);
 	let activeMiddlePaneItem = $state<CustomItem | null>(null);
+	let showOpenFolderModal = $state(false);
 	let configToastRef = $state<
 		{ show: (message: string, type: 'info' | 'error') => void } | null
 	>(null);
@@ -129,7 +131,15 @@
 
 		void shell.init(vaultParam, vaults);
 
-		return shell.teardown;
+		const openFolderHandler = () => {
+			showOpenFolderModal = true;
+		};
+		window.addEventListener('notesmith://open-folder-as-vault', openFolderHandler);
+
+		return () => {
+			window.removeEventListener('notesmith://open-folder-as-vault', openFolderHandler);
+			shell.teardown();
+		};
 	});
 
 	$effect(() => {
@@ -259,6 +269,10 @@ onClose={() => (activeMiddlePaneItem = null)}
 
 {#if showQuickSwitcher}
 <QuickSwitcher onClose={() => (showQuickSwitcher = false)} />
+{/if}
+
+{#if showOpenFolderModal}
+<OpenFolderAsVaultModal onClose={() => (showOpenFolderModal = false)} />
 {/if}
 
 <ConfigToast bind:this={configToastRef} />

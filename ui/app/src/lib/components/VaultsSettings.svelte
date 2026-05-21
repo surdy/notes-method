@@ -11,6 +11,8 @@
 		type Capabilities
 	} from '$lib/api';
 	import { toastStore } from '$lib/toast-store.svelte';
+	import { onMount, onDestroy } from 'svelte';
+	import { resolveTauri } from '$lib/open-folder-as-vault';
 
 	interface Props {
 		capabilities: Capabilities | null;
@@ -36,6 +38,40 @@
 
 	// Reindex state
 	let reindexingVault = $state<string | null>(null);
+
+	// Open-vault tracking (#103) — disable Remove for vaults with a live window.
+	let openVaults = $state<string[]>([]);
+	const tauriBridge = resolveTauri();
+	let openVaultsPollHandle: ReturnType<typeof setInterval> | null = null;
+
+	async function refreshOpenVaults() {
+		if (!tauriBridge) {
+			openVaults = [];
+			return;
+		}
+		try {
+			const result = (await tauriBridge.invoke('list_open_vaults')) as string[];
+			openVaults = Array.isArray(result) ? result : [];
+		} catch {
+			openVaults = [];
+		}
+	}
+
+	onMount(() => {
+		void refreshOpenVaults();
+		if (tauriBridge) {
+			// Light polling so the Remove buttons re-enable when the user closes a
+			// vault window without leaving Settings.
+			openVaultsPollHandle = setInterval(() => void refreshOpenVaults(), 2000);
+		}
+	});
+
+	onDestroy(() => {
+		if (openVaultsPollHandle) {
+			clearInterval(openVaultsPollHandle);
+			openVaultsPollHandle = null;
+		}
+	});
 
 	// ── Load ─────────────────────────────────────────────────────
 	async function load() {
@@ -128,6 +164,10 @@
 	// ── Remove ───────────────────────────────────────────────────
 	async function handleRemove(name: string) {
 		error = null;
+		if (openVaults.includes(name)) {
+			error = `Close the "${name}" window first before removing this vault.`;
+			return;
+		}
 		if (!window.confirm(`Remove vault "${name}"? This only unregisters the vault — your files will not be deleted.`)) {
 			return;
 		}
@@ -222,8 +262,12 @@
 						<button
 							type="button"
 							class="btn-small danger"
-							disabled={vault.is_default}
-							title={vault.is_default ? 'Cannot remove the default vault' : 'Remove vault'}
+							disabled={vault.is_default || openVaults.includes(vault.name)}
+							title={vault.is_default
+								? 'Cannot remove the default vault'
+								: openVaults.includes(vault.name)
+									? `Close the "${vault.name}" window first`
+									: 'Remove vault'}
 							onclick={() => void handleRemove(vault.name)}
 						>Remove</button>
 					</div>
