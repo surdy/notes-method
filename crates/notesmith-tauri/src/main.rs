@@ -384,7 +384,8 @@ fn main() {
             set_window_title,
             confirm_window_close,
             open_folder_as_vault,
-            list_open_vaults
+            list_open_vaults,
+            pick_vault_folder
         ])
         .menu(build_app_menu)
         .on_menu_event(|app, event| {
@@ -2381,6 +2382,31 @@ fn list_open_vaults(app: tauri::AppHandle) -> Vec<String> {
         .collect();
     open.sort();
     open
+}
+
+/// Open a native folder picker and return the absolute path the user selected.
+///
+/// Returns `Ok(None)` when the user cancels the dialog. The path is validated
+/// to point at an existing directory; symlinks are accepted. The frontend uses
+/// this for the "Open Folder as Vault" flow in #103.
+#[tauri::command]
+async fn pick_vault_folder() -> Result<Option<String>, String> {
+    let result = rfd::AsyncFileDialog::new()
+        .set_title("Choose a folder to open as a vault")
+        .pick_folder()
+        .await;
+    let Some(handle) = result else {
+        return Ok(None);
+    };
+    let path = handle.path().to_path_buf();
+    if !path.is_dir() {
+        return Err(format!("Selected path is not a folder: {}", path.display()));
+    }
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| "Selected path contains invalid UTF-8".to_string())?
+        .to_string();
+    Ok(Some(path_str))
 }
 
 #[cfg(test)]
