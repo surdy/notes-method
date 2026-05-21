@@ -20,6 +20,7 @@ export {
 	listNotes,
 	putNote,
 	renameFolder,
+	renameNote,
 	searchNotes,
 	toggleTaskStatus
 } from './notes.ts';
@@ -28,6 +29,7 @@ export type {
 	NoteSummary,
 	NoteTask,
 	RenameFolderResponse,
+	RenameNoteResponse,
 	SourcePosition,
 	TaskMutationStatus,
 	WriteNoteResponse

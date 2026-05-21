@@ -37,6 +37,12 @@ export interface RenameFolderResponse {
 	folder_note_to: string | null;
 }
 
+export interface RenameNoteResponse {
+	from: string;
+	to: string;
+	references_rewritten: number;
+}
+
 export type TaskMutationStatus =
 	| 'todo'
 	| 'in_progress'
@@ -123,6 +129,34 @@ export async function renameFolder(
 		}
 	);
 	if (!res.ok) throw new ApiError(`Failed to rename folder: ${res.status}`, res.status);
+	return res.json();
+}
+
+export async function renameNote(
+	vault: string,
+	notePath: string,
+	name: string
+): Promise<RenameNoteResponse> {
+	const res = await apiFetch(
+		`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes-rename/${encodePath(notePath)}`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name })
+		}
+	);
+	if (!res.ok) {
+		let message = `Failed to rename note: ${res.status}`;
+		try {
+			const body = (await res.json()) as { error?: string };
+			if (body && typeof body.error === 'string') {
+				message = body.error;
+			}
+		} catch {
+			// keep default message
+		}
+		throw new ApiError(message, res.status);
+	}
 	return res.json();
 }
 

@@ -3,6 +3,7 @@
 	import { getNote, getNoteHtml, toggleTaskStatus, type NoteTask, type TaskMutationStatus } from '$lib/api';
 	import { applySyntaxHighlighting } from '$lib/editor/code-highlighting';
 	import { displayTitleFor } from '$lib/display-title';
+	import TitleHeader from '$lib/components/TitleHeader.svelte';
 	import { stripFirstH1IfMatchesTitle } from '$lib/duplicate-h1';
 	import { settingsStore } from '$lib/settings.svelte';
 	import { tabStore } from '$lib/tab-store.svelte';
@@ -154,7 +155,7 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="content" bind:this={contentElement} onclick={handleClick}>
-			<h1 class="note-title">{title}</h1>
+			<TitleHeader path={path ?? ''} frontmatter={frontmatter} variant="viewer" />
 			{@html renderedHtml}
 		</div>
 	{/if}
@@ -199,16 +200,6 @@
 	.content :global(h1) {
 		font-size: 1.8em;
 		margin: 0.5em 0;
-	}
-
-	.content .note-title {
-		font-size: 2em;
-		font-weight: 700;
-		margin: 0 0 0.6em;
-		padding-bottom: 0.3em;
-		border-bottom: 1px solid var(--ns-border);
-		color: var(--ns-editor-text);
-		line-height: 1.2;
 	}
 
 	.content :global(h2) {

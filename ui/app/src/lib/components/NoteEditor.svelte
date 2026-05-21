@@ -37,6 +37,7 @@ import { createOFMDecorations } from '$lib/editor/ofm-decorations';
 import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-blocks';
 import { headingHighlightOverride, notesmithTheme } from '$lib/editor/theme';
 import { displayTitleFor } from '$lib/display-title';
+import TitleHeader from '$lib/components/TitleHeader.svelte';
 import { headingStore } from '$lib/heading-store.svelte';
 import { shouldLoadSelectedNote } from '$lib/note-loading';
 import { isDashboardNote } from '$lib/right-rail';
@@ -619,7 +620,7 @@ onAction={handleSaveErrorAction}
 onDismiss={clearSaveError}
 />
 {/if}
-<div class="editor-title-header">{displayTitleFor({ path: tabStore.selectedPath ?? '', frontmatter: currentFrontmatter })}</div>
+<TitleHeader path={tabStore.selectedPath ?? ''} frontmatter={currentFrontmatter} variant="editor" />
 <div class="editor-container" bind:this={editorContainer}></div>
 {/if}
 </div>
@@ -632,17 +633,6 @@ display: flex;
 flex-direction: column;
 background: var(--ns-editor-bg);
 color: var(--ns-text);
-}
-
-.editor-title-header {
-padding: 16px 32px 8px;
-font-size: 2em;
-font-weight: 700;
-line-height: 1.2;
-color: var(--ns-editor-text);
-border-bottom: 1px solid var(--ns-border);
-margin-bottom: 4px;
-user-select: text;
 }
 
 .editor-container {
