@@ -44,7 +44,7 @@ pub fn parse_note(vault_name: &VaultName, path: &VaultPath, content: &str) -> No
     }
 }
 
-fn find_code_block_ranges(body: &str) -> Vec<Range<usize>> {
+pub(crate) fn find_code_block_ranges(body: &str) -> Vec<Range<usize>> {
     let mut ranges = Vec::new();
     let mut offset = 0;
     let mut active_fence: Option<(usize, char, usize)> = None;
