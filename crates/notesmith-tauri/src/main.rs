@@ -21,7 +21,7 @@ use notesmith_tauri::windows_persist::{
     self, Rect, WindowEntry, WindowsFile, dedupe_latest_per_vault,
 };
 use tauri::{
-    AppHandle, Emitter, Manager, RunEvent, Runtime, UriSchemeContext, Url, WebviewUrl,
+    AppHandle, Emitter, EventTarget, Manager, RunEvent, Runtime, UriSchemeContext, Url, WebviewUrl,
     WebviewWindowBuilder,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -333,29 +333,6 @@ impl WindowsPersistState {
     }
 }
 
-/// Set of window labels that have been approved by the webview for a real
-/// close. The close handler in `on_window_event` checks this set: if present,
-/// it lets the OS close the window; otherwise it prevents the close and asks
-/// the webview to confirm via `CLOSE_REQUESTED_EVENT`.
-#[derive(Default)]
-struct PendingCloses(Mutex<std::collections::HashSet<String>>);
-
-impl PendingCloses {
-    fn allow(&self, label: &str) {
-        self.0
-            .lock()
-            .expect("pending closes poisoned")
-            .insert(label.to_string());
-    }
-
-    fn take(&self, label: &str) -> bool {
-        self.0
-            .lock()
-            .expect("pending closes poisoned")
-            .remove(label)
-    }
-}
-
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
@@ -367,7 +344,6 @@ fn main() {
         .manage(DaemonProcessState::default())
         .manage(VaultWindows::default())
         .manage(WindowsPersistState::default())
-        .manage(PendingCloses::default())
         .manage(InternalHtmlState(Mutex::new(InternalPages {
             fallback: None,
         })))
@@ -413,17 +389,25 @@ fn main() {
                         api.prevent_close();
                         let _ = window.hide();
                     } else if is_vault_window_label(&label) {
-                        let app = window.app_handle();
-                        if app.state::<PendingCloses>().take(&label) {
-                            // Webview already confirmed; let the OS close it.
-                            handle_vault_window_destroyed(app, &label);
-                        } else {
-                            // Ask the webview to confirm. If no listener is
-                            // attached, the close request silently sticks —
-                            // user can close again to force.
-                            api.prevent_close();
-                            let _ = window.emit(CLOSE_REQUESTED_EVENT, label.clone());
-                        }
+                        // Ask only this window's webview to confirm; if it
+                        // says yes it will invoke `confirm_window_close`,
+                        // which destroys the window (no second round trip
+                        // through this handler). If no listener is attached
+                        // the close request silently sticks — the user can
+                        // close again, but this should not happen in
+                        // practice because the listener is registered at
+                        // window mount.
+                        api.prevent_close();
+                        let _ = window.app_handle().emit_to(
+                            EventTarget::webview_window(&label),
+                            CLOSE_REQUESTED_EVENT,
+                            label.clone(),
+                        );
+                    }
+                }
+                tauri::WindowEvent::Destroyed => {
+                    if is_vault_window_label(&label) {
+                        handle_vault_window_destroyed(window.app_handle(), &label);
                     }
                 }
                 tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
@@ -2232,11 +2216,10 @@ fn set_window_title(window: tauri::Window, title: String) -> Result<(), String> 
 /// Webview response to a `notesmith://close-requested` event.
 ///
 /// - `allow=true`: the webview has saved/discarded any dirty content and is
-///   ready to be torn down. We mark the window as approved-for-close, remove
-///   the vault binding, then close the window. Closing the window fires
-///   `CloseRequested` again, which finds the marker and lets the OS proceed.
-/// - `allow=false`: the user cancelled; clear nothing extra (no marker was
-///   set) and leave the window where it is.
+///   ready to be torn down. We remove the vault binding then destroy the
+///   window. `destroy()` skips the close handler entirely so there is no
+///   second round trip through `CloseRequested`.
+/// - `allow=false`: the user cancelled; leave the window where it is.
 #[tauri::command]
 async fn confirm_window_close(
     app: tauri::AppHandle,
@@ -2250,18 +2233,12 @@ async fn confirm_window_close(
     if !allow {
         return Ok(());
     }
-    app.state::<PendingCloses>().allow(&label);
 
-    // Remove from VaultWindows now so any focus-existing lookup in the brief
-    // window between this call and the OS destroying the window opens a new
-    // window instead of pointing at a soon-to-be-dead one.
-    app.state::<VaultWindows>().remove_label(&label);
-
+    // VaultWindows entry + windows.json are cleaned up by the
+    // `WindowEvent::Destroyed` handler once destroy() takes effect.
     if let Some(webview) = app.get_webview_window(&label) {
-        webview.close().map_err(|error| error.to_string())?;
+        webview.destroy().map_err(|error| error.to_string())?;
     }
-    // Geometry has been removed; rewrite windows.json.
-    schedule_persist(&app);
     Ok(())
 }
 
