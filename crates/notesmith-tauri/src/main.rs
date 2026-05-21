@@ -12,6 +12,10 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use notesmith_tauri::daemon::{self, DaemonSettings, DaemonState, DynError};
+use notesmith_tauri::vault_menu::{
+    OPEN_FOLDER_AS_VAULT_ID, decode_open_vault_id, encode_open_vault_id,
+    validate_vault_display_name,
+};
 use notesmith_tauri::vault_window::{is_vault_window_label, vault_app_url, vault_window_label};
 use notesmith_tauri::windows_persist::{
     self, Rect, WindowEntry, WindowsFile, dedupe_latest_per_vault,
@@ -378,7 +382,9 @@ fn main() {
             restart_daemon_anyway,
             open_vault_window,
             set_window_title,
-            confirm_window_close
+            confirm_window_close,
+            open_folder_as_vault,
+            list_open_vaults
         ])
         .menu(build_app_menu)
         .on_menu_event(|app, event| {
@@ -683,7 +689,14 @@ fn emit_wake_event<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+/// Build the system menubar.
+///
+/// The "File" submenu now hosts a dynamic "New Window" submenu listing each
+/// registered vault plus an "Open Folder…" entry, so the user can relaunch
+/// any closed vault window without leaving the menubar.
 fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let vaults = registered_vault_names();
+
     let open = MenuItem::with_id(app, MENU_OPEN, "Open Notesmith", true, None::<&str>)?;
     let hide = MenuItem::with_id(app, MENU_HIDE, "Close Window", true, Some("CmdOrCtrl+W"))?;
     let quit = MenuItem::with_id(app, MENU_QUIT, "Quit", true, Some("CmdOrCtrl+Q"))?;
@@ -709,6 +722,13 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
     let app_submenu =
         Submenu::with_items(app, "Notesmith", true, &[&open, &separator, &hide, &quit])?;
+
+    let new_window_items = build_new_window_submenu_items(app, &vaults)?;
+    let new_window_refs: Vec<&dyn tauri::menu::IsMenuItem<R>> =
+        new_window_items.iter().map(|item| item.as_ref()).collect();
+    let new_window_submenu = Submenu::with_items(app, "New Window", true, &new_window_refs)?;
+    let file_submenu = Submenu::with_items(app, "File", true, &[&new_window_submenu])?;
+
     let edit_submenu = Submenu::with_items(app, "Edit", true, &[&copy, &paste, &select_all])?;
     let diagnostics_submenu = Submenu::with_items(
         app,
@@ -717,11 +737,25 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         &[&restart_service, &stop_service, &view_logs],
     )?;
 
-    Menu::with_items(app, &[&app_submenu, &edit_submenu, &diagnostics_submenu])
+    Menu::with_items(
+        app,
+        &[
+            &app_submenu,
+            &file_submenu,
+            &edit_submenu,
+            &diagnostics_submenu,
+        ],
+    )
 }
 
-fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
-    let open = MenuItem::with_id(app, MENU_OPEN, "Open Notesmith", true, None::<&str>)?;
+fn build_tray_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let vaults = registered_vault_names();
+
+    let open_items = build_new_window_submenu_items(app, &vaults)?;
+    let open_refs: Vec<&dyn tauri::menu::IsMenuItem<R>> =
+        open_items.iter().map(|item| item.as_ref()).collect();
+    let open_submenu = Submenu::with_items(app, "Open", true, &open_refs)?;
+
     let restart_service = MenuItem::with_id(
         app,
         MENU_RESTART_SERVICE,
@@ -735,10 +769,11 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
     let quit_app = MenuItem::with_id(app, MENU_QUIT_APP, "Quit Notesmith", true, None::<&str>)?;
     let separator1 = PredefinedMenuItem::separator(app)?;
     let separator2 = PredefinedMenuItem::separator(app)?;
-    let tray_menu = Menu::with_items(
+
+    Menu::with_items(
         app,
         &[
-            &open,
+            &open_submenu,
             &separator1,
             &restart_service,
             &stop_service,
@@ -746,7 +781,41 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
             &separator2,
             &quit_app,
         ],
-    )?;
+    )
+}
+
+/// Build the menu items that make up the "Open" / "New Window" submenu
+/// (vault entries + separator + "Open Folder…") as a heap-allocated vec so
+/// the caller can recombine them however it wants.
+fn build_new_window_submenu_items<R: Runtime>(
+    app: &AppHandle<R>,
+    vaults: &[String],
+) -> tauri::Result<Vec<Box<dyn tauri::menu::IsMenuItem<R>>>> {
+    let mut entries: Vec<Box<dyn tauri::menu::IsMenuItem<R>>> = Vec::new();
+    for vault in vaults {
+        entries.push(Box::new(MenuItem::with_id(
+            app,
+            encode_open_vault_id(vault),
+            vault,
+            true,
+            None::<&str>,
+        )?));
+    }
+    if !vaults.is_empty() {
+        entries.push(Box::new(PredefinedMenuItem::separator(app)?));
+    }
+    entries.push(Box::new(MenuItem::with_id(
+        app,
+        OPEN_FOLDER_AS_VAULT_ID,
+        "Open Folder\u{2026}",
+        true,
+        None::<&str>,
+    )?));
+    Ok(entries)
+}
+
+fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
+    let tray_menu = build_tray_menu(app)?;
 
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&tray_menu)
@@ -759,6 +828,30 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
 
     tray.build(app)?;
     Ok(())
+}
+
+/// Rebuild the app + tray menus from the current vault list. Called after
+/// a successful vault registration (and other config changes).
+fn rebuild_dynamic_menus<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
+    let app_menu = build_app_menu(app)?;
+    app.set_menu(app_menu)?;
+    let tray_menu = build_tray_menu(app)?;
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        tray.set_menu(Some(tray_menu))?;
+    }
+    Ok(())
+}
+
+/// Sorted list of vault names from `GlobalConfig`. Empty when no vaults
+/// are registered or when the config fails to load.
+fn registered_vault_names() -> Vec<String> {
+    match notesmith_config::GlobalConfig::load() {
+        Ok(config) => config.vaults.keys().cloned().collect(),
+        Err(error) => {
+            tracing::warn!("failed to load global config for menu: {error}");
+            Vec::new()
+        }
+    }
 }
 
 fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<(), DynError> {
@@ -777,6 +870,26 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<(), Dyn
         MENU_VIEW_LOGS => open_diagnostics_target(),
         MENU_QUIT_APP => {
             stop_daemon_and_exit(app.clone());
+            Ok(())
+        }
+        OPEN_FOLDER_AS_VAULT_ID => {
+            // Ask the active webview (or any webview) to show its
+            // folder-picker modal. The modal itself ships in #103.
+            for label in all_app_window_labels(app) {
+                if let Some(window) = app.get_webview_window(&label) {
+                    let _ = window.emit("notesmith://open-folder-as-vault", ());
+                }
+            }
+            Ok(())
+        }
+        other if decode_open_vault_id(other).is_some() => {
+            let vault = decode_open_vault_id(other).expect("just checked");
+            let label = ensure_vault_window(app, &vault)?;
+            if let Some(window) = app.get_webview_window(&label) {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
             Ok(())
         }
         _ => Ok(()),
@@ -2149,6 +2262,125 @@ async fn confirm_window_close(
     // Geometry has been removed; rewrite windows.json.
     schedule_persist(&app);
     Ok(())
+}
+
+/// Register a folder as a new vault and immediately open a window for it.
+///
+/// Steps:
+/// 1. Validate the display name client-side (length, characters, uniqueness).
+/// 2. POST to `<daemon>/api/app/vaults` with the path + display name.
+/// 3. Poll `GET /api/app/vaults` until the new vault appears (≤1 s) so the
+///    config-cache is warm before we ask `ensure_vault_window` to open it.
+/// 4. Rebuild the dynamic menus so the new vault shows up immediately.
+/// 5. Open the window.
+#[tauri::command]
+async fn open_folder_as_vault(
+    app: tauri::AppHandle,
+    path: String,
+    display_name: String,
+) -> Result<(), String> {
+    let existing: Vec<String> = notesmith_config::GlobalConfig::load()
+        .map_err(|error| error.to_string())?
+        .vaults
+        .keys()
+        .cloned()
+        .collect();
+    let validated = validate_vault_display_name(&display_name, existing.iter())?;
+
+    let base = current_daemon_url(&app);
+    let url = format!("{}/api/app/vaults", base.trim_end_matches('/'));
+    let body = serde_json::json!({ "name": validated, "path": path });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| format!("Failed to contact Notesmith daemon: {error}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let detail = response
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("message")
+                    .and_then(|message| message.as_str().map(str::to_string))
+            })
+            .unwrap_or_else(|| format!("daemon returned status {status}"));
+        return Err(detail);
+    }
+
+    // Wait for the new vault to appear in GET /api/app/vaults so subsequent
+    // window opens see a fully-loaded vault.
+    let list_url = url.clone();
+    let mut attempts = 0u32;
+    loop {
+        attempts += 1;
+        let listed = client
+            .get(&list_url)
+            .send()
+            .await
+            .and_then(|r| r.error_for_status())
+            .map_err(|error| format!("Failed to list vaults after register: {error}"))?
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|error| format!("Failed to parse vault list: {error}"))?;
+
+        let found = listed
+            .as_array()
+            .map(|entries| {
+                entries.iter().any(|entry| {
+                    entry.get("name").and_then(|n| n.as_str()) == Some(validated.as_str())
+                })
+            })
+            .unwrap_or(false);
+
+        if found {
+            break;
+        }
+        if attempts >= 10 {
+            return Err(format!(
+                "Vault '{validated}' was registered but didn't appear in the daemon vault list within 1s"
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    if let Err(error) = rebuild_dynamic_menus(&app) {
+        tracing::warn!("failed to rebuild menus after register: {error}");
+    }
+
+    let label = ensure_vault_window(&app, &validated).map_err(|error| error.to_string())?;
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+
+    Ok(())
+}
+
+/// Return the names of vaults with at least one open window.
+///
+/// Used by the Settings UI in #103 to disable the "Remove vault" button
+/// when the vault is currently open.
+#[tauri::command]
+fn list_open_vaults(app: tauri::AppHandle) -> Vec<String> {
+    let mut open: Vec<String> = app
+        .state::<VaultWindows>()
+        .0
+        .lock()
+        .expect("vault windows state poisoned")
+        .iter()
+        .filter(|(_, label)| app.get_webview_window(label).is_some())
+        .map(|(vault, _)| vault.clone())
+        .collect();
+    open.sort();
+    open
 }
 
 #[cfg(test)]
