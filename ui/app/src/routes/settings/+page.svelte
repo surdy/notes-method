@@ -58,10 +58,6 @@
 	];
 
 	function navigateBack() {
-		if (settingsStore.isDirty) {
-			const discard = window.confirm('You have unsaved settings changes. Discard them?');
-			if (!discard) return;
-		}
 		settingsStore.resetState();
 		void goto(`${base}/?vault=${encodeURIComponent(vault)}`);
 	}
@@ -205,7 +201,7 @@
 										if (cfg) {
 											cfg.appearance = { theme: option.value };
 											themeStore.set(option.value);
-											settingsStore.markDirty('appearance');
+											void saveImmediate('appearance');
 										}
 									}}
 								>
