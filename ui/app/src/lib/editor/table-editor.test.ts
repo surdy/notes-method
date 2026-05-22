@@ -132,6 +132,209 @@ describe('table editor helpers', () => {
 	});
 });
 
+describe('table editor structure shortcuts', () => {
+	const table = [
+		'| Name | Role | Team |',
+		'| ---- | ---- | ---- |',
+		'| Jane | CTO  | Eng  |',
+		'| Alex | Dev  | Apps |'
+	].join('\n');
+	const singleColumnTable = ['| Name |', '| ---- |', '| Jane |'].join('\n');
+
+	it('moves the current body row up with Mod-Shift-ArrowUp', () => {
+		const { result, state } = runShortcut(table, table.indexOf('Dev'), 'Mod-Shift-ArrowUp');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(
+			[
+				'| Name | Role | Team |',
+				'| ---- | ---- | ---- |',
+				'| Alex | Dev  | Apps |',
+				'| Jane | CTO  | Eng  |'
+			].join('\n')
+		);
+		expect(getCellPosition(state, state.selection.main.head)).toEqual({ row: 2, col: 1 });
+	});
+
+	it('treats Mod-Shift-ArrowUp as a no-op on the first body row', () => {
+		const { result, state } = runShortcut(table, table.indexOf('CTO'), 'Mod-Shift-ArrowUp');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(table);
+	});
+
+	it('moves the current body row down with Mod-Shift-ArrowDown', () => {
+		const { result, state } = runShortcut(table, table.indexOf('CTO'), 'Mod-Shift-ArrowDown');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(
+			[
+				'| Name | Role | Team |',
+				'| ---- | ---- | ---- |',
+				'| Alex | Dev  | Apps |',
+				'| Jane | CTO  | Eng  |'
+			].join('\n')
+		);
+		expect(getCellPosition(state, state.selection.main.head)).toEqual({ row: 3, col: 1 });
+	});
+
+	it('treats Mod-Shift-ArrowDown as a no-op on the last body row', () => {
+		const { result, state } = runShortcut(table, table.indexOf('Dev'), 'Mod-Shift-ArrowDown');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(table);
+	});
+
+	it('moves the current column left with Mod-Shift-ArrowLeft', () => {
+		const { result, state } = runShortcut(table, table.indexOf('Apps'), 'Mod-Shift-ArrowLeft');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(
+			[
+				'| Name | Team | Role |',
+				'| ---- | ---- | ---- |',
+				'| Jane | Eng  | CTO  |',
+				'| Alex | Apps | Dev  |'
+			].join('\n')
+		);
+		expect(getCellPosition(state, state.selection.main.head)).toEqual({ row: 3, col: 1 });
+	});
+
+	it('treats Mod-Shift-ArrowLeft as a no-op on the first column', () => {
+		const { result, state } = runShortcut(table, table.indexOf('Alex'), 'Mod-Shift-ArrowLeft');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(table);
+	});
+
+	it('moves the current column right with Mod-Shift-ArrowRight', () => {
+		const { result, state } = runShortcut(table, table.indexOf('CTO'), 'Mod-Shift-ArrowRight');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(
+			[
+				'| Name | Team | Role |',
+				'| ---- | ---- | ---- |',
+				'| Jane | Eng  | CTO  |',
+				'| Alex | Apps | Dev  |'
+			].join('\n')
+		);
+		expect(getCellPosition(state, state.selection.main.head)).toEqual({ row: 2, col: 2 });
+	});
+
+	it('treats Mod-Shift-ArrowRight as a no-op on the last column', () => {
+		const { result, state } = runShortcut(table, table.indexOf('Team'), 'Mod-Shift-ArrowRight');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(table);
+	});
+
+	it('inserts a row below the current body row with Mod-Shift-Enter', () => {
+		const { result, state } = runShortcut(table, table.indexOf('Jane'), 'Mod-Shift-Enter');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(
+			[
+				'| Name | Role | Team |',
+				'| ---- | ---- | ---- |',
+				'| Jane | CTO  | Eng  |',
+				'|      |      |      |',
+				'| Alex | Dev  | Apps |'
+			].join('\n')
+		);
+		expect(getCellPosition(state, state.selection.main.head)).toEqual({ row: 3, col: 0 });
+	});
+
+	it('inserts the first body row when Mod-Shift-Enter is pressed on the header', () => {
+		const { result, state } = runShortcut(table, table.indexOf('Name'), 'Mod-Shift-Enter');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(
+			[
+				'| Name | Role | Team |',
+				'| ---- | ---- | ---- |',
+				'|      |      |      |',
+				'| Jane | CTO  | Eng  |',
+				'| Alex | Dev  | Apps |'
+			].join('\n')
+		);
+		expect(getCellPosition(state, state.selection.main.head)).toEqual({ row: 2, col: 0 });
+	});
+
+	it('deletes the current body row with Mod-Shift-Backspace', () => {
+		const { result, state } = runShortcut(table, table.indexOf('Jane'), 'Mod-Shift-Backspace');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(
+			[
+				'| Name | Role | Team |',
+				'| ---- | ---- | ---- |',
+				'| Alex | Dev  | Apps |'
+			].join('\n')
+		);
+		expect(getCellPosition(state, state.selection.main.head)).toEqual({ row: 2, col: 0 });
+	});
+
+	it('treats Mod-Shift-Backspace as a no-op on the header', () => {
+		const { result, state } = runShortcut(table, table.indexOf('Name'), 'Mod-Shift-Backspace');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(table);
+	});
+
+	it('inserts a column after the current column with Mod-Shift-\\', () => {
+		const { result, state } = runShortcut(table, table.indexOf('Role'), 'Mod-Shift-\\');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(
+			[
+				'| Name | Role |  | Team |',
+				'| ---- | ---- | --- | ---- |',
+				'| Jane | CTO  |  | Eng  |',
+				'| Alex | Dev  |  | Apps |'
+			].join('\n')
+		);
+		expect(getCellPosition(state, state.selection.main.head)).toEqual({ row: 0, col: 2 });
+	});
+
+	it('appends a column when Mod-Shift-\\ is pressed on the last column', () => {
+		const { result, state } = runShortcut(table, table.indexOf('Team'), 'Mod-Shift-\\');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(
+			[
+				'| Name | Role | Team |  |',
+				'| ---- | ---- | ---- | --- |',
+				'| Jane | CTO  | Eng  |  |',
+				'| Alex | Dev  | Apps |  |'
+			].join('\n')
+		);
+		expect(getCellPosition(state, state.selection.main.head)).toEqual({ row: 0, col: 3 });
+	});
+
+	it('deletes the current column with Mod-Shift-Delete', () => {
+		const { result, state } = runShortcut(table, table.indexOf('CTO'), 'Mod-Shift-Delete');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(
+			[
+				'| Name | Team |',
+				'| ---- | ---- |',
+				'| Jane | Eng  |',
+				'| Alex | Apps |'
+			].join('\n')
+		);
+		expect(getCellPosition(state, state.selection.main.head)).toEqual({ row: 2, col: 1 });
+	});
+
+	it('treats Mod-Shift-Delete as a no-op for a single-column table', () => {
+		const { result, state } = runShortcut(singleColumnTable, singleColumnTable.indexOf('Jane'), 'Mod-Shift-Delete');
+
+		expect(result).toBe(true);
+		expect(state.doc.toString()).toBe(singleColumnTable);
+	});
+});
+
 describe('table editor Tab behavior', () => {
 	it('bootstraps a single header line into a table', () => {
 		const input = '| Name';

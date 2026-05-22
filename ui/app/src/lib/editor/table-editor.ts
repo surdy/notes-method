@@ -1,7 +1,18 @@
 import { Prec, type EditorState, type Extension } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 
-import { addMarkdownTableRow, formatTable, parseMarkdownTable, type MarkdownTable } from './markdown-table.ts';
+import {
+	addMarkdownTableRow,
+	deleteColumnAt,
+	deleteRowAt,
+	formatTable,
+	insertColumnAt,
+	insertRowAt,
+	moveColumn,
+	moveRow,
+	parseMarkdownTable,
+	type MarkdownTable
+} from './markdown-table.ts';
 
 const TABLE_LINE_RE = /^\s*\|/;
 
@@ -308,6 +319,148 @@ export function createTableEditorExtension(isEnabled: () => boolean = () => true
 
 					const { table, target } = enterTarget(context.table, context.cell);
 					return moveToCell(view, context.range, table, target);
+				}
+			},
+			{
+				key: 'Mod-Shift-ArrowUp',
+				run: (view) => {
+					const context = getTableContext(view.state, view.state.selection.main.head, isEnabled);
+					if (!context) {
+						return false;
+					}
+
+					const bodyRowIndex = context.cell.row - 2;
+					if (bodyRowIndex <= 0) {
+						return true;
+					}
+
+					return moveToCell(view, context.range, moveRow(context.table, bodyRowIndex, bodyRowIndex - 1), {
+						row: context.cell.row - 1,
+						col: context.cell.col
+					});
+				}
+			},
+			{
+				key: 'Mod-Shift-ArrowDown',
+				run: (view) => {
+					const context = getTableContext(view.state, view.state.selection.main.head, isEnabled);
+					if (!context) {
+						return false;
+					}
+
+					const bodyRowIndex = context.cell.row - 2;
+					if (bodyRowIndex < 0 || bodyRowIndex >= context.table.rows.length - 1) {
+						return true;
+					}
+
+					return moveToCell(view, context.range, moveRow(context.table, bodyRowIndex, bodyRowIndex + 1), {
+						row: context.cell.row + 1,
+						col: context.cell.col
+					});
+				}
+			},
+			{
+				key: 'Mod-Shift-ArrowLeft',
+				run: (view) => {
+					const context = getTableContext(view.state, view.state.selection.main.head, isEnabled);
+					if (!context) {
+						return false;
+					}
+
+					if (context.cell.col <= 0) {
+						return true;
+					}
+
+					return moveToCell(view, context.range, moveColumn(context.table, context.cell.col, context.cell.col - 1), {
+						row: context.cell.row,
+						col: context.cell.col - 1
+					});
+				}
+			},
+			{
+				key: 'Mod-Shift-ArrowRight',
+				run: (view) => {
+					const context = getTableContext(view.state, view.state.selection.main.head, isEnabled);
+					if (!context) {
+						return false;
+					}
+
+					if (context.cell.col >= context.lastColumn) {
+						return true;
+					}
+
+					return moveToCell(view, context.range, moveColumn(context.table, context.cell.col, context.cell.col + 1), {
+						row: context.cell.row,
+						col: context.cell.col + 1
+					});
+				}
+			},
+			{
+				key: 'Mod-Shift-Enter',
+				run: (view) => {
+					const context = getTableContext(view.state, view.state.selection.main.head, isEnabled);
+					if (!context) {
+						return false;
+					}
+
+					const insertIndex = context.cell.row <= 1 ? 0 : context.cell.row - 1;
+					const targetRow = context.cell.row <= 1 ? 2 : context.cell.row + 1;
+					return moveToCell(view, context.range, insertRowAt(context.table, insertIndex), {
+						row: targetRow,
+						col: context.cell.col
+					});
+				}
+			},
+			{
+				key: 'Mod-Shift-Backspace',
+				run: (view) => {
+					const context = getTableContext(view.state, view.state.selection.main.head, isEnabled);
+					if (!context) {
+						return false;
+					}
+
+					if (context.cell.row <= 1) {
+						return true;
+					}
+
+					const nextTable = deleteRowAt(context.table, context.cell.row - 2);
+					return moveToCell(view, context.range, nextTable, {
+						row: Math.min(context.cell.row, nextTable.rows.length + 1),
+						col: context.cell.col
+					});
+				}
+			},
+			{
+				key: 'Mod-Shift-\\',
+				run: (view) => {
+					const context = getTableContext(view.state, view.state.selection.main.head, isEnabled);
+					if (!context) {
+						return false;
+					}
+
+					return moveToCell(view, context.range, insertColumnAt(context.table, context.cell.col + 1), {
+						row: context.cell.row,
+						col: context.cell.col + 1
+					});
+				}
+			},
+			{
+				key: 'Mod-Shift-Delete',
+				run: (view) => {
+					const context = getTableContext(view.state, view.state.selection.main.head, isEnabled);
+					if (!context) {
+						return false;
+					}
+
+					if (context.table.headers.length <= 1) {
+						return true;
+					}
+
+					const nextTable = deleteColumnAt(context.table, context.cell.col);
+					return moveToCell(view, context.range, nextTable, {
+						row: context.cell.row,
+						col: Math.min(context.cell.col, nextTable.headers.length - 1)
+					});
 				}
 			},
 			{
