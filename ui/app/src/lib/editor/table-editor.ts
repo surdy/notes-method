@@ -100,6 +100,35 @@ function isNavigableTable(table: MarkdownTable): boolean {
 	return table.headers.length > 0;
 }
 
+function isSingleLineRange(range: TableRange): boolean {
+	return !range.text.includes('\n');
+}
+
+function parseBootstrapHeaders(line: string): string[] {
+	const headers = line
+		.trim()
+		.replace(/^\|/, '')
+		.replace(/\|$/, '')
+		.split('|')
+		.map((cell) => cell.trim());
+
+	return headers.length > 0 ? headers : [''];
+}
+
+function bootstrapTable(view: EditorView, range: TableRange): boolean {
+	const headers = parseBootstrapHeaders(range.text);
+	return moveToCell(
+		view,
+		range,
+		{
+			headers,
+			alignments: headers.map(() => 'left'),
+			rows: [headers.map(() => '')]
+		},
+		{ row: 2, col: 0 }
+	);
+}
+
 function ensureBodyRow(table: MarkdownTable, targetRow: number): MarkdownTable {
 	let nextTable = table;
 	while (targetRow >= 2 && nextTable.rows.length < targetRow - 1) {
@@ -226,7 +255,25 @@ export function createTableEditorExtension(isEnabled: () => boolean = () => true
 			{
 				key: 'Tab',
 				run: (view) => {
-					const context = getTableContext(view.state, view.state.selection.main.head, isEnabled);
+					if (!isEnabled()) {
+						return false;
+					}
+
+					const pos = view.state.selection.main.head;
+					if (!isInTable(view.state, pos)) {
+						return false;
+					}
+
+					const range = getTableRange(view.state, pos);
+					if (!range) {
+						return false;
+					}
+
+					if (isSingleLineRange(range)) {
+						return bootstrapTable(view, range);
+					}
+
+					const context = getTableContext(view.state, pos, isEnabled);
 					if (!context) {
 						return false;
 					}
