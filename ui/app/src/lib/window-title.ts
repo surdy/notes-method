@@ -16,11 +16,7 @@ export interface WindowTitleAdapter {
 
 const APP_NAME = 'Notesmith';
 
-export function formatWindowTitle(vault: string, noteTitle: string | null): string {
-  const trimmedNote = noteTitle?.trim() ?? '';
-  if (trimmedNote) return `${trimmedNote} — ${APP_NAME}`;
-  const trimmedVault = vault.trim();
-  if (trimmedVault) return `${trimmedVault} — ${APP_NAME}`;
+export function formatWindowTitle(_vault: string, _noteTitle: string | null): string {
   return APP_NAME;
 }
 
