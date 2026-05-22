@@ -37,6 +37,13 @@ function delimiterForAlignment(alignment: MarkdownTableAlignment): string {
 	return '---';
 }
 
+function formatDelimiterCell(alignment: MarkdownTableAlignment, width: number): string {
+	const delimiterWidth = Math.max(width, 3);
+	if (alignment === 'center') return `:${'-'.repeat(delimiterWidth - 2)}:`;
+	if (alignment === 'right') return `${'-'.repeat(delimiterWidth - 1)}:`;
+	return '-'.repeat(delimiterWidth);
+}
+
 function normalizeRow(row: string[], columns: number): string[] {
 	const normalized = row.slice(0, columns);
 	while (normalized.length < columns) {
@@ -82,6 +89,28 @@ export function serializeMarkdownTable(table: MarkdownTable): string {
 		line(headers),
 		line(alignments.map(delimiterForAlignment)),
 		...rows.map((row) => line(row))
+	].join('\n');
+}
+
+export function formatTable(table: MarkdownTable): string {
+	const columns = Math.max(
+		table.headers.length,
+		table.alignments.length,
+		...table.rows.map((row) => row.length)
+	);
+	const headers = normalizeRow(table.headers, columns);
+	const alignments = normalizeRow(table.alignments, columns) as MarkdownTableAlignment[];
+	const rows = table.rows.map((row) => normalizeRow(row, columns));
+	const widths = headers.map((header, columnIndex) =>
+		Math.max(header.length, ...rows.map((row) => row[columnIndex].length))
+	);
+	const formatRow = (cells: string[]) =>
+		`| ${cells.map((cell, columnIndex) => cell.padEnd(widths[columnIndex], ' ')).join(' | ')} |`;
+
+	return [
+		formatRow(headers),
+		`| ${alignments.map((alignment, columnIndex) => formatDelimiterCell(alignment, widths[columnIndex])).join(' | ')} |`,
+		...rows.map((row) => formatRow(row))
 	].join('\n');
 }
 

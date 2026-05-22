@@ -11,6 +11,7 @@ import {
 	insertRowAt,
 	moveColumn,
 	moveRow,
+	formatTable,
 	parseMarkdownTable,
 	removeMarkdownTableColumn,
 	removeMarkdownTableRow,
@@ -250,5 +251,74 @@ describe('markdown table model', () => {
 		const result = setColumnAlignment(table, 1, 'center');
 		expect(result.alignments).toEqual(['left', 'center']);
 		expect(serializeMarkdownTable(result)).toContain(':---:');
+	});
+});
+
+describe('formatTable', () => {
+	it('formats two columns with padded widths', () => {
+		const table = {
+			headers: ['Name', 'Role'],
+			alignments: ['left', 'center'] as const,
+			rows: [
+				['Jane', 'CTO'],
+				['Jonathan', 'VP Engineering']
+			]
+		};
+
+		expect(formatTable(table)).toBe(`| Name     | Role           |
+| -------- | :------------: |
+| Jane     | CTO            |
+| Jonathan | VP Engineering |`);
+	});
+
+	it('preserves left, center, and right alignment markers', () => {
+		const table = {
+			headers: ['Left', 'Center', 'Right'],
+			alignments: ['left', 'center', 'right'] as const,
+			rows: [['a', 'bb', 'ccc']]
+		};
+
+		expect(formatTable(table)).toBe(`| Left | Center | Right |
+| ---- | :----: | ----: |
+| a    | bb     | ccc   |`);
+	});
+
+	it('formats a single-column table', () => {
+		const table = {
+			headers: ['Status'],
+			alignments: ['right'] as const,
+			rows: [['Done']]
+		};
+
+		expect(formatTable(table)).toBe(`| Status |
+| -----: |
+| Done   |`);
+	});
+
+	it('pads empty cells to the column width', () => {
+		const table = {
+			headers: ['Name', 'Role'],
+			alignments: ['left', 'left'] as const,
+			rows: [
+				['Jane', ''],
+				['', 'Engineer']
+			]
+		};
+
+		expect(formatTable(table)).toBe(`| Name | Role     |
+| ---- | -------- |
+| Jane |          |
+|      | Engineer |`);
+	});
+
+	it('formats tables with headers only', () => {
+		const table = {
+			headers: ['Name', 'Role'],
+			alignments: ['left', 'center'] as const,
+			rows: []
+		};
+
+		expect(formatTable(table)).toBe(`| Name | Role |
+| ---- | :--: |`);
 	});
 });
