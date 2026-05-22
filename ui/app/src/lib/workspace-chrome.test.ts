@@ -9,8 +9,8 @@ describe('workspaceChromeLayout', () => {
 			rightChromeWidth: '260px',
 			leftToggleLabel: 'Collapse left sidebar',
 			rightToggleLabel: 'Collapse right sidebar',
-			leftToggleIcon: 'panel-left',
-			rightToggleIcon: 'panel-right'
+			leftToggleIcon: 'panel-left-open',
+			rightToggleIcon: 'panel-right-open'
 		});
 	});
 
@@ -20,8 +20,8 @@ describe('workspaceChromeLayout', () => {
 			rightChromeWidth: '44px',
 			leftToggleLabel: 'Expand left sidebar',
 			rightToggleLabel: 'Expand right sidebar',
-			leftToggleIcon: 'panel-left',
-			rightToggleIcon: 'panel-right'
+			leftToggleIcon: 'panel-left-closed',
+			rightToggleIcon: 'panel-right-closed'
 		});
 	});
 });

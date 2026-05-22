@@ -375,17 +375,37 @@ content: '';
 position: absolute;
 top: 2px;
 bottom: 2px;
+border-radius: 1px;
+}
+
+/* Left sidebar closed: vertical line divider on left side */
+.sidebar-panel-icon.panel-left-closed::before {
+left: 5px;
 width: 1.5px;
-border-radius: 999px;
 background: currentColor;
 }
 
-.sidebar-panel-icon.panel-left::before {
-left: 5px;
+/* Left sidebar open: filled panel on left side */
+.sidebar-panel-icon.panel-left-open::before {
+left: 2px;
+width: 6px;
+background: currentColor;
+border-radius: 2px;
 }
 
-.sidebar-panel-icon.panel-right::before {
+/* Right sidebar closed: vertical line divider on right side */
+.sidebar-panel-icon.panel-right-closed::before {
 right: 5px;
+width: 1.5px;
+background: currentColor;
+}
+
+/* Right sidebar open: filled panel on right side */
+.sidebar-panel-icon.panel-right-open::before {
+right: 2px;
+width: 6px;
+background: currentColor;
+border-radius: 2px;
 }
 
 .app-layout {
