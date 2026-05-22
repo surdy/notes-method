@@ -23,6 +23,7 @@ export interface CloseConfirmDeps {
 }
 
 export interface TauriAdapter {
+  currentLabel?: string;
   listen: (event: string, handler: (payload: unknown) => void) => Promise<() => void>;
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 }
@@ -38,7 +39,10 @@ export async function attachWindowCloseConfirm(
     return () => {};
   }
 
-  const unlisten = await tauri.listen(CLOSE_REQUESTED_EVENT, async () => {
+  const unlisten = await tauri.listen(CLOSE_REQUESTED_EVENT, async (payload) => {
+    if (typeof payload === 'string' && tauri.currentLabel && payload !== tauri.currentLabel) {
+      return;
+    }
     const allow = deps.hasDirtyWork() ? await deps.confirmDiscard() : true;
     try {
       await tauri.invoke('confirm_window_close', { allow });
@@ -59,22 +63,19 @@ export function resolveTauri(): TauriAdapter | null {
     return null;
   }
   const invoke = t.core.invoke;
-  const currentTarget =
-    t.webviewWindow?.getCurrentWebviewWindow?.() ?? t.window?.getCurrentWindow?.();
-
-  if (currentTarget?.listen) {
-    return {
-      listen: (event, handler) =>
-        currentTarget.listen(event, (envelope: { payload: unknown }) => handler(envelope.payload)),
-      invoke: (cmd, args) => invoke(cmd, args ?? {})
-    };
-  }
 
   if (!t.event?.listen) {
     return null;
   }
 
+  const currentLabel =
+    t.webviewWindow?.getCurrentWebviewWindow?.().label ??
+    t.window?.getCurrentWindow?.().label ??
+    (window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__?.metadata
+      ?.currentWindow?.label;
+
   return {
+    currentLabel,
     listen: (event, handler) =>
       t.event!.listen(event, (envelope: { payload: unknown }) => handler(envelope.payload)),
     invoke: (cmd, args) => invoke(cmd, args ?? {})
@@ -92,16 +93,21 @@ interface TauriRuntime {
     invoke: (cmd: string, args: Record<string, unknown>) => Promise<unknown>;
   };
   window?: {
-    getCurrentWindow?: () => ScopedTauriEventTarget;
+    getCurrentWindow?: () => TauriCurrentTarget;
   };
   webviewWindow?: {
-    getCurrentWebviewWindow?: () => ScopedTauriEventTarget;
+    getCurrentWebviewWindow?: () => TauriCurrentTarget;
   };
 }
 
-interface ScopedTauriEventTarget {
-  listen: (
-    event: string,
-    handler: (envelope: { payload: unknown }) => void
-  ) => Promise<() => void>;
+interface TauriCurrentTarget {
+  label?: string;
+}
+
+interface TauriInternals {
+  metadata?: {
+    currentWindow?: {
+      label?: string;
+    };
+  };
 }

@@ -21,7 +21,7 @@ use notesmith_tauri::windows_persist::{
     self, Rect, WindowEntry, WindowsFile, dedupe_latest_per_vault,
 };
 use tauri::{
-    AppHandle, Emitter, EventTarget, Manager, RunEvent, Runtime, UriSchemeContext, Url, WebviewUrl,
+    AppHandle, Emitter, Manager, RunEvent, Runtime, UriSchemeContext, Url, WebviewUrl,
     WebviewWindowBuilder,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -389,20 +389,13 @@ fn main() {
                         api.prevent_close();
                         let _ = window.hide();
                     } else if is_vault_window_label(&label) {
-                        // Ask only this window's webview to confirm; if it
-                        // says yes it will invoke `confirm_window_close`,
-                        // which destroys the window (no second round trip
-                        // through this handler). If no listener is attached
-                        // the close request silently sticks — the user can
-                        // close again, but this should not happen in
-                        // practice because the listener is registered at
-                        // window mount.
+                        // Broadcast for reliable delivery to daemon-hosted
+                        // webviews; the frontend filters the payload label so
+                        // only the window being closed responds.
                         api.prevent_close();
-                        let _ = window.app_handle().emit_to(
-                            EventTarget::labeled(&label),
-                            CLOSE_REQUESTED_EVENT,
-                            label.clone(),
-                        );
+                        let _ = window
+                            .app_handle()
+                            .emit(CLOSE_REQUESTED_EVENT, label.clone());
                     }
                 }
                 tauri::WindowEvent::Destroyed => {

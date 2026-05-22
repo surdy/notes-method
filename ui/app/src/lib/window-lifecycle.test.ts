@@ -113,11 +113,40 @@ describe('attachWindowCloseConfirm', () => {
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
   });
+
+  it('ignores close requests for a different Tauri window label', async () => {
+    const { adapter, fire, invoke } = makeTauri();
+    adapter.currentLabel = 'main:alpha-123';
+
+    await attachWindowCloseConfirm({
+      hasDirtyWork: () => false,
+      confirmDiscard: () => true,
+      tauri: adapter
+    });
+
+    await fire('main:beta-456');
+
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('handles close requests matching the current Tauri window label', async () => {
+    const { adapter, fire, invoke } = makeTauri();
+    adapter.currentLabel = 'main:alpha-123';
+
+    await attachWindowCloseConfirm({
+      hasDirtyWork: () => false,
+      confirmDiscard: () => true,
+      tauri: adapter
+    });
+
+    await fire('main:alpha-123');
+
+    expect(invoke).toHaveBeenCalledWith('confirm_window_close', { allow: true });
+  });
 });
 
 describe('resolveTauri', () => {
-  it('uses the current WebviewWindow listener instead of the global event listener', async () => {
-    const scopedListen = vi.fn(async () => vi.fn());
+  it('uses the global listener and exposes the current WebviewWindow label', async () => {
     const globalListen = vi.fn(async () => vi.fn());
     const invoke = vi.fn(async () => undefined);
     vi.stubGlobal('window', {
@@ -126,7 +155,7 @@ describe('resolveTauri', () => {
         event: { listen: globalListen },
         webviewWindow: {
           getCurrentWebviewWindow: () => ({
-            listen: scopedListen
+            label: 'main:alpha-123'
           })
         }
       }
@@ -135,11 +164,11 @@ describe('resolveTauri', () => {
     const adapter = resolveTauri();
     await adapter?.listen('notesmith://close-requested', () => {});
 
-    expect(scopedListen).toHaveBeenCalledWith(
+    expect(adapter?.currentLabel).toBe('main:alpha-123');
+    expect(globalListen).toHaveBeenCalledWith(
       'notesmith://close-requested',
       expect.any(Function)
     );
-    expect(globalListen).not.toHaveBeenCalled();
 
     vi.unstubAllGlobals();
   });
