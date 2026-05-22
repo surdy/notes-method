@@ -199,11 +199,11 @@
 							{#each themeOptions as option}
 								<button
 									class="theme-option"
-									class:active={cfg.appearance.theme === option.value}
+									class:active={(cfg.appearance?.theme ?? 'system') === option.value}
 									type="button"
 									onclick={() => {
 										if (cfg) {
-											cfg.appearance = { ...cfg.appearance, theme: option.value };
+											cfg.appearance = { theme: option.value };
 											themeStore.set(option.value);
 											settingsStore.markDirty('appearance');
 										}
