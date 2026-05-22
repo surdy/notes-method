@@ -1,0 +1,13 @@
+{
+	"name": "obsidian-dev",
+	"description": "Obsidian",
+	"version": "1.12.4",
+	"license": "UNLICENSED",
+	"author": "Obsidian",
+	"private": true,
+	"main": "index.js",
+	"dependencies": {
+		"btime": "../electron/btime",
+		"get-fonts": "../electron/get-fonts"
+	}
+}

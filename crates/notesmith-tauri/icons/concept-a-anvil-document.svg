@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Concept A: Document resting on an anvil — the note being forged -->
+  <!-- Colors: Warm amber primary, charcoal accent -->
+
+  <!-- Anvil base -->
+  <path d="M128 380 L96 420 L416 420 L384 380 Z" fill="#2D2D2D"/>
+  
+  <!-- Anvil body -->
+  <path d="M148 320 L148 380 L364 380 L364 320 Z" fill="#3A3A3A"/>
+  
+  <!-- Anvil top (horn left, flat top, horn right) -->
+  <path d="M80 280 Q80 260 108 260 L168 260 L168 320 L148 320 L128 320 Q80 320 80 280 Z" fill="#3A3A3A"/>
+  <path d="M168 260 L344 260 L344 320 L168 320 Z" fill="#3A3A3A"/>
+  <path d="M344 260 L404 260 Q432 260 432 280 L432 280 Q432 320 384 320 L364 320 L344 320 Z" fill="#3A3A3A"/>
+  
+  <!-- Anvil face highlight -->
+  <rect x="168" y="256" width="176" height="8" rx="2" fill="#4A4A4A"/>
+
+  <!-- Document / Note page -->
+  <path d="M180 80 L320 80 L340 100 L340 252 L180 252 Z" fill="#F5F0E8"/>
+  
+  <!-- Document fold corner -->
+  <path d="M320 80 L320 100 L340 100 Z" fill="#DDD5C8"/>
+  
+  <!-- Document lines (representing text/notes) -->
+  <rect x="204" y="116" width="112" height="8" rx="2" fill="#E8A838"/>
+  <rect x="204" y="140" width="96" height="6" rx="2" fill="#C8C0B4"/>
+  <rect x="204" y="158" width="112" height="6" rx="2" fill="#C8C0B4"/>
+  <rect x="204" y="176" width="80" height="6" rx="2" fill="#C8C0B4"/>
+  <rect x="204" y="194" width="104" height="6" rx="2" fill="#C8C0B4"/>
+  <rect x="204" y="212" width="68" height="6" rx="2" fill="#C8C0B4"/>
+
+  <!-- Sparks from forging -->
+  <circle cx="156" cy="240" r="5" fill="#E8A838"/>
+  <circle cx="140" cy="220" r="3.5" fill="#F0C060"/>
+  <circle cx="168" cy="216" r="4" fill="#E8A838"/>
+  <circle cx="148" cy="200" r="3" fill="#F0C060"/>
+  <circle cx="362" cy="236" r="4.5" fill="#E8A838"/>
+  <circle cx="376" cy="218" r="3" fill="#F0C060"/>
+  <circle cx="356" cy="208" r="3.5" fill="#E8A838"/>
+</svg>

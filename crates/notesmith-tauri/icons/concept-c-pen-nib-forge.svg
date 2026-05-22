@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Concept C: Pen nib as an anvil shape — the writing tool IS the forge -->
+  <!-- Minimal, geometric, ultra-clean -->
+  <!-- Colors: Deep slate blue, warm amber, off-white -->
+  
+  <!-- Rounded square background -->
+  <rect x="48" y="48" width="416" height="416" rx="80" fill="#2B3A4E"/>
+  
+  <!-- Central pen nib shape — wide at top, pointed at bottom -->
+  <!-- Shaped like a fountain pen nib but also evokes an anvil's profile -->
+  <path d="
+    M216 120
+    L296 120
+    Q312 120 312 136
+    L312 280
+    L280 340
+    L264 380
+    Q256 396 248 380
+    L232 340
+    L200 280
+    L200 136
+    Q200 120 216 120
+    Z
+  " fill="#F5F0E8"/>
+  
+  <!-- Nib slit (center line) -->
+  <line x1="256" y1="240" x2="256" y2="370" stroke="#2B3A4E" stroke-width="4" stroke-linecap="round"/>
+  
+  <!-- Nib breather hole -->
+  <circle cx="256" cy="232" r="10" fill="#2B3A4E"/>
+  
+  <!-- Horizontal text lines on the nib (notes being written) -->
+  <rect x="222" y="148" width="68" height="6" rx="3" fill="#E8A838"/>
+  <rect x="222" y="166" width="56" height="4" rx="2" fill="#C8C0B4"/>
+  <rect x="222" y="180" width="68" height="4" rx="2" fill="#C8C0B4"/>
+  <rect x="222" y="194" width="48" height="4" rx="2" fill="#C8C0B4"/>
+  
+  <!-- Sparks emanating from the pen tip -->
+  <circle cx="240" cy="392" r="5" fill="#E8A838"/>
+  <circle cx="272" cy="390" r="4" fill="#F0C060"/>
+  <circle cx="232" cy="408" r="3.5" fill="#F0C060"/>
+  <circle cx="278" cy="406" r="3" fill="#E8A838"/>
+  <circle cx="256" cy="416" r="4" fill="#E8A838"/>
+  <circle cx="244" cy="424" r="2.5" fill="#F0C060"/>
+  <circle cx="268" cy="422" r="3" fill="#F0C060"/>
+</svg>

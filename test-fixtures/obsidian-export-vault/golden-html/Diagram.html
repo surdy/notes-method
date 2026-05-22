@@ -1,0 +1,33 @@
+<p>Obsidian uses <a data-tooltip-position="top" aria-label="https://mermaid-js.github.io/" rel="noopener nofollow" class="external-link" href="https://mermaid-js.github.io/" target="_blank">Mermaid</a> to render diagrams and charts. Mermaid also provides <a data-tooltip-position="top" aria-label="https://mermaid-js.github.io/mermaid-live-editor" rel="noopener nofollow" class="external-link" href="https://mermaid-js.github.io/mermaid-live-editor" target="_blank">a helpful live editor</a>.</p>
+<pre><code>```mermaid
+sequenceDiagram
+    Alice-&gt;&gt;+John: Hello John, how are you?
+    Alice-&gt;&gt;+John: John, can you hear me?
+    John--&gt;&gt;-Alice: Hi Alice, I can hear you!
+    John--&gt;&gt;-Alice: I feel great!
+```</code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<pre class="language-mermaid"><code class="language-mermaid is-loaded node-insert-event"><span class="token keyword">sequenceDiagram</span>
+    Alice<span class="token arrow operator">-&gt;&gt;</span>+John<span class="token operator">:</span> Hello John, how are you?
+    Alice<span class="token arrow operator">-&gt;&gt;</span>+John<span class="token operator">:</span> John, can you hear me?
+    John<span class="token arrow operator">--&gt;&gt;</span>-Alice<span class="token operator">:</span> Hi Alice, I can hear you!
+    John<span class="token arrow operator">--&gt;&gt;</span>-Alice<span class="token operator">:</span> I feel great!
+</code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<p>Obsidian supports linking to notes in Mermaid:</p>
+<pre><code>```mermaid
+graph TD
+Biology --&gt; Chemistry
+class Biology,Chemistry internal-link;
+```</code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<p>An easier way to do it is the following: </p>
+<pre><code>```mermaid
+graph TD
+A[Biology]
+B[Chemistry]
+A --&gt; B
+class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z internal-link;
+```</code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<p>This way, all the note names (at least until <code>Z[note name]</code>) are all automatically assigned the class <code>internal-link</code> when you use this snippet.</p>
+<p>If you use special characters in your note names, you need to put the note name in double quotes.<br>
+<code>"⨳ special character"</code><br>
+It looks like this if you follow the <a data-tooltip-position="top" aria-label="Format your notes &gt; ^376b9d" data-href="Format your notes#^376b9d" href="Format your notes#^376b9d" class="internal-link" target="_blank" rel="noopener nofollow">second option</a>:<br>
+<code>A["⨳ special character"]</code></p>

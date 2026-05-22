@@ -1,12 +1,12 @@
 ---
-type: customer
-customer: "[[Acme Corp]]"
+created: 2024-06-01 10:00
+customer: '[[Acme Corp]]'
 state: Active
 tags:
-  - customer
-  - enterprise
-created: 2024-06-01 10:00
-updated: 2025-01-15 14:30
+- customer
+- enterprise
+type: customer
+updated: 2026-05-22 04:13
 ---
 
 # Acme Corp
@@ -24,7 +24,7 @@ Active streams:
 ## Key Contacts
 
 | Name | Role | Email |
-|------|------|-------|
+| --- | --- | :---: |
 | John Smith | VP Engineering | john@acme.com |
 | Jane Doe | CTO | jane@acme.com |
 

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Concept B: Stylized hammer striking a document page, creating sparks -->
+  <!-- Colors: Teal/emerald primary, warm amber accent -->
+
+  <!-- Document page (slightly angled, background element) -->
+  <rect x="148" y="140" width="200" height="260" rx="12" fill="#F5F0E8"/>
+  
+  <!-- Document inner content lines -->
+  <rect x="180" y="180" width="136" height="8" rx="3" fill="#D4CFC4"/>
+  <rect x="180" y="202" width="120" height="6" rx="3" fill="#DDD8CE"/>
+  <rect x="180" y="220" width="136" height="6" rx="3" fill="#DDD8CE"/>
+  <rect x="180" y="238" width="100" height="6" rx="3" fill="#DDD8CE"/>
+  <rect x="180" y="256" width="128" height="6" rx="3" fill="#DDD8CE"/>
+  <rect x="180" y="274" width="90" height="6" rx="3" fill="#DDD8CE"/>
+  <rect x="180" y="292" width="136" height="6" rx="3" fill="#DDD8CE"/>
+  <rect x="180" y="310" width="110" height="6" rx="3" fill="#DDD8CE"/>
+  <rect x="180" y="328" width="80" height="6" rx="3" fill="#DDD8CE"/>
+  
+  <!-- Heading line in amber -->
+  <rect x="180" y="162" width="100" height="8" rx="3" fill="#E8A838"/>
+
+  <!-- Hammer handle (diagonal, coming from top-right) -->
+  <rect x="310" y="40" width="20" height="160" rx="6" fill="#6B4C3B" transform="rotate(35, 320, 120)"/>
+
+  <!-- Hammer head -->
+  <rect x="264" y="140" width="80" height="36" rx="6" fill="#2D9B8E" transform="rotate(35, 304, 158)"/>
+  
+  <!-- Impact point - amber sparks -->
+  <circle cx="290" cy="148" r="6" fill="#E8A838"/>
+  <circle cx="268" cy="130" r="4" fill="#F0C060"/>
+  <circle cx="310" cy="126" r="4.5" fill="#E8A838"/>
+  <circle cx="278" cy="114" r="3.5" fill="#F0C060"/>
+  <circle cx="322" cy="140" r="3" fill="#F0C060"/>
+  <circle cx="252" cy="142" r="3" fill="#E8A838"/>
+  
+  <!-- Small impact flash -->
+  <path d="M286 150 L280 136 L290 140 L284 124" fill="none" stroke="#F0C060" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

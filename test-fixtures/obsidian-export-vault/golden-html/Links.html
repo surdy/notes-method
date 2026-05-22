@@ -1,0 +1,26 @@
+<h4 data-heading="External links">External links</h4>
+<p>Markdown style links can be used to refer to either external objects, such as web pages, or an internal page or image.</p>
+<pre class="language-md"><code class="language-md is-loaded">http://obsidian.md - automatic!
+<span class="token url">[<span class="token content">Obsidian</span>](<span class="token url">http://obsidian.md</span>)</span>
+</code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<p><a rel="noopener nofollow" class="external-link" href="http://obsidian.md" target="_blank">http://obsidian.md</a> - automatic!<br>
+<a data-tooltip-position="top" aria-label="http://obsidian.md" rel="noopener nofollow" class="external-link" href="http://obsidian.md" target="_blank">Obsidian</a></p>
+<h4 data-heading="Obsidian URI links">Obsidian URI links</h4>
+<p>Obsidian URI links can be used to open notes in Obsidian either from another Obsidian vault or another program.</p>
+<p>For example, you can link to a file in a vault like so (please note the required encoding):</p>
+<pre class="language-md"><code class="language-md is-loaded"><span class="token url">[<span class="token content">Link to note</span>](<span class="token url">obsidian://open?path=D:%2Fpath%2Fto%2Ffile.md</span>)</span>
+</code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<p><a data-tooltip-position="top" aria-label="obsidian://open?path=D:%2Fpath%2Fto%2Ffile.md" rel="noopener nofollow" class="external-link" href="obsidian://open?path=D:%2Fpath%2Fto%2Ffile.md" target="_blank">Link to note</a></p>
+<p>You can link to a note by its vault name and file name instead of path as well:</p>
+<pre class="language-md"><code class="language-md is-loaded"><span class="token url">[<span class="token content">Link to note</span>](<span class="token url">obsidian://open?vault=MainVault&amp;file=MyNote.md</span>)</span>
+</code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<p><a data-tooltip-position="top" aria-label="obsidian://open?vault=MainVault&amp;file=MyNote.md" rel="noopener nofollow" class="external-link" href="obsidian://open?vault=MainVault&amp;file=MyNote.md" target="_blank">Link to note</a></p>
+<h4 data-heading="Escaping">Escaping</h4>
+<p>If there are spaces in the url, they can be escaped by either using <code>%20</code> as a space, such as:</p>
+<pre class="language-md"><code class="language-md is-loaded"><span class="token url">[<span class="token content">Format your notes</span>](<span class="token url">Format%20your%20notes</span>)</span>
+</code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<p>[Format your notes](Format your notes.md)</p>
+<p>Or you can enclose the target in <code>&lt;&gt;</code>, such as:</p>
+<pre class="language-md"><code class="language-md is-loaded">[Format your notes](<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;</span>Format</span> <span class="token attr-name">your</span> <span class="token attr-name">notes</span><span class="token punctuation">&gt;</span></span>)
+</code><button class="copy-code-button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon lucide-copy"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></pre>
+<p><a class="internal-link" data-href="Format your notes" href="Format your notes" target="_blank" rel="noopener nofollow">Format your notes</a></p>

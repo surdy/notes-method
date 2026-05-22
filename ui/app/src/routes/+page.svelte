@@ -172,7 +172,10 @@
 	<span class={`sidebar-panel-icon ${chromeLayout.leftToggleIcon}`} aria-hidden="true"></span>
 </button>
 {#if !leftSidebarCollapsed}
-<h1 class="app-title">📝 Notesmith</h1>
+<span class="vault-identity" title={vaultStore.currentVault}>
+	<span class="vault-icon" aria-hidden="true">🗄️</span>
+	<span class="vault-name">{vaultStore.currentVault}</span>
+</span>
 <button
 	class="chrome-icon-btn"
 	type="button"
@@ -437,9 +440,20 @@ overflow: hidden;
 display: none;
 }
 
-.app-title {
-margin: 0;
-font-size: 16px;
+.vault-identity {
+display: flex;
+align-items: center;
+gap: 5px;
+overflow: hidden;
+}
+
+.vault-identity .vault-icon {
+font-size: 14px;
+flex-shrink: 0;
+}
+
+.vault-identity .vault-name {
+font-size: 14px;
 font-weight: 600;
 white-space: nowrap;
 overflow: hidden;

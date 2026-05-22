@@ -1,5 +1,5 @@
 /**
- * Push `<vault> — <note>` to the Tauri window title via the
+ * Push `<note> — Notesmith` to the Tauri window title via the
  * `set_window_title` command. In non-Tauri contexts (dev browser, tests)
  * this is a no-op.
  */
@@ -14,12 +14,14 @@ export interface WindowTitleAdapter {
   invoke: (cmd: string, args: Record<string, unknown>) => Promise<unknown>;
 }
 
+const APP_NAME = 'Notesmith';
+
 export function formatWindowTitle(vault: string, noteTitle: string | null): string {
-  const trimmedVault = vault.trim();
   const trimmedNote = noteTitle?.trim() ?? '';
-  if (!trimmedVault) return trimmedNote;
-  if (!trimmedNote) return trimmedVault;
-  return `${trimmedVault} — ${trimmedNote}`;
+  if (trimmedNote) return `${trimmedNote} — ${APP_NAME}`;
+  const trimmedVault = vault.trim();
+  if (trimmedVault) return `${trimmedVault} — ${APP_NAME}`;
+  return APP_NAME;
 }
 
 export async function pushWindowTitle(

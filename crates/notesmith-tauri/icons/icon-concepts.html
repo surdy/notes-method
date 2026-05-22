@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Notesmith Icon Concepts</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    padding: 40px;
+  }
+  h1 { text-align: center; margin-bottom: 8px; font-size: 28px; font-weight: 600; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 40px; font-size: 14px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .card {
+    background: #262640;
+    border-radius: 16px;
+    padding: 32px;
+    text-align: center;
+  }
+  .card h2 { font-size: 18px; margin-bottom: 4px; color: #E8A838; }
+  .card .desc { font-size: 13px; color: #999; margin-bottom: 24px; line-height: 1.5; }
+  .icon-preview {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .icon-preview .size-group { text-align: center; }
+  .icon-preview .size-group span { display: block; font-size: 11px; color: #666; margin-top: 6px; }
+  .icon-preview img { display: block; }
+  .large-preview {
+    margin: 24px auto 0;
+    background: #1a1a2e;
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    justify-content: center;
+  }
+  .large-preview img { width: 200px; height: 200px; }
+  /* Light background variant */
+  .light-row {
+    margin-top: 48px;
+    background: #f0f0f0;
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 40px;
+  }
+  .light-row h2 { color: #333; text-align: center; margin-bottom: 20px; font-size: 18px; }
+  .light-row .grid { gap: 24px; }
+  .light-row .icon-item { text-align: center; }
+  .light-row .icon-item span { color: #666; font-size: 12px; display: block; margin-top: 8px; }
+  .light-row img { width: 128px; height: 128px; }
+</style>
+</head>
+<body>
+
+<h1>Notesmith Icon Concepts</h1>
+<p class="subtitle">Three flat design approaches — compare on dark and light backgrounds</p>
+
+<div class="grid">
+  <div class="card">
+    <h2>A — Anvil &amp; Document</h2>
+    <p class="desc">A note page resting on a blacksmith's anvil with forge sparks. The document is being shaped by the craft.</p>
+    <div class="large-preview">
+      <img src="concept-a-anvil-document.svg" alt="Concept A">
+    </div>
+    <div class="icon-preview" style="margin-top: 16px;">
+      <div class="size-group"><img src="concept-a-anvil-document.svg" width="64" height="64"><span>64px</span></div>
+      <div class="size-group"><img src="concept-a-anvil-document.svg" width="32" height="32"><span>32px</span></div>
+      <div class="size-group"><img src="concept-a-anvil-document.svg" width="16" height="16"><span>16px</span></div>
+    </div>
+  </div>
+  
+  <div class="card">
+    <h2>B — Hammer &amp; Page</h2>
+    <p class="desc">A smith's hammer strikes a document page at an angle, sending amber sparks flying. Action and craft combined.</p>
+    <div class="large-preview">
+      <img src="concept-b-hammer-page.svg" alt="Concept B">
+    </div>
+    <div class="icon-preview" style="margin-top: 16px;">
+      <div class="size-group"><img src="concept-b-hammer-page.svg" width="64" height="64"><span>64px</span></div>
+      <div class="size-group"><img src="concept-b-hammer-page.svg" width="32" height="32"><span>32px</span></div>
+      <div class="size-group"><img src="concept-b-hammer-page.svg" width="16" height="16"><span>16px</span></div>
+    </div>
+  </div>
+  
+  <div class="card">
+    <h2>C — Pen Nib Forge</h2>
+    <p class="desc">A fountain pen nib doubles as an anvil shape, with note lines inscribed and sparks from the tip. The writing tool IS the forge.</p>
+    <div class="large-preview">
+      <img src="concept-c-pen-nib-forge.svg" alt="Concept C">
+    </div>
+    <div class="icon-preview" style="margin-top: 16px;">
+      <div class="size-group"><img src="concept-c-pen-nib-forge.svg" width="64" height="64"><span>64px</span></div>
+      <div class="size-group"><img src="concept-c-pen-nib-forge.svg" width="32" height="32"><span>32px</span></div>
+      <div class="size-group"><img src="concept-c-pen-nib-forge.svg" width="16" height="16"><span>16px</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="light-row">
+  <h2>On Light Background</h2>
+  <div class="grid">
+    <div class="icon-item"><img src="concept-a-anvil-document.svg"><span>A — Anvil &amp; Document</span></div>
+    <div class="icon-item"><img src="concept-b-hammer-page.svg"><span>B — Hammer &amp; Page</span></div>
+    <div class="icon-item"><img src="concept-c-pen-nib-forge.svg"><span>C — Pen Nib Forge</span></div>
+  </div>
+</div>
+
+</body>
+</html>
