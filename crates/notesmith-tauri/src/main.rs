@@ -1161,7 +1161,7 @@ fn ensure_vault_window<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<St
 
     window_config.label = label.clone();
     window_config.url = WebviewUrl::External(target_url);
-    window_config.title = vault.to_string();
+    window_config.title = format!("{vault} — Notesmith");
     WebviewWindowBuilder::from_config(app, &window_config)?.build()?;
 
     app.state::<VaultWindows>()
