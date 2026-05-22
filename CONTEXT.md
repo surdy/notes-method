@@ -8,7 +8,7 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 - **Vault** — A rooted directory of markdown notes with a `.notesmith/` config folder. A user may have multiple vaults (e.g. `work`, `personal`). Each vault is independently configured and indexed.
 - **Note** — A single markdown file in a vault. The canonical parsed representation including frontmatter, body, tasks, links, inline fields, and blocks. (`notesmith-core::Note`)
-- **VaultPath** — A vault-relative path to a note, e.g. `Inbox/Daily/2025-01-15.md`. Never absolute. (`notesmith-core::VaultPath`)
+- **VaultPath** — A vault-relative path to a note, e.g. `Daily/2025-01-15.md`. Never absolute. (`notesmith-core::VaultPath`)
 - **VaultName** — A short identifier for a vault, e.g. `work`. Used in API paths and config. (`notesmith-core::VaultName`)
 - **VaultEngine** — The filesystem abstraction trait for scanning, reading, writing, deleting, and moving notes. (`notesmith-core::VaultEngine`)
 
@@ -45,15 +45,16 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 ## Configuration
 
-- **VaultConfig** — Per-vault settings in `.notesmith/vault.toml`. Sections: inbox, daily, editor, git, hooks.
-- **GlobalConfig** — App-wide settings in `~/.config/notesmith/config.toml`. Contains daemon bind address, auto-start, and vault registry.
+- **VaultConfig** — Per-vault settings in `.notesmith/vault.toml`. Sections: schema version, capture, daily, editor, git, hooks.
+- **GlobalConfig** — App-wide settings in `~/.config/notesmith/config.toml`. Contains daemon bind address, CLI auto-start policy, and the vault registry.
 - **SidebarConfig** — Per-vault sidebar view definitions in `.notesmith/sidebar.yaml`. Defines custom views with sections (recently-viewed, custom-folders, custom-items).
 
-## Inbox & Routing
+## Capture & Routing
 
-- **Inbox** — The entry point for all new notes. Default folder: `Inbox/`.
-- **Routing** — Rule-based note filing from Inbox to destination folders. Rules match on frontmatter fields (type, customer, meeting-kind, stream). Defined in `.notesmith/routing.yaml`.
+- **Capture** — The quick-capture workflow that writes timestamped notes to the configured capture folder. When `capture.folder = ""`, captures land in the vault root.
+- **Routing** — Rule-based note filing from captured or draft notes to destination folders. Rules match on frontmatter fields (type, customer, meeting-kind, stream). Defined in `.notesmith/routing.yaml`.
 - **Archive** — The act of routing a note: stamping `archived: true` and `archived-at` in frontmatter, then moving to the destination folder.
+- **Daemon-backed CLI commands** — `capture`, `query`, `note`, `search`, `template`, `route`, `daily`, `task`, `reindex`, and daemon-backed `notesmith://` handlers. They probe `/api/status` and auto-start the HTTP daemon when `[daemon].auto_start = true`.
 
 ## Templates
 
@@ -63,9 +64,10 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 ## Daily Notes
 
-- **Daily Note** — A date-stamped note generated into the daily folder (default: `Inbox/Daily/`). Can be created by the scheduler, CLI, API, or an external agent.
+- **Daily Note** — A date-stamped note generated into the configured daily folder (default: vault root when `daily.folder = ""`). Can be created by the scheduler, CLI, API, or an external agent.
 - **Catch-up** — Backfilling missing daily notes for recent days when `catch_up: true` in DailyConfig.
 - **DailyScheduler** — Background task that auto-generates daily notes at a configured time.
+- **MCP server** — The `notesmith mcp start` stdio server. It builds its own in-memory indexes for local MCP clients rather than proxying through the HTTP daemon.
 
 ## Runtime & Events
 
@@ -87,8 +89,15 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 ## Frontend
 
-- **Settings Panel** — A right-edge slide-over panel for editing vault config in-app. Auto-save for toggles, explicit save for text fields.
-- **Right Rail** — A collapsible panel showing metadata, backlinks, and outgoing links for the active note.
+- **Design Tokens** — All UI colors are defined as `--ns-*` CSS custom properties in a single `:root {}` block in `app.css`. Components never define their own colors — they reference tokens. This enables theming by overriding token values in CSS class selectors.
+- **Theme System** — Five themes: Dark (default), Light, System (follows OS), Manuscript (dark chrome + light editor), High Contrast (pure black, cyan borders). Theme choice stored in `localStorage` under `notesmith:theme`. A blocking inline script in `app.html` applies the theme class before paint to prevent flash. Managed by `theme.svelte.ts` (Svelte 5 runes store).
+- **Settings Page** — A dedicated `/settings` route with left sidebar navigation and right content area for editing vault config in-app. Sections: General (name, homepage, capture folder/template), Daily Notes, Editor, Git, Hooks, Appearance (theme picker). Per-section Save/Revert with ETag-based conflict detection.
+- **Right Rail** — A collapsible tabbed panel (`⌘\`) with three modes: **Metadata** (frontmatter key/values, `_`-prefixed keys hidden), **Links** (backlinks + outgoing), **TOC** (live table of contents from editor headings with click-to-scroll and active heading highlight). Tab selection persists in `localStorage`.
 - **Middle Pane** — A resizable panel between sidebar and editor, opened by custom sidebar items to show folder listings or query results.
-- **Command Palette** — A fuzzy-searchable overlay for executing commands (⌘K / ⌘P).
+- **Folder Notes** — Same-name markdown notes (`Folder/Folder.md`) represented by their folder row in FileTree. Folder rows open the hidden folder note from the name control, expand from the chevron, and support creation/rename actions from the context menu.
+- **Command Palette** — A fuzzy-searchable overlay for executing commands (⌘K / ⌘P). Shows footer hints for keyboard navigation.
+- **Input Palette** — A sequential multi-step input overlay (same chrome as Command Palette) used for note creation, capture, and template instantiation. Supports text input and fuzzy list picker modes. Replaces `window.prompt()` which is broken in Tauri's WKWebView.
+- **Toast Stack** — Non-blocking corner notifications (success/error/warning) with auto-dismiss. Replaces `window.alert()`. Managed by `toast-store.svelte.ts`.
 - **Quick Switcher** — A fuzzy note search overlay for rapid navigation (⌘O).
+- **Status Bar** — A 28px bar at the bottom of the app showing: connection status with diagnostic popover (left), vault name (center), cursor position, word count, and save indicator (right). Editor state shared via `editor-status.svelte.ts`.
+- **Note Icons** — Notes can set `_icon:` (emoji) in frontmatter to override their icon in file trees, tabs, and quick switcher. Falls back to type-based defaults. `_`-prefixed frontmatter keys are reserved for system/UI use and hidden from metadata panels.

@@ -44,6 +44,14 @@ impl VaultCache {
         indexer.index_all(vault_name, notes)
     }
 
+    pub fn check_integrity(&self) -> anyhow::Result<bool> {
+        let conn = self.connection();
+        match conn.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0)) {
+            Ok(result) => Ok(result == "ok"),
+            Err(_) => Ok(false),
+        }
+    }
+
     pub fn update_note(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
         let conn = self.connection();
         let indexer = CacheIndexer::new(&conn);
@@ -62,5 +70,81 @@ impl VaultCache {
 
     pub fn cache_path(&self) -> &Path {
         &self.cache_path
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use notesmith_core::Note;
+    use rusqlite::Connection;
+
+    use super::VaultCache;
+
+    #[test]
+    fn check_integrity_reports_healthy_database() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache_path = temp_dir.path().join("cache.sqlite");
+        let cache = VaultCache::open(&cache_path).unwrap();
+
+        cache
+            .reindex("work", &[sample_note("Inbox/healthy.md", "healthy cache")])
+            .unwrap();
+
+        assert!(cache.check_integrity().unwrap());
+    }
+
+    #[test]
+    fn check_integrity_reports_corrupt_database() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache_path = temp_dir.path().join("cache.sqlite");
+        {
+            let cache = VaultCache::open(&cache_path).unwrap();
+            let notes = (0..32)
+                .map(|index| {
+                    sample_note(
+                        &format!("Inbox/corrupt-{index}.md"),
+                        &"before corruption ".repeat(256),
+                    )
+                })
+                .collect::<Vec<_>>();
+            cache.reindex("work", &notes).unwrap();
+            cache
+                .connection()
+                .execute_batch("PRAGMA wal_checkpoint(FULL);")
+                .unwrap();
+        }
+
+        {
+            let cache = VaultCache::open(&cache_path).unwrap();
+            cache
+                .connection()
+                .execute_batch(
+                    "PRAGMA writable_schema=ON;
+                     UPDATE sqlite_schema SET rootpage = -1 WHERE name = 'notes';
+                     PRAGMA writable_schema=OFF;",
+                )
+                .unwrap();
+        }
+        let cache = VaultCache {
+            conn: std::sync::Mutex::new(Connection::open(&cache_path).unwrap()),
+            cache_path,
+        };
+
+        assert!(!cache.check_integrity().unwrap());
+    }
+
+    fn sample_note(path: &str, body: &str) -> Note {
+        Note {
+            vault: notesmith_core::VaultName::new("work"),
+            path: path.into(),
+            frontmatter: None,
+            raw_frontmatter: None,
+            body: body.to_string(),
+            tasks: Vec::new(),
+            links: Vec::new(),
+            inline_fields: Vec::new(),
+            blocks: Vec::new(),
+            hash: format!("hash-{path}"),
+        }
     }
 }

@@ -43,12 +43,7 @@ mod tests {
     fn create_vault(root: &std::path::Path, name: &str) {
         let config = VaultConfig {
             name: name.to_string(),
-            homepage: None,
-            inbox: Default::default(),
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
+            ..Default::default()
         };
 
         let config_dir = root.join(".notesmith");

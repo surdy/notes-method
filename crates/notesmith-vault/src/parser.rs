@@ -1,21 +1,11 @@
+use crate::frontmatter::extract_frontmatter;
 use chrono::NaiveDate;
 use notesmith_core::{
-    Block, Frontmatter, InlineField, Link, LinkType, SourcePosition, Task, TaskPriority,
-    TaskStatus, VaultName, VaultPath,
+    Block, InlineField, Link, LinkType, Note, SourcePosition, Task, TaskPriority, TaskStatus,
+    VaultName, VaultPath,
 };
 use regex::Regex;
 use std::{ops::Range, sync::OnceLock};
-
-#[derive(Debug, Clone)]
-pub struct ParsedNote {
-    pub frontmatter: Option<Frontmatter>,
-    pub raw_frontmatter: Option<String>,
-    pub body: String,
-    pub links: Vec<Link>,
-    pub inline_fields: Vec<InlineField>,
-    pub tasks: Vec<Task>,
-    pub blocks: Vec<Block>,
-}
 
 #[derive(Debug, Default, Clone)]
 struct TaskMetadata {
@@ -30,7 +20,7 @@ struct TaskMetadata {
     cleaned_content: String,
 }
 
-pub fn parse_note(content: &str, _vault_name: &VaultName, _path: &VaultPath) -> ParsedNote {
+pub fn parse_note(vault_name: &VaultName, path: &VaultPath, content: &str) -> Note {
     let (raw_frontmatter, body) = extract_frontmatter(content);
     let frontmatter = raw_frontmatter
         .as_deref()
@@ -40,7 +30,9 @@ pub fn parse_note(content: &str, _vault_name: &VaultName, _path: &VaultPath) -> 
     links.extend(parse_markdown_links(body));
     links.sort_by_key(|link| link.position.offset);
 
-    ParsedNote {
+    Note {
+        vault: vault_name.clone(),
+        path: path.clone(),
         frontmatter,
         raw_frontmatter,
         body: body.to_string(),
@@ -48,34 +40,11 @@ pub fn parse_note(content: &str, _vault_name: &VaultName, _path: &VaultPath) -> 
         inline_fields: parse_inline_fields(body),
         tasks: parse_tasks(body),
         blocks: parse_blocks(body),
+        hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
     }
 }
 
-fn extract_frontmatter(content: &str) -> (Option<String>, &str) {
-    let mut lines = content.split_inclusive('\n');
-    let Some(first_line) = lines.next() else {
-        return (None, content);
-    };
-    if trim_line_ending(first_line) != "---" {
-        return (None, content);
-    }
-
-    let mut offset = first_line.len();
-    for line in lines {
-        let line_start = offset;
-        offset += line.len();
-        if trim_line_ending(line) == "---" {
-            let raw = content[first_line.len()..line_start]
-                .trim_end_matches(['\r', '\n'])
-                .to_string();
-            return (Some(raw), &content[offset..]);
-        }
-    }
-
-    (None, content)
-}
-
-fn find_code_block_ranges(body: &str) -> Vec<Range<usize>> {
+pub(crate) fn find_code_block_ranges(body: &str) -> Vec<Range<usize>> {
     let mut ranges = Vec::new();
     let mut offset = 0;
     let mut active_fence: Option<(usize, char, usize)> = None;
@@ -651,20 +620,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extract_frontmatter_basic() {
-        let content = "---\ntype: note\ntags: [test]\n---\n# Hello\nBody text";
-        let (fm, body) = extract_frontmatter(content);
-        assert!(fm.is_some());
-        assert!(body.contains("# Hello"));
-        assert!(!body.contains("---"));
-    }
+    fn parse_note_populates_note_metadata() {
+        let vault = VaultName::new("test");
+        let path = VaultPath::new("Inbox/note.md");
+        let note = parse_note(&vault, &path, "# Hello");
 
-    #[test]
-    fn extract_frontmatter_missing() {
-        let content = "# No frontmatter\nJust body";
-        let (fm, body) = extract_frontmatter(content);
-        assert!(fm.is_none());
-        assert_eq!(body, content);
+        assert_eq!(note.vault, vault);
+        assert_eq!(note.path, path);
+        assert_eq!(
+            note.hash,
+            blake3::hash("# Hello".as_bytes()).to_hex().to_string()
+        );
     }
 
     #[test]

@@ -74,17 +74,18 @@ This tells Notesmith where your vault lives and which vault to use by default.
 Inside your vault root, create `.notesmith/vault.toml`:
 
 ```toml
+schema_version = 1
 name = "work"
 
-[inbox]
-folder = "Inbox"
+[capture]
+folder = ""
 
 [daily]
-folder = "Inbox/Daily"
+folder = ""
 template = "daily-note"
 ```
 
-This is enough to get inbox capture and daily notes working.
+This is enough to get quick capture and daily notes working. Empty folder values mean the vault root.
 
 ### 3. Start the daemon
 
@@ -105,7 +106,7 @@ You can use Notesmith in three ways:
 
 - **Desktop app:** launch `Notesmith.app`
 - **Browser app:** open `http://127.0.0.1:27183/app/`
-- **URL scheme:** `notesmith://app/open/work/Inbox/hello.md`
+- **URL scheme:** `notesmith://app/capture/work?text=Remember%20to%20call%20Sarah`
 
 If you are starting out, the browser app is the fastest way to confirm the daemon and vault are working.
 
@@ -113,14 +114,14 @@ If you are starting out, the browser app is the fastest way to confirm the daemo
 
 The basic Notesmith loop is:
 
-1. capture into the inbox
+1. capture quickly into the configured capture flow
 2. work in markdown
 3. route notes later
 
 | Action | In the app | In the CLI |
 |--------|------------|------------|
-| Create a note | `⌘N` → enter a title → choose a folder | `notesmith note create "My First Note" --folder Inbox` |
-| Quick capture to inbox | `⌘⇧I` → enter the note text | `notesmith inbox add "Remember to call Sarah"` |
+| Create a note | `⌘N` → enter a title → choose a folder | `notesmith note create "My First Note" --folder General` |
+| Quick capture | `⌘⇧N` → enter the note text | `notesmith capture "Remember to call Sarah"` |
 | Create today's daily note | `⌘D` | `notesmith daily ensure` |
 | Search notes | `⌘O` → type your query | `notesmith search "meeting notes"` |
 
@@ -150,12 +151,12 @@ Tasks support inline fields too:
 
 That keeps tasks readable in markdown while still making them queryable.
 
-### Inbox Routing
+### Capture Routing
 
-Notes in the inbox can be automatically filed to their destination based on frontmatter:
+Captured notes can be automatically filed to their destination based on frontmatter:
 
 ```bash
-notesmith route apply --inbox
+notesmith route apply "2026-05-13 08-00-00 - call-sarah.md"
 ```
 
 Rules live in `.notesmith/routing.yaml`.
@@ -209,7 +210,7 @@ Use these docs as you go deeper:
 
 Notesmith follows a practical method:
 
-- **Inbox** is the entry point for all notes — capture first, organize later
+- **Capture** is the quick-entry workflow — capture first, organize later
 - **Routing rules** automate filing notes to the right folder based on frontmatter
 - **Templates** keep recurring note types consistent
 - **SQL views** make notes queryable as structured data

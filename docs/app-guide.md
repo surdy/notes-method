@@ -12,7 +12,7 @@ Notesmith uses a three-pane layout:
 - **Editor area (center):** tabs, note toolbar, editing, and reading
 - **Right rail (right):** context for the selected note
 
-The desktop app connects to the Notesmith daemon at `http://127.0.0.1:27183`.
+The desktop app connects to the live Notesmith daemon discovered from the Notesmith lockfile. By default that is `http://127.0.0.1:27183`, but the desktop shell follows the daemon's active port when it changes.
 
 In practice, that means:
 
@@ -38,7 +38,7 @@ views:
   - id: workflow
     name: Workflow
     icon: "⚡"
-    badge_query: "SELECT count(*) FROM v_notes WHERE path LIKE 'Inbox/%'"
+    badge_query: "SELECT count(*) FROM v_notes WHERE path LIKE 'Capture/%'"
     sections:
       - type: recently-viewed
         label: Recent
@@ -54,10 +54,10 @@ views:
       - type: custom-items
         label: Triage
         items:
-          - name: Inbox
-            icon: "��"
+          - name: Capture
+            icon: "⚡"
             source:
-              folder: Inbox
+              folder: Capture
               recursive: true
               sort: modified
               sort_dir: desc
@@ -103,7 +103,7 @@ Notes can be reached in two main ways:
 
 Sidebar views organize notes based on their data source queries rather than raw folders. That makes them ideal for workflows like:
 
-- "show me all inbox items"
+- "show me captured notes waiting to be routed"
 - "show me active tasks"
 - "show me recent meeting notes"
 
@@ -237,14 +237,13 @@ As you type, Notesmith filters the available commands. Commands are organized in
 Available commands include:
 
 - **New Note** (**⌘N**) — create a new note with a title and optional folder
-- **Quick Capture to Inbox** (**⌘⇧I**) — quickly capture text into the inbox
+- **Quick Capture** (**⌘⇧N**) — quickly capture text into the default capture folder
 - **Copy as HTML** — copy the current note as styled HTML to the clipboard
 - **Archive Current Note** (**⌘⇧A**) — route the current note to its archive destination
 - **Open Today's Daily Note** (**⌘D**) — create or open today's daily note
-- **New Note from Template** (**⌘⇧N**) — create a note from a template
+- **New Note from Template** — create a note from a template
 - **Global Search** (**⌘⇧F**) — open the quick switcher for search
 - **Reload Vault** — refresh the note list from the daemon
-- **Route All Inbox Notes** — run routing rules on all inbox notes
 - **Toggle View Mode** (**⌘E**) — cycle through source, live preview, and reading
 
 Tips:
@@ -332,7 +331,7 @@ This is useful for notes that act like dashboards, such as:
 
 - a Home note with task summaries
 - a customer list
-- an inbox triage page
+- a capture triage page
 - a stream review note
 
 Queries run against the vault's SQLite cache and can use public views such as:

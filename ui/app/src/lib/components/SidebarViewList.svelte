@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { SqlQueryResult } from '$lib/api';
-	import { vaultStore } from '$lib/stores.svelte';
+	import { tabStore } from '$lib/tab-store.svelte';
 
 	type Row = Record<string, unknown>;
 	type SidebarViewListConfig = {
@@ -56,7 +56,7 @@
 	function openRow(row: Row) {
 		const path = row.path;
 		if (typeof path !== 'string' || !path) return;
-		vaultStore.selectNote(path);
+		tabStore.selectNote(path);
 	}
 
 	function isOpenable(row: Row): boolean {
@@ -127,7 +127,7 @@
 				<button
 					class="view-row"
 					class:openable={isOpenable(row)}
-					class:selected={typeof row.path === 'string' && vaultStore.selectedPath === row.path}
+					class:selected={typeof row.path === 'string' && tabStore.selectedPath === row.path}
 					disabled={!isOpenable(row)}
 					onclick={() => openRow(row)}
 					type="button"
@@ -164,7 +164,7 @@
 		font-weight: 700;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 	}
 
 	.view-row {
@@ -176,7 +176,7 @@
 		padding: 8px 12px;
 		border: none;
 		background: none;
-		color: var(--text-secondary, #cccccc);
+		color: var(--ns-text-secondary);
 		text-align: left;
 	}
 
@@ -185,12 +185,12 @@
 	}
 
 	.view-row.openable:hover {
-		background: var(--hover-bg, #2a2d2e);
+		background: var(--ns-surface-hover);
 	}
 
 	.view-row.selected {
-		background: var(--selected-bg, #094771);
-		color: white;
+		background: var(--ns-selected-bg);
+		color: var(--ns-text-inverse);
 	}
 
 	.view-row:disabled {
@@ -204,12 +204,12 @@
 
 	.row-path {
 		font-size: 11px;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		word-break: break-word;
 	}
 
 	.view-row.selected .row-path {
-		color: rgba(255, 255, 255, 0.8);
+		color: var(--ns-text-inverse-muted);
 	}
 
 	.row-meta {
@@ -218,11 +218,11 @@
 		gap: 4px;
 		margin-top: 2px;
 		font-size: 11px;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 	}
 
 	.view-row.selected .row-meta {
-		color: rgba(255, 255, 255, 0.85);
+		color: var(--ns-text-inverse-muted-strong);
 	}
 
 	.meta-pill {
@@ -233,10 +233,10 @@
 	.sidebar-state {
 		padding: 16px;
 		text-align: center;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 	}
 
 	.sidebar-state.error {
-		color: #ff6b6b;
+		color: var(--ns-danger);
 	}
 </style>

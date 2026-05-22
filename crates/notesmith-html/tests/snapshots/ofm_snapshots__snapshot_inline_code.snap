@@ -1,0 +1,7 @@
+---
+source: crates/notesmith-html/tests/ofm_snapshots.rs
+expression: html
+---
+<pre><code class="language-md">Text inside `backticks` on a line will be formatted like code.
+</code></pre>
+<p>Text inside <code>backticks</code> on a line will be formatted like code.</p>

@@ -1,5 +1,5 @@
-import { type Extension, type Range } from '@codemirror/state';
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
+import { type Extension, type Range, RangeSet, StateField, type Text } from '@codemirror/state';
+import { Decoration, type DecorationSet, EditorView, GutterMarker, ViewPlugin, WidgetType, gutterLineClass } from '@codemirror/view';
 import type { NoteSummary, TaskMutationStatus } from '$lib/api';
 import { nextTaskStatus, TASK_MARKER_PATTERN, taskMarkerToStatus, taskStatusClass } from './task-markers';
 
@@ -16,6 +16,11 @@ taskHashes: () => Map<string, string>;
 onNavigate: (path: string) => void;
 onTaskToggle: (taskHash: string, status: TaskMutationStatus) => Promise<void> | void;
 }
+
+class FrontmatterGutterMarker extends GutterMarker {
+	elementClass = 'cm-frontmatter-gutter';
+}
+const frontmatterGutterMarker = new FrontmatterGutterMarker();
 
 class TaskCheckboxWidget extends WidgetType {
 constructor(
@@ -99,7 +104,19 @@ options.onNavigate(resolved);
 }
 );
 
-return plugin;
+const frontmatterGutterField = StateField.define<RangeSet<GutterMarker>>({
+	create(state) {
+		return buildFrontmatterGutterMarkers(state.doc);
+	},
+	update(value, tr) {
+		if (tr.docChanged) {
+			return buildFrontmatterGutterMarkers(tr.newDoc);
+		}
+		return value;
+	}
+});
+
+return [plugin, frontmatterGutterField, gutterLineClass.from(frontmatterGutterField)];
 }
 
 function buildDecorations(view: EditorView, options: OFMDecorationOptions): DecorationSet {
@@ -242,6 +259,21 @@ return 'Done';
 case 'cancelled':
 return 'Cancelled';
 }
+}
+
+function buildFrontmatterGutterMarkers(doc: Text): RangeSet<GutterMarker> {
+	const markers: Range<GutterMarker>[] = [];
+	if (doc.lines < 1) return RangeSet.empty;
+	const firstLine = doc.line(1);
+	if (firstLine.text !== '---') return RangeSet.empty;
+
+	markers.push(frontmatterGutterMarker.range(firstLine.from));
+	for (let n = 2; n <= doc.lines; n++) {
+		const line = doc.line(n);
+		markers.push(frontmatterGutterMarker.range(line.from));
+		if (line.text === '---') break;
+	}
+	return RangeSet.of(markers, true);
 }
 
 function resolveWikilink(target: string, notes: NoteSummary[]): string | null {

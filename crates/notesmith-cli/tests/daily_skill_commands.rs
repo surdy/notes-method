@@ -10,12 +10,15 @@ use tempfile::TempDir;
 fn create_vault(root: &std::path::Path, name: &str) {
     let config = VaultConfig {
         name: name.to_string(),
-        homepage: None,
-        inbox: Default::default(),
-        daily: Default::default(),
-        editor: Default::default(),
-        git: Default::default(),
-        hooks: Default::default(),
+        capture: notesmith_config::CaptureConfig {
+            folder: "Inbox".to_string(),
+            template: "generic-note".to_string(),
+        },
+        daily: notesmith_config::DailyConfig {
+            folder: "Inbox/Daily".to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
     };
 
     let config_dir = root.join(".notesmith");
@@ -65,6 +68,11 @@ impl DaemonProcess {
         let child = Command::new(notesmith_bin())
             .env("XDG_CONFIG_HOME", config_home)
             .env("XDG_CACHE_HOME", cache_home)
+            .env("HOME", config_home.parent().unwrap())
+            .env(
+                "XDG_RUNTIME_DIR",
+                config_home.parent().unwrap().join("runtime"),
+            )
             .arg("daemon")
             .arg("start")
             .stdout(Stdio::piped())

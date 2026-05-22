@@ -1,0 +1,190 @@
+<script lang="ts">
+import type { VaultConfigData } from '$lib/api';
+import {
+textField,
+toggleField,
+type FieldErrorFn,
+type MarkDirtyFn,
+type RevertFn,
+type SaveImmediateFn,
+type SaveSectionFn,
+type SectionIsDirtyFn
+} from '$lib/settings-helpers';
+
+interface Props {
+cfg: VaultConfigData;
+fieldError: FieldErrorFn;
+sectionIsDirty: SectionIsDirtyFn;
+saveSection: SaveSectionFn;
+revert: RevertFn;
+markDirty: MarkDirtyFn;
+saveImmediate: SaveImmediateFn;
+}
+
+let { cfg, fieldError, sectionIsDirty, saveSection, revert, markDirty, saveImmediate }: Props =
+$props();
+</script>
+
+<section class="config-section">
+{#if sectionIsDirty('git')}
+<div class="section-actions">
+<button type="button" class="btn-save" onclick={() => void saveSection('git')}>Save</button>
+<button type="button" class="btn-revert" onclick={() => revert('git')}>Revert</button>
+</div>
+{/if}
+<label class="field field-toggle">
+<span class="field-label">Enabled</span>
+<input
+type="checkbox"
+{...toggleField(saveImmediate, 'git', cfg.git.enabled, (v) => {
+cfg.git.enabled = v;
+})}
+/>
+</label>
+<label class="field">
+<span class="field-label">Auto-commit Interval</span>
+<input
+type="text"
+placeholder="e.g. 5m"
+{...textField(markDirty, 'git', cfg.git.auto_commit_every, (v) => {
+cfg.git.auto_commit_every = v || null;
+})}
+/>
+{#if fieldError('git.auto_commit_every')}
+<span class="field-error">{fieldError('git.auto_commit_every')}</span>
+{/if}
+</label>
+<label class="field">
+<span class="field-label">Auto-pull Interval</span>
+<input
+type="text"
+placeholder="e.g. 5m"
+{...textField(markDirty, 'git', cfg.git.auto_pull_every, (v) => {
+cfg.git.auto_pull_every = v || null;
+})}
+/>
+{#if fieldError('git.auto_pull_every')}
+<span class="field-error">{fieldError('git.auto_pull_every')}</span>
+{/if}
+</label>
+<label class="field">
+<span class="field-label">Auto-push Interval</span>
+<input
+type="text"
+placeholder="e.g. 5m"
+{...textField(markDirty, 'git', cfg.git.auto_push_every, (v) => {
+cfg.git.auto_push_every = v || null;
+})}
+/>
+{#if fieldError('git.auto_push_every')}
+<span class="field-error">{fieldError('git.auto_push_every')}</span>
+{/if}
+</label>
+<label class="field">
+<span class="field-label">Commit Message</span>
+<input
+type="text"
+placeholder="e.g. auto: sync changes"
+{...textField(markDirty, 'git', cfg.git.commit_message, (v) => {
+cfg.git.commit_message = v || null;
+})}
+/>
+</label>
+</section>
+
+<style>
+.config-section {
+padding: 16px 24px;
+max-width: 560px;
+}
+
+.section-actions {
+display: flex;
+gap: 6px;
+margin-bottom: 12px;
+}
+
+.btn-save,
+.btn-revert {
+padding: 5px 14px;
+border-radius: 4px;
+border: 1px solid var(--ns-border-strong);
+font-size: 12px;
+cursor: pointer;
+}
+
+.btn-save {
+background: var(--ns-accent-bg);
+color: var(--ns-text-inverse);
+border-color: var(--ns-accent-bg);
+}
+
+.btn-save:hover {
+background: var(--ns-accent-bg-hover);
+}
+
+.btn-revert {
+background: transparent;
+color: var(--ns-text-muted);
+}
+
+.btn-revert:hover {
+background: var(--ns-surface-hover);
+color: var(--ns-text);
+}
+
+.field {
+display: flex;
+flex-direction: column;
+gap: 4px;
+margin-bottom: 14px;
+}
+
+.field-toggle {
+flex-direction: row;
+align-items: center;
+gap: 10px;
+}
+
+.field-toggle input[type='checkbox'] {
+order: -1;
+width: 16px;
+height: 16px;
+accent-color: var(--ns-accent-bg);
+}
+
+.field-toggle .field-label {
+order: 1;
+}
+
+.field-label {
+font-size: 12px;
+color: var(--ns-text-muted);
+}
+
+.field input[type='text'] {
+padding: 6px 10px;
+border: 1px solid var(--ns-border-strong);
+border-radius: 4px;
+background: var(--ns-bg-secondary);
+color: var(--ns-text);
+font-size: 13px;
+max-width: 400px;
+}
+
+.field input[type='text']:focus {
+outline: none;
+border-color: var(--ns-accent-bg);
+}
+
+.field-error {
+color: var(--ns-danger);
+font-size: 11px;
+}
+
+@media (max-width: 600px) {
+.config-section {
+padding: 12px 16px;
+}
+}
+</style>

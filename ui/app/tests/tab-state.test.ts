@@ -22,7 +22,8 @@ test('openTab opens a note in a new active tab', () => {
 				path: 'Inbox/Daily/2026-05-10.md',
 				title: 'Daily Note',
 				type: 'daily',
-				archived: false
+				archived: false,
+				frontmatter: { title: 'Daily Note' }
 			}
 		]
 	);
@@ -32,6 +33,34 @@ test('openTab opens a note in a new active tab', () => {
 	]);
 	assert.equal(state.activeTabIndex, 0);
 	assert.equal(state.selectedPath, 'Inbox/Daily/2026-05-10.md');
+});
+
+test('openTab uses filename as title when no frontmatter title is set', () => {
+	const state = openTab(
+		{ tabs: [], activeTabIndex: -1, selectedPath: null, recentlyClosed: [] },
+		'Inbox/2026-05-10.md',
+		[{ path: 'Inbox/2026-05-10.md', title: '2026-05-10', type: 'daily', archived: false }]
+	);
+
+	assert.equal(state.tabs[0].title, '2026-05-10');
+});
+
+test('openTab prefers frontmatter title override over filename', () => {
+	const state = openTab(
+		{ tabs: [], activeTabIndex: -1, selectedPath: null, recentlyClosed: [] },
+		'Inbox/2026-05-10.md',
+		[
+			{
+				path: 'Inbox/2026-05-10.md',
+				title: '2026-05-10',
+				type: 'daily',
+				archived: false,
+				frontmatter: { title: 'Today' }
+			}
+		]
+	);
+
+	assert.equal(state.tabs[0].title, 'Today');
 });
 
 test('openTab switches to an already open tab without duplicating it', () => {

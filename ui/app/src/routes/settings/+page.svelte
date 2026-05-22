@@ -4,11 +4,26 @@
 	import { base } from '$app/paths';
 	import { settingsStore } from '$lib/settings.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
+	import { themeStore, type ThemeChoice } from '$lib/theme.svelte';
 	import { registerHotkeys } from '$lib/hotkeys';
 	import SidebarSettings from '$lib/components/SidebarSettings.svelte';
 	import VaultsSettings from '$lib/components/VaultsSettings.svelte';
+	import DailySettings from '$lib/components/settings/DailySettings.svelte';
+	import EditorSettings from '$lib/components/settings/EditorSettings.svelte';
+	import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte';
+	import GitSettings from '$lib/components/settings/GitSettings.svelte';
+	import HooksSettings from '$lib/components/settings/HooksSettings.svelte';
+	import ToastStack from '$lib/components/ToastStack.svelte';
 
-	type Section = 'general' | 'inbox' | 'daily' | 'editor' | 'sidebar' | 'git' | 'hooks' | 'vaults';
+	type Section =
+		| 'general'
+		| 'daily'
+		| 'editor'
+		| 'sidebar'
+		| 'git'
+		| 'hooks'
+		| 'appearance'
+		| 'vaults';
 
 	let selectedSection = $state<Section>('general');
 	let vault = $derived(vaultStore.currentVault);
@@ -22,7 +37,6 @@
 
 	const vaultSections: { id: Section; label: string }[] = [
 		{ id: 'general', label: 'General' },
-		{ id: 'inbox', label: 'Inbox' },
 		{ id: 'daily', label: 'Daily Notes' },
 		{ id: 'editor', label: 'Editor' },
 		{ id: 'sidebar', label: 'Sidebar' },
@@ -30,7 +44,18 @@
 		{ id: 'hooks', label: 'Hooks' }
 	];
 
-	const appSections: { id: Section; label: string }[] = [{ id: 'vaults', label: 'Vaults' }];
+	const appSections: { id: Section; label: string }[] = [
+		{ id: 'appearance', label: 'Appearance' },
+		{ id: 'vaults', label: 'Vaults' }
+	];
+
+	const themeOptions: Array<{ value: ThemeChoice; label: string }> = [
+		{ value: 'dark', label: 'Dark' },
+		{ value: 'light', label: 'Light' },
+		{ value: 'system', label: 'System' },
+		{ value: 'manuscript', label: 'Manuscript' },
+		{ value: 'hc-dark', label: 'High Contrast' }
+	];
 
 	function navigateBack() {
 		if (settingsStore.isDirty) {
@@ -41,38 +66,8 @@
 		void goto(`${base}/?vault=${encodeURIComponent(vault)}`);
 	}
 
-	function textField(
-		section: string,
-		value: string | null | undefined,
-		setter: (v: string) => void
-	) {
-		return {
-			value: value ?? '',
-			oninput(e: Event) {
-				setter((e.target as HTMLInputElement).value);
-				settingsStore.markDirty(section);
-			}
-		};
-	}
-
-	function toggleField(section: string, value: boolean, setter: (v: boolean) => void) {
-		return {
-			checked: value,
-			onchange(e: Event) {
-				setter((e.target as HTMLInputElement).checked);
-				void saveImmediate(section);
-			}
-		};
-	}
-
-	function selectField(section: string, value: string, setter: (v: string) => void) {
-		return {
-			value,
-			onchange(e: Event) {
-				setter((e.target as HTMLSelectElement).value);
-				void saveImmediate(section);
-			}
-		};
+	function markDirty(section: string) {
+		settingsStore.markDirty(section);
 	}
 
 	async function saveImmediate(section: string) {
@@ -188,310 +183,70 @@
 			</div>
 		{/if}
 
-		{#if cfg}
+		{#if selectedSection === 'appearance'}
+			<div class="settings-body">
+				<section class="section-content">
+					<h2>Appearance</h2>
+					<p class="section-description">
+						Choose the theme Notesmith uses across the app and editor.
+					</p>
+					<div class="theme-picker">
+						{#each themeOptions as option}
+							<button
+								class="theme-option"
+								class:active={themeStore.current === option.value}
+								type="button"
+								onclick={() => themeStore.set(option.value)}
+							>
+								<div class="theme-preview {option.value}"></div>
+								<span>{option.label}</span>
+							</button>
+						{/each}
+					</div>
+				</section>
+			</div>
+		{:else if cfg}
 			<div class="settings-body">
 				{#if selectedSection === 'general'}
-					<section class="config-section">
-						{#if sectionIsDirty('name') || sectionIsDirty('homepage')}
-							<div class="section-actions">
-								<button
-									type="button"
-									class="btn-save"
-									onclick={() => void saveSection('name')}>Save</button
-								>
-								<button
-									type="button"
-									class="btn-revert"
-									onclick={() => {
-										revert('name');
-										revert('homepage');
-									}}>Revert</button
-								>
-							</div>
-						{/if}
-						<label class="field">
-							<span class="field-label">Vault Name</span>
-							<input
-								type="text"
-								{...textField('name', cfg.name, (v) => {
-									if (cfg) cfg.name = v;
-								})}
-							/>
-							{#if fieldError('name')}<span class="field-error">{fieldError('name')}</span
-							>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Homepage</span>
-							<input
-								type="text"
-								placeholder="e.g. Dashboard.md"
-								{...textField('homepage', cfg.homepage, (v) => {
-									if (cfg) cfg.homepage = v || null;
-								})}
-							/>
-						</label>
-					</section>
-				{:else if selectedSection === 'inbox'}
-					<section class="config-section">
-						{#if sectionIsDirty('inbox')}
-							<div class="section-actions">
-								<button
-									type="button"
-									class="btn-save"
-									onclick={() => void saveSection('inbox')}>Save</button
-								>
-								<button
-									type="button"
-									class="btn-revert"
-									onclick={() => revert('inbox')}>Revert</button
-								>
-							</div>
-						{/if}
-						<label class="field">
-							<span class="field-label">Folder</span>
-							<input
-								type="text"
-								{...textField('inbox', cfg.inbox.folder, (v) => {
-									if (cfg) cfg.inbox.folder = v;
-								})}
-							/>
-							{#if fieldError('inbox.folder')}<span class="field-error"
-									>{fieldError('inbox.folder')}</span
-								>{/if}
-							{#if fieldWarning('inbox.folder')}<span class="field-warning"
-									>{fieldWarning('inbox.folder')}</span
-								>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Template</span>
-							<input
-								type="text"
-								{...textField('inbox', cfg.inbox.template, (v) => {
-									if (cfg) cfg.inbox.template = v;
-								})}
-							/>
-						</label>
-					</section>
+					<GeneralSettings
+						{cfg}
+						{fieldError}
+						{fieldWarning}
+						{sectionIsDirty}
+						{saveSection}
+						{revert}
+						{markDirty}
+						{saveImmediate}
+					/>
 				{:else if selectedSection === 'daily'}
-					<section class="config-section">
-						{#if sectionIsDirty('daily')}
-							<div class="section-actions">
-								<button
-									type="button"
-									class="btn-save"
-									onclick={() => void saveSection('daily')}>Save</button
-								>
-								<button
-									type="button"
-									class="btn-revert"
-									onclick={() => revert('daily')}>Revert</button
-								>
-							</div>
-						{/if}
-						<label class="field">
-							<span class="field-label">Folder</span>
-							<input
-								type="text"
-								{...textField('daily', cfg.daily.folder, (v) => {
-									if (cfg) cfg.daily.folder = v;
-								})}
-							/>
-							{#if fieldError('daily.folder')}<span class="field-error"
-									>{fieldError('daily.folder')}</span
-								>{/if}
-							{#if fieldWarning('daily.folder')}<span class="field-warning"
-									>{fieldWarning('daily.folder')}</span
-								>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Template</span>
-							<input
-								type="text"
-								{...textField('daily', cfg.daily.template, (v) => {
-									if (cfg) cfg.daily.template = v;
-								})}
-							/>
-						</label>
-						<label class="field">
-							<span class="field-label">Generate At (HH:MM)</span>
-							<input
-								type="text"
-								placeholder="e.g. 06:00"
-								{...textField('daily', cfg.daily.generate_at, (v) => {
-									if (cfg) cfg.daily.generate_at = v || null;
-								})}
-							/>
-							{#if fieldError('daily.generate_at')}<span class="field-error"
-									>{fieldError('daily.generate_at')}</span
-								>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Timezone</span>
-							<input
-								type="text"
-								placeholder="e.g. America/New_York"
-								{...textField('daily', cfg.daily.timezone, (v) => {
-									if (cfg) cfg.daily.timezone = v || null;
-								})}
-							/>
-							{#if fieldError('daily.timezone')}<span class="field-error"
-									>{fieldError('daily.timezone')}</span
-								>{/if}
-						</label>
-						<label class="field field-toggle">
-							<span class="field-label">Catch Up Missed Days</span>
-							<input
-								type="checkbox"
-								{...toggleField('daily', cfg.daily.catch_up, (v) => {
-									if (cfg) cfg.daily.catch_up = v;
-								})}
-							/>
-						</label>
-					</section>
+					<DailySettings
+						{cfg}
+						{fieldError}
+						{fieldWarning}
+						{sectionIsDirty}
+						{saveSection}
+						{revert}
+						{markDirty}
+						{saveImmediate}
+					/>
 				{:else if selectedSection === 'editor'}
-					<section class="config-section">
-						<label class="field field-toggle">
-							<span class="field-label">Live Preview</span>
-							<input
-								type="checkbox"
-								{...toggleField('editor', cfg.editor.live_preview, (v) => {
-									if (cfg) cfg.editor.live_preview = v;
-								})}
-							/>
-						</label>
-						<label class="field">
-							<span class="field-label">Default Mode</span>
-							<select
-								{...selectField('editor', cfg.editor.default_mode, (v) => {
-									if (cfg) cfg.editor.default_mode = v;
-								})}
-							>
-								<option value="source">Source</option>
-								<option value="reading">Reading</option>
-								<option value="live-preview">Live Preview</option>
-							</select>
-						</label>
-					</section>
+					<EditorSettings {cfg} {saveImmediate} {markDirty} />
 				{:else if selectedSection === 'sidebar'}
-					<section class="config-section">
-						<SidebarSettings {vault} />
-					</section>
+					<SidebarSettings {vault} />
 				{:else if selectedSection === 'git'}
-					<section class="config-section">
-						{#if sectionIsDirty('git')}
-							<div class="section-actions">
-								<button
-									type="button"
-									class="btn-save"
-									onclick={() => void saveSection('git')}>Save</button
-								>
-								<button
-									type="button"
-									class="btn-revert"
-									onclick={() => revert('git')}>Revert</button
-								>
-							</div>
-						{/if}
-						<label class="field field-toggle">
-							<span class="field-label">Enabled</span>
-							<input
-								type="checkbox"
-								{...toggleField('git', cfg.git.enabled, (v) => {
-									if (cfg) cfg.git.enabled = v;
-								})}
-							/>
-						</label>
-						<label class="field">
-							<span class="field-label">Auto-commit Interval</span>
-							<input
-								type="text"
-								placeholder="e.g. 5m"
-								{...textField('git', cfg.git.auto_commit_every, (v) => {
-									if (cfg) cfg.git.auto_commit_every = v || null;
-								})}
-							/>
-							{#if fieldError('git.auto_commit_every')}<span class="field-error"
-									>{fieldError('git.auto_commit_every')}</span
-								>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Auto-pull Interval</span>
-							<input
-								type="text"
-								placeholder="e.g. 5m"
-								{...textField('git', cfg.git.auto_pull_every, (v) => {
-									if (cfg) cfg.git.auto_pull_every = v || null;
-								})}
-							/>
-							{#if fieldError('git.auto_pull_every')}<span class="field-error"
-									>{fieldError('git.auto_pull_every')}</span
-								>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Auto-push Interval</span>
-							<input
-								type="text"
-								placeholder="e.g. 5m"
-								{...textField('git', cfg.git.auto_push_every, (v) => {
-									if (cfg) cfg.git.auto_push_every = v || null;
-								})}
-							/>
-							{#if fieldError('git.auto_push_every')}<span class="field-error"
-									>{fieldError('git.auto_push_every')}</span
-								>{/if}
-						</label>
-						<label class="field">
-							<span class="field-label">Commit Message</span>
-							<input
-								type="text"
-								placeholder="e.g. auto: sync changes"
-								{...textField('git', cfg.git.commit_message, (v) => {
-									if (cfg) cfg.git.commit_message = v || null;
-								})}
-							/>
-						</label>
-					</section>
+					<GitSettings
+						{cfg}
+						{fieldError}
+						{sectionIsDirty}
+						{saveSection}
+						{revert}
+						{markDirty}
+						{saveImmediate}
+					/>
 				{:else if selectedSection === 'hooks'}
-					<section class="config-section">
-						{#if sectionIsDirty('hooks')}
-							<div class="section-actions">
-								<button
-									type="button"
-									class="btn-save"
-									onclick={() => void saveSection('hooks')}>Save</button
-								>
-								<button
-									type="button"
-									class="btn-revert"
-									onclick={() => revert('hooks')}>Revert</button
-								>
-							</div>
-						{/if}
-						<label class="field">
-							<span class="field-label">On Note Create</span>
-							<input
-								type="text"
-								placeholder="shell command"
-								{...textField('hooks', cfg.hooks.on_note_create, (v) => {
-									if (cfg) cfg.hooks.on_note_create = v || null;
-								})}
-							/>
-						</label>
-						<label class="field">
-							<span class="field-label">On Daily Create</span>
-							<input
-								type="text"
-								placeholder="shell command"
-								{...textField('hooks', cfg.hooks.on_daily_create, (v) => {
-									if (cfg) cfg.hooks.on_daily_create = v || null;
-								})}
-							/>
-						</label>
-					</section>
+					<HooksSettings {cfg} {sectionIsDirty} {saveSection} {revert} {markDirty} />
 				{:else if selectedSection === 'vaults'}
-					<section class="config-section">
-						<VaultsSettings capabilities={caps} />
-					</section>
+					<VaultsSettings capabilities={caps} />
 				{/if}
 			</div>
 
@@ -510,6 +265,8 @@
 	</main>
 </div>
 
+<ToastStack />
+
 <style>
 	.settings-layout {
 		display: flex;
@@ -520,8 +277,8 @@
 	.settings-nav {
 		width: 220px;
 		min-width: 180px;
-		background: var(--sidebar-bg, #252526);
-		border-right: 1px solid var(--border-color, #333);
+		background: var(--ns-sidebar-bg);
+		border-right: 1px solid var(--ns-border);
 		display: flex;
 		flex-direction: column;
 		padding: 0;
@@ -534,16 +291,16 @@
 		padding: 14px 16px;
 		background: none;
 		border: none;
-		border-bottom: 1px solid var(--border-color, #333);
-		color: var(--text-muted, #888);
+		border-bottom: 1px solid var(--ns-border);
+		color: var(--ns-text-muted);
 		font-size: 13px;
 		cursor: pointer;
 		text-align: left;
 	}
 
 	.back-btn:hover {
-		background: var(--hover-bg, #2a2d2e);
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-surface-hover);
+		color: var(--ns-text);
 	}
 
 	.nav-group {
@@ -557,7 +314,7 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 	}
 
 	.nav-item {
@@ -568,24 +325,24 @@
 		padding: 7px 16px;
 		background: none;
 		border: none;
-		color: var(--text-primary, #e0e0e0);
+		color: var(--ns-text);
 		font-size: 13px;
 		cursor: pointer;
 		text-align: left;
 	}
 
 	.nav-item:hover {
-		background: var(--hover-bg, #2a2d2e);
+		background: var(--ns-surface-hover);
 	}
 
 	.nav-item.active {
-		background: var(--active-bg, #37373d);
-		color: #fff;
+		background: var(--ns-surface-active);
+		color: var(--ns-text-inverse);
 		font-weight: 500;
 	}
 
 	.dirty-dot {
-		color: #f5c842;
+		color: var(--ns-warning);
 		font-size: 10px;
 	}
 
@@ -601,7 +358,7 @@
 		align-items: center;
 		gap: 12px;
 		padding: 14px 24px;
-		border-bottom: 1px solid var(--border-color, #333);
+		border-bottom: 1px solid var(--ns-border);
 		flex-shrink: 0;
 	}
 
@@ -613,22 +370,22 @@
 
 	.status-badge {
 		font-size: 12px;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 	}
 
 	.error-banner {
 		padding: 10px 24px;
-		background: #3a1a1a;
-		color: #ff6b6b;
-		border-bottom: 1px solid #5a2a2a;
+		background: var(--ns-danger-bg);
+		color: var(--ns-danger);
+		border-bottom: 1px solid var(--ns-danger-border);
 		font-size: 13px;
 	}
 
 	.conflict-banner {
 		padding: 10px 24px;
-		background: #3a3018;
-		color: #f5c842;
-		border-bottom: 1px solid #5a4a20;
+		background: var(--ns-warning-bg);
+		color: var(--ns-warning);
+		border-bottom: 1px solid var(--ns-warning-border);
 		font-size: 13px;
 	}
 
@@ -643,16 +400,16 @@
 
 	.conflict-actions button {
 		padding: 4px 12px;
-		border: 1px solid #5a4a20;
+		border: 1px solid var(--ns-warning-border);
 		border-radius: 4px;
 		background: transparent;
-		color: #f5c842;
+		color: var(--ns-warning);
 		font-size: 12px;
 		cursor: pointer;
 	}
 
 	.conflict-actions button:hover {
-		background: #4a3a10;
+		background: var(--ns-warning-hover);
 	}
 
 	.settings-body {
@@ -661,137 +418,116 @@
 		padding: 0;
 	}
 
-	.config-section {
+	.section-content {
 		padding: 16px 24px;
-		max-width: 560px;
+		max-width: 760px;
 	}
 
-	.section-actions {
-		display: flex;
-		gap: 6px;
-		margin-bottom: 12px;
+	.section-content h2 {
+		margin: 0 0 8px;
+		font-size: 20px;
 	}
 
-	.btn-save,
-	.btn-revert {
-		padding: 5px 14px;
-		border-radius: 4px;
-		border: 1px solid var(--border-color, #444);
-		font-size: 12px;
-		cursor: pointer;
+	.section-description {
+		margin: 0 0 18px;
+		color: var(--ns-text-muted);
+		font-size: 13px;
 	}
 
-	.btn-save {
-		background: #264f78;
-		color: #fff;
-		border-color: #264f78;
+	.theme-picker {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+		gap: 12px;
 	}
 
-	.btn-save:hover {
-		background: #2d5f8e;
-	}
-
-	.btn-revert {
-		background: transparent;
-		color: var(--text-muted, #888);
-	}
-
-	.btn-revert:hover {
-		background: var(--hover-bg, #2a2d2e);
-		color: var(--text-primary, #e0e0e0);
-	}
-
-	.field {
+	.theme-option {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
-		margin-bottom: 14px;
-	}
-
-	.field-toggle {
-		flex-direction: row;
-		align-items: center;
 		gap: 10px;
+		padding: 12px;
+		border: 1px solid var(--ns-border);
+		border-radius: 10px;
+		background: var(--ns-surface-elevated);
+		color: var(--ns-text);
+		cursor: pointer;
+		text-align: left;
+		transition:
+			border-color 120ms ease,
+			background 120ms ease,
+			transform 120ms ease;
 	}
 
-	.field-toggle input[type='checkbox'] {
-		order: -1;
-		width: 16px;
-		height: 16px;
-		accent-color: #264f78;
+	.theme-option:hover {
+		border-color: var(--ns-border-strong);
+		background: var(--ns-surface-hover);
+		transform: translateY(-1px);
 	}
 
-	.field-toggle .field-label {
-		order: 1;
+	.theme-option.active {
+		border-color: var(--ns-accent);
+		background: var(--ns-accent-surface);
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--ns-accent) 35%, transparent 65%);
 	}
 
-	.field-label {
-		font-size: 12px;
-		color: var(--text-muted, #888);
-	}
-
-	.field input[type='text'],
-	.field select {
-		padding: 6px 10px;
-		border: 1px solid var(--border-color, #444);
-		border-radius: 4px;
-		background: var(--bg-secondary, #2a2a2a);
-		color: var(--text-primary, #e0e0e0);
+	.theme-option span {
 		font-size: 13px;
-		max-width: 400px;
+		font-weight: 600;
 	}
 
-	.field input[type='text']:focus,
-	.field select:focus {
-		outline: none;
-		border-color: #264f78;
+	.theme-preview {
+		height: 72px;
+		border-radius: 8px;
+		border: 1px solid var(--ns-border-overlay);
+		box-shadow: inset 0 0 0 1px var(--ns-border-overlay);
 	}
 
-	.field-error {
-		color: #ff6b6b;
-		font-size: 11px;
+	.theme-preview.dark {
+		background:
+			linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0 14px, transparent 14px),
+			linear-gradient(90deg, #252526 0 30%, #1e1e1e 30% 100%);
 	}
 
-	.field-warning {
-		color: #f5c842;
-		font-size: 11px;
+	.theme-preview.light {
+		background:
+			linear-gradient(180deg, rgba(0, 0, 0, 0.08) 0 14px, transparent 14px),
+			linear-gradient(90deg, #f0f0f0 0 30%, #ffffff 30% 100%);
 	}
 
-	.section-hint {
-		color: var(--text-muted, #888);
-		font-size: 13px;
-		margin: 0;
-		line-height: 1.6;
+	.theme-preview.system {
+		background:
+			linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0 14px, transparent 14px),
+			linear-gradient(90deg, #252526 0 50%, #f5f5f5 50% 100%);
 	}
 
-	.section-hint.muted {
-		margin-top: 8px;
-		font-size: 12px;
-		color: var(--text-muted, #666);
+	.theme-preview.manuscript {
+		background:
+			linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0 14px, transparent 14px),
+			linear-gradient(90deg, #252526 0 34%, #faf8f5 34% 100%);
 	}
 
-	.section-hint code {
-		background: var(--bg-secondary, #2a2a2a);
-		padding: 1px 4px;
-		border-radius: 3px;
-		font-size: 12px;
+	.theme-preview.hc-dark {
+		border-color: #00e5ff;
+		box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.35);
+		background:
+			linear-gradient(180deg, rgba(0, 229, 255, 0.2) 0 14px, transparent 14px),
+			linear-gradient(90deg, #000000 0 30%, #061a20 30% 100%);
 	}
 
 	.config-footer {
 		padding: 8px 24px;
-		border-top: 1px solid var(--border-color, #333);
+		border-top: 1px solid var(--ns-border);
 		flex-shrink: 0;
 	}
 
 	.config-path {
 		font-size: 11px;
-		color: var(--text-muted, #666);
+		color: var(--ns-text-subtle);
 	}
 
 	.settings-empty {
 		padding: 32px 24px;
 		text-align: center;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		font-size: 13px;
 	}
 
@@ -800,7 +536,8 @@
 			width: 160px;
 			min-width: 140px;
 		}
-		.config-section {
+
+		.section-content {
 			padding: 12px 16px;
 		}
 	}

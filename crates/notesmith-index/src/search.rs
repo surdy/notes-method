@@ -66,6 +66,17 @@ impl SearchIndex {
         Ok(())
     }
 
+    pub fn check_integrity(&self) -> anyhow::Result<bool> {
+        match self.reader.reload() {
+            Ok(()) => {
+                let searcher = self.reader.searcher();
+                let _ = searcher.segment_readers().len();
+                Ok(true)
+            }
+            Err(_) => Ok(false),
+        }
+    }
+
     pub fn update_note(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
         let mut writer = self.writer()?;
         writer.delete_term(Term::from_field_text(self.path_field, note.path.as_str()));
@@ -211,4 +222,39 @@ fn strip_html(text: &str) -> String {
     }
 
     stripped
+}
+
+#[cfg(test)]
+mod tests {
+    use notesmith_core::Note;
+
+    use super::SearchIndex;
+
+    #[test]
+    fn check_integrity_reports_healthy_index() {
+        let index = SearchIndex::open_in_memory().unwrap();
+        index
+            .reindex(
+                "work",
+                &[sample_note("Inbox/healthy.md", "healthy search index")],
+            )
+            .unwrap();
+
+        assert!(index.check_integrity().unwrap());
+    }
+
+    fn sample_note(path: &str, body: &str) -> Note {
+        Note {
+            vault: notesmith_core::VaultName::new("work"),
+            path: path.into(),
+            frontmatter: None,
+            raw_frontmatter: None,
+            body: body.to_string(),
+            tasks: Vec::new(),
+            links: Vec::new(),
+            inline_fields: Vec::new(),
+            blocks: Vec::new(),
+            hash: format!("hash-{path}"),
+        }
+    }
 }

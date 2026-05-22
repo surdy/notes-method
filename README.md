@@ -39,6 +39,20 @@ crates/
 ui/app/                  # SvelteKit frontend
 ```
 
+### Features
+
+- **5 themes** — Dark (default), Light, System, Manuscript (dark chrome + light editor), High Contrast
+- **Design tokens** — All colors centralized as `--ns-*` CSS custom properties for consistent theming
+- **Command palette** — Fuzzy-searchable command runner (⌘K) with keyboard hints
+- **Input palette** — Sequential multi-step inputs for note creation and templates
+- **Toast notifications** — Non-blocking success/error/warning alerts
+- **Status bar** — Connection status, vault name, cursor position, word count, save state
+- **Tabbed right rail** — Metadata, Links, and live TOC with click-to-scroll (⌘\\)
+- **Per-note icons** — `_icon` frontmatter for custom emoji in file tree and tabs
+- **Folder notes** — Same-name markdown folder notes with create/open/rename support in the file tree
+- **Quick switcher** — Fuzzy note search (⌘O)
+- **Tabbed editor** — Source, Live Preview, and Reading View modes with persistence
+
 ## Golden Vault
 
 `golden-vault/` contains representative markdown notes used as the canonical test fixture across all integration and snapshot tests.

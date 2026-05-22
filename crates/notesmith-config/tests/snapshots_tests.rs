@@ -30,9 +30,10 @@ fn snapshot_global_config_full() {
 #[test]
 fn snapshot_vault_config_full() {
     let config = VaultConfig {
+        schema_version: CURRENT_SCHEMA_VERSION,
         name: "work".to_string(),
         homepage: Some("Dashboards/Home.md".to_string()),
-        inbox: InboxConfig::default(),
+        capture: CaptureConfig::default(),
         daily: DailyConfig {
             folder: "Inbox/Daily".to_string(),
             template: "daily-note".to_string(),

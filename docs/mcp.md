@@ -22,7 +22,7 @@ The MCP adapter wraps the existing vault engine, SQLite cache, search index, rou
 | `list_notes` | `type?`, `customer?`, `archived?` |
 | `list_tasks` | `status?`, `customer?` |
 | `update_task_status` | `note_path`, `task_hash`, `status` |
-| `inbox_add` | `content`, `title?` |
+| `capture` | `content`, `title?` |
 | `create_daily_note` | `date?` (`YYYY-MM-DD`) |
 | `create_from_template` | `template_name`, `prompts?` |
 

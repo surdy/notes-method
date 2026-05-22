@@ -1,7 +1,14 @@
-use std::{collections::HashMap, fs, time::Duration};
+use std::{
+    collections::HashMap,
+    fs,
+    sync::{Arc, atomic::AtomicUsize},
+    time::Duration,
+};
 
+use chrono::Utc;
 use notesmith_config::VaultConfig;
 use notesmith_core::VaultEngine;
+use notesmith_http::watcher::WatcherState;
 use notesmith_http::{AppState, SharedAppState, VaultState, watch_vault};
 use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_vault::NativeVaultEngine;
@@ -22,6 +29,7 @@ async fn watcher_indexes_new_markdown_files() {
     search_index.reindex("test-vault", &notes).unwrap();
 
     let (event_tx, _) = notesmith_http::create_event_channel();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     let state: SharedAppState = std::sync::Arc::new(RwLock::new(AppState {
         vaults: HashMap::from([(
@@ -33,18 +41,22 @@ async fn watcher_indexes_new_markdown_files() {
                 root: vault_root.clone(),
                 vault_config: arc_swap::ArcSwap::from_pointee(VaultConfig {
                     name: "test-vault".to_string(),
-                    inbox: Default::default(),
-                    daily: Default::default(),
-                    editor: Default::default(),
-                    git: Default::default(),
-                    hooks: Default::default(),
-                    homepage: None,
+                    ..Default::default()
                 }),
+                watcher_state: WatcherState::new(),
+                rebuilding: std::sync::atomic::AtomicBool::new(false),
                 template_engine: notesmith_templates::TemplateEngine::new(vault_root.clone(), None),
             },
         )]),
         event_tx,
+        event_buffer: Arc::new(notesmith_http::EventBuffer::new(
+            notesmith_http::events::EVENT_BUFFER_CAPACITY,
+        )),
         global_config_path: vault_root.join(".notesmith-http-test-config.toml"),
+        started_at: Utc::now(),
+        sse_connection_count: Arc::new(AtomicUsize::new(0)),
+        shutdown_tx,
+        shutdown_rx,
     }));
 
     let _watcher = watch_vault(state.clone(), "test-vault".to_string())

@@ -1,27 +1,30 @@
 <script lang="ts">
-	import { vaultStore } from '$lib/stores.svelte';
+	import { tabStore } from '$lib/tab-store.svelte';
 
-	let activeTab = $derived(vaultStore.activeTab);
-	let viewMode = $derived(vaultStore.activeViewMode);
+	let activeTab = $derived(tabStore.activeTab);
+	let viewMode = $derived(tabStore.activeViewMode);
 
 	function pathSegments(path: string): string[] {
 		return path.replace(/\.md$/, '').split('/');
 	}
 
 	function handleToggle() {
-		vaultStore.toggleViewMode();
+		tabStore.toggleViewMode();
 	}
 </script>
 
 {#if activeTab}
+	{@const segments = pathSegments(activeTab.path)}
 	<div class="note-toolbar">
 		<div class="toolbar-left"></div>
 
 		<div class="toolbar-center">
 			<span class="note-path">
-				{#each pathSegments(activeTab.path) as segment, i}
+				{#each segments as segment, i}
 					{#if i > 0}<span class="path-separator">/</span>{/if}
-					<span class="path-segment" class:path-leaf={i === pathSegments(activeTab.path).length - 1}>{segment}</span>
+					<span class="path-segment" class:path-leaf={i === segments.length - 1}
+						>{i === segments.length - 1 ? activeTab.title : segment}</span
+					>
 				{/each}
 			</span>
 		</div>
@@ -63,10 +66,10 @@
 		align-items: center;
 		height: 32px;
 		padding: 0 12px;
-		background: var(--surface-bg, #1e1e1e);
-		border-bottom: 1px solid var(--border-color, #333);
+		background: var(--ns-surface);
+		border-bottom: 1px solid var(--ns-border);
 		font-size: 12px;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		flex-shrink: 0;
 	}
 
@@ -94,7 +97,7 @@
 	}
 
 	.path-leaf {
-		color: var(--text-primary, #e0e0e0);
+		color: var(--ns-text);
 		font-weight: 500;
 	}
 
@@ -112,13 +115,13 @@
 		border: none;
 		border-radius: 4px;
 		background: transparent;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		cursor: pointer;
 		transition: background 0.15s, color 0.15s;
 	}
 
 	.view-toggle:hover {
-		background: var(--hover-bg, #333);
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-surface-hover-subtle);
+		color: var(--ns-text);
 	}
 </style>

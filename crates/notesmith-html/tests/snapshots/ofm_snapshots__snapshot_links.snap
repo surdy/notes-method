@@ -1,0 +1,30 @@
+---
+source: crates/notesmith-html/tests/ofm_snapshots.rs
+expression: html
+---
+<h4>External links</h4>
+<p>Markdown style links can be used to refer to either external objects, such as web pages, or an internal page or image.</p>
+<pre><code class="language-md">http://obsidian.md - automatic!
+[Obsidian](http://obsidian.md)
+</code></pre>
+<p>http://obsidian.md - automatic!<br />
+<a href="http://obsidian.md">Obsidian</a></p>
+<h4>Obsidian URI links</h4>
+<p>Obsidian URI links can be used to open notes in Obsidian either from another Obsidian vault or another program.</p>
+<p>For example, you can link to a file in a vault like so (please note the required encoding):</p>
+<pre><code class="language-md">[Link to note](obsidian://open?path=D:%2Fpath%2Fto%2Ffile.md)
+</code></pre>
+<p><a href="obsidian://open?path=D:%2Fpath%2Fto%2Ffile.md">Link to note</a></p>
+<p>You can link to a note by its vault name and file name instead of path as well:</p>
+<pre><code class="language-md">[Link to note](obsidian://open?vault=MainVault&amp;file=MyNote.md)
+</code></pre>
+<p><a href="obsidian://open?vault=MainVault&amp;file=MyNote.md">Link to note</a></p>
+<h4>Escaping</h4>
+<p>If there are spaces in the url, they can be escaped by either using <code>%20</code> as a space, such as:</p>
+<pre><code class="language-md">[Format your notes](Format%20your%20notes)
+</code></pre>
+<p>[Format your notes](Format your notes.md)</p>
+<p>Or you can enclose the target in <code>&lt;&gt;</code>, such as:</p>
+<pre><code class="language-md">[Format your notes](&lt;Format your notes&gt;)
+</code></pre>
+<p><a href="Format%20your%20notes">Format your notes</a></p>

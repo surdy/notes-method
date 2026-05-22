@@ -1,26 +1,31 @@
 <script lang="ts">
-	import { vaultStore, type Tab } from '$lib/stores.svelte';
+	import { noteIcon } from '$lib/note-icons';
+	import { vaultStore } from '$lib/stores.svelte';
+	import { tabStore, type Tab } from '$lib/tab-store.svelte';
 
 	let dragIndex = $state<number | null>(null);
 	let dropIndex = $state<number | null>(null);
-	let tabs = $derived(vaultStore.tabs as Tab[]);
+	let tabs = $derived(tabStore.tabs as Tab[]);
+	let notesByPath = $derived.by(
+		() => new Map(vaultStore.notes.map((note) => [note.path, note] as const))
+	);
 
 	function handleClose(event: MouseEvent, index: number) {
 		event.stopPropagation();
-		vaultStore.closeTab(index);
+		tabStore.closeTab(index);
 	}
 
 	function handleMousedown(event: MouseEvent, index: number) {
 		if (event.button === 1) {
 			event.preventDefault();
-			vaultStore.closeTab(index);
+			tabStore.closeTab(index);
 		}
 	}
 
 	function handleKeydown(event: KeyboardEvent, index: number) {
 		if (event.key === 'Enter' || event.key === ' ') {
 			event.preventDefault();
-			vaultStore.switchToTab(index);
+			tabStore.switchToTab(index);
 		}
 	}
 
@@ -40,7 +45,7 @@
 	function handleDrop(event: DragEvent, index: number) {
 		event.preventDefault();
 		if (dragIndex !== null && dragIndex !== index) {
-			vaultStore.moveTab(dragIndex, index);
+			tabStore.moveTab(dragIndex, index);
 		}
 		dragIndex = null;
 		dropIndex = null;
@@ -55,18 +60,19 @@
 {#if tabs.length > 0}
 	<div class="tab-bar" role="tablist" aria-label="Open notes">
 		{#each tabs as tab, index (tab.path)}
+			{@const note = notesByPath.get(tab.path)}
 			<div
 				class="tab-shell"
-				class:active={index === vaultStore.activeTabIndex}
+				class:active={index === tabStore.activeTabIndex}
 				class:drag-over={dropIndex === index && dragIndex !== index}
 			>
 				<div
 					class="tab"
 					role="tab"
-					tabindex={index === vaultStore.activeTabIndex ? 0 : -1}
-					aria-selected={index === vaultStore.activeTabIndex}
+					tabindex={index === tabStore.activeTabIndex ? 0 : -1}
+					aria-selected={index === tabStore.activeTabIndex}
 					draggable="true"
-					onclick={() => vaultStore.switchToTab(index)}
+					onclick={() => tabStore.switchToTab(index)}
 					onkeydown={(event) => handleKeydown(event, index)}
 					ondragstart={(event) => handleDragStart(event, index)}
 					ondragover={(event) => handleDragOver(event, index)}
@@ -75,6 +81,7 @@
 					onmousedown={(event) => handleMousedown(event, index)}
 				>
 					<span class="tab-title">
+						<span class="tab-icon">{note ? noteIcon(note) : '📄'}</span>
 						{#if tab.dirty}
 							<span class="dirty-dot">●</span>
 						{/if}
@@ -98,13 +105,13 @@
 	.tab-bar {
 		display: flex;
 		align-items: stretch;
+		flex: 1;
 		gap: 1px;
 		min-height: 36px;
 		padding: 0 8px;
 		overflow-x: auto;
 		overflow-y: hidden;
-		background: #2d2d2d;
-		border-bottom: 1px solid var(--border-color, #333);
+		background: transparent;
 		scrollbar-width: thin;
 	}
 
@@ -116,7 +123,7 @@
 		min-width: 0;
 		max-width: 240px;
 		margin-top: 1px;
-		background: #252526;
+		background: var(--ns-surface-elevated);
 		border-top: 2px solid transparent;
 		transition:
 			background-color 120ms ease,
@@ -124,8 +131,8 @@
 	}
 
 	.tab-shell.active {
-		background: #1e1e1e;
-		border-top-color: var(--text-accent, #7ec8e3);
+		background: var(--ns-surface);
+		border-top-color: var(--ns-accent);
 	}
 
 	.tab-shell.drag-over::after {
@@ -134,7 +141,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		border-bottom: 2px solid var(--text-accent, #7ec8e3);
+		border-bottom: 2px solid var(--ns-accent);
 	}
 
 	.tab {
@@ -142,13 +149,13 @@
 		align-items: center;
 		min-width: 0;
 		padding: 0 32px 0 12px;
-		color: var(--text-primary, #e0e0e0);
+		color: var(--ns-text);
 		cursor: pointer;
 		outline: none;
 	}
 
 	.tab:focus-visible {
-		box-shadow: inset 0 0 0 1px var(--text-accent, #7ec8e3);
+		box-shadow: inset 0 0 0 1px var(--ns-accent);
 	}
 
 	.tab-title {
@@ -159,6 +166,11 @@
 		font-size: 13px;
 	}
 
+	.tab-icon {
+		flex-shrink: 0;
+		line-height: 1;
+	}
+
 	.tab-label {
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -166,7 +178,7 @@
 	}
 
 	.dirty-dot {
-		color: #ffb347;
+		color: var(--ns-dirty-dot);
 		font-size: 12px;
 		line-height: 1;
 	}
@@ -184,7 +196,7 @@
 		border: none;
 		border-radius: 4px;
 		background: transparent;
-		color: var(--text-muted, #888);
+		color: var(--ns-text-muted);
 		cursor: pointer;
 		opacity: 0;
 		transform: translateY(-50%);
@@ -202,8 +214,8 @@
 
 	.tab-close:hover,
 	.tab-close:focus-visible {
-		background: rgba(255, 255, 255, 0.08);
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-surface-translucent);
+		color: var(--ns-text);
 		outline: none;
 	}
 </style>

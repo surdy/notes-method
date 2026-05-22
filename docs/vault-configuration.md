@@ -12,7 +12,7 @@ This guide covers every config file and format Notesmith reads today.
 | Global | `~/.config/notesmith/config.toml` or `$XDG_CONFIG_HOME/notesmith/config.toml` | TOML | Daemon settings, default vault, named vault registry |
 | Per-vault | `<vault>/.notesmith/vault.toml` | TOML | Main vault behavior |
 | Per-vault | `<vault>/.notesmith/sidebar-views.yaml` | YAML | SQL-backed sidebar views |
-| Per-vault | `<vault>/.notesmith/routing.yaml` | YAML | Inbox routing rules |
+| Per-vault | `<vault>/.notesmith/routing.yaml` | YAML | Capture routing rules |
 | Per-vault | `<vault>/Assets/templates/*.md.j2` | Markdown + YAML front matter + Minijinja | Note templates |
 | Per-vault | `<vault>/.notesmith/skill.md` | Markdown | AI instruction file |
 | Per-vault | `<vault>/.notesmith/prompts/*.md` | Markdown + YAML front matter | Agent prompt templates |
@@ -65,15 +65,16 @@ my-vault/
 Main vault config file. `name` identifies the vault. All sections are optional with sensible defaults.
 
 ```toml
+schema_version = 1
 name = "work"
 homepage = "Home.md"
 
-[inbox]
-folder = "Inbox"              # Default inbox folder
-template = "generic-note"     # Default template for inbox captures
+[capture]
+folder = ""                   # Default capture folder (vault root)
+template = "generic-note"     # Default template for captured notes
 
 [daily]
-folder = "Inbox/Daily"        # Where daily notes are created
+folder = ""                   # Where daily notes are created (vault root by default)
 template = "daily-note"       # Template for daily notes
 generate_at = "06:00"         # Auto-generate daily note at this time (optional)
 timezone = "America/Los_Angeles"  # Timezone for daily scheduler (optional)
@@ -82,6 +83,8 @@ catch_up = false              # Create missed daily notes on startup (default: f
 [editor]
 live_preview = true           # Enable Live Preview mode (default: true)
 default_mode = "source"       # Default view mode: "source", "live-preview", or "reading"
+strict_line_breaks = false   # Use standard Markdown soft breaks instead of Obsidian-style single-newline breaks
+show_line_numbers = true      # Show line numbers in Source and Live Preview modes (default: true)
 
 [git]
 enabled = false               # Enable git integration (default: false)
@@ -96,15 +99,16 @@ on_daily_create = "scripts/on-daily.sh"   # Script to run when a daily note is c
 ```
 
 Top-level fields:
+- `schema_version` — vault config schema version. Existing files without this field default to `1`, and daemon/runtime loads reject newer unknown versions.
 - `name` — vault identifier used in CLI and API output
 - `homepage` — vault-relative path to the home note
 
-`[inbox]`:
-- `folder` — default inbox folder (default: `Inbox`)
-- `template` — default template for inbox captures (default: `generic-note`)
+`[capture]`:
+- `folder` — default capture folder (default: `""`, meaning the vault root)
+- `template` — default template for captured notes (default: `generic-note`)
 
 `[daily]`:
-- `folder` — where daily notes are created (default: `Inbox/Daily`)
+- `folder` — where daily notes are created (default: `""`, meaning the vault root)
 - `template` — template for daily notes (default: `daily-note`)
 - `generate_at` — local time for scheduled daily note creation
 - `timezone` — IANA timezone for the scheduler
@@ -113,6 +117,8 @@ Top-level fields:
 `[editor]`:
 - `live_preview` — enable Live Preview mode (default: `true`)
 - `default_mode` — `source`, `live-preview`, or `reading` (default: `source`)
+- `strict_line_breaks` — require standard Markdown line breaks; when `false`, single newlines render as line breaks like Obsidian (default: `false`)
+- `show_line_numbers` — show line numbers in Source and Live Preview editor modes (default: `true`)
 
 `[git]`:
 - `enabled` — enable per-vault git integration (default: `false`)
@@ -147,11 +153,11 @@ views:
     icon: 🕐
     data_source: "SELECT path, title, type, updated_at FROM v_notes ORDER BY mtime_unix DESC LIMIT 30"
 
-  - id: inbox
-    name: Inbox
-    icon: 📥
-    data_source: "SELECT path, title FROM v_notes WHERE path LIKE 'Inbox/%' ORDER BY path"
-    badge_query: "SELECT COUNT(*) as count FROM v_notes WHERE path LIKE 'Inbox/%'"
+  - id: capture
+    name: Capture
+    icon: ⚡
+    data_source: "SELECT path, title FROM v_notes WHERE path LIKE 'Capture/%' ORDER BY path"
+    badge_query: "SELECT COUNT(*) as count FROM v_notes WHERE path LIKE 'Capture/%'"
 ```
 
 Fields:
@@ -170,7 +176,7 @@ Rules:
 
 ---
 ## `routing.yaml`
-Rules for automatically routing notes from the inbox to their destination folders. See [CLI docs](cli.md) for `notesmith route` commands.
+Rules for automatically routing captured notes to their destination folders. See [CLI docs](cli.md) for `notesmith route` commands.
 
 ```yaml
 version: 1
@@ -240,7 +246,7 @@ Each template has YAML front matter in a `notesmith:` block:
 notesmith:
   name: generic-note
   description: A generic blank note
-  output_path: "{{ folder | default('Inbox') }}/{{ title | slug }}.md"
+  output_path: "{% if folder %}{{ folder }}/{% endif %}{{ title | slug }}.md"
   prompts:
     - name: title
       type: text
@@ -271,7 +277,7 @@ Scripts receive a JSON payload on stdin:
 {
   "event": "on_note_create",
   "vault": "work",
-  "path": "Inbox/New Note.md",
+  "path": "New Note.md",
   "frontmatter": { "type": "note" },
   "source": "api"
 }
@@ -325,8 +331,8 @@ my-vault/
 │       └── daily-note.md       # Agent daily prompt
 ├── Assets/
 │   └── templates/              # Note templates (.md.j2)
-├── Inbox/                      # Unprocessed notes
-│   └── Daily/                  # Daily notes
+├── Capture/                    # Optional dedicated capture folder
+├── Daily/                      # Optional dedicated daily folder
 ├── Customers/                  # Per-customer folders
 │   └── Acme Corp/
 │       ├── Acme Corp.md        # Customer index note

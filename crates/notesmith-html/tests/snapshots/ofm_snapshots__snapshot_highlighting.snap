@@ -1,0 +1,7 @@
+---
+source: crates/notesmith-html/tests/ofm_snapshots.rs
+expression: html
+---
+<pre><code class="language-md">Use two equal signs to ==highlight text==.
+</code></pre>
+<p>Use two equal signs to <mark>highlight text</mark>.</p>

@@ -122,7 +122,7 @@ fn vault_config_full_example() {
 name = "work"
 homepage = "Dashboards/Home.md"
 
-[inbox]
+[capture]
 folder = "Inbox"
 template = "generic-note"
 
@@ -135,6 +135,8 @@ catch_up = true
 [editor]
 live_preview = true
 default_mode = "source"
+strict_line_breaks = true
+show_line_numbers = false
 
 [git]
 enabled = true
@@ -153,12 +155,14 @@ on_daily_create = "Assets/scripts/on-daily-create.py"
     let config = VaultConfig::load_from(&path).unwrap();
     assert_eq!(config.name, "work");
     assert_eq!(config.homepage.as_deref(), Some("Dashboards/Home.md"));
-    assert_eq!(config.inbox.folder, "Inbox");
+    assert_eq!(config.capture.folder, "Inbox");
     assert_eq!(config.daily.folder, "Inbox/Daily");
     assert_eq!(config.daily.generate_at.as_deref(), Some("06:30"));
     assert!(config.daily.catch_up);
     assert!(config.editor.live_preview);
     assert_eq!(config.editor.default_mode, "source");
+    assert!(config.editor.strict_line_breaks);
+    assert!(!config.editor.show_line_numbers);
     assert!(config.git.enabled);
     assert_eq!(config.git.auto_commit_every.as_deref(), Some("15m"));
     assert!(config.hooks.on_note_create.is_some());
@@ -173,10 +177,22 @@ fn vault_config_minimal() {
     let config = VaultConfig::load_from(&path).unwrap();
     assert_eq!(config.name, "personal");
     assert!(config.homepage.is_none());
-    assert_eq!(config.inbox.folder, "Inbox");
-    assert_eq!(config.daily.folder, "Inbox/Daily");
+    assert_eq!(config.capture.folder, "");
+    assert_eq!(config.daily.folder, "");
     assert!(config.editor.live_preview);
+    assert!(!config.editor.strict_line_breaks);
+    assert!(config.editor.show_line_numbers);
     assert!(!config.git.enabled);
+}
+
+#[test]
+fn vault_config_defaults_schema_version_for_existing_toml() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("vault.toml");
+    fs::write(&path, r#"name = "personal""#).unwrap();
+
+    let config = VaultConfig::load_from(&path).unwrap();
+    assert_eq!(config.schema_version, CURRENT_SCHEMA_VERSION);
 }
 
 #[test]
@@ -192,14 +208,31 @@ fn vault_config_load_from_vault_root() {
 }
 
 #[test]
+fn vault_config_save_to_vault_root() {
+    let tmp = TempDir::new().unwrap();
+    let vault_root = tmp.path();
+    let config = VaultConfig {
+        schema_version: CURRENT_SCHEMA_VERSION,
+        name: "saved-vault".to_string(),
+        ..Default::default()
+    };
+
+    config.save_to_vault(vault_root).unwrap();
+
+    let loaded = VaultConfig::load_from_vault(vault_root).unwrap();
+    assert_eq!(loaded, config);
+}
+
+#[test]
 fn vault_config_roundtrip() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("vault.toml");
 
     let config = VaultConfig {
+        schema_version: CURRENT_SCHEMA_VERSION,
         name: "roundtrip".to_string(),
         homepage: Some("Home.md".to_string()),
-        inbox: InboxConfig::default(),
+        capture: CaptureConfig::default(),
         daily: DailyConfig::default(),
         editor: EditorConfig::default(),
         git: GitConfig::default(),
@@ -209,6 +242,70 @@ fn vault_config_roundtrip() {
     config.save_to(&path).unwrap();
     let loaded = VaultConfig::load_from(&path).unwrap();
     assert_eq!(config, loaded);
+}
+
+#[test]
+fn load_and_migrate_rejects_future_schema_version() {
+    let tmp = TempDir::new().unwrap();
+    let vault_root = tmp.path();
+    let config_dir = vault_root.join(".notesmith");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(
+        config_dir.join("vault.toml"),
+        format!(
+            "schema_version = {}\nname = \"future\"",
+            CURRENT_SCHEMA_VERSION + 1
+        ),
+    )
+    .unwrap();
+
+    let err = notesmith_config::migration::load_and_migrate(vault_root).unwrap_err();
+    assert!(err.to_string().contains(&format!(
+        "Unknown schema version {}",
+        CURRENT_SCHEMA_VERSION + 1
+    )));
+}
+
+#[test]
+fn migrate_is_noop_at_current_schema_version() {
+    let mut config = VaultConfig {
+        schema_version: CURRENT_SCHEMA_VERSION,
+        name: "current".to_string(),
+        homepage: Some("Home.md".to_string()),
+        ..Default::default()
+    };
+
+    let migrated = notesmith_config::migration::migrate(&mut config).unwrap();
+
+    assert!(!migrated);
+    assert_eq!(config.schema_version, CURRENT_SCHEMA_VERSION);
+    assert_eq!(config.homepage.as_deref(), Some("Home.md"));
+}
+
+#[test]
+fn load_and_migrate_loads_existing_vault_config() {
+    let tmp = TempDir::new().unwrap();
+    let vault_root = tmp.path();
+    let config_dir = vault_root.join(".notesmith");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(
+        config_dir.join("vault.toml"),
+        r#"
+name = "work"
+homepage = "Dashboards/Home.md"
+
+[capture]
+folder = "Inbox"
+"#,
+    )
+    .unwrap();
+
+    let config = notesmith_config::migration::load_and_migrate(vault_root).unwrap();
+
+    assert_eq!(config.name, "work");
+    assert_eq!(config.schema_version, CURRENT_SCHEMA_VERSION);
+    assert_eq!(config.homepage.as_deref(), Some("Dashboards/Home.md"));
+    assert_eq!(config.capture.folder, "Inbox");
 }
 
 // ========== Vault Detection Tests ==========

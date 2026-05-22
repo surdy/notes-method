@@ -30,12 +30,16 @@ notesmith daemon start [--bind 127.0.0.1:27183]
 | `--bind <addr>` | Bind address for the HTTP server | `127.0.0.1:27183` |
 
 The daemon indexes all registered vaults on startup and watches for file changes.
+It also writes daily-rotated daemon logs to the platform log directory (`~/Library/Logs/Notesmith/` on macOS, `$XDG_STATE_HOME/notesmith/` or `~/.local/state/notesmith/` on Linux) and retains the last 7 days.
+On startup it also runs SQLite/Tantivy integrity checks and automatically rebuilds corrupted cache artifacts from markdown files.
+
+Daemon-backed CLI commands auto-start the daemon when `[daemon].auto_start = true` (the default). Set `auto_start = false` to require manual `notesmith daemon start`.
 
 ---
 
 ## Desktop app
 
-The Notesmith desktop shell wraps the daemon-served web UI in a native Tauri window. It auto-starts the daemon if needed, opens `http://127.0.0.1:27183/app/`, and exposes tray/menu actions for opening the app, quick capture, and quitting.
+The Notesmith desktop shell wraps the daemon-served web UI in a native Tauri window. It auto-starts the daemon if needed, discovers the live daemon via the Notesmith lockfile, and exposes tray/menu actions for opening the app, quick capture, and quitting.
 
 ```bash
 # Run the desktop shell during development
@@ -91,7 +95,7 @@ Detection order:
 
 ### `vault info`
 
-Show vault configuration summary (name, root, inbox/daily/editor/git settings).
+Show vault configuration summary (name, root, capture/daily/editor/git settings, including editor line-number visibility).
 
 ```bash
 notesmith vault info
@@ -109,11 +113,31 @@ Output: `Reindexed 42 notes for work into ~/.cache/notesmith/work/cache.sqlite`
 
 ---
 
+## reindex
+
+### `reindex`
+
+Ask the daemon to rebuild one vault or all registered vaults.
+
+```bash
+notesmith reindex [--vault work] [--cache-only | --search-only]
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--vault <name>` | Reindex one registered vault | all registered vaults |
+| `--cache-only` | Rebuild only the SQLite cache | rebuild both |
+| `--search-only` | Rebuild only the Tantivy search index | rebuild both |
+
+The CLI auto-starts the daemon when needed unless `[daemon].auto_start = false`.
+
+---
+
 ## query
 
 ### `query sql`
 
-Execute read-only SQL against the daemon's SQLite cache. Requires the daemon to be running.
+Execute read-only SQL against the daemon's SQLite cache. The CLI auto-starts the daemon when needed unless `[daemon].auto_start = false`.
 
 ```bash
 notesmith query sql "SELECT title, type FROM v_notes LIMIT 10"
@@ -138,11 +162,11 @@ notesmith query sql "SELECT type, COUNT(*) as count FROM v_notes GROUP BY type O
 
 ## note
 
-Note CRUD commands go through the running daemon and operate on the detected vault.
+Note CRUD commands go through the daemon and auto-start it when needed.
 
 ### `note create`
 
-Create a note in `Inbox/` by default.
+Create a note in the vault root by default.
 
 ```bash
 notesmith note create "Follow Up" [--folder Customers/Acme] [--content "Body text"]
@@ -153,7 +177,7 @@ notesmith note create "Follow Up" [--folder Customers/Acme] [--content "Body tex
 Fetch a note by vault-relative path.
 
 ```bash
-notesmith note get Inbox/Follow\ Up.md
+notesmith note get General/Follow\ Up.md
 ```
 
 Text output prints just the note body. JSON output prints the full HTTP note payload, including frontmatter, links, tasks, and hash.
@@ -163,8 +187,8 @@ Text output prints just the note body. JSON output prints the full HTTP note pay
 Replace a note's content.
 
 ```bash
-notesmith note put Inbox/Follow\ Up.md --content "# Replaced"
-printf '# Replaced from stdin\n' | notesmith note put Inbox/Follow\ Up.md --from-stdin
+notesmith note put General/Follow\ Up.md --content "# Replaced"
+printf '# Replaced from stdin\n' | notesmith note put General/Follow\ Up.md --from-stdin
 ```
 
 ### `note append`
@@ -172,7 +196,7 @@ printf '# Replaced from stdin\n' | notesmith note put Inbox/Follow\ Up.md --from
 Append content to an existing note.
 
 ```bash
-notesmith note append Inbox/Follow\ Up.md "Next line"
+notesmith note append General/Follow\ Up.md "Next line"
 ```
 
 ### `note delete`
@@ -180,7 +204,7 @@ notesmith note append Inbox/Follow\ Up.md "Next line"
 Delete a note.
 
 ```bash
-notesmith note delete Inbox/Follow\ Up.md
+notesmith note delete General/Follow\ Up.md
 ```
 
 ### `note move`
@@ -188,7 +212,7 @@ notesmith note delete Inbox/Follow\ Up.md
 Move a note to a new vault-relative path.
 
 ```bash
-notesmith note move Inbox/Follow\ Up.md Customers/Acme/Follow\ Up.md
+notesmith note move General/Follow\ Up.md Customers/Acme/Follow\ Up.md
 ```
 
 All create/put/append writes run through the save pipeline, which trims trailing whitespace, normalizes the trailing newline, and auto-maintains `created`/`updated` frontmatter fields when frontmatter is present.
@@ -213,16 +237,16 @@ The clipboard entry includes both `text/html` and a plain-text markdown fallback
 
 ---
 
-## inbox
+## capture
 
-Inbox quick-capture commands go through the running daemon.
+Quick-capture commands go through the daemon and auto-start it when needed.
 
-### `inbox add`
+### `capture`
 
-Quick-capture a note to the inbox folder. Generates a timestamped filename.
+Quick-capture a note to the configured capture folder. Generates a timestamped filename.
 
 ```bash
-notesmith inbox add "<text>" [--title <title>]
+notesmith capture "<text>" [--title <title>]
 ```
 
 | Arg/Flag | Description |
@@ -230,40 +254,23 @@ notesmith inbox add "<text>" [--title <title>]
 | `<text>` | Note body content |
 | `--title <title>` | Optional title used in filename slug |
 
-**Filename format:** `Inbox/{YYYY-MM-DD HH-MM-SS} - {slug}.md`
+**Filename format:** `{capture_folder}/{YYYY-MM-DD HH-MM-SS} - {slug}.md`
 
-The slug is derived from `--title` if provided, otherwise from the first 40 characters of the text (sanitized to keep alphanumeric, spaces, and hyphens).
-
-**Examples:**
-
-```bash
-notesmith inbox add "Call Sarah about the project"
-notesmith inbox add "Meeting notes from standup" --title "Standup Notes"
-notesmith inbox add "Quick thought" --format json
-```
-
-### `inbox list`
-
-List unarchived notes in the inbox folder.
-
-```bash
-notesmith inbox list
-```
-
-Returns up to 100 notes sorted by path descending (newest first). Text output shows `path  title` per line.
+If `capture.folder = ""`, the note is created in the vault root. The slug is derived from `--title` if provided, otherwise from the first 40 characters of the text (sanitized to keep alphanumeric, spaces, and hyphens).
 
 **Examples:**
 
 ```bash
-notesmith inbox list
-notesmith inbox list --format json | jq '.[].path'
+notesmith capture "Call Sarah about the project"
+notesmith capture "Meeting notes from standup" --title "Standup Notes"
+notesmith capture "Quick thought" --format json
 ```
 
 ---
 
 ## task
 
-Task commands go through the running daemon and operate on the detected vault.
+Task commands go through the daemon and auto-start it when needed.
 
 ### `task list`
 
@@ -311,7 +318,7 @@ notesmith task add <note_path> <description> [--customer <name>] [--stream <name
 
 ```bash
 notesmith task add "Customers/Acme/Acme Corp.md" "Follow up on SLA requirements" --customer Acme --due 2025-02-01
-notesmith task add Inbox/Daily/2025-01-15.md "Review pull requests" --priority high
+notesmith task add Daily/2025-01-15.md "Review pull requests" --priority high
 ```
 
 ### `task toggle`
@@ -348,7 +355,7 @@ notesmith task set-status <note_path> <task_hash> <new_status>
 
 ## search
 
-Full-text search across note titles and body content. Requires the daemon to be running.
+Full-text search across note titles and body content. The CLI auto-starts the daemon when needed unless `[daemon].auto_start = false`.
 
 ```bash
 notesmith search <terms...> [--limit N]
@@ -447,8 +454,8 @@ Text output shows `source -> destination (rule: rule_id)`.
 **Examples:**
 
 ```bash
-notesmith route preview "Inbox/standup.md"
-notesmith route preview "Inbox/idea.md" --format json
+notesmith route preview "Drafts/standup.md"
+notesmith route preview "Drafts/idea.md" --format json
 ```
 
 ### `route apply`
@@ -457,27 +464,20 @@ Apply routing to move note(s) to their destination folder. Stamps `archived: tru
 
 ```bash
 notesmith route apply <path>
-notesmith route apply --inbox
 ```
 
-| Arg/Flag | Description |
-|----------|-------------|
+| Arg | Description |
+|-----|-------------|
 | `path` | Route a single note by vault-relative path |
-| `--inbox` | Route all eligible notes in the inbox folder |
-
-One of `path` or `--inbox` is required.
 
 **Examples:**
 
 ```bash
 # Route a single note
-notesmith route apply "Inbox/standup.md"
-
-# Route all inbox notes
-notesmith route apply --inbox
+notesmith route apply "Drafts/standup.md"
 
 # Route with JSON output
-notesmith route apply --inbox --format json
+notesmith route apply "Drafts/standup.md" --format json
 ```
 
 ---
@@ -527,7 +527,7 @@ notesmith daily open --date 2025-01-15 --format json
 
 ### `daily agent-create [--date YYYY-MM-DD] [--content "..."]`
 
-Agent-oriented daily note workflow. Without `--content`, the daemon assembles and returns the saved prompt template from `.notesmith/prompts/daily-note.md`. With `--content`, the daemon writes that pre-generated content as the day's daily note and rejects conflicts if the note already exists.
+Agent-oriented daily note workflow. Without `--content`, the daemon assembles and returns the saved prompt template from `.notesmith/prompts/daily-note.md`. With `--content`, the daemon writes that pre-generated content as the day's daily note and rejects conflicts if the note already exists. The CLI auto-starts the daemon when needed.
 
 ```bash
 notesmith daily agent-create
@@ -559,14 +559,14 @@ notesmith --format json skill print
 
 ### `url-open <URL>`
 
-Handle a `notesmith://` deep-link URL by translating it into daemon API calls.
+Handle a `notesmith://` deep-link URL by translating it into daemon API calls. The CLI auto-starts the daemon when the selected URL route needs it.
 
 ```bash
-notesmith url-open "notesmith://app/open/main/Inbox/hello.md"
+notesmith url-open "notesmith://app/open/main/hello.md"
 notesmith url-open "notesmith://app/daily/main"
 notesmith url-open "notesmith://app/search/main?q=meeting+notes"
-notesmith url-open "notesmith://app/inbox/main?text=Remember+to+buy+milk"
-notesmith url-open "notesmith://app/new/main?template=meeting&folder=Inbox"
+notesmith url-open "notesmith://app/capture/main?text=Remember+to+buy+milk"
+notesmith url-open "notesmith://app/new/main?template=meeting&folder=General"
 notesmith url-open "notesmith://app/task/main/todo.md?line_hash=abc123&status=done"
 notesmith url-open "notesmith://user/standup?date=2026-05-10"
 ```
@@ -579,7 +579,7 @@ notesmith url-open "notesmith://user/standup?date=2026-05-10"
 | `notesmith://app/daily/{vault}` | Create/open today's daily note |
 | `notesmith://app/search/{vault}?q={query}` | Full-text search |
 | `notesmith://app/new/{vault}?template={name}&folder={path}` | Create note from template |
-| `notesmith://app/inbox/{vault}?text={text}` | Quick capture to inbox |
+| `notesmith://app/capture/{vault}?text={text}` | Quick capture to the configured capture folder |
 | `notesmith://app/task/{vault}/{path}?line_hash={h}&status={s}` | Toggle a task |
 | `notesmith://app/command/{name}?args…` | Trigger a built-in command |
 | `notesmith://user/{action}?params…` | Run a user-defined action from `.notesmith/url-actions.yaml` |

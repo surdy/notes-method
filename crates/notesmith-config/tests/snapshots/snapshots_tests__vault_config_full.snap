@@ -1,12 +1,14 @@
 ---
 source: crates/notesmith-config/tests/snapshots_tests.rs
+assertion_line: 58
 expression: serialized
 ---
+schema_version = 1
 name = "work"
 homepage = "Dashboards/Home.md"
 
-[inbox]
-folder = "Inbox"
+[capture]
+folder = ""
 template = "generic-note"
 
 [daily]
@@ -19,6 +21,9 @@ catch_up = true
 [editor]
 live_preview = true
 default_mode = "source"
+strict_line_breaks = false
+show_line_numbers = true
+hide_duplicate_h1 = true
 
 [git]
 enabled = true

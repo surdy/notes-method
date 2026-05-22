@@ -8,7 +8,7 @@ import {
 	WidgetType
 } from '@codemirror/view';
 
-import { executeSql, type SqlQueryResult } from '../api.ts';
+import { executeSql, type SqlQueryResult } from '../api';
 import { findSqlBlocks, type SqlBlock } from './sql-blocks-helpers.ts';
 
 interface SqlBlockQueryState {

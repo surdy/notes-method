@@ -1,15 +1,19 @@
 import {
+	capture,
 	createNote,
 	ensureDaily,
 	getNoteHtmlInline,
-	inboxCapture,
 	instantiateTemplate,
 	listTemplates,
-	routeApply,
-	type TemplatePrompt
+	routeApply
 } from './api';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
+import { OPEN_QUICK_SWITCHER_EVENT } from './command-events';
+import { createOrOpenFolderNote, listFolderPickerItems } from './folder-notes';
+import { inputPalette } from './input-palette.svelte';
+import { tabStore } from './tab-store.svelte';
+import { toastStore } from './toast-store.svelte';
 import { vaultStore } from './stores.svelte';
 
 export interface Command {
@@ -20,15 +24,11 @@ shortcut?: string;
 execute: () => void | Promise<void>;
 }
 
-export const OPEN_QUICK_SWITCHER_EVENT = 'notesmith:open-quick-switcher';
-
-function promptValue(message: string, defaultValue = ''): string | null {
-return window.prompt(message, defaultValue);
-}
+export { OPEN_QUICK_SWITCHER_EVENT } from './command-events';
 
 function notifyError(message: string, cause: unknown) {
 console.error(message, cause);
-window.alert(message);
+toastStore.add(message, 'error');
 }
 
 async function reloadAndNavigate(path?: string, onNavigate?: (path: string) => void) {
@@ -38,34 +38,10 @@ onNavigate(path);
 }
 }
 
-async function collectTemplatePrompts(prompts: TemplatePrompt[]): Promise<Record<string, string> | null> {
-const values: Record<string, string> = {};
-
-for (const prompt of prompts) {
-const label = `${prompt.name}${prompt.required ? ' (required)' : ' (optional)'}`;
-const value = promptValue(`Enter ${label}:`);
-if (value === null) {
-return null;
-}
-
-if (!value.trim()) {
-if (prompt.required) {
-window.alert(`Template prompt "${prompt.name}" is required.`);
-return null;
-}
-continue;
-}
-
-values[prompt.name] = value;
-}
-
-return values;
-}
-
 export function buildCommands(vault: string, onNavigate: (path: string) => void): Command[] {
 const requireVault = (): string | null => {
 if (!vault) {
-window.alert('Select a vault first.');
+toastStore.add('Select a vault first.', 'warning');
 return null;
 }
 return vault;
@@ -77,41 +53,121 @@ id: 'new-note',
 label: 'New Note',
 category: 'Notes',
 shortcut: '⌘N',
-execute: async () => {
+execute: () => {
 const currentVault = requireVault();
 if (!currentVault) return;
 
-const title = promptValue('Note title:');
-if (!title?.trim()) return;
+inputPalette.open({
+steps: [
+	{
+		mode: 'text',
+		label: 'Note title',
+		placeholder: 'Enter a title...',
+		required: true
+	},
+	{
+		mode: 'text',
+		label: 'Folder',
+		placeholder: 'Inbox',
+		defaultValue: 'Inbox'
+	}
+],
+onComplete: async ([title, folder]) => {
+	if (!title?.trim()) return;
 
-const folder = promptValue('Folder (optional):', 'Inbox')?.trim();
-try {
-const created = await createNote(currentVault, title.trim(), '', folder || undefined);
-await reloadAndNavigate(created.path, onNavigate);
-} catch (cause) {
-notifyError('Failed to create note.', cause);
+	try {
+		const created = await createNote(
+			currentVault,
+			title.trim(),
+			'',
+			folder?.trim() || undefined
+		);
+		await reloadAndNavigate(created.path, onNavigate);
+	} catch (cause) {
+		notifyError('Failed to create note.', cause);
+	}
 }
+});
 }
 },
 {
-id: 'inbox-capture',
-label: 'Quick Capture to Inbox',
+id: 'capture',
+label: 'Quick Capture',
 category: 'Notes',
-shortcut: '⌘⇧I',
-execute: async () => {
+shortcut: '⌘⇧N',
+execute: () => {
 const currentVault = requireVault();
 if (!currentVault) return;
 
-const content = promptValue('Capture text:');
-if (!content?.trim()) return;
+inputPalette.open({
+steps: [
+	{
+		mode: 'text',
+		label: 'Capture text',
+		placeholder: "What's on your mind?",
+		required: true
+	},
+	{
+		mode: 'text',
+		label: 'Title (optional)',
+		placeholder: 'Auto-generated if empty'
+	}
+],
+onComplete: async ([content, title]) => {
+	if (!content?.trim()) return;
 
-const title = promptValue('Title (optional):')?.trim();
-try {
-const created = await inboxCapture(currentVault, content.trim(), title || undefined);
-await reloadAndNavigate(created.path, onNavigate);
-} catch (cause) {
-notifyError('Failed to capture note.', cause);
+	try {
+		const created = await capture(currentVault, content.trim(), title?.trim() || undefined);
+		await reloadAndNavigate(created.path, onNavigate);
+	} catch (cause) {
+		notifyError('Failed to capture note.', cause);
+	}
 }
+});
+}
+},
+{
+id: 'create-folder-note',
+label: 'Create Folder Note',
+category: 'Notes',
+execute: () => {
+const currentVault = requireVault();
+if (!currentVault) return;
+
+const folders = listFolderPickerItems(vaultStore.tree);
+if (folders.length === 0) {
+toastStore.add('No folders available.', 'warning');
+return;
+}
+
+inputPalette.open({
+steps: [
+	{
+		mode: 'list',
+		label: 'Choose a folder',
+		items: folders,
+		placeholder: 'Search folders...'
+	}
+],
+onComplete: async ([folderPath]) => {
+	if (!folderPath) return;
+
+	try {
+		const result = await createOrOpenFolderNote({
+			vault: currentVault,
+			folderPath,
+			notes: vaultStore.notes,
+			createNote
+		});
+		if (!result.created) {
+			toastStore.add('Folder note already exists.', 'success');
+		}
+		await reloadAndNavigate(result.path, onNavigate);
+	} catch (cause) {
+		notifyError('Failed to create folder note.', cause);
+	}
+}
+});
 }
 },
 {
@@ -121,20 +177,20 @@ category: 'Notes',
 execute: async () => {
 	const currentVault = requireVault();
 	if (!currentVault) return;
-	if (!vaultStore.selectedPath) {
-		window.alert('Select a note first.');
+	if (!tabStore.selectedPath) {
+		toastStore.add('Select a note first.', 'warning');
 		return;
 	}
 
 	try {
-		const html = await getNoteHtmlInline(currentVault, vaultStore.selectedPath);
+		const html = await getNoteHtmlInline(currentVault, tabStore.selectedPath);
 		await navigator.clipboard.write([
 			new ClipboardItem({
 				'text/html': new Blob([html], { type: 'text/html' }),
 				'text/plain': new Blob([html], { type: 'text/plain' })
 			})
 		]);
-		window.alert('Copied note as HTML.');
+		toastStore.add('Copied note as HTML.', 'success');
 	} catch (cause) {
 		notifyError('Failed to copy as HTML.', cause);
 	}
@@ -148,13 +204,13 @@ shortcut: '⌘⇧A',
 execute: async () => {
 const currentVault = requireVault();
 if (!currentVault) return;
-if (!vaultStore.selectedPath) {
-window.alert('Select a note to archive.');
+if (!tabStore.selectedPath) {
+toastStore.add('Select a note to archive.', 'warning');
 return;
 }
 
 try {
-const response = await routeApply(currentVault, [vaultStore.selectedPath]);
+const response = await routeApply(currentVault, [tabStore.selectedPath]);
 await reloadAndNavigate(response.results[0]?.to, onNavigate);
 } catch (cause) {
 notifyError('Failed to archive the current note.', cause);
@@ -182,7 +238,6 @@ notifyError('Failed to open today\'s daily note.', cause);
 id: 'new-from-template',
 label: 'New Note from Template',
 category: 'Templates',
-shortcut: '⌘⇧N',
 execute: async () => {
 const currentVault = requireVault();
 if (!currentVault) return;
@@ -190,28 +245,69 @@ if (!currentVault) return;
 try {
 const templates = await listTemplates(currentVault);
 if (templates.length === 0) {
-window.alert('No templates available.');
+toastStore.add('No templates available.', 'warning');
 return;
 }
 
-const selection = promptValue(
-`Choose a template by name:\n${templates
-.map((template) => `- ${template.name}${template.description ? ` — ${template.description}` : ''}`)
-.join('\n')}`
-);
-if (!selection?.trim()) return;
+inputPalette.open({
+steps: [
+{
+	mode: 'list',
+	label: 'Choose a template',
+	items: templates.map((template) => ({
+		id: template.name,
+		label: template.name,
+		description: template.description
+	})),
+	placeholder: 'Search templates...'
+}
+],
+onComplete: async ([selectedName]) => {
+if (!selectedName) return;
 
-const template = templates.find((candidate) => candidate.name === selection.trim());
-if (!template) {
-window.alert(`Unknown template: ${selection}`);
-return;
+const template = templates.find((candidate) => candidate.name === selectedName);
+if (!template) return;
+
+if (template.prompts.length > 0) {
+	inputPalette.open({
+		steps: template.prompts.map((prompt) => ({
+			mode: 'text' as const,
+			label: `${prompt.name}${prompt.required ? '' : ' (optional)'}`,
+			placeholder: `Enter ${prompt.name}...`,
+			required: prompt.required
+		})),
+		onComplete: async (promptValues) => {
+			const values: Record<string, string> = {};
+			template.prompts.forEach((prompt, index) => {
+				const value = promptValues[index]?.trim();
+				if (value) {
+					values[prompt.name] = value;
+				}
+			});
+
+			try {
+				const created = await instantiateTemplate(
+					currentVault,
+					template.name,
+					values
+				);
+				await reloadAndNavigate(created.path, onNavigate);
+			} catch (cause) {
+				notifyError('Failed to create note from template.', cause);
+			}
+		}
+	});
+	return;
 }
 
-const prompts = await collectTemplatePrompts(template.prompts);
-if (prompts === null) return;
-
-const created = await instantiateTemplate(currentVault, template.name, prompts);
-await reloadAndNavigate(created.path, onNavigate);
+try {
+	const created = await instantiateTemplate(currentVault, template.name, {});
+	await reloadAndNavigate(created.path, onNavigate);
+} catch (cause) {
+	notifyError('Failed to create note from template.', cause);
+}
+}
+});
 } catch (cause) {
 notifyError('Failed to create note from template.', cause);
 }
@@ -242,28 +338,12 @@ notifyError('Failed to reload the vault.', cause);
 }
 },
 {
-id: 'route-inbox',
-label: 'Route All Inbox Notes',
-category: 'Vault',
-execute: async () => {
-const currentVault = requireVault();
-if (!currentVault) return;
-
-try {
-await routeApply(currentVault);
-await vaultStore.loadNotes();
-} catch (cause) {
-notifyError('Failed to route inbox notes.', cause);
-}
-}
-},
-{
 id: 'toggle-view',
 label: 'Toggle View Mode',
 category: 'Navigation',
 shortcut: '⌘E',
 execute: () => {
-vaultStore.toggleViewMode();
+tabStore.toggleViewMode();
 }
 },
 {

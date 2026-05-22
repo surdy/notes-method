@@ -1,6 +1,6 @@
 <script lang="ts">
 import FileTree from './FileTree.svelte';
-import type { FolderNode } from '$lib/stores.svelte';
+import type { FolderNode } from '$lib/tree-builder';
 import { vaultStore } from '$lib/stores.svelte';
 
 let { folders }: { folders: string[] } = $props();
@@ -48,6 +48,6 @@ flex-direction: column;
 .empty {
 padding: 8px 12px;
 font-size: 12px;
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 }
 </style>

@@ -1,12 +1,13 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use notesmith_cli::commands::{
+    capture::CaptureCommand,
     copy_html::CopyHtmlCommand,
     daemon::DaemonCommand,
     daily::DailyCommand,
-    inbox::InboxCommand,
     mcp::McpCommand,
     note::NoteCommand,
     query::QueryCommand,
+    reindex::ReindexCommand,
     route::RouteCommand,
     search::SearchCommand,
     skill::SkillCommand,
@@ -80,16 +81,15 @@ enum Command {
     },
     /// Full-text search against the daemon index
     Search(SearchCommand),
+    /// Rebuild daemon cache and search indexes
+    Reindex(ReindexCommand),
     /// Task management commands
     Task {
         #[command(subcommand)]
         command: TaskCommand,
     },
-    /// Inbox quick-capture commands
-    Inbox {
-        #[command(subcommand)]
-        command: InboxCommand,
-    },
+    /// Capture a note quickly
+    Capture(CaptureCommand),
     /// Template management commands
     Template {
         #[command(subcommand)]
@@ -150,12 +150,17 @@ async fn main() -> anyhow::Result<()> {
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;
         }
+        Command::Reindex(command) => {
+            command
+                .run(&global_config, cli.vault.as_deref(), format)
+                .await?;
+        }
         Command::Task { command } => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;
         }
-        Command::Inbox { command } => {
+        Command::Capture(command) => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;

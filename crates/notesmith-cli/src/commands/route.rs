@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use anyhow::Context;
 use clap::Subcommand;
 use notesmith_config::{GlobalConfig, detect_vault};
 
@@ -15,11 +14,8 @@ pub enum RouteCommand {
     },
     /// Apply routing to move note(s) to their destination
     Apply {
-        /// Path to a specific note
-        path: Option<String>,
-        /// Route all eligible inbox notes
-        #[arg(long)]
-        inbox: bool,
+        /// Path to the note (relative to vault root)
+        path: String,
     },
 }
 
@@ -31,6 +27,7 @@ impl RouteCommand {
         cwd: &Path,
         format: OutputFormat,
     ) -> anyhow::Result<()> {
+        crate::daemon_client::ensure_daemon(global_config).await?;
         let detected = detect_vault(cwd, explicit_vault, global_config)?;
 
         match self {
@@ -53,15 +50,9 @@ impl RouteCommand {
                 })
                 .await
             }
-            RouteCommand::Apply { path, inbox } => {
+            RouteCommand::Apply { path } => {
                 let url = build_route_url(global_config, &detected.name, "apply")?;
-                let body = if *inbox {
-                    serde_json::json!({ "inbox": true })
-                } else if let Some(p) = path {
-                    serde_json::json!({ "paths": [p] })
-                } else {
-                    anyhow::bail!("either a path or --inbox flag is required");
-                };
+                let body = serde_json::json!({ "paths": [path] });
                 let response = reqwest::Client::new()
                     .post(url)
                     .json(&body)
@@ -93,8 +84,7 @@ fn build_route_url(
     vault_name: &str,
     action: &str,
 ) -> anyhow::Result<reqwest::Url> {
-    let url = reqwest::Url::parse(&format!("http://{}/", global_config.daemon.bind))
-        .with_context(|| format!("invalid daemon bind address: {}", global_config.daemon.bind))?;
+    let url = crate::daemon_client::daemon_url(global_config)?;
     Ok(url.join(&format!("api/v/{vault_name}/route/{action}"))?)
 }
 
@@ -104,7 +94,7 @@ fn map_request_error<'a>(
     move |error| {
         if error.is_connect() {
             anyhow::anyhow!(
-                "could not reach the Notesmith daemon at {}. Start it with `notesmith daemon start`",
+                "could not reach the Notesmith daemon at {}",
                 global_config.daemon.bind
             )
         } else {

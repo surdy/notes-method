@@ -6,9 +6,7 @@ EditorView,
 drawSelection,
 dropCursor,
 highlightActiveLine,
-highlightActiveLineGutter,
-keymap,
-lineNumbers
+keymap
 } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
@@ -19,21 +17,43 @@ import { onMount, tick, untrack } from 'svelte';
 import {
 ApiError,
 getNote,
-putNote,
 toggleTaskStatus,
 type NoteDetail,
 type TaskMutationStatus
 } from '$lib/api';
+import { classifyError } from '$lib/api/error-classify';
+import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+import { countWords, editorStatus, getCursorPosition } from '$lib/editor-status.svelte';
 import { createAutoSave } from '$lib/editor/auto-save';
+import { createExternalChangeDedup } from '$lib/editor/external-change-dedup';
+import { findActiveHeadingIndex, parseHeadings } from '$lib/editor/headings';
+import { createLineNumberExtensions } from '$lib/editor/line-numbers';
 import { createLivePreviewExtension } from '$lib/editor/live-preview';
+import {
+	duplicateH1HideExtension,
+	setDuplicateH1TitleEffect
+} from '$lib/editor/duplicate-h1-extension';
 import { createOFMDecorations } from '$lib/editor/ofm-decorations';
 import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-blocks';
-import { notesmithTheme } from '$lib/editor/theme';
+import { headingHighlightOverride, notesmithTheme } from '$lib/editor/theme';
+import { displayTitleFor } from '$lib/display-title';
+import TitleHeader from '$lib/components/TitleHeader.svelte';
+import { headingStore } from '$lib/heading-store.svelte';
 import { shouldLoadSelectedNote } from '$lib/note-loading';
 import { isDashboardNote } from '$lib/right-rail';
+import { saveQueue } from '$lib/save-queue';
+import { settingsStore } from '$lib/settings.svelte';
+import { clearApiError, reportApiError } from '$lib/stores/api-errors.svelte';
+import { tabStore } from '$lib/tab-store.svelte';
 import { vaultStore } from '$lib/stores.svelte';
 
 const TASK_LINE_RE = /^\s*[-*+]\s+\[[ xX/\-bwhBWH]\]/;
+const WORD_COUNT_DEBOUNCE_MS = 150;
+type EditorErrorState = {
+cause: unknown;
+endpointHint: 'note-detail' | 'save-note' | 'toggle-task';
+onAction?: () => void;
+};
 
 let editorContainer = $state<HTMLDivElement | undefined>();
 let view: EditorView | null = null;
@@ -43,13 +63,103 @@ let activeLoadToken: symbol | null = null;
 let currentHash: string | null = null;
 let currentTaskHashes = new Map<string, string>();
 let loading = $state(false);
-let error = $state<string | null>(null);
+let error = $state<EditorErrorState | null>(null);
 let conflictBanner = $state<{ show: boolean; path: string } | null>(null);
 let dirty = $state(false);
-let saveError = $state<string | null>(null);
-let ignoreExternalChange: { path: string; expiresAt: number } | null = null;
+let saveError = $state<EditorErrorState | null>(null);
+let currentFrontmatter = $state<Record<string, unknown> | null>(null);
+const externalChangeDedup = createExternalChangeDedup(() => currentHash);
+let headingTimer: number | null = null;
+let wordCountTimer: number | null = null;
+let loadBanner = $derived(error ? classifyError(error.cause, error.endpointHint) : null);
+let saveBanner = $derived(saveError ? classifyError(saveError.cause, saveError.endpointHint) : null);
 
 const livePreviewCompartment = new Compartment();
+const lineNumbersCompartment = new Compartment();
+
+function showLineNumbers(): boolean {
+	return settingsStore.draftConfig?.editor.show_line_numbers ?? true;
+}
+
+function applyExternalChangeOutcome(
+	changedPath: string,
+	outcome: ReturnType<typeof externalChangeDedup.handle>
+) {
+	switch (outcome.kind) {
+		case 'suppress':
+		case 'buffered':
+			return;
+		case 'reload':
+			void loadNote(changedPath);
+			return;
+		case 'conflict':
+			conflictBanner = { show: true, path: changedPath };
+	}
+}
+
+function drainOutcomes(outcomes: ReturnType<typeof externalChangeDedup.recordSavedHash>) {
+	if (!currentPath) {
+		return;
+	}
+	for (const outcome of outcomes) {
+		applyExternalChangeOutcome(currentPath, outcome);
+	}
+}
+
+function setEditorError(
+	cause: unknown,
+	endpointHint: EditorErrorState['endpointHint'],
+	onAction?: () => void
+) {
+	error = { cause, endpointHint, onAction };
+	reportApiError(cause, endpointHint);
+}
+
+function setSaveError(
+	cause: unknown,
+	endpointHint: EditorErrorState['endpointHint'],
+	onAction?: () => void
+) {
+	saveError = { cause, endpointHint, onAction };
+	reportApiError(cause, endpointHint);
+}
+
+function clearEditorError() {
+	error = null;
+	clearApiError();
+}
+
+function clearSaveError() {
+	saveError = null;
+	clearApiError();
+}
+
+async function retryCurrentSave() {
+	if (!view) {
+		await saveQueue.retryAll();
+		return;
+	}
+
+	await autoSave.flush(view.state.doc.toString());
+}
+
+function handleLoadErrorAction() {
+	if (loadBanner?.action?.type === 'update') {
+		window.location.reload();
+		return;
+	}
+
+	void error?.onAction?.();
+}
+
+function handleSaveErrorAction() {
+	if (saveBanner?.action?.type === 'update') {
+		window.location.reload();
+		return;
+	}
+
+	void saveError?.onAction?.();
+}
 
 const autoSave = createAutoSave({
 delay: 1000,
@@ -57,40 +167,93 @@ save: async (content: string) => {
 if (!currentPath) {
 throw new Error('No note selected');
 }
-return putNote(vaultStore.currentVault, currentPath, content, currentHash);
+return saveQueue.save(vaultStore.currentVault, currentPath, content, {
+	expectedHash: currentHash,
+	fallbackHash: currentHash
+});
 },
 onSaving: () => {
+externalChangeDedup.beginSave();
 saveError = null;
+clearApiError();
 },
 onSaved: (hash) => {
 currentHash = hash;
 dirty = false;
 saveError = null;
+clearApiError();
 if (currentPath) {
-vaultStore.markDirty(currentPath, false);
-ignoreExternalChange = {
-path: currentPath,
-expiresAt: Date.now() + 1500
-};
+tabStore.markDirty(currentPath, false);
 }
+drainOutcomes(externalChangeDedup.recordSavedHash(hash));
 },
 onError: (cause) => {
+const outcomes = externalChangeDedup.cancelSave();
 if (cause instanceof ApiError && cause.status === 409) {
 if (currentPath) {
 conflictBanner = { show: true, path: currentPath };
 }
 return;
 }
-saveError = cause instanceof Error ? cause.message : 'Auto-save failed';
+drainOutcomes(outcomes);
+setSaveError(cause, 'save-note', () => void retryCurrentSave());
 console.error('Auto-save failed', cause);
 }
 });
 
 function destroyEditor() {
+clearHeadingTimer();
+clearWordCountTimer();
+headingStore.clear();
+editorStatus.clear();
 if (view) {
 view.destroy();
 view = null;
 }
+}
+
+function clearHeadingTimer() {
+if (headingTimer) {
+	clearTimeout(headingTimer);
+	headingTimer = null;
+}
+}
+
+function clearWordCountTimer() {
+if (wordCountTimer) {
+	clearTimeout(wordCountTimer);
+	wordCountTimer = null;
+}
+}
+
+function updateEditorCursorStatus(state: EditorState, wordCount = editorStatus.wordCount): void {
+const { line, col } = getCursorPosition(state.doc, state.selection.main.head);
+editorStatus.update(line, col, wordCount);
+}
+
+function updateEditorWordCount(state: EditorState): void {
+updateEditorCursorStatus(state, countWords(state.doc.toString()));
+}
+
+function scheduleWordCountUpdate(): void {
+clearWordCountTimer();
+wordCountTimer = window.setTimeout(() => {
+	wordCountTimer = null;
+	if (!view) {
+		return;
+	}
+
+	updateEditorWordCount(view.state);
+}, WORD_COUNT_DEBOUNCE_MS);
+}
+
+function updateHeadings(doc: string): void {
+const headings = parseHeadings(doc);
+headingStore.update(headings);
+}
+
+function updateActiveHeading(cursorPos: number): void {
+headingStore.setActive(findActiveHeadingIndex(headingStore.headings, cursorPos));
 }
 
 function setDashboardMode(enabled: boolean) {
@@ -129,11 +292,11 @@ return;
 }
 
 currentTaskHashes = buildTaskHashes(note);
+const documentText = buildEditorDocument(note);
 const state = EditorState.create({
-doc: buildEditorDocument(note),
+doc: documentText,
 extensions: [
-lineNumbers(),
-highlightActiveLineGutter(),
+lineNumbersCompartment.of(createLineNumberExtensions(showLineNumbers())),
 highlightActiveLine(),
 drawSelection(),
 dropCursor(),
@@ -162,32 +325,59 @@ return true;
 ]),
 markdown({ base: markdownLanguage, codeLanguages: languages }),
 syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+headingHighlightOverride,
 notesmithTheme,
 createSqlBlockPlugin(() => vaultStore.currentVault),
 createOFMDecorations({
 notes: () => vaultStore.notes,
 taskHashes: () => currentTaskHashes,
-onNavigate: (path) => vaultStore.selectNote(path),
+onNavigate: (path) => tabStore.selectNote(path),
 onTaskToggle: handleTaskToggle
 }),
+duplicateH1HideExtension(),
 livePreviewCompartment.of(
-	vaultStore.activeViewMode === 'live-preview' ? createLivePreviewExtension() : []
+	tabStore.activeViewMode === 'live-preview' ? createLivePreviewExtension() : []
 ),
 EditorView.updateListener.of((update) => {
-if (!update.docChanged) {
-return;
-}
-dirty = true;
-saveError = null;
-if (currentPath) {
-vaultStore.markDirty(currentPath, true);
-}
-autoSave.schedule(update.state.doc.toString());
+	if (update.selectionSet || update.docChanged) {
+		updateEditorCursorStatus(update.state);
+		updateActiveHeading(update.state.selection.main.head);
+	}
+	if (update.docChanged) {
+		dirty = true;
+		saveError = null;
+		if (currentPath) {
+			tabStore.markDirty(currentPath, true);
+		}
+		autoSave.schedule(update.state.doc.toString());
+		scheduleWordCountUpdate();
+		clearHeadingTimer();
+		headingTimer = window.setTimeout(() => {
+			updateHeadings(update.state.doc.toString());
+			updateActiveHeading(update.state.selection.main.head);
+			headingTimer = null;
+		}, 300);
+	}
 })
 ]
 });
 
 view = new EditorView({ state, parent: editorContainer });
+syncDuplicateH1Title();
+updateEditorWordCount(state);
+updateHeadings(documentText);
+updateActiveHeading(state.selection.main.head);
+}
+
+function syncDuplicateH1Title() {
+	if (!view) return;
+	const enabled = settingsStore.draftConfig?.editor.hide_duplicate_h1 ?? true;
+	const path = tabStore.selectedPath ?? currentPath ?? '';
+	const title =
+		enabled && path
+			? displayTitleFor({ path, frontmatter: currentFrontmatter })
+			: null;
+	view.dispatch({ effects: setDuplicateH1TitleEffect.of(title) });
 }
 
 async function loadNote(path: string) {
@@ -198,37 +388,41 @@ autoSave.cancel();
 loading = true;
 error = null;
 saveError = null;
+clearApiError();
 conflictBanner = null;
 dirty = false;
+externalChangeDedup.reset();
 destroyEditor();
 currentPath = null;
 currentHash = null;
+currentFrontmatter = null;
 currentTaskHashes = new Map();
 setDashboardMode(false);
 
 try {
 const vault = vaultStore.currentVault;
 const note = await getNote(vault, path);
-if (activeLoadToken !== token || vaultStore.selectedPath !== path || vaultStore.currentVault !== vault) {
+if (activeLoadToken !== token || tabStore.selectedPath !== path || vaultStore.currentVault !== vault) {
 return;
 }
 
 currentPath = path;
 currentHash = note.hash;
+currentFrontmatter = note.frontmatter ?? null;
 currentTaskHashes = buildTaskHashes(note);
 loading = false;
 await tick();
-if (activeLoadToken !== token || vaultStore.selectedPath !== path || vaultStore.currentVault !== vault) {
+if (activeLoadToken !== token || tabStore.selectedPath !== path || vaultStore.currentVault !== vault) {
 return;
 }
 setDashboardMode(isDashboardNote(note.frontmatter));
 createEditor(note);
-vaultStore.markDirty(path, false);
+tabStore.markDirty(path, false);
 } catch (cause) {
 if (activeLoadToken !== token) {
 return;
 }
-error = cause instanceof Error ? cause.message : 'Failed to load note';
+	setEditorError(cause, 'note-detail', () => void loadNote(path));
 loading = false;
 } finally {
 if (activeLoadToken === token) {
@@ -252,38 +446,24 @@ return;
 }
 
 try {
-await toggleTaskStatus(vaultStore.currentVault, currentPath, taskHash, status);
-ignoreExternalChange = {
-path: currentPath,
-expiresAt: Date.now() + 1500
-};
+const response = await toggleTaskStatus(vaultStore.currentVault, currentPath, taskHash, status);
+// Remember the hash the server just wrote so the watcher's NoteUpdated
+// echo for this toggle is suppressed when it arrives.
+currentHash = response.hash;
+externalChangeDedup.rememberHash(response.hash);
 await loadNote(currentPath);
 } catch (cause) {
-saveError = cause instanceof Error ? cause.message : 'Failed to toggle task';
+	setSaveError(cause, 'toggle-task', () => void handleTaskToggle(taskHash, status));
 console.error('Failed to toggle task', cause);
 }
 }
 
-export function handleExternalChange(changedPath: string) {
+export function handleExternalChange(changedPath: string, changedHash?: string) {
 if (changedPath !== currentPath) {
 return;
 }
-
-if (
-ignoreExternalChange?.path === changedPath &&
-ignoreExternalChange.expiresAt > Date.now()
-) {
-ignoreExternalChange = null;
-return;
-}
-ignoreExternalChange = null;
-
-if (!dirty) {
-void loadNote(changedPath);
-return;
-}
-
-conflictBanner = { show: true, path: changedPath };
+const outcome = externalChangeDedup.handle({ path: changedPath, hash: changedHash }, dirty);
+applyExternalChangeOutcome(changedPath, outcome);
 }
 
 export function refreshSqlBlocks() {
@@ -308,7 +488,8 @@ return;
 conflictBanner = null;
 dirty = false;
 saveError = null;
-vaultStore.markDirty(currentPath, false);
+clearApiError();
+tabStore.markDirty(currentPath, false);
 await loadNote(currentPath);
 }
 
@@ -317,8 +498,21 @@ currentHash = null;
 conflictBanner = null;
 }
 
+function handleScrollTo(event: CustomEvent<{ from: number }>) {
+	if (!view) {
+		return;
+	}
+
+	const { from } = event.detail;
+	view.dispatch({
+		selection: { anchor: from },
+		scrollIntoView: true,
+		effects: EditorView.scrollIntoView(from, { y: 'start' })
+	});
+}
+
 $effect(() => {
-const path = vaultStore.selectedPath;
+const path = tabStore.selectedPath;
 untrack(() => {
 	if (
 	path &&
@@ -351,7 +545,7 @@ untrack(() => {
 });
 
 $effect(() => {
-const mode = vaultStore.activeViewMode;
+const mode = tabStore.activeViewMode;
 untrack(() => {
 	if (!view) return;
 	view.dispatch({
@@ -362,8 +556,34 @@ untrack(() => {
 });
 });
 
+$effect(() => {
+const enabled = showLineNumbers();
+untrack(() => {
+	if (!view) return;
+	view.dispatch({
+		effects: lineNumbersCompartment.reconfigure(createLineNumberExtensions(enabled))
+	});
+});
+});
+
+$effect(() => {
+	// Re-dispatch the duplicate-H1 hide title when the toggle or
+	// frontmatter `title:` changes for the active note.
+	void settingsStore.draftConfig?.editor.hide_duplicate_h1;
+	void currentFrontmatter;
+	void tabStore.selectedPath;
+	untrack(() => {
+		syncDuplicateH1Title();
+	});
+});
+
 onMount(() => {
+	const scrollListener: EventListener = (event) =>
+		handleScrollTo(event as CustomEvent<{ from: number }>);
+	window.addEventListener('notesmith:scroll-to', scrollListener);
+
 return () => {
+	window.removeEventListener('notesmith:scroll-to', scrollListener);
 autoSave.cancel();
 destroyEditor();
 };
@@ -371,14 +591,18 @@ destroyEditor();
 </script>
 
 <div class="note-editor">
-{#if !vaultStore.selectedPath}
+{#if !tabStore.selectedPath}
 <div class="empty-state">
 <p>Select a note from the sidebar to edit</p>
 </div>
 {:else if loading}
 <div class="loading">Loading...</div>
 {:else if error}
-<div class="error">{error}</div>
+<ErrorBanner
+error={loadBanner}
+onAction={handleLoadErrorAction}
+onDismiss={clearEditorError}
+/>
 {:else}
 {#if conflictBanner?.show}
 <div class="conflict-banner">
@@ -390,8 +614,13 @@ destroyEditor();
 </div>
 {/if}
 {#if saveError}
-<div class="save-error">{saveError}</div>
+<ErrorBanner
+error={saveBanner}
+onAction={handleSaveErrorAction}
+onDismiss={clearSaveError}
+/>
 {/if}
+<TitleHeader path={tabStore.selectedPath ?? ''} frontmatter={currentFrontmatter} variant="editor" />
 <div class="editor-container" bind:this={editorContainer}></div>
 {/if}
 </div>
@@ -402,8 +631,8 @@ flex: 1;
 min-height: 0;
 display: flex;
 flex-direction: column;
-background: #1e1e1e;
-color: var(--text-primary, #e0e0e0);
+background: var(--ns-editor-bg);
+color: var(--ns-text);
 }
 
 .editor-container {
@@ -427,8 +656,7 @@ margin-bottom: 10px;
 }
 
 .empty-state,
-.loading,
-.error {
+.loading {
 flex: 1;
 display: flex;
 align-items: center;
@@ -437,28 +665,17 @@ padding: 24px 32px;
 }
 
 .empty-state {
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 }
 
-.error,
-.save-error {
-color: #ff6b6b;
-}
-
-.conflict-banner,
-.save-error {
+.conflict-banner {
 display: flex;
 align-items: center;
 justify-content: space-between;
 gap: 12px;
 padding: 10px 16px;
-border-bottom: 1px solid var(--border-color, #333);
-background: #2a2014;
-}
-
-.save-error {
-justify-content: flex-start;
-background: #3a1f24;
+border-bottom: 1px solid var(--ns-border);
+background: var(--ns-warning-bg-soft);
 }
 
 .conflict-actions {
@@ -468,14 +685,14 @@ gap: 8px;
 
 button {
 padding: 6px 10px;
-border: 1px solid var(--border-color, #444);
+border: 1px solid var(--ns-border-strong);
 border-radius: 6px;
-background: #2d2d2d;
+background: var(--ns-panel-bg-strong);
 color: inherit;
 cursor: pointer;
 }
 
 button:hover {
-background: #373737;
+background: var(--ns-panel-hover-strong);
 }
 </style>

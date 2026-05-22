@@ -1,5 +1,9 @@
 //! notesmith-query: Stable SQL views, query execution, and dashboard helpers
 
-pub mod executor;
+mod executor;
+mod formatter;
+mod request;
 
-pub use executor::{QueryError, QueryResult, execute_sql};
+pub use executor::*;
+pub use formatter::*;
+pub use request::*;

@@ -25,6 +25,7 @@ reqwest = { workspace = true }
 dirs = { workspace = true }
 chrono = { workspace = true }
 arboard = { workspace = true }
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -31,16 +31,19 @@ impl UrlOpenCommand {
 
         match parsed {
             NotesmithUrl::Open { vault, path } => {
+                crate::daemon_client::ensure_daemon(global_config).await?;
                 let url = build_vault_url(global_config, &vault, &["notes", &path])?;
                 let response = daemon_get(global_config, url).await?;
                 print_response(response, format).await
             }
             NotesmithUrl::Daily { vault } => {
+                crate::daemon_client::ensure_daemon(global_config).await?;
                 let url = build_vault_url(global_config, &vault, &["daily", "today"])?;
                 let response = daemon_post(global_config, url, None).await?;
                 print_response(response, format).await
             }
             NotesmithUrl::Search { vault, query } => {
+                crate::daemon_client::ensure_daemon(global_config).await?;
                 let mut url = build_vault_url(global_config, &vault, &["search"])?;
                 url.query_pairs_mut().append_pair("q", &query);
                 let response = daemon_get(global_config, url).await?;
@@ -51,6 +54,7 @@ impl UrlOpenCommand {
                 template,
                 folder,
             } => {
+                crate::daemon_client::ensure_daemon(global_config).await?;
                 let template_name = template.as_deref().unwrap_or("default");
                 let url = build_vault_url(
                     global_config,
@@ -65,8 +69,9 @@ impl UrlOpenCommand {
                     daemon_post(global_config, url, Some(serde_json::Value::Object(body))).await?;
                 print_response(response, format).await
             }
-            NotesmithUrl::Inbox { vault, text } => {
-                let url = build_vault_url(global_config, &vault, &["inbox"])?;
+            NotesmithUrl::Capture { vault, text } => {
+                crate::daemon_client::ensure_daemon(global_config).await?;
+                let url = build_vault_url(global_config, &vault, &["capture"])?;
                 let body = serde_json::json!({ "text": text });
                 let response = daemon_post(global_config, url, Some(body)).await?;
                 print_response(response, format).await
@@ -77,6 +82,7 @@ impl UrlOpenCommand {
                 line_hash,
                 status,
             } => {
+                crate::daemon_client::ensure_daemon(global_config).await?;
                 let url = build_vault_url(global_config, &vault, &["tasks", "toggle"])?;
                 let body = serde_json::json!({
                     "path": path,
@@ -121,6 +127,7 @@ async fn run_user_action(
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     let detected = detect_vault(cwd, explicit_vault, global_config)?;
+    crate::daemon_client::ensure_daemon(global_config).await?;
     let vault_root = &detected.root;
     let actions_file = url_actions::load_url_actions(vault_root).map_err(|e| match e {
         UrlActionsError::Io { path, .. } => {
@@ -136,11 +143,9 @@ async fn run_user_action(
         match step {
             ActionStep::ApiCall { method, path, body } => {
                 let interpolated_path = url_actions::interpolate(path, params);
-                let base = format!("http://{}", global_config.daemon.bind);
-                let url_str = format!("{}{}", base.trim_end_matches('/'), interpolated_path);
-                let url: Url = url_str
-                    .parse()
-                    .with_context(|| format!("invalid URL: {url_str}"))?;
+                let url = crate::daemon_client::daemon_url(global_config)?
+                    .join(&interpolated_path)
+                    .with_context(|| format!("invalid URL path: {interpolated_path}"))?;
 
                 let client = reqwest::Client::new();
                 let request = match method.to_uppercase().as_str() {
@@ -215,8 +220,7 @@ fn build_vault_url(
     vault_name: &str,
     segments: &[&str],
 ) -> anyhow::Result<Url> {
-    let mut url = Url::parse(&format!("http://{}/", global_config.daemon.bind))
-        .with_context(|| format!("invalid daemon bind address: {}", global_config.daemon.bind))?;
+    let mut url = crate::daemon_client::daemon_url(global_config)?;
     let mut path_segments = url
         .path_segments_mut()
         .map_err(|_| anyhow::anyhow!("daemon URL cannot be a base"))?;
@@ -276,7 +280,7 @@ fn map_request_error<'a>(
     move |error| {
         if error.is_connect() {
             anyhow::anyhow!(
-                "could not reach the Notesmith daemon at {}. Start it with `notesmith daemon start`",
+                "could not reach the Notesmith daemon at {}",
                 global_config.daemon.bind
             )
         } else {

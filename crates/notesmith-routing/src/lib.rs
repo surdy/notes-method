@@ -166,34 +166,6 @@ impl RoutingEngine {
             rule_id: route_match.rule_id,
         })
     }
-
-    /// Route all eligible notes under a given folder (typically the inbox).
-    pub fn apply_inbox(
-        &self,
-        vault_root: &Path,
-        inbox_folder: &str,
-        engine: &dyn notesmith_core::VaultEngine,
-    ) -> Result<Vec<RouteResult>, RoutingError> {
-        let notes = engine
-            .scan(vault_root)
-            .map_err(|e| RoutingError::VaultError(e.to_string()))?;
-
-        let mut results = Vec::new();
-        for note in &notes {
-            let path_str = note.path.as_str();
-            if !path_str.starts_with(inbox_folder) {
-                continue;
-            }
-            match self.apply(vault_root, path_str, engine) {
-                Ok(result) => results.push(result),
-                Err(RoutingError::NoFrontmatter { .. })
-                | Err(RoutingError::AlreadyArchived { .. })
-                | Err(RoutingError::NoMatch { .. }) => continue,
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(results)
-    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -641,33 +613,5 @@ rules:
         assert!(dest_content.contains("archived: true"));
         assert!(dest_content.contains("archived-at:"));
         assert!(dest_content.contains("# My Idea"));
-    }
-
-    #[test]
-    fn test_apply_inbox_routes_multiple_notes() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-
-        let inbox = root.join("Inbox");
-        std::fs::create_dir_all(&inbox).unwrap();
-        std::fs::write(inbox.join("note1.md"), "---\ntype: note\n---\n# Note 1\n").unwrap();
-        std::fs::write(inbox.join("note2.md"), "---\ntype: note\n---\n# Note 2\n").unwrap();
-        // This one has no frontmatter — should be skipped
-        std::fs::write(inbox.join("readme.md"), "Hello world\n").unwrap();
-
-        let engine = notesmith_vault::NativeVaultEngine;
-        let routing = RoutingEngine::from_config(make_config(vec![make_rule(
-            "note-general",
-            &[("type", "note")],
-            "General/",
-        )]));
-
-        let results = routing.apply_inbox(root, "Inbox", &engine).unwrap();
-
-        assert_eq!(results.len(), 2);
-        assert!(root.join("General/note1.md").exists());
-        assert!(root.join("General/note2.md").exists());
-        // Skipped file remains in inbox
-        assert!(inbox.join("readme.md").exists());
     }
 }

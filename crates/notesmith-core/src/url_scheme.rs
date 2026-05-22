@@ -5,7 +5,7 @@
 //! - `notesmith://app/daily/{vault}` → today's daily note
 //! - `notesmith://app/search/{vault}?q={query}` → full-text search
 //! - `notesmith://app/new/{vault}?template={name}&folder={path}` → create from template
-//! - `notesmith://app/inbox/{vault}?text={text}` → quick capture
+//! - `notesmith://app/capture/{vault}?text={text}` → quick capture
 //! - `notesmith://app/task/{vault}/{path..}?line_hash={h}&status={s}` → toggle task
 //! - `notesmith://app/command/{name}?args…` → built-in command
 //! - `notesmith://user/{action}?params…` → user-defined action
@@ -27,8 +27,8 @@ pub enum NotesmithUrl {
         template: Option<String>,
         folder: Option<String>,
     },
-    /// `notesmith://app/inbox/{vault}?text={text}`
-    Inbox { vault: String, text: String },
+    /// `notesmith://app/capture/{vault}?text={text}`
+    Capture { vault: String, text: String },
     /// `notesmith://app/task/{vault}/{path..}?line_hash={hash}&status={status}`
     Task {
         vault: String,
@@ -151,10 +151,10 @@ fn parse_app_route(
                 folder: params.get("folder").cloned(),
             })
         }
-        "inbox" => {
+        "capture" => {
             if segments.len() < 2 {
                 return Err(UrlParseError::MissingParameter(
-                    "vault required for inbox".to_string(),
+                    "vault required for capture".to_string(),
                 ));
             }
             let vault = percent_decode(segments[1]);
@@ -162,7 +162,7 @@ fn parse_app_route(
                 .get("text")
                 .cloned()
                 .ok_or_else(|| UrlParseError::MissingParameter("text".to_string()))?;
-            Ok(NotesmithUrl::Inbox { vault, text })
+            Ok(NotesmithUrl::Capture { vault, text })
         }
         "task" => {
             if segments.len() < 3 {
@@ -395,14 +395,14 @@ mod tests {
         );
     }
 
-    // ── app/inbox ───────────────────────────────────────────────────
+    // ── app/capture ─────────────────────────────────────────────────
 
     #[test]
-    fn parse_inbox() {
-        let url = "notesmith://app/inbox/main?text=Remember+to+buy+milk";
+    fn parse_capture() {
+        let url = "notesmith://app/capture/main?text=Remember+to+buy+milk";
         assert_eq!(
             parse_notesmith_url(url).unwrap(),
-            NotesmithUrl::Inbox {
+            NotesmithUrl::Capture {
                 vault: "main".into(),
                 text: "Remember to buy milk".into(),
             }
@@ -410,8 +410,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_inbox_missing_text() {
-        let url = "notesmith://app/inbox/main";
+    fn parse_capture_missing_text() {
+        let url = "notesmith://app/capture/main";
         assert_eq!(
             parse_notesmith_url(url).unwrap_err(),
             UrlParseError::MissingParameter("text".into()),

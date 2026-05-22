@@ -113,20 +113,7 @@ impl VaultEngine for NativeVaultEngine {
 fn load_note(root: &Path, vault_name: &VaultName, absolute_path: &Path) -> Result<Note> {
     let path = relative_vault_path(root, absolute_path)?;
     let content = read_note_file(absolute_path, &path)?;
-    let parsed = parse_note(&content, vault_name, &path);
-
-    Ok(Note {
-        vault: vault_name.clone(),
-        path,
-        frontmatter: parsed.frontmatter,
-        raw_frontmatter: parsed.raw_frontmatter,
-        body: parsed.body,
-        tasks: parsed.tasks,
-        links: parsed.links,
-        inline_fields: parsed.inline_fields,
-        blocks: parsed.blocks,
-        hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
-    })
+    Ok(parse_note(vault_name, &path, &content))
 }
 
 fn read_note_file(path: &Path, vault_path: &VaultPath) -> Result<String> {

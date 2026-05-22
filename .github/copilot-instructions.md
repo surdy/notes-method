@@ -29,6 +29,18 @@
 - When frontend code has loading-state guards (e.g., early returns during async fetches), ensure every exit path resets the loading flag. Prefer a `finally` block or equivalent pattern to guarantee cleanup.
 - For frontend loading/race bugs, validate with a headless browser flow that asserts the user-visible state and bounds duplicate API calls. Curl-only API checks and cache-header checks are not sufficient for Svelte reactive-loop failures.
 
+## Keeping Architectural Documents in Sync
+
+- `CONTEXT.md`, `notes-method.md`, `README.md`, `plans/notesmith-plan.md`, and `docs/adr/` are the authoritative architecture and product references. They must stay consistent with the codebase.
+- When a change renames concepts, adds/removes features, changes API surfaces, or alters configuration, update **all relevant files** in the same commit (or the same PR):
+  - `CONTEXT.md` — domain glossary entries and definitions (especially the Frontend section).
+  - `notes-method.md` — the notes organization method and product requirements.
+  - `README.md` — high-level features list and architecture overview.
+  - `plans/notesmith-plan.md` — the definitive architectural blueprint (sections, examples, tables).
+  - `docs/adr/` — create a new ADR when making a significant architectural decision; update existing ADRs if a decision is superseded.
+- After completing a batch of changes, grep these files for stale terminology before considering the work done.
+- Preserve existing structure and intent — update surgically, do not rewrite sections unnecessarily.
+
 ## User-Facing Documentation
 
 - When completing an issue that adds or changes CLI commands, HTTP endpoints, or SQL views, update the corresponding doc file in `docs/`.
@@ -37,11 +49,14 @@
 - Keep docs concise: show the command/endpoint signature, parameters, and a usage example.
 - Don't document internal crate APIs or architecture — only user-facing surfaces.
 
-## Frontend Styling — Dark Theme Safety
+## Frontend Styling — Design Tokens
 
-- The app uses a dark theme by default. All interactive elements (`<button>`, `<input>`, `<select>`, `<textarea>`) must have `color: inherit` or an explicit color — browsers default these to black text.
-- The global CSS reset in `+layout.svelte` sets `color: inherit; font: inherit;` on form elements. Do not remove this.
-- When adding new styled components, always verify text visibility on the dark background (`--bg-primary: #1e1e1e`, `--sidebar-bg: #252526`). Use `var(--text-primary, #e0e0e0)` for primary text and `var(--text-muted, #888)` for secondary text.
+- All UI colors are defined as `--ns-*` CSS custom properties in `:root {}` in `ui/app/src/app.css`. Components must reference these tokens — never define ad-hoc color values.
+- When adding new UI elements, use existing tokens (`var(--ns-bg)`, `var(--ns-text)`, `var(--ns-border)`, etc.). If no token fits, add a new `--ns-*` token to `app.css` and reference it.
+- Do not use inline fallback values (e.g., `var(--ns-bg, #1e1e1e)`) — tokens are centrally defined.
+- Five themes exist as CSS class overrides (`.theme-dark`, `.theme-light`, `.theme-manuscript`, `.theme-hc-dark`, plus System mode). New components must look correct across all themes.
+- Editor-specific colors use separate `--ns-editor-*` tokens so the Manuscript theme (dark chrome + light editor) works.
+- The global CSS reset in `app.css` sets `color: inherit; font: inherit;` on form elements. Do not remove this.
 - Never leave a `<button>` or `<input>` without an explicit `color` declaration in its scoped CSS — the global reset is a safety net, not a substitute.
 
 ## CodeMirror Decorations
@@ -49,6 +64,26 @@
 - Do not provide block decorations (`Decoration.widget({ block: true })`) from `ViewPlugin.decorations`; CodeMirror rejects them. Use a `StateField` with `EditorView.decorations.from(field)` and update it via state effects.
 - When building decoration sets from mixed line, mark, replace, or widget decorations, prefer `Decoration.set(ranges, true)` unless the ordering is proven valid. This avoids `Ranges must be added sorted by from position and startSide` crashes.
 - Validate CodeMirror decoration changes with a headless browser flow against notes containing the relevant syntax (SQL fences, frontmatter, tasks, callouts), not just TypeScript checks.
+
+## Resilience to Malformed User Content
+
+All `.md` content is **untrusted input**. A single malformed note must never crash the daemon, the desktop app, or any indexing pass. See [`docs/adr/0009-resilience-to-malformed-content.md`](../docs/adr/0009-resilience-to-malformed-content.md) for the full policy.
+
+When writing or reviewing code that touches note content:
+
+- **Isolate at the per-note boundary.** Any parse/render/index operation on a single note must catch errors locally, log `WARN note=<path> stage=<...> reason=<...>`, and continue with the next note. Never let a per-note error propagate up to startup or to a transaction that touches multiple notes.
+- **Forbidden in hot paths:** `?` propagation of `serde_yaml::from_str(...)` (or any `serde_json` / `toml` parse of note-derived bytes) above the per-note boundary. Use `.ok()` and fall back to `None` / `"{}"` / empty.
+- **`unwrap` / `expect` are forbidden** on values derived from file content. Allowed only for: regex compile at module init, mutex locks (programmer bugs), and test code.
+- **Indexer loops use per-note savepoints**, not one big transaction. One bad note must not roll back the whole vault.
+- **HTTP handlers** that accept arbitrary bodies return structured 4xx, never let parse failures become 500s (model: `routes::routing::preview`).
+
+### Tests required for any new parser, renderer, or indexer touching note content
+
+1. Happy-path test with well-formed input.
+2. **Malformed-content test** — broken YAML/Markdown/link syntax produces a degraded-but-valid result and logs a warning. Add a fixture under `test-fixtures/malformed-vault/` if no existing fixture covers the case.
+3. **No-panic test** — pathological input (e.g. unclosed code fences, nested `{{` placeholders, non-UTF-8 sequences via fuzz, deeply nested YAML) does not panic and completes in bounded time.
+
+When fixing a resilience bug, add the offending content to `test-fixtures/malformed-vault/` as a regression fixture in the same commit. Label related issues with `resilience`.
 
 ## Sub-Agent Delegation
 

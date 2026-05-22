@@ -147,9 +147,9 @@ fn cmd_info(
                 println!("Homepage: {homepage}");
             }
             println!();
-            println!("[inbox]");
-            println!("  folder:   {}", vault_config.inbox.folder);
-            println!("  template: {}", vault_config.inbox.template);
+            println!("[capture]");
+            println!("  folder:   {}", vault_config.capture.folder);
+            println!("  template: {}", vault_config.capture.template);
             println!();
             println!("[daily]");
             println!("  folder:   {}", vault_config.daily.folder);
@@ -162,6 +162,14 @@ fn cmd_info(
             println!("[editor]");
             println!("  live_preview:  {}", vault_config.editor.live_preview);
             println!("  default_mode:  {}", vault_config.editor.default_mode);
+            println!(
+                "  strict_line_breaks:  {}",
+                vault_config.editor.strict_line_breaks
+            );
+            println!(
+                "  show_line_numbers:  {}",
+                vault_config.editor.show_line_numbers
+            );
             println!();
             println!("[git]");
             println!("  enabled: {}", vault_config.git.enabled);
@@ -176,9 +184,9 @@ fn cmd_info(
                     "name": vault_config.name,
                     "root": detected.root,
                     "homepage": vault_config.homepage,
-                    "inbox": {
-                        "folder": vault_config.inbox.folder,
-                        "template": vault_config.inbox.template,
+                    "capture": {
+                        "folder": vault_config.capture.folder,
+                        "template": vault_config.capture.template,
                     },
                     "daily": {
                         "folder": vault_config.daily.folder,
@@ -189,6 +197,8 @@ fn cmd_info(
                     "editor": {
                         "live_preview": vault_config.editor.live_preview,
                         "default_mode": vault_config.editor.default_mode,
+                        "strict_line_breaks": vault_config.editor.strict_line_breaks,
+                        "show_line_numbers": vault_config.editor.show_line_numbers,
                     },
                     "git": {
                         "enabled": vault_config.git.enabled,

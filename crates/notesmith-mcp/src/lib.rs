@@ -157,9 +157,9 @@ impl NotesmithMcp {
         let note_path = VaultPath::new(path.to_string());
         let content = self.engine.read(&self.vault_root, &note_path)?;
         let parsed = parse_note(
-            &content,
             &VaultName::new(self.vault_name.clone()),
             &note_path,
+            &content,
         );
 
         Ok(json!({
@@ -333,7 +333,7 @@ impl NotesmithMcp {
     }
 
     pub fn inbox_add(&self, content: &str, title: Option<&str>) -> anyhow::Result<Value> {
-        let inbox_folder = &self.vault_config.inbox.folder;
+        let capture_folder = &self.vault_config.capture.folder;
         let timestamp = Local::now().format("%Y-%m-%d %H-%M-%S").to_string();
         let slug = match title {
             Some(title) => sanitize_slug(title),
@@ -344,7 +344,11 @@ impl NotesmithMcp {
         } else {
             format!("{timestamp} - {slug}.md")
         };
-        let note_path = VaultPath::new(format!("{inbox_folder}/{filename}"));
+        let note_path = if capture_folder.is_empty() {
+            VaultPath::new(filename)
+        } else {
+            VaultPath::new(format!("{capture_folder}/{filename}"))
+        };
         let hash = self.write_content(&note_path, None, content)?;
         self.refresh_indexes(&note_path)?;
 
@@ -636,19 +640,11 @@ impl NotesmithMcp {
 
     fn load_note(&self, path: &VaultPath) -> anyhow::Result<Note> {
         let content = self.engine.read(&self.vault_root, path)?;
-        let parsed = parse_note(&content, &VaultName::new(self.vault_name.clone()), path);
-        Ok(Note {
-            vault: VaultName::new(self.vault_name.clone()),
-            path: path.clone(),
-            frontmatter: parsed.frontmatter,
-            raw_frontmatter: parsed.raw_frontmatter,
-            body: parsed.body,
-            tasks: parsed.tasks,
-            links: parsed.links,
-            inline_fields: parsed.inline_fields,
-            blocks: parsed.blocks,
-            hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
-        })
+        Ok(parse_note(
+            &VaultName::new(self.vault_name.clone()),
+            path,
+            &content,
+        ))
     }
 
     fn ensure_note_missing(&self, path: &VaultPath) -> anyhow::Result<()> {
@@ -949,12 +945,11 @@ mod tests {
     fn vault_config() -> VaultConfig {
         VaultConfig {
             name: "test-vault".to_string(),
-            homepage: None,
-            inbox: Default::default(),
-            daily: Default::default(),
-            editor: Default::default(),
-            git: Default::default(),
-            hooks: Default::default(),
+            capture: notesmith_config::CaptureConfig {
+                folder: "Inbox".to_string(),
+                template: "generic-note".to_string(),
+            },
+            ..Default::default()
         }
     }
 

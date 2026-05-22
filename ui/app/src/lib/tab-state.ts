@@ -1,4 +1,5 @@
 import type { NoteSummary } from './api';
+import { displayTitleFor } from './display-title.ts';
 
 export type ViewMode = 'source' | 'live-preview' | 'reading';
 
@@ -218,5 +219,5 @@ function restoreViewMode(value: string | undefined): ViewMode {
 
 function resolveTabTitle(path: string, notes: NoteSummary[]): string {
 	const note = notes.find((candidate) => candidate.path === path);
-	return note?.title || path.split('/').at(-1)?.replace(/\.md$/, '') || path;
+	return displayTitleFor({ path, frontmatter: note?.frontmatter ?? null });
 }

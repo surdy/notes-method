@@ -24,7 +24,7 @@ For each customer there would be a folder containing:
 
 ## High-Level Structure
 
-- Inbox
+- Capture
 - Tasks (aggregated)
 - Dashboards
 - Customer 1
@@ -53,7 +53,9 @@ For each customer there would be a folder containing:
 - Views support an optional `badge_query` for tab-level badge counts (SQL-driven).
 - Folder-backed items in the middle pane default to `modified_at DESC` sort, configurable via YAML.
 - When `.notesmith/sidebar.yaml` does not exist, the app behaves as a plain Files-only notes app.
-- The main note workspace should also include a contextual **right rail** for metadata, backlinks, and outgoing links on the active note.
+- The main note workspace should also include a contextual, collapsible **right rail** with tabbed **Metadata**, **Links**, and **TOC** modes for the active note.
+- Notes can set `_icon:` in frontmatter to override their emoji in file trees, quick switchers, and editor tabs. Frontmatter keys prefixed with `_` are reserved for system/UI use and should stay hidden from metadata panels.
+- The **TOC** tab should be driven from live editor headings so it can highlight the current section and jump the editor to a selected heading.
 
 ## Reactive Configuration
 
@@ -61,6 +63,7 @@ For each customer there would be a folder containing:
 - The daemon should watch `.notesmith/sidebar.yaml` and `.notesmith/vault.toml` alongside note files, debounce rapid file-system events, and publish vault-scoped SSE events.
 - Sidebar config is already loaded from disk on each `GET /api/v/{vault}/sidebar-config`; a sidebar config change only needs a `config.changed` SSE event so the frontend can refetch it.
 - Vault config is cached in daemon state and must be reloaded in place after `.notesmith/vault.toml` changes. Invalid TOML should leave the last valid config active and publish a config error event.
+- `vault.toml` should include a top-level `schema_version`; daemon loads must reject newer unknown schemas and automatically migrate older supported schemas before hot-swapping the in-memory config.
 - Config events should include the config key (`sidebar` or `vault`), vault-relative path, status (`changed`, `removed`, or `error`), and an optional parse error message.
 - The frontend should handle config events from the existing `/api/v/{vault}/events` stream: refetch sidebar config for `sidebar`, refresh app state derived from vault config for `vault`, and show non-blocking feedback for invalid config.
 
@@ -70,27 +73,42 @@ For each customer there would be a folder containing:
 - Notes should auto-save shortly after edits and support explicit save with the platform save shortcut.
 - If a file changes on disk while the editor is clean, the editor should silently reload; if it is dirty, the editor should warn and let me reload or keep my in-memory edits.
 - OFM affordances should stay visible while editing, especially wikilinks, tags, task checkboxes, callout markers, inline fields, and YAML frontmatter.
+- Reading and preview rendering should default to Obsidian-style single-newline line breaks, with an editor config toggle to restore strict CommonMark line-break behavior when desired.
+- Source and Live Preview editor modes should support a setting to show or hide CodeMirror line numbers, defaulting to visible.
+- Live Preview should render markdown tables as editable table widgets: cell text can be edited visually, and rows/columns can be appended or removed without dropping into raw pipe syntax.
+- Reading View and Live Preview should syntax-highlight fenced code blocks when the fence declares a supported language. Unsupported or unlabeled fences should remain escaped plain code. In Live Preview, rendered code blocks should switch back to editable source when the cursor enters the fence or the rendered block is clicked.
+- Live Preview should render callout blocks with the same built-in Obsidian-style callout chrome as Reading View when the cursor is outside the block. When the cursor enters any line in the callout block, or when the rendered callout is clicked, the whole block should switch back to editable source text.
+- Reading View callouts should follow Obsidian's built-in callout behavior, including supported type identifiers and aliases, note fallback for unsupported types, custom titles, title-only callouts, nested callouts, and foldable callouts. Custom callout CSS/plugin definitions are out of scope for now.
 - Dashboard notes should stay as normal markdown files in the editor; fenced `notesmith` and `notesmith sql` blocks should execute read-only SQL against the cache and render inline result tables.
 
 ## Desktop App UX
 
 - The primary desktop experience should be a three-pane app: sidebar on the left, tabbed editor workspace in the center, and a collapsible contextual right rail on the right.
+- The top workspace chrome should be a single Obsidian-like bar spanning the left sidebar, editor tabs, and right rail. Sidebar show/hide controls belong in that bar, not as floating affordances that overlap the editor, and should use panel-left/panel-right icons instead of directional arrow glyphs.
 - The note workspace should use tabs that persist across launches and remember each tab's current view mode.
 - Each open tab should support three modes: **Source**, **Live Preview**, and **Reading View**, with a breadcrumb toolbar and a simple mode toggle in the header.
-- The desktop shell should provide a command palette, quick switcher, and keyboard-first navigation for note creation, search, daily notes, inbox capture, archiving, and view toggling.
-- The app should use a dark theme by default and support note deep links through a `notesmith://app/...` URL scheme.
+- Folder notes should follow the same-name markdown convention: a folder note for `Customers/Acme/` is `Customers/Acme/Acme.md`. Matching is exact and markdown-only; dot-prefixed folders such as `.notesmith/` are excluded, and there is no vault-root folder-note concept.
+- In every shared FileTree surface, including custom folder views, a folder with a same-name folder note should open that note when the folder name is clicked, while the disclosure chevron expands or collapses the folder. Folders without folder notes keep the current expand/collapse row behavior.
+- Folder-note files represented by a folder row should be hidden from that tree position to avoid duplicates, but remain normal notes in search, quick switcher, tabs, backlinks, and other non-tree surfaces. When a hidden folder note is active, its folder row should show selected styling; no extra folder-note badge or underline is needed initially.
+- Folder-note creation should be available from both a command-palette flow and a folder right-click context menu. The command should use a searchable picker of existing folders. New folder notes start with an H1 matching the folder name and no special frontmatter; creating an already-existing folder note opens it and shows a non-blocking toast.
+- The folder context menu should initially include only folder-note open/create actions and **Rename Folder**. Folder rename should sync the same-name folder-note filename for Notesmith-initiated renames, block the rename if the synced target filename would collide, and should not rewrite wikilinks or embeds.
+- Folder overview code blocks, bulk folder-note conversion, arbitrary non-markdown folder-note file types, external filesystem rename inference, and breadcrumb/path-segment folder-note opening are out of scope for the first folder-notes project.
+- The desktop shell should provide a command palette, quick switcher, and keyboard-first navigation for note creation, search, daily notes, capture, archiving, and view toggling.
+- The app should use a dark theme by default, with five available themes: **Dark**, **Light**, **System** (follows OS preference), **Manuscript** (dark chrome + light editor, including light-mode callout styling in the editor pane), and **High Contrast** (black background, vivid colors). Theme preference should persist and apply without flash on load.
+- Note creation, capture, and template workflows should use a **sequential input palette** (VS Code/Raycast style) instead of native browser prompts, which are broken in Tauri's WKWebView. Alerts and success messages should use non-blocking **toast notifications**.
+- The app should use a `notesmith://app/...` URL scheme for deep links.
 
-## Inbox Workflow
+## Capture Workflow
 
-- All notes start in the **Inbox** folder.
+- All captured notes start in the configured capture location (for example `Inbox/` if I want a dedicated capture folder).
 - Once I am done working on a note, I move it to the appropriate folder for long-term storage.
-- **Routing engine** (`.notesmith/routing.yaml`) automatically determines each note's destination based on frontmatter fields (`type`, `customer`, `meeting-kind`, `stream`) and moves notes with `notesmith route apply --inbox` or per-note `notesmith route apply <path>`.
+- **Routing engine** (`.notesmith/routing.yaml`) automatically determines each note's destination based on frontmatter fields (`type`, `customer`, `meeting-kind`, `stream`) and moves notes with `notesmith route apply <path>`.
 - Routed notes are stamped with `archived: true` and `archived-at` in frontmatter before moving.
-- The goal is to achieve **Inbox zero**.
+- The goal is to keep the capture backlog at zero.
 
 ## Daily Notes
 
-- Every morning I want a note for that day generated into **Inbox/Daily**. Primary creation should come from an external agent using a saved prompt template, with a daemon scheduler available as a fallback.
+- Every morning I want a note for that day generated into the configured daily location (for example `Inbox/Daily/` if I want a dedicated folder). Primary creation should come from an external agent using a saved prompt template, with a daemon scheduler available as a fallback.
 - Vault-specific agent instructions should live in `.notesmith/skill.md`, and saved prompt templates should live in `.notesmith/prompts/` so agents can assemble daily-note context consistently.
 - Vault hooks can trigger external automation on note creation (`on_note_create`) and daily note creation (`on_daily_create`) without blocking the underlying Notesmith action.
 
@@ -138,3 +156,18 @@ For each customer there would be a folder containing:
 - CLI: `notesmith git {status, pull, push, sync, log}`.
 - HTTP: `GET /api/v/{vault}/git/status`, `POST /api/v/{vault}/git/sync`.
 - Non-git vaults are completely unaffected.
+
+## Daemon Diagnostics
+
+- The daemon should expose `GET /api/status` with version, API schema, uptime, vault note counts, watcher/index health placeholders, and resource diagnostics (RSS, open FDs, SSE connection count, cache size).
+- On daemon start, Notesmith should run SQLite cache and Tantivy integrity checks, automatically move aside corrupt artifacts, and rebuild them from markdown files before serving the vault.
+- Vaults reported by `GET /api/status` should surface a temporary `rebuilding` state while a manual reindex is in progress so the UI can show a rebuild banner.
+- `GET /ping` remains as a lightweight compatibility alias for scripts, but richer clients should rely on `/api/status`.
+- API and admin responses should include daemon version and schema headers so the frontend can detect incompatible client/daemon pairs, show a blue compatibility banner, and mark the sidebar status pill as restart-required until versions align.
+- The daemon should write daily-rotated logs to the platform log directory, retain 7 days of history, and expose `GET /admin/logs?tail=` for local diagnostics.
+- The desktop shell should show a bottom status bar with connection status, active vault, cursor position, word count, and save state. Clicking the connection section should open a popover with daemon health details and local controls for restart, reindex, and log tail viewing.
+- CLI reindexing should be available as `notesmith reindex` with `--cache-only` and `--search-only` flags, defaulting to all registered vaults unless `--vault` is supplied.
+- The daemon should write a JSON lockfile at the platform-specific Notesmith data/runtime location containing PID, port, version, start time, and binary path so desktop and other local clients can discover the live daemon and clean up stale entries.
+- The daemon should watch the global config file and hot-reload vault registrations (add, remove, rename/path changes) without requiring a restart, emitting SSE `vaults.changed` so clients can refresh the vault list.
+- Daemon-backed CLI commands should auto-start the HTTP daemon on first use when `[daemon].auto_start = true`, so workflows like capture, query, note CRUD, search, routing, templates, reindex, dailies, tasks, and `notesmith://` deep links do not require a manual `notesmith daemon start`.
+- `notesmith mcp start` remains a standalone stdio server with its own in-memory indexes rather than proxying through the HTTP daemon.

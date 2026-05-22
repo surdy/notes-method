@@ -2,13 +2,18 @@ use crate::error::ConfigError;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// Current schema version for vault-local `vault.toml` files.
+pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VaultConfig {
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
     pub name: String,
     #[serde(default)]
     pub homepage: Option<String>,
     #[serde(default)]
-    pub inbox: InboxConfig,
+    pub capture: CaptureConfig,
     #[serde(default)]
     pub daily: DailyConfig,
     #[serde(default)]
@@ -19,27 +24,42 @@ pub struct VaultConfig {
     pub hooks: HooksConfig,
 }
 
+fn default_schema_version() -> u32 {
+    CURRENT_SCHEMA_VERSION
+}
+
+impl Default for VaultConfig {
+    fn default() -> Self {
+        Self {
+            schema_version: default_schema_version(),
+            name: String::new(),
+            homepage: None,
+            capture: Default::default(),
+            daily: Default::default(),
+            editor: Default::default(),
+            git: Default::default(),
+            hooks: Default::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct InboxConfig {
-    #[serde(default = "default_inbox_folder")]
+pub struct CaptureConfig {
+    #[serde(default)]
     pub folder: String,
-    #[serde(default = "default_inbox_template")]
+    #[serde(default = "default_capture_template")]
     pub template: String,
 }
 
-fn default_inbox_folder() -> String {
-    "Inbox".to_string()
-}
-
-fn default_inbox_template() -> String {
+fn default_capture_template() -> String {
     "generic-note".to_string()
 }
 
-impl Default for InboxConfig {
+impl Default for CaptureConfig {
     fn default() -> Self {
         Self {
-            folder: default_inbox_folder(),
-            template: default_inbox_template(),
+            folder: String::new(),
+            template: default_capture_template(),
         }
     }
 }
@@ -59,7 +79,7 @@ pub struct DailyConfig {
 }
 
 fn default_daily_folder() -> String {
-    "Inbox/Daily".to_string()
+    String::new()
 }
 
 fn default_daily_template() -> String {
@@ -84,6 +104,12 @@ pub struct EditorConfig {
     pub live_preview: bool,
     #[serde(default = "default_editor_mode")]
     pub default_mode: String,
+    #[serde(default)]
+    pub strict_line_breaks: bool,
+    #[serde(default = "default_true")]
+    pub show_line_numbers: bool,
+    #[serde(default = "default_true")]
+    pub hide_duplicate_h1: bool,
 }
 
 fn default_true() -> bool {
@@ -99,6 +125,9 @@ impl Default for EditorConfig {
         Self {
             live_preview: default_true(),
             default_mode: default_editor_mode(),
+            strict_line_breaks: false,
+            show_line_numbers: default_true(),
+            hide_duplicate_h1: default_true(),
         }
     }
 }
@@ -140,6 +169,10 @@ impl VaultConfig {
 
     pub fn load_from_vault(vault_root: &Path) -> Result<Self, ConfigError> {
         Self::load_from(&vault_root.join(".notesmith").join("vault.toml"))
+    }
+
+    pub fn save_to_vault(&self, vault_root: &Path) -> Result<(), ConfigError> {
+        self.save_to(&vault_root.join(".notesmith").join("vault.toml"))
     }
 
     pub fn save_to(&self, path: &Path) -> Result<(), ConfigError> {

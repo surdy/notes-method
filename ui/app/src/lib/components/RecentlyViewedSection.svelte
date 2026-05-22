@@ -1,6 +1,7 @@
 <script lang="ts">
 import { executeSql } from '$lib/api';
 import { getRecentlyViewed } from '$lib/recently-viewed';
+import { tabStore } from '$lib/tab-store.svelte';
 import { vaultStore } from '$lib/stores.svelte';
 
 let { mode, limit }: { mode: 'viewed' | 'edited' | 'both'; limit: number } = $props();
@@ -14,7 +15,7 @@ let items = $state<Item[]>([]);
 
 $effect(() => {
 const vault = vaultStore.currentVault;
-const _path = vaultStore.selectedPath;
+const _path = tabStore.selectedPath;
 if (!vault) return;
 void loadItems(vault);
 });
@@ -63,7 +64,7 @@ return merged.slice(0, max);
 }
 
 function open(path: string) {
-vaultStore.selectNote(path);
+tabStore.selectNote(path);
 }
 </script>
 
@@ -71,7 +72,7 @@ vaultStore.selectNote(path);
 {#each items as item (item.path)}
 <button
 class="item"
-class:selected={vaultStore.selectedPath === item.path}
+class:selected={tabStore.selectedPath === item.path}
 onclick={() => open(item.path)}
 type="button"
 >
@@ -94,7 +95,7 @@ width: 100%;
 padding: 5px 12px;
 border: none;
 background: none;
-color: var(--text-secondary, #cccccc);
+color: var(--ns-text-secondary);
 font-size: 13px;
 text-align: left;
 cursor: pointer;
@@ -104,12 +105,12 @@ text-overflow: ellipsis;
 }
 
 .item:hover {
-background: var(--hover-bg, #2a2d2e);
+background: var(--ns-surface-hover);
 }
 
 .item.selected {
-background: var(--selected-bg, #094771);
-color: white;
+background: var(--ns-selected-bg);
+color: var(--ns-text-inverse);
 }
 
 .item-title {
@@ -120,6 +121,6 @@ text-overflow: ellipsis;
 .empty {
 padding: 8px 12px;
 font-size: 12px;
-color: var(--text-muted, #888);
+color: var(--ns-text-muted);
 }
 </style>

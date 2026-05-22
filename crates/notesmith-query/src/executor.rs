@@ -7,6 +7,8 @@ pub struct QueryResult {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<JsonValue>>,
     pub row_count: usize,
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -18,6 +20,14 @@ pub enum QueryError {
 }
 
 pub fn execute_sql(cache: &VaultCache, sql: &str) -> Result<QueryResult, QueryError> {
+    execute_sql_with_options(cache, sql, None)
+}
+
+pub fn execute_sql_with_options(
+    cache: &VaultCache,
+    sql: &str,
+    max_rows: Option<usize>,
+) -> Result<QueryResult, QueryError> {
     let trimmed = sql.trim().to_uppercase();
     if !trimmed.starts_with("SELECT") && !trimmed.starts_with("WITH") {
         return Err(QueryError::NotReadOnly);
@@ -35,7 +45,9 @@ pub fn execute_sql(cache: &VaultCache, sql: &str) -> Result<QueryResult, QueryEr
         .collect::<Vec<_>>();
     let column_count = columns.len();
 
-    let rows = stmt
+    let mut rows = Vec::new();
+    let mut truncated = false;
+    let mapped_rows = stmt
         .query_map([], |row| {
             let mut values = Vec::with_capacity(column_count);
             for index in 0..column_count {
@@ -55,14 +67,22 @@ pub fn execute_sql(cache: &VaultCache, sql: &str) -> Result<QueryResult, QueryEr
             }
             Ok(values)
         })
-        .map_err(|err| QueryError::ExecutionError(err.to_string()))?
-        .collect::<Result<Vec<_>, _>>()
         .map_err(|err| QueryError::ExecutionError(err.to_string()))?;
+
+    for row in mapped_rows {
+        let row = row.map_err(|err| QueryError::ExecutionError(err.to_string()))?;
+        if max_rows.is_some_and(|limit| rows.len() >= limit) {
+            truncated = true;
+            break;
+        }
+        rows.push(row);
+    }
 
     let row_count = rows.len();
     Ok(QueryResult {
         columns,
         rows,
         row_count,
+        truncated,
     })
 }

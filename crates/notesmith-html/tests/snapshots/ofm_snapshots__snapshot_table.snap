@@ -1,0 +1,66 @@
+---
+source: crates/notesmith-html/tests/ofm_snapshots.rs
+expression: html
+---
+<p>You can create tables by assembling a list of words and dividing them with hyphens <code>-</code> (for the first row), and then separating each column with a pipe <code>|</code>:</p>
+<pre><code class="language-md">First Header | Second Header
+------------ | ------------
+Content from cell 1 | Content from cell 2
+Content in the first column | Content in the second column
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>First Header</th>
+<th>Second Header</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Content from cell 1</td>
+<td>Content from cell 2</td>
+</tr>
+<tr>
+<td>Content in the first column</td>
+<td>Content in the second column</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<pre><code class="language-md">Tables can be justified with a colon | Another example with a long title
+:----------------|-------------:
+because of the `:` | these will be justified
+</code></pre>
+<table>
+<thead>
+<tr>
+<th align="left">Tables can be justified with a colon</th>
+<th align="right">Another example with a long title</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="left">because of the <code>:</code></td>
+<td align="right">these will be justified</td>
+</tr>
+</tbody>
+</table>
+<p>If you put links in tables, they will work, but if you use Piped Links, the pipe must be escaped with a <code>\</code> to prevent it being read as a table element.</p>
+<pre><code class="language-md">First Header | Second Header
+------------ | ------------
+<a class="wikilink" data-target="Format your notes\">Formatting</a>	|  <a class="wikilink" data-target="Callouts\">Callouts</a>
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>First Header</th>
+<th>Second Header</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="wikilink" data-target="Format your notes">Formatting</a></td>
+<td><a class="wikilink" data-target="Callout">Callouts</a></td>
+</tr>
+</tbody>
+</table>

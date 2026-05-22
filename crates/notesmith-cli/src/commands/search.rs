@@ -1,10 +1,8 @@
 use std::path::Path;
 
-use anyhow::Context;
 use clap::Args;
 use notesmith_config::{GlobalConfig, detect_vault};
 use notesmith_index::SearchResult;
-use reqwest::Url;
 
 use crate::commands::vault::OutputFormat;
 
@@ -26,11 +24,9 @@ impl SearchCommand {
         cwd: &Path,
         format: OutputFormat,
     ) -> anyhow::Result<()> {
+        crate::daemon_client::ensure_daemon(global_config).await?;
         let detected = detect_vault(cwd, explicit_vault, global_config)?;
-        let mut url =
-            Url::parse(&format!("http://{}/", global_config.daemon.bind)).with_context(|| {
-                format!("invalid daemon bind address: {}", global_config.daemon.bind)
-            })?;
+        let mut url = crate::daemon_client::daemon_url(global_config)?;
         url.path_segments_mut()
             .map_err(|_| anyhow::anyhow!("daemon URL cannot be a base"))?
             .push("api")
@@ -54,7 +50,7 @@ impl SearchCommand {
             .map_err(|error| {
                 if error.is_connect() {
                     anyhow::anyhow!(
-                        "could not reach the Notesmith daemon at {}. Start it with `notesmith daemon start`",
+                        "could not reach the Notesmith daemon at {}",
                         global_config.daemon.bind
                     )
                 } else {

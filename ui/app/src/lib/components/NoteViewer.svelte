@@ -1,5 +1,12 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { getNote, getNoteHtml, toggleTaskStatus, type NoteTask, type TaskMutationStatus } from '$lib/api';
+	import { applySyntaxHighlighting } from '$lib/editor/code-highlighting';
+	import { displayTitleFor } from '$lib/display-title';
+	import TitleHeader from '$lib/components/TitleHeader.svelte';
+	import { stripFirstH1IfMatchesTitle } from '$lib/duplicate-h1';
+	import { settingsStore } from '$lib/settings.svelte';
+	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
 	let html = $state('');
@@ -7,12 +14,20 @@
 	let tasks = $state<NoteTask[]>([]);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
+	let contentElement = $state<HTMLElement | null>(null);
 
 	interface Props {
 		path: string | null;
 	}
 
 	let { path }: Props = $props();
+
+	let title = $derived(displayTitleFor({ path: path ?? '', frontmatter }));
+	let renderedHtml = $derived(
+		(settingsStore.draftConfig?.editor.hide_duplicate_h1 ?? true)
+			? stripFirstH1IfMatchesTitle(html, title)
+			: html
+	);
 
 	$effect(() => {
 		if (path) {
@@ -22,6 +37,22 @@
 			frontmatter = {};
 			tasks = [];
 		}
+	});
+
+	$effect(() => {
+		const element = contentElement;
+		const renderedHtml = html;
+		if (!element || !renderedHtml) return;
+
+		void tick()
+			.then(() => {
+				if (contentElement === element && html === renderedHtml) {
+					return applySyntaxHighlighting(element);
+				}
+			})
+			.catch((cause) => {
+				console.error('Failed to highlight reading view code blocks', cause);
+			});
 	});
 
 	async function loadNote(notePath: string) {
@@ -57,6 +88,16 @@
 			return;
 		}
 
+		const calloutTitle = target.closest('.callout[data-fold] .callout-title') as HTMLElement | null;
+		if (calloutTitle) {
+			const callout = calloutTitle.closest('.callout') as HTMLElement | null;
+			if (callout) {
+				event.preventDefault();
+				callout.dataset.fold = callout.dataset.fold === 'closed' ? 'open' : 'closed';
+			}
+			return;
+		}
+
 		// Handle wikilink clicks
 		const link = target.closest('a.wikilink') as HTMLAnchorElement | null;
 		if (!link) return;
@@ -72,7 +113,7 @@
 				note.path.endsWith(`${noteTarget}.md`)
 		);
 		if (match) {
-			vaultStore.selectNote(match.path);
+			tabStore.selectNote(match.path);
 		}
 	}
 
@@ -111,27 +152,11 @@
 	{:else if error}
 		<div class="error">{error}</div>
 	{:else}
-		{#if Object.keys(frontmatter).length > 0}
-			<div class="frontmatter">
-				<table>
-					<tbody>
-						{#each Object.entries(frontmatter) as [key, value] (key)}
-							<tr>
-								<td class="fm-key">{key}</td>
-								<td class="fm-value">
-									{typeof value === 'object' ? JSON.stringify(value) : String(value)}
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
-
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="content" onclick={handleClick}>
-			{@html html}
+		<div class="content" bind:this={contentElement} onclick={handleClick}>
+			<TitleHeader path={path ?? ''} frontmatter={frontmatter} variant="viewer" />
+			{@html renderedHtml}
 		</div>
 	{/if}
 </div>
@@ -141,7 +166,9 @@
 		flex: 1;
 		overflow-y: auto;
 		padding: 24px 32px;
-		color: var(--text-primary, #e0e0e0);
+		background: var(--ns-editor-bg);
+		color: var(--ns-editor-text);
+		line-height: var(--ns-line-height-normal);
 	}
 
 	.empty-state {
@@ -149,32 +176,25 @@
 		align-items: center;
 		justify-content: center;
 		height: 100%;
-		color: var(--text-muted, #888);
+		color: var(--ns-editor-text-muted);
 	}
 
-	.frontmatter {
-		background: var(--surface-bg, #1e1e1e);
-		border: 1px solid var(--border-color, #333);
-		border-radius: 6px;
-		padding: 12px 16px;
-		margin-bottom: 20px;
-		font-size: 13px;
+	.content :global(p) {
+		margin: 0 0 var(--ns-paragraph-spacing);
 	}
 
-	.frontmatter table {
-		width: 100%;
-		border-collapse: collapse;
+	.content :global(p:last-child) {
+		margin-bottom: 0;
 	}
 
-	.fm-key {
-		font-weight: 600;
-		padding: 2px 12px 2px 0;
-		color: var(--text-accent, #7ec8e3);
-		white-space: nowrap;
+	.content :global(ul),
+	.content :global(ol) {
+		margin: 0 0 var(--ns-paragraph-spacing);
+		padding-left: 1.5em;
 	}
 
-	.fm-value {
-		padding: 2px 0;
+	.content :global(li) > :global(p) {
+		margin: 0;
 	}
 
 	.content :global(h1) {
@@ -193,10 +213,28 @@
 	}
 
 	.content :global(a.wikilink) {
-		color: var(--link-color, #7ec8e3);
+		color: var(--ns-editor-link);
 		cursor: pointer;
 		text-decoration: underline;
 		text-decoration-style: dotted;
+	}
+
+	/* External links (not wikilinks): add an arrow icon to distinguish from
+	   internal vault links. Matches common URL schemes plus protocol-relative. */
+	.content :global(a[href^='http://']:not(.wikilink))::after,
+	.content :global(a[href^='https://']:not(.wikilink))::after,
+	.content :global(a[href^='//']:not(.wikilink))::after,
+	.content :global(a[href^='mailto:']:not(.wikilink))::after,
+	.content :global(a[href^='tel:']:not(.wikilink))::after,
+	.content :global(a[href^='ftp://']:not(.wikilink))::after,
+	.content :global(a[href^='obsidian://']:not(.wikilink))::after,
+	.content :global(a[href^='notesmith://']:not(.wikilink))::after {
+		content: '↗';
+		display: inline-block;
+		margin-left: 0.15em;
+		font-size: 0.85em;
+		vertical-align: baseline;
+		opacity: 0.7;
 	}
 
 	.content :global(table) {
@@ -206,37 +244,157 @@
 
 	.content :global(th),
 	.content :global(td) {
-		border: 1px solid var(--border-color, #444);
+		border: 1px solid var(--ns-editor-border);
 		padding: 6px 12px;
 	}
 
 	.content :global(blockquote) {
-		border-left: 3px solid var(--border-color, #444);
+		border-left: 3px solid var(--ns-editor-border);
 		margin: 1em 0;
 		padding: 0.5em 1em;
-		color: var(--text-muted, #aaa);
+		color: var(--ns-editor-text-faint);
+	}
+
+	.content :global(code) {
+		padding: 0.15em 0.35em;
+		border-radius: 4px;
+		background: var(--ns-panel-bg-strong);
+		font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+		font-size: 0.9em;
+	}
+
+	.content :global(pre) {
+		margin: 1em 0;
+		padding: 1em;
+		border: 1px solid var(--ns-editor-border);
+		border-radius: 8px;
+		background: var(--ns-panel-bg-strong);
+		overflow-x: auto;
+	}
+
+	.content :global(pre code) {
+		padding: 0;
+		background: transparent;
 	}
 
 	.content :global(.callout) {
-		border-radius: 6px;
+		--ns-callout-current: var(--ns-callout-note);
+		--ns-callout-icon: '✎';
+		border: 1px solid color-mix(in srgb, var(--ns-callout-current) 42%, transparent);
+		border-left: 4px solid var(--ns-callout-current);
+		border-radius: 8px;
 		padding: 12px 16px;
 		margin: 1em 0;
-		border-left: 4px solid;
+		background: color-mix(in srgb, var(--ns-callout-current) 13%, var(--ns-editor-bg));
+		color: var(--ns-editor-text);
+	}
+
+	.content :global(.callout-title) {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		color: var(--ns-callout-current);
+		font-weight: 700;
+	}
+
+	.content :global(.callout-title::before) {
+		content: var(--ns-callout-icon);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		flex: 0 0 18px;
+	}
+
+	.content :global(.callout[data-fold] .callout-title) {
+		cursor: pointer;
+	}
+
+	.content :global(.callout[data-fold] .callout-title::after) {
+		content: '⌄';
+		margin-left: auto;
+		color: var(--ns-editor-text-muted);
+	}
+
+	.content :global(.callout[data-fold='closed'] .callout-title::after) {
+		content: '›';
+	}
+
+	.content :global(.callout[data-fold='closed'] .callout-body) {
+		display: none;
+	}
+
+	.content :global(.callout-body > :first-child) {
+		margin-top: 0;
+	}
+
+	.content :global(.callout-body > :last-child) {
+		margin-bottom: 0;
+	}
+
+	.content :global(.callout-note) {
+		--ns-callout-current: var(--ns-callout-note);
+		--ns-callout-icon: '✎';
+	}
+
+	.content :global(.callout-abstract) {
+		--ns-callout-current: var(--ns-callout-abstract);
+		--ns-callout-icon: '☷';
 	}
 
 	.content :global(.callout-info) {
-		border-color: #4a9eff;
-		background: #1a3a5c;
+		--ns-callout-current: var(--ns-callout-info);
+		--ns-callout-icon: 'ⓘ';
 	}
 
-	.content :global(.callout-warning) {
-		border-color: #ffb347;
-		background: #3d3018;
+	.content :global(.callout-todo) {
+		--ns-callout-current: var(--ns-callout-todo);
+		--ns-callout-icon: '☑';
 	}
 
 	.content :global(.callout-tip) {
-		border-color: #50c878;
-		background: #1a3d2a;
+		--ns-callout-current: var(--ns-callout-tip);
+		--ns-callout-icon: '🔥';
+	}
+
+	.content :global(.callout-success) {
+		--ns-callout-current: var(--ns-callout-success);
+		--ns-callout-icon: '✓';
+	}
+
+	.content :global(.callout-question) {
+		--ns-callout-current: var(--ns-callout-question);
+		--ns-callout-icon: '?';
+	}
+
+	.content :global(.callout-warning) {
+		--ns-callout-current: var(--ns-callout-warning);
+		--ns-callout-icon: '⚠';
+	}
+
+	.content :global(.callout-failure) {
+		--ns-callout-current: var(--ns-callout-failure);
+		--ns-callout-icon: '✕';
+	}
+
+	.content :global(.callout-danger) {
+		--ns-callout-current: var(--ns-callout-danger);
+		--ns-callout-icon: '⚡';
+	}
+
+	.content :global(.callout-bug) {
+		--ns-callout-current: var(--ns-callout-bug);
+		--ns-callout-icon: '◉';
+	}
+
+	.content :global(.callout-example) {
+		--ns-callout-current: var(--ns-callout-example);
+		--ns-callout-icon: '▦';
+	}
+
+	.content :global(.callout-quote) {
+		--ns-callout-current: var(--ns-callout-quote);
+		--ns-callout-icon: '❝';
 	}
 
 	.content :global(input[type='checkbox']) {
@@ -245,7 +403,7 @@
 	}
 
 	.content :global(li) {
-		color: var(--text-primary, #e0e0e0);
+		color: var(--ns-editor-text);
 	}
 
 	.loading,
@@ -255,6 +413,6 @@
 	}
 
 	.error {
-		color: #ff6b6b;
+		color: var(--ns-danger);
 	}
 </style>

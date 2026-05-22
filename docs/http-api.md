@@ -4,17 +4,82 @@ The daemon listens on `127.0.0.1:27183` by default (configurable via `--bind` or
 
 All API endpoints are unauthenticated — the daemon is designed for local use.
 
+## Version Negotiation
+
+All daemon API and admin responses include compatibility headers:
+
+- `X-Notesmith-Server-Version` — daemon package version (for example `0.1.0`)
+- `X-Notesmith-Schema-Version` — API schema version integer (currently `1`)
+
+Rich clients should send `X-Notesmith-Client-Version` on requests and compare the returned server version/schema before assuming compatibility.
+
 ---
 
 ## Health
 
+### `GET /api/status`
+
+Rich daemon status for resilient clients and diagnostics.
+
+**Response:** `200 OK`
+```json
+{
+  "status": "ok",
+  "version": "0.1.0",
+  "api_schema": 1,
+  "pid": 12345,
+  "started_at": "2026-05-14T19:00:00Z",
+  "binary_path": "/path/to/notesmith",
+  "vaults": [{ "name": "work", "state": "ready", "notes": 421 }],
+  "watchers": [{ "vault": "work", "state": "healthy", "message": null }],
+  "indexes": [{ "vault": "work", "state": "healthy", "last_reindex": "2026-05-14T19:00:00Z" }],
+  "resources": {
+    "rss_bytes": 52428800,
+    "open_fds": 47,
+    "sse_connections": 2,
+    "cache_size_bytes": 1048576
+  }
+}
+```
+
+**Notes:**
+- `api_schema` is the daemon compatibility contract version.
+- `vaults[*].state` is `"ready"` or `"rebuilding"`.
+- `watchers[*].state` is `"healthy"`, `"degraded"`, or `"polling"`.
+- `watchers[*].message` is present when the daemon has an operator hint (for example, a network-drive warning or automatic resync message).
+- `indexes[*].state` currently returns `"healthy"`.
+- `last_reindex` is derived from the cache artifact timestamp when available.
+
+**Example:**
+```bash
+curl http://127.0.0.1:27183/api/status
+```
+
 ### `GET /ping`
 
-Health check.
+Lightweight health check alias.
 
 **Response:** `200 OK`
 ```json
 { "status": "ok" }
+```
+
+### `GET /admin/logs`
+
+Returns recent daemon log lines as plain text.
+
+**Query parameters:**
+- `tail` (optional, default: `200`, max: `1000`) — number of lines to return
+
+**Response:** `200 OK` with `text/plain`
+
+**Errors:**
+- `404` — no daemon log file exists yet
+- `500` — daemon log file could not be read
+
+**Example:**
+```bash
+curl http://127.0.0.1:27183/admin/logs?tail=100
 ```
 
 ---
@@ -49,7 +114,7 @@ curl http://127.0.0.1:27183/api/capabilities
 
 ### `GET /api/v/{vault}/config`
 
-Read the vault configuration from `.notesmith/vault.toml`. Returns the parsed config, a blake3 hash for ETag-based conflict detection, and any validation warnings.
+Read the vault configuration from `.notesmith/vault.toml`. Returns the parsed config, a blake3 hash for ETag-based conflict detection, and any validation warnings. Older supported config schemas are migrated on load before the response is returned.
 
 The response includes an `ETag` header with the config hash for use with `PUT` requests.
 
@@ -57,18 +122,17 @@ The response includes an `ETag` header with the config hash for use with `PUT` r
 ```json
 {
   "config": {
+    "schema_version": 1,
     "name": "work",
-    "inbox": { "folder": "Inbox", "template": "generic-note" },
-    "daily": { "folder": "Inbox/Daily", "template": "daily-note", "generate_at": "06:00", "timezone": "America/Los_Angeles", "catch_up": false },
-    "editor": { "live_preview": true, "default_mode": "source" },
+    "capture": { "folder": "", "template": "generic-note" },
+    "daily": { "folder": "", "template": "daily-note", "generate_at": "06:00", "timezone": "America/Los_Angeles", "catch_up": false },
+    "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
     "git": { "enabled": true, "auto_commit_every": "5m", "auto_pull_every": "10m", "auto_push_every": "10m" },
     "hooks": {}
   },
   "hash": "a1b2c3d4...",
   "path": ".notesmith/vault.toml",
-  "warnings": {
-    "inbox.folder": "Folder 'Inbox' does not exist"
-  }
+  "warnings": {}
 }
 ```
 
@@ -95,10 +159,11 @@ Update the vault configuration. Requires an `If-Match` header with the current c
 **Request body:** Full `VaultConfig` object:
 ```json
 {
+  "schema_version": 1,
   "name": "work",
-  "inbox": { "folder": "Inbox", "template": "generic-note" },
-  "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-  "editor": { "live_preview": true, "default_mode": "source" },
+  "capture": { "folder": "", "template": "generic-note" },
+  "daily": { "folder": "", "template": "daily-note", "catch_up": false },
+  "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
   "git": { "enabled": false },
   "hooks": {}
 }
@@ -121,7 +186,7 @@ Update the vault configuration. Requires an `If-Match` header with the current c
 - `daily.generate_at` must be `HH:MM` format (00:00–23:59)
 - `daily.timezone` must be a valid IANA timezone
 - `git.auto_commit_every`, `git.auto_pull_every`, `git.auto_push_every` must be duration strings like `5m`, `1h`, `30s`
-- Missing inbox/daily folders produce warnings (non-blocking)
+- Missing capture/daily folders produce warnings (non-blocking)
 
 **Errors:**
 - `403` — origin not allowed (cross-origin write attempt)
@@ -140,7 +205,7 @@ HASH=$(echo "$RESPONSE" | jq -r .hash)
 curl -X PUT http://127.0.0.1:27183/api/v/work/config \
   -H "Content-Type: application/json" \
   -H "If-Match: \"$HASH\"" \
-  -d '{"name":"work","inbox":{"folder":"Inbox","template":"generic-note"},"daily":{"folder":"Inbox/Daily","template":"daily-note","catch_up":false},"editor":{"live_preview":true,"default_mode":"source"},"git":{"enabled":false},"hooks":{}}'
+  -d '{"schema_version":1,"name":"work","capture":{"folder":"","template":"generic-note"},"daily":{"folder":"","template":"daily-note","catch_up":false},"editor":{"live_preview":true,"default_mode":"source","strict_line_breaks":false},"git":{"enabled":false},"hooks":{}}'
 
 ### `GET /api/v/{vault}/notes`
 
@@ -206,13 +271,13 @@ curl "http://127.0.0.1:27183/api/v/work/html/Customers/Acme%20Corp/Acme%20Corp.m
 
 ### `POST /api/v/{vault}/notes`
 
-Create a new note. The server writes `{folder}/{title}.md`, defaults `folder` to `Inbox`, runs the save pipeline, and returns the written hash.
+Create a new note. The server writes `{folder}/{title}.md`, defaults `folder` to the `capture.folder` config value, runs the save pipeline, and returns the written hash.
 
 **Request body:**
 ```json
 {
   "title": "Follow Up",
-  "folder": "Inbox",
+  "folder": "",
   "content": "Body text",
   "frontmatter": {
     "status": "draft"
@@ -223,7 +288,7 @@ Create a new note. The server writes `{folder}/{title}.md`, defaults `folder` to
 **Response:** `201 Created`
 ```json
 {
-  "path": "Inbox/Follow Up.md",
+  "path": "Follow Up.md",
   "hash": "2d7d0d..."
 }
 ```
@@ -246,7 +311,7 @@ Replace a note's content. If `expected_hash` is supplied, the write is rejected 
 **Response:** `200 OK`
 ```json
 {
-  "path": "Inbox/Follow Up.md",
+  "path": "Follow Up.md",
   "hash": "9a5b62..."
 }
 ```
@@ -273,7 +338,7 @@ Merge frontmatter fields into the current note, then run the save pipeline befor
 **Response:** `200 OK`
 ```json
 {
-  "path": "Inbox/Follow Up.md",
+  "path": "Follow Up.md",
   "hash": "35cb45..."
 }
 ```
@@ -298,7 +363,7 @@ Append content to an existing note, then run the save pipeline.
 **Response:** `200 OK`
 ```json
 {
-  "path": "Inbox/Follow Up.md",
+  "path": "Follow Up.md",
   "hash": "0f18d0..."
 }
 ```
@@ -317,10 +382,65 @@ Move a note to another vault-relative path.
 **Response:** `200 OK`
 ```json
 {
-  "from": "Inbox/Follow Up.md",
+  "from": "Follow Up.md",
   "to": "Customers/Acme/Follow Up.md"
 }
 ```
+
+### `POST /api/v/{vault}/notes-rename/{path...}`
+
+Rename a note within its current folder. The `.md` extension is added automatically; users supply only the bare name. Case-only renames (e.g. `Foo.md` → `foo.md`) are supported on case-insensitive filesystems.
+
+After the rename succeeds, the daemon rewrites every `[[wikilink]]` and `![[embed]]` whose target matches the old basename across the vault. Frontmatter, fenced code blocks, and inline code spans are left untouched. The wikilink rewrite is best-effort: if it fails, the rename still succeeds and an error is logged.
+
+**Request body:**
+```json
+{
+  "name": "New Name"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "from": "Inbox/Old Name.md",
+  "to": "Inbox/New Name.md",
+  "references_rewritten": 3
+}
+```
+
+**Errors:**
+- `400` — empty name, contains `/`, `\`, or reserved chars (`:`, `*`, `?`, `"`, `<`, `>`, `|`).
+- `404` — source note does not exist.
+- `409` — destination filename already exists in the same folder.
+
+### `POST /api/v/{vault}/folders-rename/{path...}`
+
+Rename a folder within its current parent folder. If the folder contains a same-name folder note, the daemon also renames that note to match the new folder name. Wikilinks and embeds are not rewritten.
+
+**Request body:**
+```json
+{
+  "name": "Globex"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "from": "Customers/Acme",
+  "to": "Customers/Globex",
+  "folder_note_from": "Customers/Acme/Acme.md",
+  "folder_note_to": "Customers/Globex/Globex.md"
+}
+```
+
+When no same-name folder note exists, `folder_note_from` and `folder_note_to` are `null`.
+
+**Errors:**
+- `400` — unsafe folder path or folder name
+- `404` — vault or source folder not found
+- `409` — destination folder exists, or the synced folder-note filename would collide with an existing note
 
 ### Save pipeline
 
@@ -339,11 +459,11 @@ Vaults can configure `.notesmith/vault.toml` hooks for `on_note_create` and `on_
 
 ---
 
-## Inbox
+## Capture
 
-### `POST /api/v/{vault}/inbox`
+### `POST /api/v/{vault}/capture`
 
-Quick-capture a note to the inbox folder. Generates a timestamped filename.
+Quick-capture a note to the capture folder. Generates a timestamped filename.
 
 **Request body:**
 ```json
@@ -355,32 +475,17 @@ Quick-capture a note to the inbox folder. Generates a timestamped filename.
 
 Only `text` is required. `title` is optional — when provided it's used as the filename slug, otherwise the slug is derived from the first 40 characters of `text`.
 
-**Filename format:** `{inbox_folder}/{YYYY-MM-DD HH-MM-SS} - {slug}.md`
+**Filename format:** `{capture_folder}/{YYYY-MM-DD HH-MM-SS} - {slug}.md`
 
 **Response:** `201 Created`
 ```json
 {
-  "path": "Inbox/2026-05-09 16-30-00 - Phone Call.md",
+  "path": "2026-05-09 16-30-00 - Phone Call.md",
   "hash": "a1b2c3..."
 }
 ```
 
-### `GET /api/v/{vault}/inbox`
-
-List unarchived notes in the inbox folder (up to 100, sorted by path descending).
-
-**Response:** `200 OK`
-```json
-[
-  {
-    "path": "Inbox/2026-05-09 16-30-00 - Phone Call.md",
-    "title": "Phone Call",
-    "type": "note",
-    "archived": false,
-    "..."
-  }
-]
-```
+> **Note:** Folder listings now go through `POST /api/v/{vault}/query/sql` with `WHERE path LIKE 'folder/%'`.
 
 ---
 
@@ -428,10 +533,22 @@ Execute read-only SQL against the SQLite cache. Only `SELECT` and `WITH` stateme
 
 **Request body:**
 ```json
-{ "sql": "SELECT title, state FROM v_customers ORDER BY title" }
+{
+  "sql": "SELECT title, state FROM v_customers ORDER BY title",
+  "max_rows": 10000,
+  "format": "json"
+}
 ```
 
-**Response:** `200 OK`
+**Request fields:**
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `sql` | string | yes | — | Read-only SQL statement |
+| `max_rows` | integer | no | `10000` | Maximum rows returned before truncation |
+| `format` | `json` \| `markdown` | no | `json` | Response format |
+
+**Response (`format: "json"`):** `200 OK`
 ```json
 {
   "columns": ["title", "state"],
@@ -439,8 +556,17 @@ Execute read-only SQL against the SQLite cache. Only `SELECT` and `WITH` stateme
     ["Acme Corp", "Active"],
     ["Globex Industries", "Onboarding"]
   ],
-  "row_count": 2
+  "row_count": 2,
+  "truncated": false
 }
+```
+
+**Response (`format: "markdown"`):** `200 OK`
+```text
+| title | state |
+| --- | --- |
+| Acme Corp | Active |
+| Globex Industries | Onboarding |
 ```
 
 **Errors:**
@@ -453,6 +579,12 @@ Execute read-only SQL against the SQLite cache. Only `SELECT` and `WITH` stateme
 curl -s http://127.0.0.1:27183/api/v/work/query/sql \
   -H 'content-type: application/json' \
   -d '{"sql":"SELECT title, state FROM v_customers ORDER BY title"}'
+```
+
+```bash
+curl -s http://127.0.0.1:27183/api/v/work/query/sql \
+  -H 'content-type: application/json' \
+  -d '{"sql":"SELECT title, state FROM v_customers ORDER BY title","format":"markdown","max_rows":25}'
 ```
 
 See [SQL Views Reference](sql-views.md) for available views.
@@ -473,7 +605,7 @@ Load sidebar view configuration from `.notesmith/sidebar.yaml`. Returns empty vi
       "id": "workflow",
       "name": "Workflow",
       "icon": "⚡",
-      "badge_query": "SELECT count(*) FROM v_notes WHERE path LIKE 'Inbox/%'",
+      "badge_query": "SELECT count(*) FROM v_notes WHERE path LIKE 'Capture/%'",
       "sections": [
         {
           "type": "recently-viewed",
@@ -491,9 +623,9 @@ Load sidebar view configuration from `.notesmith/sidebar.yaml`. Returns empty vi
           "label": "Triage",
           "items": [
             {
-              "name": "Inbox",
-              "icon": "📥",
-              "source": { "folder": "Inbox", "recursive": true }
+              "name": "Capture",
+              "icon": "⚡",
+              "source": { "folder": "Capture", "recursive": true }
             }
           ]
         }
@@ -527,7 +659,7 @@ List notes in a folder with title and body snippet, for use by the sidebar middl
 {
   "notes": [
     {
-      "path": "Inbox/meeting-notes.md",
+      "path": "Capture/meeting-notes.md",
       "title": "Meeting Notes",
       "snippet": "First two lines of the note body...",
       "modified_at": "2026-05-11T10:00:00",
@@ -539,7 +671,7 @@ List notes in a folder with title and body snippet, for use by the sidebar middl
 
 **Example:**
 ```bash
-curl "http://127.0.0.1:27183/api/v/work/folder-notes?path=Inbox&recursive=true&limit=20"
+curl "http://127.0.0.1:27183/api/v/work/folder-notes?path=Capture&recursive=true&limit=20"
 ```
 
 ---
@@ -648,7 +780,7 @@ List all available templates.
   {
     "name": "generic-note",
     "description": "A generic blank note",
-    "output_path": "{{ folder | default('Inbox') }}/{{ title | slug }}.md",
+    "output_path": "{% if folder %}{{ folder }}/{% endif %}{{ title | slug }}.md",
     "prompts": [
       { "name": "title", "type": "text", "required": true },
       { "name": "folder", "type": "text", "required": false }
@@ -719,14 +851,14 @@ Preview where a note would be routed based on `.notesmith/routing.yaml` rules.
 **Request body:**
 ```json
 {
-  "path": "Inbox/standup.md"
+  "path": "Capture/standup.md"
 }
 ```
 
 **Response:** `200 OK`
 ```json
 {
-  "path": "Inbox/standup.md",
+  "path": "Capture/standup.md",
   "destination": "Customers/Acme Corp/External Meetings/standup.md",
   "rule_id": "external-meeting"
 }
@@ -744,14 +876,7 @@ Apply routing rules to move notes to their destinations. Stamps `archived: true`
 **Request body (specific notes):**
 ```json
 {
-  "paths": ["Inbox/standup.md", "Inbox/idea.md"]
-}
-```
-
-**Request body (inbox batch):**
-```json
-{
-  "inbox": true
+  "paths": ["Capture/standup.md", "Capture/idea.md"]
 }
 ```
 
@@ -761,20 +886,18 @@ Apply routing rules to move notes to their destinations. Stamps `archived: true`
   "routed": 2,
   "results": [
     {
-      "from": "Inbox/standup.md",
+      "from": "Capture/standup.md",
       "to": "Customers/Acme Corp/External Meetings/standup.md",
       "rule_id": "external-meeting"
     },
     {
-      "from": "Inbox/idea.md",
+      "from": "Capture/idea.md",
       "to": "General/idea.md",
       "rule_id": "note-general"
     }
   ]
 }
 ```
-
-When `inbox: true`, notes without frontmatter, already-archived notes, and notes with no matching rule are silently skipped.
 
 ---
 
@@ -795,7 +918,7 @@ curl http://127.0.0.1:27183/api/v/work/daily/2025-06-15
 **Response:** `200 OK`
 ```json
 {
-  "path": "Inbox/Daily/2025-06-15.md",
+  "path": "2025-06-15.md",
   "content": "---\ndate: 2025-06-15\ntype: daily\n---\n# 2025-06-15\n...",
   "frontmatter": { "date": "2025-06-15", "type": "daily" }
 }
@@ -819,7 +942,7 @@ curl -X POST http://127.0.0.1:27183/api/v/work/daily/2025-06-15
 **Response:** `201 Created` (new note)
 ```json
 {
-  "path": "Inbox/Daily/2025-06-15.md",
+  "path": "2025-06-15.md",
   "created": true
 }
 ```
@@ -827,7 +950,7 @@ curl -X POST http://127.0.0.1:27183/api/v/work/daily/2025-06-15
 **Response:** `200 OK` (already exists)
 ```json
 {
-  "path": "Inbox/Daily/2025-06-15.md",
+  "path": "2025-06-15.md",
   "created": false
 }
 ```
@@ -864,7 +987,7 @@ Agent daily workflow endpoint. In prompt mode, the daemon loads `.notesmith/prom
 **Response:** `201 Created` (write mode)
 ```json
 {
-  "path": "Inbox/Daily/2026-05-10.md",
+  "path": "2026-05-10.md",
   "created": true
 }
 ```
@@ -881,7 +1004,15 @@ Agent daily workflow endpoint. In prompt mode, the daemon loads `.notesmith/prom
 
 ### `GET /api/v/{vault}/events`
 
-Server-Sent Events (SSE) stream for real-time vault change notifications. Each connected client receives events for the specified vault only. Multiple clients can subscribe concurrently.
+Server-Sent Events (SSE) stream for real-time vault change notifications. Each connected client receives events for the specified vault plus any `_system` events. Multiple clients can subscribe concurrently. Global vault-registration updates are broadcast as `vaults.changed` so clients can refetch `/api/app/vaults`.
+
+**Query parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `last_event_id` | integer | Optional replay cursor. Returns buffered events with IDs greater than this value before the live stream resumes. |
+
+The daemon keeps a ring buffer of the most recent 100 SSE events. Clients may also send `Last-Event-ID` and the daemon will replay buffered events after that ID.
 
 **Event types:**
 
@@ -892,23 +1023,34 @@ Server-Sent Events (SSE) stream for real-time vault change notifications. Each c
 | `note.moved` | Note path changed (move or route) |
 | `note.deleted` | Note removed |
 | `task.updated` | Task added or status toggled |
-| `inbox.added` | New inbox capture |
+| `note.captured` | New note captured |
 | `daily.created` | Daily note created |
 | `cache.rebuilt` | Cache rebuild completed |
 | `search.reindexed` | Search index rebuilt |
 | `config.changed` | Config file modified and parsed successfully |
 | `config.removed` | Config file deleted |
 | `config.error` | Config file has a parse error |
+| `vaults.changed` | Global vault registrations changed; refetch `/api/app/vaults` |
+| `shutting_down` | Daemon is draining and preparing to exit |
 
 **Payload (JSON in `data:` field):**
 ```json
 {
+  "id": 41,
   "vault": "work",
   "type": "note.created",
-  "path": "Inbox/Follow Up.md",
-  "timestamp": "2026-05-09T16:30:00.123-0700"
+  "path": "Follow Up.md",
+  "timestamp": "2026-05-09T16:30:00.123-0700",
+  "hash": "8f1c7e..."
 }
 ```
+
+The `hash` field is present on `note.created` and `note.updated` events and
+holds the Blake3 hex digest of the saved note contents. Clients can compare
+this to the hash returned by their preceding write to recognise echoes of
+their own saves and suppress spurious "file changed on disk" warnings.
+Events that do not announce a content change (e.g. `note.deleted`,
+`note.moved`, `task.updated`) omit the field.
 
 **Config event payloads:**
 
@@ -959,6 +1101,16 @@ Server-Sent Events (SSE) stream for real-time vault change notifications. Each c
 
 Config keys are `sidebar` (for `.notesmith/sidebar.yaml`) and `vault` (for `.notesmith/vault.toml`).
 
+`vaults.changed` uses the standard payload shape and carries an empty `path`:
+```json
+{
+  "vault": "work",
+  "type": "vaults.changed",
+  "path": "",
+  "timestamp": "2026-05-14T19:44:23.865-0700"
+}
+```
+
 **Example:**
 ```bash
 curl -N http://127.0.0.1:27183/api/v/work/events
@@ -966,6 +1118,32 @@ curl -N http://127.0.0.1:27183/api/v/work/events
 
 **Errors:**
 - `404` — vault not found
+
+---
+
+## Admin
+
+### `POST /admin/shutdown`
+
+Emit a `shutting_down` SSE event for each configured vault, trigger graceful shutdown, and return `200 OK`. The daemon stops accepting new connections and drains in-flight requests before exiting.
+
+**Response:** `200 OK`
+
+**Example:**
+```bash
+curl -X POST http://127.0.0.1:27183/admin/shutdown
+```
+
+### `POST /admin/restart`
+
+Same behavior as `POST /admin/shutdown`. External supervision (for example Tauri, launchd, or systemd) is responsible for starting the daemon again.
+
+**Response:** `200 OK`
+
+**Example:**
+```bash
+curl -X POST http://127.0.0.1:27183/admin/restart
+```
 
 ---
 
@@ -995,7 +1173,7 @@ Returns git working tree status for the vault.
 {
   "changed": ["README.md"],
   "staged": [],
-  "untracked": ["Inbox/new-note.md"],
+  "untracked": ["new-note.md"],
   "clean": false
 }
 ```
@@ -1059,11 +1237,11 @@ Updates the sidebar configuration. Requires `If-Match` header with the current c
 {
   "views": [
     {
-      "id": "inbox",
-      "name": "Inbox",
-      "icon": "inbox",
+      "id": "capture",
+      "name": "Capture",
+      "icon": "bolt",
       "sections": [
-        { "type": "custom-folders", "label": "Inbox", "folders": ["Inbox"] }
+        { "type": "custom-folders", "label": "Capture", "folders": ["Capture"] }
       ]
     }
   ]
@@ -1083,7 +1261,7 @@ Returns a sorted list of all visible folders in the vault. Used for folder autoc
 
 **Response:** `200 OK`
 ```json
-["Archive", "Daily", "Inbox", "Projects", "Projects/Alpha"]
+["Capture", "Daily", "Projects", "Projects/Alpha"]
 ```
 
 ---
@@ -1169,6 +1347,12 @@ Sets the default vault.
 
 Triggers a full reindex of the vault cache and search index.
 
+**Query parameters:**
+- `cache_only` (optional, default: `false`) — rebuild only the SQLite cache
+- `search_only` (optional, default: `false`) — rebuild only the Tantivy search index
+
+`cache_only=true` and `search_only=true` is rejected with `422`.
+
 **Response:** `200 OK`
 ```json
 { "vault": "work", "status": "reindexed", "notes": 142 }
@@ -1176,3 +1360,4 @@ Triggers a full reindex of the vault cache and search index.
 
 **Errors:**
 - `404` — vault not found
+- `422` — invalid reindex mode

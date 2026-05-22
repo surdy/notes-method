@@ -1,7 +1,16 @@
-use std::{collections::BTreeMap, fs, net::SocketAddr, path::Path, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    fs,
+    net::SocketAddr,
+    path::Path,
+    path::PathBuf,
+    sync::{Arc, atomic::AtomicUsize},
+};
 
-use notesmith_config::{GlobalConfig, VaultConfig, VaultRegistration};
+use chrono::Utc;
+use notesmith_config::{GlobalConfig, VaultConfig, VaultRegistration, migration};
 use notesmith_core::VaultEngine;
+use notesmith_http::watcher::WatcherState;
 use notesmith_http::{AppState, VaultState, serve_with_listener};
 use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_vault::NativeVaultEngine;
@@ -19,14 +28,9 @@ fn build_vault_state(vault_name: &str, root: &Path) -> VaultState {
     let search_index = SearchIndex::open_in_memory().unwrap();
     search_index.reindex(vault_name, &notes).unwrap();
 
-    let vault_config = VaultConfig::load_from_vault(root).unwrap_or_else(|_| VaultConfig {
+    let vault_config = migration::load_and_migrate(root).unwrap_or_else(|_| VaultConfig {
         name: vault_name.to_string(),
-        inbox: Default::default(),
-        daily: Default::default(),
-        editor: Default::default(),
-        git: Default::default(),
-        hooks: Default::default(),
-        homepage: None,
+        ..Default::default()
     });
 
     let template_engine = notesmith_templates::TemplateEngine::new(root.to_path_buf(), None);
@@ -37,6 +41,8 @@ fn build_vault_state(vault_name: &str, root: &Path) -> VaultState {
         engine,
         root: root.to_path_buf(),
         vault_config: arc_swap::ArcSwap::from_pointee(vault_config),
+        watcher_state: WatcherState::new(),
+        rebuilding: std::sync::atomic::AtomicBool::new(false),
         template_engine,
     }
 }
@@ -58,11 +64,19 @@ fn build_test_state_with_vaults(
         .collect();
 
     let (event_tx, _) = notesmith_http::create_event_channel();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     AppState {
         vaults,
         event_tx,
+        event_buffer: Arc::new(notesmith_http::EventBuffer::new(
+            notesmith_http::events::EVENT_BUFFER_CAPACITY,
+        )),
         global_config_path,
+        started_at: Utc::now(),
+        sse_connection_count: Arc::new(AtomicUsize::new(0)),
+        shutdown_tx,
+        shutdown_rx,
     }
 }
 
@@ -116,7 +130,13 @@ impl TestServer {
     async fn with_files(files: &[(&str, &str)]) -> Self {
         let temp_dir = TempDir::new().unwrap();
         let root = temp_dir.path().join("vault");
-        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(root.join(".notesmith")).unwrap();
+        // Provide explicit capture.folder so tests have a predictable default
+        fs::write(
+            root.join(".notesmith/vault.toml"),
+            "name = \"test-vault\"\n\n[capture]\nfolder = \"Inbox\"\n\n[daily]\nfolder = \"Inbox/Daily\"\n",
+        )
+        .unwrap();
         for (path, content) in files {
             write_note(&root, path, content);
         }
@@ -348,6 +368,7 @@ async fn execute_sql_returns_query_result_json() {
     let body = response.json::<serde_json::Value>().await.unwrap();
     assert_eq!(body["columns"], serde_json::json!(["title"]));
     assert_eq!(body["row_count"], serde_json::json!(3));
+    assert_eq!(body["truncated"], serde_json::json!(false));
 
     server.abort();
 }
@@ -743,7 +764,7 @@ async fn get_note_returns_full_note_metadata() {
 async fn get_note_html_renders_markdown_without_frontmatter() {
     let server = TestServer::with_files(&[(
         "Inbox/Rendered.md",
-        "---\nstatus: draft\n---\n# Heading\n\n[[Target]]\n\n> [!info] Title\n> body\n",
+        "---\nstatus: draft\n---\n# Heading\n\nLine one\nLine two\n\n[[Target]]\n\n> [!info] Title\n> body\n",
     )])
     .await;
 
@@ -756,16 +777,50 @@ async fn get_note_html_renders_markdown_without_frontmatter() {
     let body = response.text().await.unwrap();
     assert!(body.contains("<h1>Heading</h1>"), "body was: {body}");
     assert!(!body.contains("status: draft"), "body was: {body}");
+    assert!(body.contains("<br"), "body was: {body}");
     assert!(
         body.contains(r#"<a class="wikilink" data-target="Target">Target</a>"#),
         "body was: {body}"
     );
     assert!(
-        body.contains(r#"<div class="callout callout-info">"#),
+        body.contains(r#"<div class="callout callout-info" data-callout="info">"#),
         "body was: {body}"
     );
 
     server.server.abort();
+}
+
+#[tokio::test]
+async fn get_note_html_respects_strict_line_breaks_config() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path().join("vault");
+    fs::create_dir_all(root.join(".notesmith")).unwrap();
+    fs::write(
+        root.join(".notesmith/vault.toml"),
+        "name = \"test-vault\"\n\n[editor]\nstrict_line_breaks = true\n",
+    )
+    .unwrap();
+    write_note(&root, "Inbox/Rendered.md", "Line one\nLine two\n");
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = build_test_state(&root);
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, state).await.unwrap();
+    });
+
+    let response = reqwest::get(format!(
+        "http://{address}/api/v/test-vault/html/Inbox/Rendered.md"
+    ))
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.text().await.unwrap();
+    assert!(!body.contains("<br"), "body was: {body}");
+
+    server.abort();
 }
 
 #[tokio::test]
@@ -860,7 +915,7 @@ async fn hook_fires_on_note_create() {
     fs::create_dir_all(root.join(".notesmith")).unwrap();
     fs::write(
         root.join(".notesmith").join("vault.toml"),
-        "name = \"test-vault\"\n\n[hooks]\non_note_create = \"hook.sh\"\n",
+        "name = \"test-vault\"\n\n[capture]\nfolder = \"Inbox\"\n\n[hooks]\non_note_create = \"hook.sh\"\n",
     )
     .unwrap();
 
@@ -1117,6 +1172,280 @@ async fn move_note_changes_path() {
 }
 
 #[tokio::test]
+async fn rename_note_renames_file_and_rewrites_wikilinks() {
+    let server = TestServer::with_files(&[
+        ("Inbox/Old Name.md", "# Old\n"),
+        ("Inbox/Other.md", "see [[Old Name]] and [[Old Name|alias]]"),
+        ("Sub/Embed.md", "![[Old Name#section]]"),
+    ])
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-rename/Inbox/Old Name.md"))
+        .json(&serde_json::json!({ "name": "New Name" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["from"], "Inbox/Old Name.md");
+    assert_eq!(body["to"], "Inbox/New Name.md");
+    assert_eq!(body["references_rewritten"], 3);
+
+    let old_resp = client
+        .get(server.url("/api/v/test-vault/notes/Inbox/Old Name.md"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(old_resp.status(), reqwest::StatusCode::NOT_FOUND);
+
+    let new_resp = client
+        .get(server.url("/api/v/test-vault/notes/Inbox/New Name.md"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(new_resp.status(), reqwest::StatusCode::OK);
+
+    let other_body = client
+        .get(server.url("/api/v/test-vault/notes/Inbox/Other.md"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(
+        other_body["body"],
+        serde_json::json!("see [[New Name]] and [[New Name|alias]]")
+    );
+
+    let embed_body = client
+        .get(server.url("/api/v/test-vault/notes/Sub/Embed.md"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(
+        embed_body["body"],
+        serde_json::json!("![[New Name#section]]")
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_note_returns_409_on_collision() {
+    let server =
+        TestServer::with_files(&[("Inbox/Foo.md", "# Foo\n"), ("Inbox/Bar.md", "# Bar\n")]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-rename/Inbox/Foo.md"))
+        .json(&serde_json::json!({ "name": "Bar" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_note_returns_400_on_invalid_name() {
+    let server = TestServer::with_files(&[("Inbox/Foo.md", "# Foo\n")]).await;
+    let client = reqwest::Client::new();
+
+    for bad in ["", "   ", "a/b", "a\\b", "name:with:colons", "?"] {
+        let response = client
+            .post(server.url("/api/v/test-vault/notes-rename/Inbox/Foo.md"))
+            .json(&serde_json::json!({ "name": bad }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::BAD_REQUEST,
+            "expected 400 for name {bad:?}"
+        );
+    }
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_note_returns_404_when_missing() {
+    let server = TestServer::with_files(&[]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-rename/Inbox/Missing.md"))
+        .json(&serde_json::json!({ "name": "New" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_note_strips_md_suffix_from_user_input() {
+    let server = TestServer::with_files(&[("Foo.md", "# Foo\n")]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-rename/Foo.md"))
+        .json(&serde_json::json!({ "name": "Bar.md" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["to"], "Bar.md");
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_folder_syncs_same_name_folder_note() {
+    let server = TestServer::with_files(&[
+        ("Customers/Acme/Acme.md", "# Acme\n"),
+        ("Customers/Acme/Child.md", "# Child\n"),
+    ])
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/folders-rename/Customers/Acme"))
+        .json(&serde_json::json!({ "name": "Globex" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["from"], serde_json::json!("Customers/Acme"));
+    assert_eq!(body["to"], serde_json::json!("Customers/Globex"));
+    assert_eq!(
+        body["folder_note_from"],
+        serde_json::json!("Customers/Acme/Acme.md")
+    );
+    assert_eq!(
+        body["folder_note_to"],
+        serde_json::json!("Customers/Globex/Globex.md")
+    );
+    assert!(!server.root.join("Customers/Acme").exists());
+    assert!(server.root.join("Customers/Globex/Globex.md").exists());
+    assert!(server.root.join("Customers/Globex/Child.md").exists());
+    assert!(!server.root.join("Customers/Globex/Acme.md").exists());
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_folder_without_folder_note_moves_folder_contents() {
+    let server = TestServer::with_files(&[("Projects/Alpha/Brief.md", "# Brief\n")]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/folders-rename/Projects/Alpha"))
+        .json(&serde_json::json!({ "name": "Beta" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["from"], serde_json::json!("Projects/Alpha"));
+    assert_eq!(body["to"], serde_json::json!("Projects/Beta"));
+    assert_eq!(body["folder_note_from"], serde_json::Value::Null);
+    assert_eq!(body["folder_note_to"], serde_json::Value::Null);
+    assert!(!server.root.join("Projects/Alpha").exists());
+    assert!(server.root.join("Projects/Beta/Brief.md").exists());
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_folder_blocks_destination_collision() {
+    let server = TestServer::with_files(&[
+        ("Customers/Acme/Acme.md", "# Acme\n"),
+        ("Customers/Globex/Other.md", "# Existing\n"),
+    ])
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/folders-rename/Customers/Acme"))
+        .json(&serde_json::json!({ "name": "Globex" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
+    assert!(server.root.join("Customers/Acme/Acme.md").exists());
+    assert!(server.root.join("Customers/Globex/Other.md").exists());
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_folder_blocks_folder_note_filename_collision_inside_source() {
+    let server = TestServer::with_files(&[
+        ("Customers/Acme/Acme.md", "# Folder note\n"),
+        ("Customers/Acme/Globex.md", "# Existing unrelated note\n"),
+    ])
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/folders-rename/Customers/Acme"))
+        .json(&serde_json::json!({ "name": "Globex" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
+    assert!(server.root.join("Customers/Acme/Acme.md").exists());
+    assert!(server.root.join("Customers/Acme/Globex.md").exists());
+    assert!(!server.root.join("Customers/Globex").exists());
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn rename_folder_rejects_unsafe_paths_and_names() {
+    let server = TestServer::with_files(&[("Customers/Acme/Acme.md", "# Acme\n")]).await;
+    let client = reqwest::Client::new();
+
+    let unsafe_source = client
+        .post(server.url("/api/v/test-vault/folders-rename/Customers%5CAcme"))
+        .json(&serde_json::json!({ "name": "Globex" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unsafe_source.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    let unsafe_name = client
+        .post(server.url("/api/v/test-vault/folders-rename/Customers/Acme"))
+        .json(&serde_json::json!({ "name": "../Globex" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unsafe_name.status(), reqwest::StatusCode::BAD_REQUEST);
+    assert!(server.root.join("Customers/Acme/Acme.md").exists());
+
+    server.server.abort();
+}
+
+#[tokio::test]
 async fn save_pipeline_stamps_created_updated() {
     let server = TestServer::empty().await;
     let client = reqwest::Client::new();
@@ -1344,15 +1673,15 @@ async fn toggle_task_returns_unprocessable_for_invalid_transition() {
     server.server.abort();
 }
 
-// ── Inbox API tests ────────────────────────────────────────────────────────────
+// ── Capture API tests ──────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn post_inbox_creates_note_with_timestamp_filename() {
+async fn post_capture_creates_note_with_timestamp_filename() {
     let server = TestServer::empty().await;
     let client = reqwest::Client::new();
 
     let response = client
-        .post(server.url("/api/v/test-vault/inbox"))
+        .post(server.url("/api/v/test-vault/capture"))
         .json(&serde_json::json!({
             "text": "Buy milk and eggs",
         }))
@@ -1384,12 +1713,12 @@ async fn post_inbox_creates_note_with_timestamp_filename() {
 }
 
 #[tokio::test]
-async fn post_inbox_with_title_uses_title_in_filename() {
+async fn post_capture_with_title_uses_title_in_filename() {
     let server = TestServer::empty().await;
     let client = reqwest::Client::new();
 
     let response = client
-        .post(server.url("/api/v/test-vault/inbox"))
+        .post(server.url("/api/v/test-vault/capture"))
         .json(&serde_json::json!({
             "text": "Some detailed content here",
             "title": "Grocery List",
@@ -1415,13 +1744,8 @@ async fn post_inbox_with_title_uses_title_in_filename() {
 }
 
 #[tokio::test]
-async fn get_inbox_lists_inbox_notes() {
-    let server = TestServer::with_files(&[
-        ("Inbox/2026-05-09 10-00-00 - Note One.md", "First note"),
-        ("Inbox/2026-05-09 10-01-00 - Note Two.md", "Second note"),
-        ("Other/Not Inbox.md", "Should not appear"),
-    ])
-    .await;
+async fn get_inbox_returns_404() {
+    let server = TestServer::empty().await;
     let client = reqwest::Client::new();
 
     let response = client
@@ -1430,21 +1754,7 @@ async fn get_inbox_lists_inbox_notes() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-    let body = response.json::<Vec<serde_json::Value>>().await.unwrap();
-    assert!(
-        body.len() >= 2,
-        "expected at least 2 inbox notes, got {}",
-        body.len()
-    );
-    // All returned notes should be in Inbox/
-    for note in &body {
-        let path = note["path"].as_str().unwrap();
-        assert!(
-            path.starts_with("Inbox/"),
-            "expected Inbox/ path, got {path}"
-        );
-    }
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
 
     server.server.abort();
 }
@@ -1719,40 +2029,6 @@ async fn route_apply_moves_note_and_stamps_archive() {
     assert!(content.contains("archived: true"));
     assert!(content.contains("archived-at:"));
     assert!(content.contains("# My Idea"));
-
-    server.server.abort();
-}
-
-#[tokio::test]
-async fn route_apply_inbox_routes_all_eligible() {
-    let server = TestServer::with_files(&[
-        ("Inbox/note1.md", "---\ntype: note\n---\n# Note 1\n"),
-        (
-            "Inbox/note2.md",
-            "---\ntype: note\ncustomer: \"[[Acme]]\"\n---\n# Note 2\n",
-        ),
-        ("Inbox/readme.md", "No frontmatter here\n"),
-    ])
-    .await;
-    write_routing_config(&server.root);
-
-    let client = reqwest::Client::new();
-    let response = client
-        .post(server.url("/api/v/test-vault/route/apply"))
-        .json(&serde_json::json!({ "inbox": true }))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-    let body = response.json::<serde_json::Value>().await.unwrap();
-    assert_eq!(body["routed"], 2);
-
-    // note1 → General/, note2 → Customers/Acme/
-    assert!(server.root.join("General/note1.md").exists());
-    assert!(server.root.join("Customers/Acme/note2.md").exists());
-    // readme stays in Inbox (no frontmatter)
-    assert!(server.root.join("Inbox/readme.md").exists());
 
     server.server.abort();
 }
@@ -2095,6 +2371,101 @@ async fn sse_receives_note_created_event() {
 }
 
 #[tokio::test]
+async fn sse_note_updated_event_includes_hash_matching_put_response() {
+    let server = TestServer::empty().await;
+
+    // Seed an existing note via API.
+    let client = reqwest::Client::new();
+    let create_resp = client
+        .post(server.url("/api/v/test-vault/notes"))
+        .json(&serde_json::json!({
+            "title": "Hash Echo Test",
+            "content": "initial body"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create_resp.status(), reqwest::StatusCode::CREATED);
+    let created: serde_json::Value = create_resp.json().await.unwrap();
+    let note_path = created["path"].as_str().unwrap().to_string();
+
+    // Connect SSE *after* the create so we only see the upcoming update.
+    let sse_url = server.url("/api/v/test-vault/events");
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(10);
+    let sse_client = reqwest::Client::new();
+    let sse_task = tokio::spawn(async move {
+        use futures::StreamExt;
+        let response = sse_client.get(&sse_url).send().await.unwrap();
+        let mut stream = response.bytes_stream();
+        while let Some(Ok(chunk)) = stream.next().await {
+            let text = String::from_utf8_lossy(&chunk).to_string();
+            let _ = tx.send(text).await;
+        }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let put_resp = client
+        .put(server.url(&format!("/api/v/test-vault/notes/{note_path}")))
+        .json(&serde_json::json!({
+            "content": "updated body"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(put_resp.status(), reqwest::StatusCode::OK);
+    let put_body: serde_json::Value = put_resp.json().await.unwrap();
+    let response_hash = put_body["hash"].as_str().unwrap().to_string();
+    assert!(
+        !response_hash.is_empty(),
+        "PUT response must include a hash"
+    );
+
+    // Collect SSE chunks until we see a note.updated payload.
+    let mut buffered = String::new();
+    let event_payload = loop {
+        let chunk = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv())
+            .await
+            .expect("timeout waiting for note.updated SSE event")
+            .unwrap();
+        buffered.push_str(&chunk);
+        if let Some(payload) = extract_note_updated_payload(&buffered) {
+            break payload;
+        }
+    };
+
+    let parsed: serde_json::Value = serde_json::from_str(&event_payload)
+        .unwrap_or_else(|err| panic!("SSE payload was not valid JSON ({err}): {event_payload}"));
+    assert_eq!(parsed["type"], "note.updated");
+    assert_eq!(parsed["path"], note_path);
+    assert_eq!(
+        parsed["hash"].as_str().unwrap(),
+        response_hash,
+        "event hash must match the PUT response hash to enable client-side dedup"
+    );
+
+    sse_task.abort();
+    server.server.abort();
+}
+
+/// Scan a buffered SSE chunk stream for the first `data: { ... }` payload whose
+/// event type is `note.updated`. Returns the JSON-encoded payload, if any.
+fn extract_note_updated_payload(buffer: &str) -> Option<String> {
+    for line in buffer.lines() {
+        let Some(payload) = line.strip_prefix("data:") else {
+            continue;
+        };
+        let payload = payload.trim();
+        if !payload.starts_with('{') {
+            continue;
+        }
+        if payload.contains("\"type\":\"note.updated\"") {
+            return Some(payload.to_string());
+        }
+    }
+    None
+}
+
+#[tokio::test]
 async fn sse_filters_events_by_vault() {
     let server = TestServer::empty().await;
     let client = reqwest::Client::new();
@@ -2193,6 +2564,8 @@ async fn get_vault_config_returns_config_with_etag() {
 
     let body = response.json::<serde_json::Value>().await.unwrap();
     assert_eq!(body["config"]["name"], "test-vault");
+    assert_eq!(body["config"]["editor"]["strict_line_breaks"], false);
+    assert_eq!(body["config"]["editor"]["show_line_numbers"], true);
     assert!(body["hash"].as_str().unwrap().len() > 10);
     assert_eq!(body["path"], ".notesmith/vault.toml");
     assert!(body["warnings"].is_object());
@@ -2230,9 +2603,9 @@ async fn put_vault_config_succeeds_with_correct_if_match() {
     let client = reqwest::Client::new();
     let new_config = serde_json::json!({
         "name": "test-vault",
-        "inbox": { "folder": "MyInbox", "template": "generic-note" },
+        "capture": { "folder": "MyInbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source" },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2257,7 +2630,7 @@ async fn put_vault_config_succeeds_with_correct_if_match() {
     assert!(etag.starts_with('"') && etag.ends_with('"'));
 
     let body = response.json::<serde_json::Value>().await.unwrap();
-    assert_eq!(body["config"]["inbox"]["folder"], "MyInbox");
+    assert_eq!(body["config"]["capture"]["folder"], "MyInbox");
     assert!(body["hash"].as_str().unwrap().len() > 10);
 
     server.server.abort();
@@ -2272,9 +2645,9 @@ async fn put_vault_config_returns_409_on_stale_if_match() {
     let client = reqwest::Client::new();
     let new_config = serde_json::json!({
         "name": "test-vault",
-        "inbox": { "folder": "Inbox", "template": "generic-note" },
+        "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source" },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2305,9 +2678,9 @@ async fn put_vault_config_returns_428_without_if_match() {
     let client = reqwest::Client::new();
     let new_config = serde_json::json!({
         "name": "test-vault",
-        "inbox": { "folder": "Inbox", "template": "generic-note" },
+        "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source" },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2345,7 +2718,7 @@ async fn put_vault_config_returns_422_with_invalid_data() {
     let client = reqwest::Client::new();
     let bad_config = serde_json::json!({
         "name": "test-vault",
-        "inbox": { "folder": "Inbox", "template": "generic-note" },
+        "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": {
             "folder": "Inbox/Daily",
             "template": "daily-note",
@@ -2353,7 +2726,7 @@ async fn put_vault_config_returns_422_with_invalid_data() {
             "timezone": "Mars/Olympus",
             "catch_up": false
         },
-        "editor": { "live_preview": true, "default_mode": "source" },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
         "git": { "enabled": false, "auto_commit_every": "banana" },
         "hooks": {}
     });
@@ -2386,9 +2759,9 @@ async fn put_vault_config_rejects_disallowed_origin() {
     let client = reqwest::Client::new();
     let config = serde_json::json!({
         "name": "test-vault",
-        "inbox": { "folder": "Inbox", "template": "generic-note" },
+        "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source" },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2422,13 +2795,13 @@ async fn get_after_put_reflects_changes() {
     let get_body = get_response.json::<serde_json::Value>().await.unwrap();
     let hash = get_body["hash"].as_str().unwrap();
 
-    // PUT with new inbox folder
+    // PUT with new capture folder
     let client = reqwest::Client::new();
     let new_config = serde_json::json!({
         "name": "test-vault",
-        "inbox": { "folder": "CustomInbox", "template": "generic-note" },
+        "capture": { "folder": "CustomInbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source" },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2449,7 +2822,7 @@ async fn get_after_put_reflects_changes() {
     assert_eq!(get_response2.status(), reqwest::StatusCode::OK);
 
     let body2 = get_response2.json::<serde_json::Value>().await.unwrap();
-    assert_eq!(body2["config"]["inbox"]["folder"], "CustomInbox");
+    assert_eq!(body2["config"]["capture"]["folder"], "CustomInbox");
 
     server.server.abort();
 }

@@ -1,7 +1,11 @@
 use notesmith_core::VaultEngine;
 use notesmith_index::VaultCache;
-use notesmith_query::execute_sql;
+use notesmith_query::{
+    QueryFormat, QueryRequest, QueryResult, execute_sql, execute_sql_with_options,
+    format_query_as_markdown_table,
+};
 use notesmith_vault::NativeVaultEngine;
+use serde_json::json;
 use std::path::{Path, PathBuf};
 
 fn golden_vault() -> std::path::PathBuf {
@@ -95,6 +99,54 @@ fn query_result_is_json_serializable() {
     let json = serde_json::to_string(&result).unwrap();
     assert!(json.contains("columns"));
     assert!(json.contains("rows"));
+    assert!(json.contains("truncated"));
+}
+
+#[test]
+fn format_query_results_as_markdown_table() {
+    let result = QueryResult {
+        columns: vec!["text".to_string(), "notes".to_string()],
+        rows: vec![vec![json!("Follow\nup"), json!("A | B")]],
+        row_count: 1,
+        truncated: false,
+    };
+
+    assert_eq!(
+        format_query_as_markdown_table(&result),
+        "| text | notes |\n| --- | --- |\n| Follow up | A \\| B |"
+    );
+}
+
+#[test]
+fn execute_sql_truncates_to_max_rows() {
+    let cache = build_cache();
+    let result =
+        execute_sql_with_options(&cache, "SELECT title FROM v_notes ORDER BY title", Some(1))
+            .unwrap();
+
+    assert_eq!(result.columns, vec!["title"]);
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.row_count, 1);
+    assert!(result.truncated);
+}
+
+#[test]
+fn query_request_supports_default_and_markdown_formats() {
+    let default_request: QueryRequest = serde_json::from_value(json!({
+        "sql": "SELECT title FROM v_notes"
+    }))
+    .unwrap();
+    assert_eq!(default_request.format, QueryFormat::Json);
+    assert_eq!(default_request.max_rows_or_default(), 10_000);
+
+    let markdown_request: QueryRequest = serde_json::from_value(json!({
+        "sql": "SELECT title FROM v_notes",
+        "max_rows": 5,
+        "format": "markdown"
+    }))
+    .unwrap();
+    assert_eq!(markdown_request.format, QueryFormat::Markdown);
+    assert_eq!(markdown_request.max_rows_or_default(), 5);
 }
 
 #[test]

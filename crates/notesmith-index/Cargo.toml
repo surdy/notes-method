@@ -10,6 +10,7 @@ notesmith-core = { workspace = true }
 notesmith-vault = { workspace = true }
 rusqlite = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 serde = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }

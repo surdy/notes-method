@@ -14,7 +14,7 @@ Notesmith is the final synthesized plan for the custom markdown notes applicatio
 - [8. Template Engine](#8-template-engine)
 - [9. Routing Engine](#9-routing-engine)
 - [10. Task Engine](#10-task-engine)
-- [11. Inbox Workflow](#11-inbox-workflow)
+- [11. Capture Workflow](#11-capture-workflow)
 - [12. Daily Notes](#12-daily-notes)
 - [13. Git Integration](#13-git-integration)
 - [14. Hook System](#14-hook-system)
@@ -64,7 +64,7 @@ The product name is **Notesmith**.
 | Templater | `notesmith-templates` with `minijinja` + subprocess hooks | Replaced; no embedded JS runtime |
 | Tasks | Built-in task parser + SQL-backed task views | Replaced; 7-status model on disk |
 | Dataview | SQL over SQLite cache via `notesmith sql` blocks | Replaced; SQL only |
-| QuickAdd | CLI + command palette + URL scheme + inbox capture | Replaced |
+| QuickAdd | CLI + command palette + URL scheme + quick capture | Replaced |
 | Auto Note Mover | Routing engine with YAML rules | Replaced |
 | Periodic Notes + Calendar | Agent-driven daily notes + daemon fallback scheduler + calendar UI | Replaced |
 | Homepage | Homepage config + native dashboard opening `Dashboards/Home.md` | Replaced |
@@ -208,7 +208,7 @@ trait VaultOps {
     fn note_put(&self, req: PutNoteReq) -> anyhow::Result<NoteSummary>;
     fn route_apply(&self, req: RouteApplyReq) -> anyhow::Result<RouteResult>;
     fn task_toggle(&self, req: ToggleTaskReq) -> anyhow::Result<Task>;
-    fn inbox_add(&self, req: InboxAddReq) -> anyhow::Result<NoteSummary>;
+    fn capture(&self, req: CaptureReq) -> anyhow::Result<NoteSummary>;
     fn daily_ensure(&self, req: EnsureDailyReq) -> anyhow::Result<NoteSummary>;
     fn query_sql(&self, req: SqlQueryReq) -> anyhow::Result<QueryResult>;
 }
@@ -312,8 +312,8 @@ Unknown note types are preserved verbatim. Notesmith never strips user metadata 
 ### 5.4 Canonical visible vault structure
 
 ```text
-Inbox/
-  Daily/
+Capture/
+Daily/
 Tasks/
   Tasks - Active.md
   Tasks - Blocked.md
@@ -334,7 +334,7 @@ General/
   Journal/
 Dashboards/
   Home.md
-  Inbox Triage.md
+  Capture Triage.md
   Customers.md
   Streams.md
 Assets/
@@ -586,7 +586,7 @@ Templates live in `Assets/templates/*.md.j2` and use a YAML preamble for prompt 
 notesmith:
   name: external-meeting
   description: Customer external meeting
-  output_path: "Inbox/{{ today }} - {{ customer }} - External - {{ topic }}.md"
+  output_path: "{{ today }} - {{ customer }} - External - {{ topic }}.md"
   prompts:
     - { name: customer, type: customer-picker, required: true }
     - { name: stream, type: stream-picker, required: false }
@@ -663,7 +663,7 @@ defaults:
 rules:
   - id: archive-external-meeting
     when:
-      path: "Inbox/**"
+      path: "Capture/**"
       frontmatter.type: meeting
       frontmatter.meeting-kind: external
     then:
@@ -671,7 +671,7 @@ rules:
 
   - id: archive-internal-meeting
     when:
-      path: "Inbox/**"
+      path: "Capture/**"
       frontmatter.type: meeting
       frontmatter.meeting-kind: internal
     then:
@@ -679,14 +679,14 @@ rules:
 
   - id: archive-stream
     when:
-      path: "Inbox/**"
+      path: "Capture/**"
       frontmatter.type: stream
     then:
       move_to: "Customers/{{ frontmatter.customer | unwikilink }}/Streams/{{ filename }}"
 
   - id: archive-daily
     when:
-      path: "Inbox/Daily/**"
+      path: "Daily/**"
       frontmatter.type: daily
     then:
       move_to: "General/Journal/{{ frontmatter.date | strftime('%Y/%m') }}/{{ filename }}"
@@ -712,7 +712,7 @@ Done streams stay in place. Routing does not relocate them to `Archive/`.
 
 - `notesmith route preview <path>` shows the matched rule and final path.
 - `notesmith route apply <path>` moves the note atomically.
-- `notesmith route apply --inbox` bulk-processes routable inbox items.
+- `notesmith route apply <path>` routes a selected note once it is ready.
 - Routing stamps `archived: true` and `archived-at: <now>`.
 
 ## 10. Task Engine
@@ -767,35 +767,35 @@ This survives line insertions, formatting shifts, and most agent edits.
 
 Task lists are SQL projections over `v_tasks`. Convenience commands such as `notesmith task active` are wrappers that generate SQL, not a second query language.
 
-## 11. Inbox Workflow
+## 11. Capture Workflow
 
-### 11.1 First-class inbox
+### 11.1 First-class capture
 
-Inbox is not just a folder; it is a first-class capture surface with dedicated API, CLI, and URL entry points.
+Capture is a first-class workflow with dedicated API, CLI, URL, and GUI entry points.
 
 ### 11.2 Capture surfaces
 
 | Surface | Form |
 |---|---|
-| HTTP | `POST /api/v/{vault-name}/inbox` |
-| CLI | `notesmith inbox add "text"` |
-| URL scheme | `notesmith://app/inbox/add?text=...` |
-| GUI | Inbox quick-capture box + command palette |
+| HTTP | `POST /api/v/{vault-name}/capture` |
+| CLI | `notesmith capture "text"` |
+| URL scheme | `notesmith://app/capture/{vault-name}?text=...` |
+| GUI | Quick Capture command + `⌘⇧N` hotkey |
 
 ### 11.3 Capture behavior
 
-By default, inbox capture creates a new note in `Inbox/` using the configured inbox template and a timestamp-based filename:
+By default, capture creates a new note in the configured capture folder using the configured capture template and a timestamp-based filename. When `capture.folder = ""`, the note is created in the vault root:
 
 ```text
-Inbox/2026-05-08 08-15-00 - follow-up-with-acme.md
+2026-05-08 08-15-00 - follow-up-with-acme.md
 ```
 
-### 11.4 Inbox zero workflow
+### 11.4 Capture backlog workflow
 
-1. Capture into Inbox quickly.
+1. Capture quickly.
 2. Enrich or rewrite the note as needed.
 3. Use `Archive current note` or `route apply` once the note is ready for long-term placement.
-4. Use the Inbox dashboard until Inbox returns to zero.
+4. Use the capture dashboard until the backlog returns to zero.
 
 ## 12. Daily Notes
 
@@ -810,7 +810,7 @@ Example prompt template:
 ```markdown
 ---
 name: daily-note
-output_path: "Inbox/Daily/{{ date }}.md"
+output_path: "{{ date }}.md"
 context_queries:
   overdue_tasks: |
     SELECT text, customer, stream, due
@@ -840,7 +840,7 @@ The daemon includes a built-in fallback scheduler so the system still works when
 
 ```toml
 [daily]
-folder = "Inbox/Daily"
+folder = ""
 template = "daily-note"
 generate_at = "06:30"
 timezone = "America/Los_Angeles"
@@ -909,7 +909,7 @@ on_daily_create = "Assets/scripts/on-daily-create.py"
 {
   "event": "on_note_create",
   "vault": "work",
-  "path": "Inbox/2026-05-08 08-15-00 - follow-up-with-acme.md",
+  "path": "2026-05-08 08-15-00 - follow-up-with-acme.md",
   "frontmatter": {"type": "note"},
   "source": "cli"
 }
@@ -942,7 +942,7 @@ The runner is extensible, but the shipped event list stays intentionally small i
 | `POST` | `/api/v/{vault}/notes/{path...}/move` | move note |
 | `POST` | `/api/v/{vault}/route/preview` | preview destination |
 | `POST` | `/api/v/{vault}/route/apply` | route one or more notes |
-| `POST` | `/api/v/{vault}/inbox` | quick capture |
+| `POST` | `/api/v/{vault}/capture` | quick capture |
 | `GET` | `/api/v/{vault}/daily/{date}` | fetch daily note |
 | `POST` | `/api/v/{vault}/daily/{date}` | create daily note fallback |
 | `POST` | `/api/v/{vault}/daily/agent-create` | agent-driven daily workflow |
@@ -967,7 +967,7 @@ note.updated
 note.moved
 note.deleted
 task.updated
-inbox.added
+note.captured
 daily.created
 cache.rebuilt
 search.reindexed
@@ -1009,7 +1009,7 @@ notesmith [--vault <name|path>] [--format text|json|ndjson]
   template list|render|instantiate
   route preview|apply
   task list|add|toggle|set-status
-  inbox add|list
+  capture
   daily open|ensure|agent-create
   query sql <sql-or-file>
   search <terms>
@@ -1034,13 +1034,15 @@ Vault selection works like git:
 - Human-readable text when attached to a TTY.
 - JSON when piped or when `--format json` is set.
 - Errors are structured for agent consumption.
+- Daemon-backed CLI commands auto-start the HTTP daemon when `[daemon].auto_start = true` and `/api/status` is not healthy.
+- `notesmith mcp start` remains independent of the HTTP daemon and serves stdio requests from its own in-memory indexes.
 
 ### 16.5 Pipe-friendly examples
 
 ```bash
 notesmith query sql "SELECT title FROM v_customers WHERE state = 'Active'" --format json | jq '.[].title'
 
-notesmith inbox add "Need follow-up with Acme" --vault work
+notesmith capture "Need follow-up with Acme" --vault work
 
 notesmith task list --format json | jq '.[] | select(.status == "blocked")'
 
@@ -1063,7 +1065,7 @@ This namespacing is first-class in v1.
 | `notesmith://app/open?vault=work&path=Customers/Acme%20Corp/Acme%20Corp.md` | Open a note |
 | `notesmith://app/search?vault=work&query=sso` | Open search results |
 | `notesmith://app/template/new?vault=work&name=external-meeting` | New note from template |
-| `notesmith://app/inbox/add?vault=work&text=Follow%20up%20with%20Acme` | Quick capture |
+| `notesmith://app/capture/work?text=Follow%20up%20with%20Acme` | Quick capture |
 | `notesmith://app/daily/today?vault=work` | Open today's daily note |
 | `notesmith://app/copy-html?vault=work&path=Dashboards/Home.md` | Copy note as HTML |
 
@@ -1107,7 +1109,7 @@ The canonical per-vault skill file is `.notesmith/skill.md`. It contains:
 - note type schema,
 - stable SQL view contract,
 - daily note workflow,
-- inbox triage workflow,
+- capture triage workflow,
 - routing rules summary,
 - examples for common tasks.
 
@@ -1122,13 +1124,13 @@ notesmith template instantiate external-meeting --vault work --prompt customer="
 ## List active streams
 notesmith query sql "SELECT title, customer FROM v_streams WHERE status != 'Done' ORDER BY title"
 
-## Archive a prepared inbox note
-notesmith route apply "Inbox/2026-05-08 - Acme - External - QBR.md"
+## Archive a prepared captured note
+notesmith route apply "2026-05-08 - Acme - External - QBR.md"
 ```
 
 ### 18.4 MCP scope
 
-The MCP adapter exposes only existing operations such as note read/write, SQL query, routing, inbox capture, and daily note creation. It exists for clients that cannot run the CLI directly.
+The MCP adapter exposes only existing operations such as note read/write, SQL query, routing, capture workflows, and daily note creation. It exists for clients that cannot run the CLI directly, and it serves those operations from its own in-memory indexes rather than proxying through the HTTP daemon.
 
 ## 19. GUI Design
 
@@ -1151,6 +1153,8 @@ Tabs ship in v1. Split panes do not.
 Sidebar views are user-defined in `.notesmith/sidebar.yaml`. By default (no YAML file), the sidebar shows only the Files tab — a standard file/folder tree with no tab bar.
 
 When ≥1 custom view is configured, a tab bar appears at the top of the sidebar. Files is always present and always first. Tabs use a **fixed 2-column grid** (icon + name), wrapping to additional rows as needed. Views support an optional `badge_query` for tab-level badge counts.
+
+FileTree supports Obsidian-style folder notes through the same-name markdown convention: `Customers/Acme/Acme.md` represents `Customers/Acme/`. The folder name opens the folder note, the disclosure chevron expands/collapses children, and the duplicate child note is hidden only in that tree position. Folder context menus support opening/creating folder notes and renaming folders; Notesmith-initiated folder renames sync the same-name folder-note filename when present and block collisions instead of rewriting links.
 
 Each view contains **sections** stacked vertically with horizontal separators. Sections are collapsible (state persisted in localStorage) and show item count badges on headers.
 
@@ -1180,7 +1184,7 @@ views:
   - id: workflow
     name: "Workflow"
     icon: "⚡"
-    badge_query: "SELECT count(*) FROM v_notes WHERE path LIKE 'Inbox/%' AND archived = 0"
+    badge_query: "SELECT count(*) FROM v_notes WHERE path LIKE 'Capture/%' AND archived = 0"
     sections:
       - type: recently-viewed
         label: "Recent"
@@ -1196,10 +1200,10 @@ views:
       - type: custom-items
         label: "Triage"
         items:
-          - name: "Inbox"
-            icon: "📥"
+          - name: "Capture"
+            icon: "⚡"
             source:
-              folder: "Inbox"
+              folder: "Capture"
               recursive: true
           - name: "Tasks"
             icon: "✅"
@@ -1234,16 +1238,16 @@ Implementation stance:
 |---|---|---|
 | Open today's daily note | `⌘D` | `notesmith daily open` |
 | Archive current note | `⌘⇧A` | `notesmith route apply <current>` |
-| New from template | `⌘⇧N` | `notesmith template instantiate <pick>` |
+| Quick Capture | `⌘⇧N` | `notesmith capture` |
 | Toggle current task status | `⌘⏎` | `notesmith task toggle ...` |
-| Open Inbox Triage | `⌘⇧I` | open `Dashboards/Inbox Triage.md` |
+| Open Capture Triage | `⌘⇧I` | open `Dashboards/Capture Triage.md` |
 | Quick switcher | `⌘O` | note switcher |
 | Command palette | `⌘K` and `⌘P` | palette |
 | Global search | `⌘⇧F` | search UI |
 
 ### 19.5 Passive notification stance
 
-Notesmith has **no push notifications**. The home dashboard, inbox view, task widgets, and daily note are the attention surfaces.
+Notesmith has **no push notifications**. The home dashboard, capture view, task widgets, and daily note are the attention surfaces.
 
 ## 20. Dashboards
 
@@ -1291,25 +1295,25 @@ ORDER BY updated_at DESC;
 ```
 ````
 
-### 20.3 Example: `Dashboards/Inbox Triage.md`
+### 20.3 Example: `Dashboards/Capture Triage.md`
 
 ````markdown
-# Inbox triage
+# Capture triage
 
-## Inbox notes (oldest first)
+## Captured notes (oldest first)
 ```notesmith sql
 SELECT path, type, customer, created_at
 FROM v_notes
-WHERE path LIKE 'Inbox/%'
+WHERE path LIKE 'Capture/%'
   AND archived = 0
 ORDER BY created_at ASC;
 ```
 
-## Inbox tasks not yet routed
+## Capture tasks not yet routed
 ```notesmith sql
 SELECT note_path, status, text
 FROM v_tasks
-WHERE note_path LIKE 'Inbox/%'
+WHERE note_path LIKE 'Capture/%'
   AND status IN ('todo', 'in_progress', 'blocked', 'awaiting_customer', 'on_hold')
 ORDER BY note_path, ordinal;
 ```
@@ -1387,18 +1391,20 @@ path = "/Users/surdy/Notes/work"
 path = "/Users/surdy/Notes/personal"
 ```
 
+`daemon.auto_start = true` means daemon-backed CLI commands automatically spawn the HTTP daemon on first use. Setting it to `false` restores the manual `notesmith daemon start` flow.
+
 ### 22.3 Per-vault config example
 
 ```toml
 name = "work"
 homepage = "Dashboards/Home.md"
 
-[inbox]
-folder = "Inbox"
+[capture]
+folder = ""
 template = "generic-note"
 
 [daily]
-folder = "Inbox/Daily"
+folder = ""
 template = "daily-note"
 generate_at = "06:30"
 catch_up = true
@@ -1556,7 +1562,7 @@ Integration tests run the real `notesmith` binary against the golden vault and h
 | Phase 0 | TurboVault evaluation spike (half day) | Decide keep vs swap behind `VaultEngine` |
 | Phase 1 | Daemon + CLI foundation (1–2 weeks) | `notesmith daemon start`, vault detection, note read/write, HTTP skeleton |
 | Phase 2 | Read-only core | Parser, watcher, SQLite cache, Tantivy, stable `v_notes` / `v_backlinks` |
-| Phase 3 | Tasks + SQL + inbox | `v_tasks`, SQL execution, inbox capture, task toggling |
+| Phase 3 | Tasks + SQL + capture | `v_tasks`, SQL execution, capture workflow, task toggling |
 | Phase 4 | Templates + routing + fallback daily | minijinja, route rules, `daily ensure`, hook runner |
 | Phase 5 | Agent-first workflows | `.notesmith/skill.md`, `daily agent-create`, MCP fallback |
 | Phase 6 | GUI shell | SvelteKit app, Tauri wrapper, tabs, command palette, sidebar views |

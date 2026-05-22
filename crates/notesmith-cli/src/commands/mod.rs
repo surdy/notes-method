@@ -1,12 +1,13 @@
 //! CLI command modules
 
+pub mod capture;
 pub mod copy_html;
 pub mod daemon;
 pub mod daily;
-pub mod inbox;
 pub mod mcp;
 pub mod note;
 pub mod query;
+pub mod reindex;
 pub mod route;
 pub mod search;
 pub mod skill;

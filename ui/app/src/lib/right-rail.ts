@@ -42,6 +42,19 @@ export function buildRailMetadata(
 	if (tags.length > 0) {
 		metadata.tags = tags;
 	}
+	if (frontmatter) {
+		const knownKeys = new Set(['type', 'customer', 'date', 'tags']);
+		for (const [key, value] of Object.entries(frontmatter)) {
+			if (key.startsWith('_') || knownKeys.has(key)) {
+				continue;
+			}
+
+			const normalized = normalizeMetadataValue(value);
+			if (normalized !== undefined) {
+				metadata[key] = normalized;
+			}
+		}
+	}
 
 	return Object.keys(metadata).length > 0 ? metadata : null;
 }
@@ -64,4 +77,21 @@ function readTags(value: unknown): string[] {
 	}
 
 	return value.filter((tag): tag is string => typeof tag === 'string' && tag.length > 0);
+}
+
+function normalizeMetadataValue(value: unknown): unknown {
+	if (value === null || value === undefined) {
+		return undefined;
+	}
+
+	if (typeof value === 'string') {
+		return value.length > 0 ? value : undefined;
+	}
+
+	if (Array.isArray(value)) {
+		const filtered = value.filter((item) => item !== null && item !== undefined && item !== '');
+		return filtered.length > 0 ? filtered : undefined;
+	}
+
+	return value;
 }
