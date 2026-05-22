@@ -29,6 +29,7 @@ import { createExternalChangeDedup } from '$lib/editor/external-change-dedup';
 import { findActiveHeadingIndex, parseHeadings } from '$lib/editor/headings';
 import { createLineNumberExtensions } from '$lib/editor/line-numbers';
 import { createLivePreviewExtension } from '$lib/editor/live-preview';
+import { createPasteUrlExtension } from '$lib/editor/paste-url';
 import { createTableEditorExtension } from '$lib/editor/table-editor';
 import {
 	duplicateH1HideExtension,
@@ -309,6 +310,9 @@ history(),
 EditorView.lineWrapping,
 EditorView.contentAttributes.of({ spellcheck: 'false' }),
 createTableEditorExtension(() => tabStore.activeViewMode === 'source'),
+createPasteUrlExtension(
+	() => settingsStore.draftConfig?.editor.paste_url_image_whitelist ?? ''
+),
 keymap.of([
 ...closeBracketsKeymap,
 ...defaultKeymap,

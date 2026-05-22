@@ -81,10 +81,12 @@ timezone = "America/Los_Angeles"  # Timezone for daily scheduler (optional)
 catch_up = false              # Create missed daily notes on startup (default: false)
 
 [editor]
-live_preview = true           # Enable Live Preview mode (default: true)
-default_mode = "source"       # Default view mode: "source", "live-preview", or "reading"
-strict_line_breaks = false   # Use standard Markdown soft breaks instead of Obsidian-style single-newline breaks
-show_line_numbers = true      # Show line numbers in Source and Live Preview modes (default: true)
+live_preview = true               # Enable Live Preview mode (default: true)
+default_mode = "source"           # Default view mode: "source", "live-preview", or "reading"
+strict_line_breaks = false        # Use standard Markdown soft breaks instead of Obsidian-style single-newline breaks
+show_line_numbers = true          # Show line numbers in Source and Live Preview modes (default: true)
+hide_duplicate_h1 = true          # Hide a first H1 that duplicates the note title in reading/live preview
+paste_url_image_whitelist = ""    # One regex per line; empty disables automatic ![]() embeds on paste
 
 [git]
 enabled = false               # Enable git integration (default: false)
@@ -119,6 +121,8 @@ Top-level fields:
 - `default_mode` — `source`, `live-preview`, or `reading` (default: `source`)
 - `strict_line_breaks` — require standard Markdown line breaks; when `false`, single newlines render as line breaks like Obsidian (default: `false`)
 - `show_line_numbers` — show line numbers in Source and Live Preview editor modes (default: `true`)
+- `hide_duplicate_h1` — hide a first H1 that duplicates the note title in reading view and live preview (default: `true`)
+- `paste_url_image_whitelist` — newline-delimited regex patterns that turn pasted URLs into image embeds when they match; empty disables the behavior (default: empty string)
 
 `[git]`:
 - `enabled` — enable per-vault git integration (default: `false`)

@@ -2566,6 +2566,8 @@ async fn get_vault_config_returns_config_with_etag() {
     assert_eq!(body["config"]["name"], "test-vault");
     assert_eq!(body["config"]["editor"]["strict_line_breaks"], false);
     assert_eq!(body["config"]["editor"]["show_line_numbers"], true);
+    assert_eq!(body["config"]["editor"]["hide_duplicate_h1"], true);
+    assert_eq!(body["config"]["editor"]["paste_url_image_whitelist"], "");
     assert!(body["hash"].as_str().unwrap().len() > 10);
     assert_eq!(body["path"], ".notesmith/vault.toml");
     assert!(body["warnings"].is_object());
@@ -2605,7 +2607,7 @@ async fn put_vault_config_succeeds_with_correct_if_match() {
         "name": "test-vault",
         "capture": { "folder": "MyInbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false, "show_line_numbers": true, "hide_duplicate_h1": true, "paste_url_image_whitelist": "" },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2647,7 +2649,7 @@ async fn put_vault_config_returns_409_on_stale_if_match() {
         "name": "test-vault",
         "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false, "show_line_numbers": true, "hide_duplicate_h1": true, "paste_url_image_whitelist": "" },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2680,7 +2682,7 @@ async fn put_vault_config_returns_428_without_if_match() {
         "name": "test-vault",
         "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false, "show_line_numbers": true, "hide_duplicate_h1": true, "paste_url_image_whitelist": "" },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2726,7 +2728,7 @@ async fn put_vault_config_returns_422_with_invalid_data() {
             "timezone": "Mars/Olympus",
             "catch_up": false
         },
-        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false, "show_line_numbers": true, "hide_duplicate_h1": true, "paste_url_image_whitelist": "" },
         "git": { "enabled": false, "auto_commit_every": "banana" },
         "hooks": {}
     });
@@ -2761,7 +2763,7 @@ async fn put_vault_config_rejects_disallowed_origin() {
         "name": "test-vault",
         "capture": { "folder": "Inbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false, "show_line_numbers": true, "hide_duplicate_h1": true, "paste_url_image_whitelist": "" },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2801,7 +2803,7 @@ async fn get_after_put_reflects_changes() {
         "name": "test-vault",
         "capture": { "folder": "CustomInbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
-        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false, "show_line_numbers": true, "hide_duplicate_h1": true, "paste_url_image_whitelist": "" },
         "git": { "enabled": false },
         "hooks": {}
     });

@@ -76,6 +76,22 @@ When a note's first heading duplicates the note title, hide it in reading view a
 live preview so the title isn't shown twice. The source file is not modified.
 </span>
 </label>
+<label class="field field-stack">
+<span class="field-label">Image URL Whitelist</span>
+<textarea
+rows="4"
+placeholder="youtu.?be|vimeo&#10;imgur\\.com&#10;.*\\.(?:png|jpg|gif)"
+value={cfg.editor.paste_url_image_whitelist ?? ''}
+onchange={(e) => {
+	cfg.editor.paste_url_image_whitelist = e.currentTarget.value;
+	saveImmediate('editor');
+}}
+></textarea>
+<span class="field-description">
+Regex patterns (one per line) for URLs that should produce image embeds
+(![alt](url)) when pasted onto selected text.
+</span>
+</label>
 </section>
 
 <style>
@@ -112,6 +128,10 @@ order: 1;
 align-items: flex-start;
 }
 
+.field-stack {
+align-items: flex-start;
+}
+
 .field-toggle-stack .field-description {
 order: 2;
 margin-left: 26px;
@@ -129,7 +149,8 @@ line-height: 1.4;
 max-width: 420px;
 }
 
-.field select {
+.field select,
+.field textarea {
 padding: 6px 10px;
 border: 1px solid var(--ns-border-strong);
 border-radius: 4px;
@@ -139,7 +160,13 @@ font-size: 13px;
 max-width: 400px;
 }
 
-.field select:focus {
+.field textarea {
+min-height: 88px;
+resize: vertical;
+}
+
+.field select:focus,
+.field textarea:focus {
 outline: none;
 border-color: var(--ns-accent-bg);
 }

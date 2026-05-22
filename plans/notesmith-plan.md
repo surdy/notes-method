@@ -1412,6 +1412,9 @@ catch_up = true
 [editor]
 live_preview = true
 default_mode = "source"
+show_line_numbers = true
+hide_duplicate_h1 = true
+paste_url_image_whitelist = ""
 ```
 
 ### 22.4 Per-vault hidden directory

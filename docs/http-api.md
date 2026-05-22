@@ -126,7 +126,7 @@ The response includes an `ETag` header with the config hash for use with `PUT` r
     "name": "work",
     "capture": { "folder": "", "template": "generic-note" },
     "daily": { "folder": "", "template": "daily-note", "generate_at": "06:00", "timezone": "America/Los_Angeles", "catch_up": false },
-    "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
+    "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false, "show_line_numbers": true, "hide_duplicate_h1": true, "paste_url_image_whitelist": "" },
     "git": { "enabled": true, "auto_commit_every": "5m", "auto_pull_every": "10m", "auto_push_every": "10m" },
     "hooks": {}
   },
@@ -163,7 +163,7 @@ Update the vault configuration. Requires an `If-Match` header with the current c
   "name": "work",
   "capture": { "folder": "", "template": "generic-note" },
   "daily": { "folder": "", "template": "daily-note", "catch_up": false },
-  "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false },
+  "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false, "show_line_numbers": true, "hide_duplicate_h1": true, "paste_url_image_whitelist": "" },
   "git": { "enabled": false },
   "hooks": {}
 }
@@ -205,7 +205,7 @@ HASH=$(echo "$RESPONSE" | jq -r .hash)
 curl -X PUT http://127.0.0.1:27183/api/v/work/config \
   -H "Content-Type: application/json" \
   -H "If-Match: \"$HASH\"" \
-  -d '{"schema_version":1,"name":"work","capture":{"folder":"","template":"generic-note"},"daily":{"folder":"","template":"daily-note","catch_up":false},"editor":{"live_preview":true,"default_mode":"source","strict_line_breaks":false},"git":{"enabled":false},"hooks":{}}'
+  -d '{"schema_version":1,"name":"work","capture":{"folder":"","template":"generic-note"},"daily":{"folder":"","template":"daily-note","catch_up":false},"editor":{"live_preview":true,"default_mode":"source","strict_line_breaks":false,"show_line_numbers":true,"hide_duplicate_h1":true,"paste_url_image_whitelist":""},"git":{"enabled":false},"hooks":{}}'
 
 ### `GET /api/v/{vault}/notes`
 

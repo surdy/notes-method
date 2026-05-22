@@ -170,6 +170,14 @@ fn cmd_info(
                 "  show_line_numbers:  {}",
                 vault_config.editor.show_line_numbers
             );
+            println!(
+                "  hide_duplicate_h1:  {}",
+                vault_config.editor.hide_duplicate_h1
+            );
+            println!(
+                "  paste_url_image_whitelist:  {}",
+                vault_config.editor.paste_url_image_whitelist
+            );
             println!();
             println!("[git]");
             println!("  enabled: {}", vault_config.git.enabled);
@@ -199,6 +207,8 @@ fn cmd_info(
                         "default_mode": vault_config.editor.default_mode,
                         "strict_line_breaks": vault_config.editor.strict_line_breaks,
                         "show_line_numbers": vault_config.editor.show_line_numbers,
+                        "hide_duplicate_h1": vault_config.editor.hide_duplicate_h1,
+                        "paste_url_image_whitelist": vault_config.editor.paste_url_image_whitelist,
                     },
                     "git": {
                         "enabled": vault_config.git.enabled,

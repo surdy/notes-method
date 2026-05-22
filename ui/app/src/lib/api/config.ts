@@ -27,6 +27,7 @@ export interface VaultConfigData {
 		strict_line_breaks: boolean;
 		show_line_numbers: boolean;
 		hide_duplicate_h1: boolean;
+		paste_url_image_whitelist: string;
 	};
 	git: {
 		enabled: boolean;
