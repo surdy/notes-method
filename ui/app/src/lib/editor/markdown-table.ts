@@ -145,3 +145,107 @@ export function removeMarkdownTableColumn(table: MarkdownTable): MarkdownTable {
 		rows: table.rows.map((row) => row.slice(0, -1))
 	};
 }
+
+export function insertRowAt(table: MarkdownTable, index: number): MarkdownTable {
+	const columns = table.headers.length;
+	const blank = Array.from({ length: columns }, () => '');
+	const rows = table.rows.map((row) => [...row]);
+	const clamped = Math.max(0, Math.min(index, rows.length));
+	rows.splice(clamped, 0, blank);
+	return { headers: [...table.headers], alignments: [...table.alignments], rows };
+}
+
+export function deleteRowAt(table: MarkdownTable, index: number): MarkdownTable {
+	if (index < 0 || index >= table.rows.length) return { ...table, rows: table.rows.map((r) => [...r]) };
+	const rows = table.rows.filter((_, i) => i !== index).map((r) => [...r]);
+	return { headers: [...table.headers], alignments: [...table.alignments], rows };
+}
+
+export function moveRow(table: MarkdownTable, from: number, to: number): MarkdownTable {
+	if (from < 0 || from >= table.rows.length || to < 0 || to >= table.rows.length || from === to) {
+		return { ...table, rows: table.rows.map((r) => [...r]) };
+	}
+	const rows = table.rows.map((r) => [...r]);
+	const [moved] = rows.splice(from, 1);
+	rows.splice(to, 0, moved);
+	return { headers: [...table.headers], alignments: [...table.alignments], rows };
+}
+
+export function duplicateRow(table: MarkdownTable, index: number): MarkdownTable {
+	if (index < 0 || index >= table.rows.length) return { ...table, rows: table.rows.map((r) => [...r]) };
+	const rows = table.rows.map((r) => [...r]);
+	rows.splice(index + 1, 0, [...table.rows[index]]);
+	return { headers: [...table.headers], alignments: [...table.alignments], rows };
+}
+
+export function insertColumnAt(table: MarkdownTable, index: number): MarkdownTable {
+	const clamped = Math.max(0, Math.min(index, table.headers.length));
+	const headers = [...table.headers];
+	headers.splice(clamped, 0, '');
+	const alignments = [...table.alignments];
+	alignments.splice(clamped, 0, 'left');
+	const rows = table.rows.map((row) => {
+		const r = [...row];
+		r.splice(clamped, 0, '');
+		return r;
+	});
+	return { headers, alignments, rows };
+}
+
+export function deleteColumnAt(table: MarkdownTable, index: number): MarkdownTable {
+	if (table.headers.length <= 1 || index < 0 || index >= table.headers.length) {
+		return { headers: [...table.headers], alignments: [...table.alignments], rows: table.rows.map((r) => [...r]) };
+	}
+	const headers = table.headers.filter((_, i) => i !== index);
+	const alignments = table.alignments.filter((_, i) => i !== index);
+	const rows = table.rows.map((row) => row.filter((_, i) => i !== index));
+	return { headers, alignments, rows };
+}
+
+export function moveColumn(table: MarkdownTable, from: number, to: number): MarkdownTable {
+	if (from < 0 || from >= table.headers.length || to < 0 || to >= table.headers.length || from === to) {
+		return { headers: [...table.headers], alignments: [...table.alignments], rows: table.rows.map((r) => [...r]) };
+	}
+	const headers = [...table.headers];
+	const [movedH] = headers.splice(from, 1);
+	headers.splice(to, 0, movedH);
+	const alignments = [...table.alignments];
+	const [movedA] = alignments.splice(from, 1);
+	alignments.splice(to, 0, movedA);
+	const rows = table.rows.map((row) => {
+		const r = [...row];
+		const [movedC] = r.splice(from, 1);
+		r.splice(to, 0, movedC);
+		return r;
+	});
+	return { headers, alignments, rows };
+}
+
+export function duplicateColumn(table: MarkdownTable, index: number): MarkdownTable {
+	if (index < 0 || index >= table.headers.length) {
+		return { headers: [...table.headers], alignments: [...table.alignments], rows: table.rows.map((r) => [...r]) };
+	}
+	const headers = [...table.headers];
+	headers.splice(index + 1, 0, table.headers[index]);
+	const alignments = [...table.alignments];
+	alignments.splice(index + 1, 0, table.alignments[index]);
+	const rows = table.rows.map((row) => {
+		const r = [...row];
+		r.splice(index + 1, 0, row[index] ?? '');
+		return r;
+	});
+	return { headers, alignments, rows };
+}
+
+export function setColumnAlignment(
+	table: MarkdownTable,
+	index: number,
+	alignment: MarkdownTableAlignment
+): MarkdownTable {
+	if (index < 0 || index >= table.alignments.length) {
+		return { headers: [...table.headers], alignments: [...table.alignments], rows: table.rows.map((r) => [...r]) };
+	}
+	const alignments = [...table.alignments];
+	alignments[index] = alignment;
+	return { headers: [...table.headers], alignments, rows: table.rows.map((r) => [...r]) };
+}

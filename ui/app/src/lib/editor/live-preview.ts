@@ -2,18 +2,36 @@ import { type EditorState, type Extension, type Range } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import {
-	addMarkdownTableColumn,
-	addMarkdownTableRow,
+	deleteColumnAt,
+	deleteRowAt,
+	duplicateColumn,
+	duplicateRow,
+	insertColumnAt,
+	insertRowAt,
+	moveColumn,
+	moveRow,
 	parseMarkdownTable,
-	removeMarkdownTableColumn,
-	removeMarkdownTableRow,
 	serializeMarkdownTable,
+	setColumnAlignment,
 	updateMarkdownTableCell,
 	type MarkdownTable,
+	type MarkdownTableAlignment,
 	type MarkdownTableCellUpdate
 } from './markdown-table.ts';
 import { highlightCodeElement, parseFencedCodeBlock } from './code-highlighting.ts';
 import { isExternalLinkUrl } from './link-classification.ts';
+import { livePreviewTableContextMenuTheme } from './theme.ts';
+
+// Inject context menu styles once into the document head
+let contextMenuStylesInjected = false;
+function ensureContextMenuStyles() {
+	if (contextMenuStylesInjected) return;
+	if (typeof document === 'undefined') return;
+	const style = document.createElement('style');
+	style.textContent = livePreviewTableContextMenuTheme;
+	document.head.appendChild(style);
+	contextMenuStylesInjected = true;
+}
 
 type CalloutFold = 'open' | 'closed' | null;
 
@@ -142,6 +160,7 @@ class TableWidget extends WidgetType {
 	}
 
 	toDOM(view: EditorView): HTMLElement {
+		ensureContextMenuStyles();
 		const wrapper = document.createElement('div');
 		wrapper.className = 'cm-lp-table-wrapper';
 
@@ -166,24 +185,6 @@ class TableWidget extends WidgetType {
 			replaceTable(updateMarkdownTableCell(latestTable(), update));
 		};
 
-		const toolbar = document.createElement('div');
-		toolbar.className = 'cm-lp-table-toolbar';
-		toolbar.append(
-			this.createButton('+ Row', () => replaceTable(addMarkdownTableRow(latestTable()))),
-			this.createButton(
-				'- Row',
-				() => replaceTable(removeMarkdownTableRow(latestTable())),
-				table.rows.length === 0
-			),
-			this.createButton('+ Column', () => replaceTable(addMarkdownTableColumn(latestTable()))),
-			this.createButton(
-				'- Column',
-				() => replaceTable(removeMarkdownTableColumn(latestTable())),
-				table.headers.length <= 1
-			)
-		);
-		wrapper.appendChild(toolbar);
-
 		const tableEl = document.createElement('table');
 		tableEl.className = 'cm-lp-table';
 
@@ -201,6 +202,8 @@ class TableWidget extends WidgetType {
 				},
 				commitCell
 			);
+			th.dataset.row = '-1';
+			th.dataset.col = String(columnIndex);
 			this.applyAlignment(th, table.alignments[columnIndex]);
 			headRow.appendChild(th);
 		});
@@ -223,6 +226,8 @@ class TableWidget extends WidgetType {
 					},
 					commitCell
 				);
+				td.dataset.row = String(rowIndex);
+				td.dataset.col = String(columnIndex);
 				this.applyAlignment(td, table.alignments[columnIndex]);
 				tr.appendChild(td);
 			});
@@ -231,24 +236,17 @@ class TableWidget extends WidgetType {
 		tableEl.appendChild(tbody);
 		wrapper.appendChild(tableEl);
 
-		return wrapper;
-	}
-
-	private createButton(label: string, onClick: () => void, disabled = false): HTMLButtonElement {
-		const button = document.createElement('button');
-		button.type = 'button';
-		button.className = 'cm-lp-table-button';
-		button.textContent = label;
-		button.disabled = disabled;
-		button.addEventListener('click', (event) => {
+		wrapper.addEventListener('contextmenu', (event) => {
 			event.preventDefault();
 			event.stopPropagation();
-			if (button.disabled) {
-				return;
-			}
-			onClick();
+			const target = (event.target as HTMLElement).closest('td, th') as HTMLElement | null;
+			if (!target) return;
+			const rowIdx = parseInt(target.dataset.row ?? '-1', 10);
+			const colIdx = parseInt(target.dataset.col ?? '0', 10);
+			showTableContextMenu(event as MouseEvent, rowIdx, colIdx, latestTable, replaceTable);
 		});
-		return button;
+
+		return wrapper;
 	}
 
 	private createEditableCell(
@@ -288,6 +286,150 @@ class TableWidget extends WidgetType {
 			cell.style.textAlign = alignment;
 		}
 	}
+}
+
+function dismissTableContextMenu() {
+	const existing = document.querySelector('.cm-lp-table-context-menu');
+	if (existing) existing.remove();
+}
+
+function showTableContextMenu(
+	event: MouseEvent,
+	rowIdx: number,
+	colIdx: number,
+	latestTable: () => MarkdownTable,
+	replaceTable: (t: MarkdownTable) => void
+) {
+	dismissTableContextMenu();
+
+	const menu = document.createElement('div');
+	menu.className = 'cm-lp-table-context-menu';
+
+	const isHeaderRow = rowIdx === -1;
+	const table = latestTable();
+	const totalRows = table.rows.length;
+	const totalCols = table.headers.length;
+
+	type MenuItem = { label: string; action: () => void; disabled?: boolean } | 'separator';
+	const items: MenuItem[] = [];
+
+	// Row operations
+	if (isHeaderRow) {
+		items.push({ label: 'Insert row below', action: () => replaceTable(insertRowAt(latestTable(), 0)) });
+	} else {
+		items.push({ label: 'Insert row above', action: () => replaceTable(insertRowAt(latestTable(), rowIdx)) });
+		items.push({ label: 'Insert row below', action: () => replaceTable(insertRowAt(latestTable(), rowIdx + 1)) });
+		items.push('separator');
+		items.push({
+			label: 'Move row up',
+			action: () => replaceTable(moveRow(latestTable(), rowIdx, rowIdx - 1)),
+			disabled: rowIdx === 0
+		});
+		items.push({
+			label: 'Move row down',
+			action: () => replaceTable(moveRow(latestTable(), rowIdx, rowIdx + 1)),
+			disabled: rowIdx >= totalRows - 1
+		});
+		items.push('separator');
+		items.push({ label: 'Duplicate row', action: () => replaceTable(duplicateRow(latestTable(), rowIdx)) });
+		items.push({ label: 'Delete row', action: () => replaceTable(deleteRowAt(latestTable(), rowIdx)) });
+	}
+
+	items.push('separator');
+
+	// Column operations
+	items.push({ label: 'Insert column left', action: () => replaceTable(insertColumnAt(latestTable(), colIdx)) });
+	items.push({ label: 'Insert column right', action: () => replaceTable(insertColumnAt(latestTable(), colIdx + 1)) });
+	items.push('separator');
+	items.push({
+		label: 'Move column left',
+		action: () => replaceTable(moveColumn(latestTable(), colIdx, colIdx - 1)),
+		disabled: colIdx === 0
+	});
+	items.push({
+		label: 'Move column right',
+		action: () => replaceTable(moveColumn(latestTable(), colIdx, colIdx + 1)),
+		disabled: colIdx >= totalCols - 1
+	});
+	items.push('separator');
+
+	// Alignment submenu
+	const alignments: { label: string; value: MarkdownTableAlignment }[] = [
+		{ label: 'Align left', value: 'left' },
+		{ label: 'Align center', value: 'center' },
+		{ label: 'Align right', value: 'right' }
+	];
+	for (const a of alignments) {
+		const current = table.alignments[colIdx] ?? 'left';
+		items.push({
+			label: current === a.value ? `${a.label} ✓` : a.label,
+			action: () => replaceTable(setColumnAlignment(latestTable(), colIdx, a.value))
+		});
+	}
+	items.push('separator');
+	items.push({ label: 'Duplicate column', action: () => replaceTable(duplicateColumn(latestTable(), colIdx)) });
+	items.push({
+		label: 'Delete column',
+		action: () => replaceTable(deleteColumnAt(latestTable(), colIdx)),
+		disabled: totalCols <= 1
+	});
+
+	for (const item of items) {
+		if (item === 'separator') {
+			const sep = document.createElement('div');
+			sep.className = 'cm-lp-table-context-menu-separator';
+			menu.appendChild(sep);
+		} else {
+			const btn = document.createElement('button');
+			btn.type = 'button';
+			btn.className = 'cm-lp-table-context-menu-item';
+			btn.textContent = item.label;
+			if (item.disabled) {
+				btn.disabled = true;
+				btn.classList.add('disabled');
+			}
+			btn.addEventListener('click', (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				dismissTableContextMenu();
+				item.action();
+			});
+			menu.appendChild(btn);
+		}
+	}
+
+	document.body.appendChild(menu);
+
+	// Position the menu at mouse coordinates, but keep it on screen
+	const rect = menu.getBoundingClientRect();
+	let x = event.clientX;
+	let y = event.clientY;
+	if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 4;
+	if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 4;
+	menu.style.left = `${x}px`;
+	menu.style.top = `${y}px`;
+
+	// Dismiss on click outside or Escape
+	const dismiss = (e: Event) => {
+		if (!menu.contains(e.target as Node)) {
+			dismissTableContextMenu();
+			cleanup();
+		}
+	};
+	const dismissOnKey = (e: KeyboardEvent) => {
+		if (e.key === 'Escape') {
+			dismissTableContextMenu();
+			cleanup();
+		}
+	};
+	const cleanup = () => {
+		document.removeEventListener('mousedown', dismiss);
+		document.removeEventListener('keydown', dismissOnKey);
+	};
+	setTimeout(() => {
+		document.addEventListener('mousedown', dismiss);
+		document.addEventListener('keydown', dismissOnKey);
+	}, 0);
 }
 
 function canonicalCalloutType(identifier: string): string {

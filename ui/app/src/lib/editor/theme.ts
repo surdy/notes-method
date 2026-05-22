@@ -13,39 +13,7 @@ export const livePreviewTableTheme = {
 '.cm-lp-table-wrapper': {
 	margin: '1em 16px',
 	overflowX: 'auto',
-	paddingTop: '28px',
 	position: 'relative'
-},
-'.cm-lp-table-toolbar': {
-	display: 'flex',
-	gap: '6px',
-	position: 'absolute',
-	top: '0',
-	right: '0',
-	zIndex: '1',
-	opacity: '0.72'
-},
-'.cm-lp-table-wrapper:hover .cm-lp-table-toolbar, .cm-lp-table-toolbar:focus-within': {
-	opacity: '1'
-},
-'.cm-lp-table-button': {
-	border: '1px solid var(--ns-editor-border)',
-	borderRadius: '999px',
-	backgroundColor: 'var(--ns-editor-bg)',
-	color: 'var(--ns-editor-text-secondary)',
-	font: 'inherit',
-	fontSize: '12px',
-	lineHeight: '1',
-	padding: '5px 8px',
-	cursor: 'pointer'
-},
-'.cm-lp-table-button:hover': {
-	backgroundColor: 'var(--ns-surface-hover)',
-	color: 'var(--ns-editor-text)'
-},
-'.cm-lp-table-button:disabled': {
-	opacity: '0.45',
-	cursor: 'not-allowed'
 },
 '.cm-lp-table': {
 	borderCollapse: 'collapse'
@@ -73,6 +41,47 @@ export const livePreviewTableTheme = {
 	boxShadow: '0 0 0 1px var(--ns-accent) inset'
 }
 } as const;
+
+export const livePreviewTableContextMenuTheme = `
+.cm-lp-table-context-menu {
+	position: fixed;
+	z-index: 9999;
+	min-width: 180px;
+	padding: 4px 0;
+	background: var(--ns-surface);
+	border: 1px solid var(--ns-border);
+	border-radius: 6px;
+	box-shadow: 0 4px 16px var(--ns-shadow);
+	font-size: 13px;
+	color: var(--ns-text);
+}
+.cm-lp-table-context-menu-item {
+	display: block;
+	width: 100%;
+	padding: 6px 12px;
+	border: none;
+	background: none;
+	text-align: left;
+	cursor: pointer;
+	color: var(--ns-text);
+	font: inherit;
+	font-size: 13px;
+	line-height: 1.4;
+}
+.cm-lp-table-context-menu-item:hover:not(:disabled) {
+	background: var(--ns-surface-hover);
+}
+.cm-lp-table-context-menu-item:disabled,
+.cm-lp-table-context-menu-item.disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+.cm-lp-table-context-menu-separator {
+	height: 1px;
+	margin: 4px 8px;
+	background: var(--ns-border);
+}
+`;
 
 export const livePreviewCalloutTheme = {
 '.cm-lp-callout': {
