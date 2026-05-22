@@ -57,10 +57,6 @@ const WINDOWS_PERSIST_DEBOUNCE: Duration = Duration::from_millis(500);
 /// CLI flag that suppresses `windows.json` replay for one launch.
 const NO_RESTORE_FLAG: &str = "--no-restore";
 
-/// Frontend event emitted when the user clicks the OS close button. The
-/// webview must respond by invoking `confirm_window_close`.
-const CLOSE_REQUESTED_EVENT: &str = "notesmith://close-requested";
-
 #[derive(Default)]
 struct ExitState(AtomicBool);
 
@@ -241,8 +237,8 @@ impl Default for DaemonUrlState {
 ///
 /// Used to implement focus-existing: opening a vault that already has a window
 /// re-focuses that window rather than creating a duplicate. Entries are added
-/// when [`ensure_vault_window`] creates a window and removed when the user
-/// confirms a real close (see [`confirm_window_close`]).
+/// when [`ensure_vault_window`] creates a window and removed when the
+/// `WindowEvent::Destroyed` handler fires.
 #[derive(Default)]
 struct VaultWindows(Mutex<HashMap<String, String>>);
 
@@ -388,15 +384,11 @@ fn main() {
                         // Onboarding window: keep legacy hide behaviour.
                         api.prevent_close();
                         let _ = window.hide();
-                    } else if is_vault_window_label(&label) {
-                        // Broadcast for reliable delivery to daemon-hosted
-                        // webviews; the frontend filters the payload label so
-                        // only the window being closed responds.
-                        api.prevent_close();
-                        let _ = window
-                            .app_handle()
-                            .emit(CLOSE_REQUESTED_EVENT, label.clone());
                     }
+                    // Vault windows: let native close proceed. The
+                    // `Destroyed` handler below cleans up VaultWindows and
+                    // windows.json. Auto-save ensures no more than ~1 s of
+                    // edits can be lost.
                 }
                 tauri::WindowEvent::Destroyed => {
                     if is_vault_window_label(&label) {
@@ -2206,13 +2198,11 @@ fn set_window_title(window: tauri::Window, title: String) -> Result<(), String> 
     window.set_title(&title).map_err(|error| error.to_string())
 }
 
-/// Webview response to a `notesmith://close-requested` event.
+/// Legacy command: webview response to close-requested events.
 ///
-/// - `allow=true`: the webview has saved/discarded any dirty content and is
-///   ready to be torn down. We remove the vault binding then destroy the
-///   window. `destroy()` skips the close handler entirely so there is no
-///   second round trip through `CloseRequested`.
-/// - `allow=false`: the user cancelled; leave the window where it is.
+/// Retained for API compatibility. Vault windows now close natively (the OS
+/// close button is no longer intercepted) and cleanup happens in the
+/// `WindowEvent::Destroyed` handler.
 #[tauri::command]
 async fn confirm_window_close(
     app: tauri::AppHandle,
