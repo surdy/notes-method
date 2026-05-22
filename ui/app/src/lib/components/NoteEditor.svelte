@@ -29,6 +29,7 @@ import { createExternalChangeDedup } from '$lib/editor/external-change-dedup';
 import { findActiveHeadingIndex, parseHeadings } from '$lib/editor/headings';
 import { createLineNumberExtensions } from '$lib/editor/line-numbers';
 import { createLivePreviewExtension } from '$lib/editor/live-preview';
+import { createTableEditorExtension } from '$lib/editor/table-editor';
 import {
 	duplicateH1HideExtension,
 	setDuplicateH1TitleEffect
@@ -307,6 +308,7 @@ highlightSelectionMatches(),
 history(),
 EditorView.lineWrapping,
 EditorView.contentAttributes.of({ spellcheck: 'false' }),
+createTableEditorExtension(() => tabStore.activeViewMode === 'source'),
 keymap.of([
 ...closeBracketsKeymap,
 ...defaultKeymap,

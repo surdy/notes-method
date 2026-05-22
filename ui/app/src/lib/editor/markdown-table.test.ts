@@ -17,6 +17,7 @@ import {
 	removeMarkdownTableRow,
 	serializeMarkdownTable,
 	setColumnAlignment,
+	type MarkdownTable,
 	updateMarkdownTableCell
 } from './markdown-table.ts';
 
@@ -256,9 +257,9 @@ describe('markdown table model', () => {
 
 describe('formatTable', () => {
 	it('formats two columns with padded widths', () => {
-		const table = {
+		const table: MarkdownTable = {
 			headers: ['Name', 'Role'],
-			alignments: ['left', 'center'] as const,
+			alignments: ['left', 'center'],
 			rows: [
 				['Jane', 'CTO'],
 				['Jonathan', 'VP Engineering']
@@ -272,9 +273,9 @@ describe('formatTable', () => {
 	});
 
 	it('preserves left, center, and right alignment markers', () => {
-		const table = {
+		const table: MarkdownTable = {
 			headers: ['Left', 'Center', 'Right'],
-			alignments: ['left', 'center', 'right'] as const,
+			alignments: ['left', 'center', 'right'],
 			rows: [['a', 'bb', 'ccc']]
 		};
 
@@ -284,9 +285,9 @@ describe('formatTable', () => {
 	});
 
 	it('formats a single-column table', () => {
-		const table = {
+		const table: MarkdownTable = {
 			headers: ['Status'],
-			alignments: ['right'] as const,
+			alignments: ['right'],
 			rows: [['Done']]
 		};
 
@@ -296,9 +297,9 @@ describe('formatTable', () => {
 	});
 
 	it('pads empty cells to the column width', () => {
-		const table = {
+		const table: MarkdownTable = {
 			headers: ['Name', 'Role'],
-			alignments: ['left', 'left'] as const,
+			alignments: ['left', 'left'],
 			rows: [
 				['Jane', ''],
 				['', 'Engineer']
@@ -312,9 +313,9 @@ describe('formatTable', () => {
 	});
 
 	it('formats tables with headers only', () => {
-		const table = {
+		const table: MarkdownTable = {
 			headers: ['Name', 'Role'],
-			alignments: ['left', 'center'] as const,
+			alignments: ['left', 'center'],
 			rows: []
 		};
 
