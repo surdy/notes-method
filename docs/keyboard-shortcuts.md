@@ -5,10 +5,10 @@ Reference for Notesmith keyboard shortcuts in the macOS-first desktop app.
 | Shortcut | Action | Description |
 |----------|--------|-------------|
 | **Navigation** | — | — |
-| ⌘K | Command Palette | Open the command palette to search and run commands |
-| ⌘P | Command Palette | Alternative shortcut for command palette |
-| ⌘O | Quick Switcher | Search and open notes by title |
-| ⌘⇧F | Global Search | Open quick switcher for search (same as ⌘O) |
+| ⌘P | Palette (Files) | Open the unified palette in file search mode |
+| ⌘⇧P | Palette (Commands) | Open the unified palette in command mode |
+| ⌘K | Palette (Commands) | Alias for ⌘⇧P |
+| ⌘⇧F | Palette (Files) | Alias for ⌘P |
 | **Notes** | — | — |
 | ⌘N | New Note | Create a new note with title and folder |
 | ⌘D | Daily Note | Create or open today's daily note |
@@ -39,5 +39,5 @@ Reference for Notesmith keyboard shortcuts in the macOS-first desktop app.
 
 - All shortcuts use `⌘` (Command) on macOS.
 - Notesmith is macOS-first, so Linux and Windows key equivalents may differ.
-- Shortcuts can also be discovered from the Command Palette (`⌘K`).
+- Shortcuts can also be discovered from the Command Palette (`⌘⇧P` or `⌘K`).
 - Table editing shortcuts (Tab, Enter, Escape, ⌘⇧+arrows) only activate when the cursor is inside a markdown table in Source mode.

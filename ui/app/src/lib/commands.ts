@@ -9,7 +9,6 @@ import {
 } from './api';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
-import { OPEN_QUICK_SWITCHER_EVENT } from './command-events';
 import { createOrOpenFolderNote, listFolderPickerItems } from './folder-notes';
 import { inputPalette } from './input-palette.svelte';
 import { tabStore } from './tab-store.svelte';
@@ -23,8 +22,6 @@ category: 'Notes' | 'Tasks' | 'Templates' | 'Navigation' | 'Vault' | 'Settings';
 shortcut?: string;
 execute: () => void | Promise<void>;
 }
-
-export { OPEN_QUICK_SWITCHER_EVENT } from './command-events';
 
 function notifyError(message: string, cause: unknown) {
 console.error(message, cause);
@@ -315,11 +312,11 @@ notifyError('Failed to create note from template.', cause);
 },
 {
 id: 'focus-search',
-label: 'Global Search',
+label: 'Search Notes',
 category: 'Navigation',
-shortcut: '⌘⇧F',
+shortcut: '⌘P',
 execute: () => {
-window.dispatchEvent(new CustomEvent(OPEN_QUICK_SWITCHER_EVENT));
+// Handled by hotkey — opens unified palette in file mode
 }
 },
 {

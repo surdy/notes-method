@@ -189,10 +189,7 @@ test('createAppShell bootstraps the page shell and tears it down cleanly', { con
 	assert.equal(vaultStore.currentVault, 'work');
 	assert.equal(tabStore.restoreTabsCalls, 1);
 	assert.equal(vaultStore.loadNotesCalls, 1);
-	assert.equal(hotkeys.length, 14);
-
-	windowStub.dispatch('notesmith:open-quick-switcher');
-	assert.equal(calls.openQuickSwitcher, 1);
+	assert.equal(hotkeys.length, 15);
 
 	hotkeys.find((candidate) => candidate.key === 'k' && candidate.meta)?.action();
 	hotkeys.find((candidate) => candidate.key === 'n' && candidate.meta && !candidate.shift)?.action();
@@ -204,13 +201,16 @@ test('createAppShell bootstraps the page shell and tears it down cleanly', { con
 	assert.equal(calls.toggleRightRail, 1);
 	assert.equal(calls.openSettings, 1);
 
+	hotkeys.find((candidate) => candidate.key === 'p' && candidate.meta && !candidate.shift)?.action();
+	assert.equal(calls.openQuickSwitcher, 1);
+
+	hotkeys.find((candidate) => candidate.key === 'p' && candidate.meta && candidate.shift)?.action();
+	assert.equal(calls.openCommandPalette, 2);
+
 	shell.teardown();
 
 	assert.equal(closeCalls, 1);
 	assert.equal(unregisterCalls, 1);
-
-	windowStub.dispatch('notesmith:open-quick-switcher');
-	assert.equal(calls.openQuickSwitcher, 1);
 });
 
 test('createAppShell dispatches SSE events to the right page callbacks', { concurrency: false }, async () => {

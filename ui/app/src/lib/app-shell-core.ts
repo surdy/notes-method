@@ -1,5 +1,4 @@
 import { API_BASE, apiFetch } from './api/core.ts';
-import { OPEN_QUICK_SWITCHER_EVENT } from './command-events.ts';
 import type { Hotkey } from './hotkeys.ts';
 import type { VaultEvent } from './sse.ts';
 
@@ -134,7 +133,8 @@ function buildHotkeys(
 
 	return [
 		{ key: 'k', meta: true, action: callbacks.onOpenCommandPalette },
-		{ key: 'p', meta: true, action: callbacks.onOpenCommandPalette },
+		{ key: 'p', meta: true, action: callbacks.onOpenQuickSwitcher },
+		{ key: 'p', meta: true, shift: true, action: callbacks.onOpenCommandPalette },
 		{ key: 'o', meta: true, action: callbacks.onOpenQuickSwitcher },
 		{ key: 'w', meta: true, action: () => tabStore.closeActiveTab() },
 		{ key: 'n', meta: true, action: () => runCommand('new-note') },
@@ -156,7 +156,6 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 	let sseConnection: AppShellEventSource | null = null;
 	let unregisterHotkeys = () => {};
 	let removeVisibilityListener = () => {};
-	let handleOpenQuickSwitcher: EventListener | null = null;
 	let availableVaults: string[] | null = null;
 	let lastResyncTime = 0;
 	let urlPinnedVault = false;
@@ -267,11 +266,6 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 		availableVaults = vaults;
 		urlPinnedVault = vaultParam !== null && vaultParam !== '';
 
-		handleOpenQuickSwitcher = () => callbacks.onOpenQuickSwitcher();
-		dependencies.targetWindow.addEventListener(
-			OPEN_QUICK_SWITCHER_EVENT,
-			handleOpenQuickSwitcher as EventListener
-		);
 		unregisterHotkeys = dependencies.registerHotkeys(
 			buildHotkeys(callbacks, dependencies.tabStore, logger)
 		);
@@ -294,14 +288,6 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 	}
 
 	function teardown() {
-		if (handleOpenQuickSwitcher) {
-			dependencies.targetWindow.removeEventListener(
-				OPEN_QUICK_SWITCHER_EVENT,
-				handleOpenQuickSwitcher as EventListener
-			);
-			handleOpenQuickSwitcher = null;
-		}
-
 		sseConnection?.close();
 		sseConnection = null;
 

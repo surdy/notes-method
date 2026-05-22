@@ -6,19 +6,18 @@
 	import { createAppShell } from '$lib/app-shell.svelte';
 	import { buildCommands } from '$lib/commands';
 	import { themeStore } from '$lib/theme.svelte';
-	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import ConfigToast from '$lib/components/ConfigToast.svelte';
 	import InputPalette from '$lib/components/InputPalette.svelte';
 	import MiddlePane from '$lib/components/MiddlePane.svelte';
 	import NoteEditor from '$lib/components/NoteEditor.svelte';
 	import NoteToolbar from '$lib/components/NoteToolbar.svelte';
 	import NoteViewer from '$lib/components/NoteViewer.svelte';
-	import QuickSwitcher from '$lib/components/QuickSwitcher.svelte';
 	import RightRail from '$lib/components/RightRail.svelte';
 	import SidebarViews from '$lib/components/SidebarViews.svelte';
 	import StatusBar from '$lib/components/StatusBar.svelte';
 	import TabBar from '$lib/components/TabBar.svelte';
 	import ToastStack from '$lib/components/ToastStack.svelte';
+	import UnifiedPalette from '$lib/components/UnifiedPalette.svelte';
 	import VersionBanner from '$lib/components/VersionBanner.svelte';
 	import OpenFolderAsVaultModal from '$lib/components/OpenFolderAsVaultModal.svelte';
 	import { versionMismatch } from '$lib/api/core';
@@ -30,8 +29,7 @@
 	import { pushWindowTitle } from '$lib/window-title';
 
 	let vaults = $state<string[]>([]);
-	let showCommandPalette = $state(false);
-	let showQuickSwitcher = $state(false);
+	let paletteMode = $state<'files' | 'commands' | null>(null);
 	let leftSidebarCollapsed = $state(false);
 	let rightRailCollapsed = $state(false);
 	let sidebarViewsRef = $state<{ refresh: () => void; reloadConfig: () => void } | null>(null);
@@ -81,14 +79,8 @@
 		})
 	);
 
-	function openCommandPalette() {
-		showCommandPalette = true;
-		showQuickSwitcher = false;
-	}
-
-	function openQuickSwitcher() {
-		showQuickSwitcher = true;
-		showCommandPalette = false;
+	function openPalette(mode: 'files' | 'commands') {
+		paletteMode = mode;
 	}
 
 	async function handleToggleView() {
@@ -100,8 +92,8 @@
 	}
 
 	const shell = createAppShell({
-		onOpenCommandPalette: openCommandPalette,
-		onOpenQuickSwitcher: openQuickSwitcher,
+		onOpenCommandPalette: () => openPalette('commands'),
+		onOpenQuickSwitcher: () => openPalette('files'),
 		onToggleView: handleToggleView,
 		onToggleRightRail: toggleRightRail,
 		onOpenSettings: () =>
@@ -270,12 +262,23 @@ onClose={() => (activeMiddlePaneItem = null)}
 />
 </div>
 
-{#if showCommandPalette}
-<CommandPalette commands={commands} onClose={() => (showCommandPalette = false)} />
-{/if}
-
-{#if showQuickSwitcher}
-<QuickSwitcher onClose={() => (showQuickSwitcher = false)} />
+{#if paletteMode}
+<UnifiedPalette
+	{commands}
+	initialMode={paletteMode}
+	onClose={() => (paletteMode = null)}
+	onSelectNote={(path) => tabStore.selectNote(path)}
+	onCreateNote={async (title) => {
+		const { createNote } = await import('$lib/api');
+		try {
+			const created = await createNote(vaultStore.currentVault, title, `# ${title}\n`, 'Inbox');
+			await vaultStore.loadNotes();
+			tabStore.selectNote(created.path);
+		} catch (error) {
+			console.error('Failed to create note from palette', error);
+		}
+	}}
+/>
 {/if}
 
 {#if showOpenFolderModal}
