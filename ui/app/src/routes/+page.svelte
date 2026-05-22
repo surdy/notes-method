@@ -135,8 +135,18 @@
 		};
 		window.addEventListener('notesmith://open-folder-as-vault', openFolderHandler);
 
+		// Listen for settings menu event from Tauri
+		let unlistenSettings: (() => void) | null = null;
+		const tauri = (window as unknown as { __TAURI__?: { event?: { listen: (event: string, handler: (e: unknown) => void) => Promise<() => void> } } }).__TAURI__;
+		if (tauri?.event?.listen) {
+			void tauri.event.listen('notesmith://open-settings', () => {
+				void goto(`${base}/settings?vault=${encodeURIComponent(vaultStore.currentVault)}`);
+			}).then((fn) => { unlistenSettings = fn; });
+		}
+
 		return () => {
 			window.removeEventListener('notesmith://open-folder-as-vault', openFolderHandler);
+			unlistenSettings?.();
 			shell.teardown();
 		};
 	});

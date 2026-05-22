@@ -40,6 +40,7 @@ const TRAY_ID: &str = "notesmith-tray";
 const MENU_OPEN: &str = "open";
 const MENU_HIDE: &str = "hide";
 const MENU_QUIT: &str = "quit";
+const MENU_SETTINGS: &str = "settings";
 const MENU_RESTART_SERVICE: &str = "restart-service";
 const MENU_STOP_SERVICE: &str = "stop-service";
 const MENU_VIEW_LOGS: &str = "view-logs";
@@ -668,6 +669,8 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let vaults = registered_vault_names();
 
     let open = MenuItem::with_id(app, MENU_OPEN, "Open Notesmith", true, None::<&str>)?;
+    let settings =
+        MenuItem::with_id(app, MENU_SETTINGS, "Settings…", true, Some("CmdOrCtrl+,"))?;
     let hide = MenuItem::with_id(app, MENU_HIDE, "Close Window", true, Some("CmdOrCtrl+W"))?;
     let quit = MenuItem::with_id(app, MENU_QUIT, "Quit", true, Some("CmdOrCtrl+Q"))?;
     let separator = PredefinedMenuItem::separator(app)?;
@@ -690,14 +693,26 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let paste = PredefinedMenuItem::paste(app, None::<&str>)?;
     let select_all = PredefinedMenuItem::select_all(app, None::<&str>)?;
 
-    let app_submenu =
-        Submenu::with_items(app, "Notesmith", true, &[&open, &separator, &hide, &quit])?;
+    let app_submenu = Submenu::with_items(
+        app,
+        "Notesmith",
+        true,
+        &[&open, &settings, &separator, &hide, &quit],
+    )?;
 
     let new_window_items = build_new_window_submenu_items(app, &vaults)?;
     let new_window_refs: Vec<&dyn tauri::menu::IsMenuItem<R>> =
         new_window_items.iter().map(|item| item.as_ref()).collect();
     let new_window_submenu = Submenu::with_items(app, "New Window", true, &new_window_refs)?;
-    let file_submenu = Submenu::with_items(app, "File", true, &[&new_window_submenu])?;
+    let file_separator = PredefinedMenuItem::separator(app)?;
+    let file_settings =
+        MenuItem::with_id(app, MENU_SETTINGS, "Settings", true, Some("CmdOrCtrl+,"))?;
+    let file_submenu = Submenu::with_items(
+        app,
+        "File",
+        true,
+        &[&new_window_submenu, &file_separator, &file_settings],
+    )?;
 
     let edit_submenu = Submenu::with_items(app, "Edit", true, &[&copy, &paste, &select_all])?;
     let diagnostics_submenu = Submenu::with_items(
@@ -827,6 +842,18 @@ fn registered_vault_names() -> Vec<String> {
 fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<(), DynError> {
     match id {
         MENU_OPEN => show_main_window(app),
+        MENU_SETTINGS => {
+            // Emit event to frontend to navigate to settings page.
+            for label in all_app_window_labels(app) {
+                if let Some(window) = app.get_webview_window(&label) {
+                    let _ = window.emit("notesmith://open-settings", ());
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    break;
+                }
+            }
+            Ok(())
+        }
         MENU_HIDE => hide_main_window(app),
         MENU_QUIT => handle_quit_request(app),
         MENU_RESTART_SERVICE => {
