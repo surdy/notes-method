@@ -19,7 +19,6 @@
 	import TabBar from '$lib/components/TabBar.svelte';
 	import ToastStack from '$lib/components/ToastStack.svelte';
 	import VersionBanner from '$lib/components/VersionBanner.svelte';
-	import VaultSwitcher from '$lib/components/VaultSwitcher.svelte';
 	import OpenFolderAsVaultModal from '$lib/components/OpenFolderAsVaultModal.svelte';
 	import { versionMismatch } from '$lib/api/core';
 	import { inputPalette } from '$lib/input-palette.svelte';
@@ -216,10 +215,6 @@
 	aria-hidden={leftSidebarCollapsed}
 >
 <div class="sidebar-body">
-
-{#if vaults.length > 1}
-<VaultSwitcher {vaults} />
-{/if}
 
 <SidebarViews
 bind:this={sidebarViewsRef}
