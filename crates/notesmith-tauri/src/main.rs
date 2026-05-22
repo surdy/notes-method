@@ -12,9 +12,17 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use notesmith_tauri::daemon::{self, DaemonSettings, DaemonState, DynError};
+use notesmith_tauri::vault_menu::{
+    OPEN_FOLDER_AS_VAULT_ID, decode_open_vault_id, encode_open_vault_id,
+    validate_vault_display_name,
+};
 use notesmith_tauri::vault_window::{is_vault_window_label, vault_app_url, vault_window_label};
+use notesmith_tauri::windows_persist::{
+    self, Rect, WindowEntry, WindowsFile, dedupe_latest_per_vault,
+};
 use tauri::{
-    AppHandle, Manager, RunEvent, Runtime, UriSchemeContext, Url, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, RunEvent, Runtime, UriSchemeContext, Url, WebviewUrl,
+    WebviewWindowBuilder,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
@@ -41,6 +49,13 @@ const DAEMON_CRASH_WINDOW: Duration = Duration::from_secs(60);
 const DAEMON_CRASH_THRESHOLD: usize = 2;
 const DAEMON_CRASH_LOG_LINES: usize = 200;
 const QUIT_CONFIRM_WINDOW: Duration = Duration::from_secs(5);
+
+/// Debounce window-geometry writes so a drag doesn't trigger hundreds of
+/// `windows.json` rewrites.
+const WINDOWS_PERSIST_DEBOUNCE: Duration = Duration::from_millis(500);
+
+/// CLI flag that suppresses `windows.json` replay for one launch.
+const NO_RESTORE_FLAG: &str = "--no-restore";
 
 #[derive(Default)]
 struct ExitState(AtomicBool);
@@ -222,9 +237,8 @@ impl Default for DaemonUrlState {
 ///
 /// Used to implement focus-existing: opening a vault that already has a window
 /// re-focuses that window rather than creating a duplicate. Entries are added
-/// when [`ensure_vault_window`] creates a window. Entries are **not** removed
-/// on close while #105 (real close semantics) is unimplemented — close still
-/// hides the window today, so the map entry remains valid.
+/// when [`ensure_vault_window`] creates a window and removed when the
+/// `WindowEvent::Destroyed` handler fires.
 #[derive(Default)]
 struct VaultWindows(Mutex<HashMap<String, String>>);
 
@@ -243,6 +257,76 @@ impl VaultWindows {
             .expect("vault windows state poisoned")
             .insert(vault, label);
     }
+
+    /// Remove and return the vault associated with the given window label.
+    fn remove_label(&self, label: &str) -> Option<String> {
+        let mut guard = self.0.lock().expect("vault windows state poisoned");
+        let vault = guard
+            .iter()
+            .find_map(|(k, v)| (v == label).then(|| k.clone()))?;
+        guard.remove(&vault);
+        Some(vault)
+    }
+}
+
+/// Tracks the path to `windows.json` plus a debounced timestamp for the next
+/// flush. The timestamp gates noisy geometry-change writes during a drag.
+#[derive(Default)]
+struct WindowsPersistState {
+    inner: Mutex<WindowsPersistInner>,
+}
+
+#[derive(Default)]
+struct WindowsPersistInner {
+    path: Option<PathBuf>,
+    last_write: Option<Instant>,
+    /// Whether this launch should ignore an existing `windows.json` (the
+    /// file itself stays on disk; we just skip the replay).
+    no_restore: bool,
+}
+
+impl WindowsPersistState {
+    fn set_path(&self, path: PathBuf) {
+        self.inner.lock().expect("windows persist poisoned").path = Some(path);
+    }
+
+    fn path(&self) -> Option<PathBuf> {
+        self.inner
+            .lock()
+            .expect("windows persist poisoned")
+            .path
+            .clone()
+    }
+
+    fn set_no_restore(&self, value: bool) {
+        self.inner
+            .lock()
+            .expect("windows persist poisoned")
+            .no_restore = value;
+    }
+
+    fn no_restore(&self) -> bool {
+        self.inner
+            .lock()
+            .expect("windows persist poisoned")
+            .no_restore
+    }
+
+    /// Returns true if at least `WINDOWS_PERSIST_DEBOUNCE` has elapsed since
+    /// the last write (or no write has happened yet). Resets the debounce
+    /// clock when it returns `true`.
+    fn try_take_debounce_slot(&self) -> bool {
+        let mut guard = self.inner.lock().expect("windows persist poisoned");
+        let now = Instant::now();
+        let ready = match guard.last_write {
+            Some(prev) => now.duration_since(prev) >= WINDOWS_PERSIST_DEBOUNCE,
+            None => true,
+        };
+        if ready {
+            guard.last_write = Some(now);
+        }
+        ready
+    }
 }
 
 fn main() {
@@ -255,6 +339,7 @@ fn main() {
         .manage(DaemonUrlState::default())
         .manage(DaemonProcessState::default())
         .manage(VaultWindows::default())
+        .manage(WindowsPersistState::default())
         .manage(InternalHtmlState(Mutex::new(InternalPages {
             fallback: None,
         })))
@@ -268,7 +353,11 @@ fn main() {
             view_crash_report,
             restart_daemon_anyway,
             open_vault_window,
-            set_window_title
+            set_window_title,
+            confirm_window_close,
+            open_folder_as_vault,
+            list_open_vaults,
+            pick_vault_folder
         ])
         .menu(build_app_menu)
         .on_menu_event(|app, event| {
@@ -288,12 +377,48 @@ fn main() {
             }
         })
         .on_window_event(|window, event| {
-            let label = window.label();
-            if (label == MAIN_WINDOW_LABEL || is_vault_window_label(label))
-                && let tauri::WindowEvent::CloseRequested { api, .. } = event
-            {
-                api.prevent_close();
-                let _ = window.hide();
+            let label = window.label().to_string();
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    if label == MAIN_WINDOW_LABEL {
+                        // Onboarding window: keep legacy hide behaviour.
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                    // Vault windows: let native close proceed. The
+                    // `Destroyed` handler below cleans up VaultWindows and
+                    // windows.json. Auto-save ensures no more than ~1 s of
+                    // edits can be lost.
+                }
+                tauri::WindowEvent::Destroyed => {
+                    if is_vault_window_label(&label) {
+                        handle_vault_window_destroyed(window.app_handle(), &label);
+                    }
+                }
+                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                    if is_vault_window_label(&label) {
+                        let app = window.app_handle().clone();
+                        let label = label.clone();
+                        // Debounce in-process: only one writer wins per slot.
+                        if app
+                            .state::<WindowsPersistState>()
+                            .try_take_debounce_slot()
+                        {
+                            tauri::async_runtime::spawn(async move {
+                                tauri::async_runtime::spawn_blocking(move || {
+                                    if let Err(error) = persist_open_windows(&app) {
+                                        tracing::warn!(
+                                            "failed to persist windows after geometry change ({label}): {error}"
+                                        );
+                                    }
+                                })
+                                .await
+                                .ok();
+                            });
+                        }
+                    }
+                }
+                _ => {}
             }
         })
         .setup(|app| {
@@ -309,16 +434,41 @@ fn main() {
         {
             api.prevent_exit();
         }
+        RunEvent::ExitRequested { .. } => {
+            // Last chance to flush persistence before the process exits.
+            if let Err(error) = persist_open_windows(app_handle) {
+                tracing::warn!("failed to flush windows.json on exit: {error}");
+            }
+        }
         RunEvent::Resumed => emit_wake_event(app_handle),
         _ => {}
     });
 }
 
 fn initialize_app(app: &tauri::App) -> Result<(), DynError> {
-    show_splash_window(app.handle())?;
-    setup_tray(app.handle())?;
-    setup_deep_links(app.handle())?;
-    tauri::async_runtime::block_on(run_startup_flow(app.handle()))?;
+    let handle = app.handle();
+
+    // Configure persistence path and the --no-restore CLI flag before any
+    // window-event handler fires.
+    if let Ok(config_dir) = handle.path().app_config_dir() {
+        handle
+            .state::<WindowsPersistState>()
+            .set_path(windows_persist::windows_file_path(&config_dir));
+    } else {
+        tracing::warn!("app config dir unavailable; windows.json will not be persisted");
+    }
+    let no_restore = std::env::args().any(|arg| arg == NO_RESTORE_FLAG);
+    handle
+        .state::<WindowsPersistState>()
+        .set_no_restore(no_restore);
+    if no_restore {
+        tracing::info!("{NO_RESTORE_FLAG} detected; skipping windows.json replay this launch");
+    }
+
+    show_splash_window(handle)?;
+    setup_tray(handle)?;
+    setup_deep_links(handle)?;
+    tauri::async_runtime::block_on(run_startup_flow(handle))?;
     Ok(())
 }
 
@@ -509,7 +659,14 @@ fn emit_wake_event<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+/// Build the system menubar.
+///
+/// The "File" submenu now hosts a dynamic "New Window" submenu listing each
+/// registered vault plus an "Open Folder…" entry, so the user can relaunch
+/// any closed vault window without leaving the menubar.
 fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let vaults = registered_vault_names();
+
     let open = MenuItem::with_id(app, MENU_OPEN, "Open Notesmith", true, None::<&str>)?;
     let hide = MenuItem::with_id(app, MENU_HIDE, "Close Window", true, Some("CmdOrCtrl+W"))?;
     let quit = MenuItem::with_id(app, MENU_QUIT, "Quit", true, Some("CmdOrCtrl+Q"))?;
@@ -535,6 +692,13 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
     let app_submenu =
         Submenu::with_items(app, "Notesmith", true, &[&open, &separator, &hide, &quit])?;
+
+    let new_window_items = build_new_window_submenu_items(app, &vaults)?;
+    let new_window_refs: Vec<&dyn tauri::menu::IsMenuItem<R>> =
+        new_window_items.iter().map(|item| item.as_ref()).collect();
+    let new_window_submenu = Submenu::with_items(app, "New Window", true, &new_window_refs)?;
+    let file_submenu = Submenu::with_items(app, "File", true, &[&new_window_submenu])?;
+
     let edit_submenu = Submenu::with_items(app, "Edit", true, &[&copy, &paste, &select_all])?;
     let diagnostics_submenu = Submenu::with_items(
         app,
@@ -543,11 +707,25 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         &[&restart_service, &stop_service, &view_logs],
     )?;
 
-    Menu::with_items(app, &[&app_submenu, &edit_submenu, &diagnostics_submenu])
+    Menu::with_items(
+        app,
+        &[
+            &app_submenu,
+            &file_submenu,
+            &edit_submenu,
+            &diagnostics_submenu,
+        ],
+    )
 }
 
-fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
-    let open = MenuItem::with_id(app, MENU_OPEN, "Open Notesmith", true, None::<&str>)?;
+fn build_tray_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let vaults = registered_vault_names();
+
+    let open_items = build_new_window_submenu_items(app, &vaults)?;
+    let open_refs: Vec<&dyn tauri::menu::IsMenuItem<R>> =
+        open_items.iter().map(|item| item.as_ref()).collect();
+    let open_submenu = Submenu::with_items(app, "Open", true, &open_refs)?;
+
     let restart_service = MenuItem::with_id(
         app,
         MENU_RESTART_SERVICE,
@@ -561,10 +739,11 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
     let quit_app = MenuItem::with_id(app, MENU_QUIT_APP, "Quit Notesmith", true, None::<&str>)?;
     let separator1 = PredefinedMenuItem::separator(app)?;
     let separator2 = PredefinedMenuItem::separator(app)?;
-    let tray_menu = Menu::with_items(
+
+    Menu::with_items(
         app,
         &[
-            &open,
+            &open_submenu,
             &separator1,
             &restart_service,
             &stop_service,
@@ -572,7 +751,41 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
             &separator2,
             &quit_app,
         ],
-    )?;
+    )
+}
+
+/// Build the menu items that make up the "Open" / "New Window" submenu
+/// (vault entries + separator + "Open Folder…") as a heap-allocated vec so
+/// the caller can recombine them however it wants.
+fn build_new_window_submenu_items<R: Runtime>(
+    app: &AppHandle<R>,
+    vaults: &[String],
+) -> tauri::Result<Vec<Box<dyn tauri::menu::IsMenuItem<R>>>> {
+    let mut entries: Vec<Box<dyn tauri::menu::IsMenuItem<R>>> = Vec::new();
+    for vault in vaults {
+        entries.push(Box::new(MenuItem::with_id(
+            app,
+            encode_open_vault_id(vault),
+            vault,
+            true,
+            None::<&str>,
+        )?));
+    }
+    if !vaults.is_empty() {
+        entries.push(Box::new(PredefinedMenuItem::separator(app)?));
+    }
+    entries.push(Box::new(MenuItem::with_id(
+        app,
+        OPEN_FOLDER_AS_VAULT_ID,
+        "Open Folder\u{2026}",
+        true,
+        None::<&str>,
+    )?));
+    Ok(entries)
+}
+
+fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
+    let tray_menu = build_tray_menu(app)?;
 
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&tray_menu)
@@ -585,6 +798,30 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
 
     tray.build(app)?;
     Ok(())
+}
+
+/// Rebuild the app + tray menus from the current vault list. Called after
+/// a successful vault registration (and other config changes).
+fn rebuild_dynamic_menus<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
+    let app_menu = build_app_menu(app)?;
+    app.set_menu(app_menu)?;
+    let tray_menu = build_tray_menu(app)?;
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        tray.set_menu(Some(tray_menu))?;
+    }
+    Ok(())
+}
+
+/// Sorted list of vault names from `GlobalConfig`. Empty when no vaults
+/// are registered or when the config fails to load.
+fn registered_vault_names() -> Vec<String> {
+    match notesmith_config::GlobalConfig::load() {
+        Ok(config) => config.vaults.keys().cloned().collect(),
+        Err(error) => {
+            tracing::warn!("failed to load global config for menu: {error}");
+            Vec::new()
+        }
+    }
 }
 
 fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<(), DynError> {
@@ -603,6 +840,26 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<(), Dyn
         MENU_VIEW_LOGS => open_diagnostics_target(),
         MENU_QUIT_APP => {
             stop_daemon_and_exit(app.clone());
+            Ok(())
+        }
+        OPEN_FOLDER_AS_VAULT_ID => {
+            // Ask the active webview (or any webview) to show its
+            // folder-picker modal. The modal itself ships in #103.
+            for label in all_app_window_labels(app) {
+                if let Some(window) = app.get_webview_window(&label) {
+                    let _ = window.emit("notesmith://open-folder-as-vault", ());
+                }
+            }
+            Ok(())
+        }
+        other if decode_open_vault_id(other).is_some() => {
+            let vault = decode_open_vault_id(other).expect("just checked");
+            let label = ensure_vault_window(app, &vault)?;
+            if let Some(window) = app.get_webview_window(&label) {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
             Ok(())
         }
         _ => Ok(()),
@@ -909,7 +1166,183 @@ fn ensure_vault_window<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<St
 
     app.state::<VaultWindows>()
         .insert(vault.to_string(), label.clone());
+
+    // New window — schedule a persistence flush so windows.json reflects it.
+    schedule_persist(app);
+
     Ok(label)
+}
+
+/// Open a vault window and apply the saved geometry from `windows.json`.
+///
+/// Used by the restore-from-disk path. Differs from `ensure_vault_window` in
+/// that it positions/sizes the new window after creation. Existing windows
+/// are left untouched (we don't overwrite the user's current geometry).
+fn ensure_vault_window_with_geometry<R: Runtime>(
+    app: &AppHandle<R>,
+    vault: &str,
+    entry: &WindowEntry,
+) -> Result<String, DynError> {
+    let label = ensure_vault_window(app, vault)?;
+    if let Some(window) = app.get_webview_window(&label) {
+        // Clamp to a visible monitor so windows from a now-disconnected
+        // display don't end up off-screen.
+        let rect = clamp_to_visible_monitors(&window, entry);
+        let _ = window.set_position(tauri::PhysicalPosition {
+            x: rect.x,
+            y: rect.y,
+        });
+        let _ = window.set_size(tauri::PhysicalSize {
+            width: rect.w,
+            height: rect.h,
+        });
+    }
+    Ok(label)
+}
+
+fn clamp_to_visible_monitors<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    entry: &WindowEntry,
+) -> Rect {
+    let monitors = window
+        .available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| {
+            let pos = m.position();
+            let size = m.size();
+            Rect {
+                x: pos.x,
+                y: pos.y,
+                w: size.width,
+                h: size.height,
+            }
+        })
+        .collect::<Vec<_>>();
+    windows_persist::clamp_to_monitor(
+        Rect {
+            x: entry.x,
+            y: entry.y,
+            w: entry.w,
+            h: entry.h,
+        },
+        &monitors,
+    )
+}
+
+/// Snapshot the open vault windows and write `windows.json` atomically.
+///
+/// Skipped silently when the persistence path hasn't been configured (e.g.
+/// the app_config_dir lookup failed at startup).
+fn persist_open_windows<R: Runtime>(app: &AppHandle<R>) -> io::Result<()> {
+    let Some(path) = app.state::<WindowsPersistState>().path() else {
+        return Ok(());
+    };
+
+    let entries = snapshot_window_entries(app);
+    let file = WindowsFile {
+        version: windows_persist::SCHEMA_VERSION,
+        windows: dedupe_latest_per_vault(entries),
+    };
+    windows_persist::save(&path, &file)
+}
+
+fn snapshot_window_entries<R: Runtime>(app: &AppHandle<R>) -> Vec<WindowEntry> {
+    let mapping: Vec<(String, String)> = app
+        .state::<VaultWindows>()
+        .0
+        .lock()
+        .expect("vault windows state poisoned")
+        .iter()
+        .map(|(vault, label)| (vault.clone(), label.clone()))
+        .collect();
+
+    let mut out = Vec::with_capacity(mapping.len());
+    for (vault, label) in mapping {
+        let Some(window) = app.get_webview_window(&label) else {
+            continue;
+        };
+        let pos = match window.outer_position() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let size = match window.outer_size() {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        out.push(WindowEntry {
+            vault,
+            x: pos.x,
+            y: pos.y,
+            w: size.width,
+            h: size.height,
+        });
+    }
+    out
+}
+
+/// Spawn a non-blocking persistence flush.
+fn schedule_persist<R: Runtime>(app: &AppHandle<R>) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) = persist_open_windows(&app) {
+                tracing::warn!("failed to persist windows.json: {error}");
+            }
+        })
+        .await
+        .ok();
+    });
+}
+
+/// Called after a vault window has actually closed.
+///
+/// Removes the entry from [`VaultWindows`] and rewrites `windows.json` so a
+/// subsequent launch doesn't reopen the closed window.
+fn handle_vault_window_destroyed<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    app.state::<VaultWindows>().remove_label(label);
+    schedule_persist(app);
+}
+
+/// Replay `windows.json` and open one window per saved entry.
+///
+/// Returns the number of windows opened (0 when the file is missing, empty,
+/// corrupt, or when `--no-restore` is in effect).
+fn restore_windows_from_disk<R: Runtime>(app: &AppHandle<R>) -> usize {
+    let state = app.state::<WindowsPersistState>();
+    if state.no_restore() {
+        return 0;
+    }
+    let Some(path) = state.path() else {
+        return 0;
+    };
+    let file = match windows_persist::load(&path) {
+        Ok(Some(file)) => file,
+        Ok(None) => return 0,
+        Err(error) => {
+            tracing::warn!("failed to load windows.json: {error}");
+            return 0;
+        }
+    };
+
+    let mut opened = 0;
+    for entry in &file.windows {
+        match ensure_vault_window_with_geometry(app, &entry.vault, entry) {
+            Ok(label) => {
+                if let Some(window) = app.get_webview_window(&label) {
+                    let _ = window.show();
+                }
+                opened += 1;
+            }
+            Err(error) => {
+                tracing::warn!(
+                    "failed to restore vault window for '{}': {error}",
+                    entry.vault
+                );
+            }
+        }
+    }
+    opened
 }
 
 /// Returns the configured default vault, or the first registered vault when
@@ -963,6 +1396,14 @@ fn show_main_app_window<R: Runtime>(
     close_window(app, FALLBACK_WINDOW_LABEL)?;
     set_current_daemon_url(app, daemon::resolve_daemon_url(settings));
 
+    // First: replay persisted windows so a user who had two vaults open
+    // gets both back. If anything was restored, we're done.
+    if restore_windows_from_disk(app) > 0 {
+        return Ok(());
+    }
+
+    // Otherwise, fall back to opening the default vault (existing behaviour)
+    // or onboarding when no vaults exist.
     match resolve_default_vault() {
         Some(vault) => {
             let label = ensure_vault_window(app, &vault)?;
@@ -1755,6 +2196,177 @@ async fn open_vault_window(app: tauri::AppHandle, vault: String) -> Result<(), S
 #[tauri::command]
 fn set_window_title(window: tauri::Window, title: String) -> Result<(), String> {
     window.set_title(&title).map_err(|error| error.to_string())
+}
+
+/// Legacy command: webview response to close-requested events.
+///
+/// Retained for API compatibility. Vault windows now close natively (the OS
+/// close button is no longer intercepted) and cleanup happens in the
+/// `WindowEvent::Destroyed` handler.
+#[tauri::command]
+async fn confirm_window_close(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    allow: bool,
+) -> Result<(), String> {
+    let label = window.label().to_string();
+    if !is_vault_window_label(&label) {
+        return Err(format!("not a vault window: {label}"));
+    }
+    if !allow {
+        return Ok(());
+    }
+
+    // VaultWindows entry + windows.json are cleaned up by the
+    // `WindowEvent::Destroyed` handler once destroy() takes effect.
+    if let Some(webview) = app.get_webview_window(&label) {
+        webview.destroy().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+/// Register a folder as a new vault and immediately open a window for it.
+///
+/// Steps:
+/// 1. Validate the display name client-side (length, characters, uniqueness).
+/// 2. POST to `<daemon>/api/app/vaults` with the path + display name.
+/// 3. Poll `GET /api/app/vaults` until the new vault appears (≤1 s) so the
+///    config-cache is warm before we ask `ensure_vault_window` to open it.
+/// 4. Rebuild the dynamic menus so the new vault shows up immediately.
+/// 5. Open the window.
+#[tauri::command]
+async fn open_folder_as_vault(
+    app: tauri::AppHandle,
+    path: String,
+    display_name: String,
+) -> Result<(), String> {
+    let existing: Vec<String> = notesmith_config::GlobalConfig::load()
+        .map_err(|error| error.to_string())?
+        .vaults
+        .keys()
+        .cloned()
+        .collect();
+    let validated = validate_vault_display_name(&display_name, existing.iter())?;
+
+    let base = current_daemon_url(&app);
+    let url = format!("{}/api/app/vaults", base.trim_end_matches('/'));
+    let body = serde_json::json!({ "name": validated, "path": path });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| format!("Failed to contact Notesmith daemon: {error}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let detail = response
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("message")
+                    .and_then(|message| message.as_str().map(str::to_string))
+            })
+            .unwrap_or_else(|| format!("daemon returned status {status}"));
+        return Err(detail);
+    }
+
+    // Wait for the new vault to appear in GET /api/app/vaults so subsequent
+    // window opens see a fully-loaded vault.
+    let list_url = url.clone();
+    let mut attempts = 0u32;
+    loop {
+        attempts += 1;
+        let listed = client
+            .get(&list_url)
+            .send()
+            .await
+            .and_then(|r| r.error_for_status())
+            .map_err(|error| format!("Failed to list vaults after register: {error}"))?
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|error| format!("Failed to parse vault list: {error}"))?;
+
+        let found = listed
+            .as_array()
+            .map(|entries| {
+                entries.iter().any(|entry| {
+                    entry.get("name").and_then(|n| n.as_str()) == Some(validated.as_str())
+                })
+            })
+            .unwrap_or(false);
+
+        if found {
+            break;
+        }
+        if attempts >= 10 {
+            return Err(format!(
+                "Vault '{validated}' was registered but didn't appear in the daemon vault list within 1s"
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    if let Err(error) = rebuild_dynamic_menus(&app) {
+        tracing::warn!("failed to rebuild menus after register: {error}");
+    }
+
+    let label = ensure_vault_window(&app, &validated).map_err(|error| error.to_string())?;
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+
+    Ok(())
+}
+
+/// Return the names of vaults with at least one open window.
+///
+/// Used by the Settings UI in #103 to disable the "Remove vault" button
+/// when the vault is currently open.
+#[tauri::command]
+fn list_open_vaults(app: tauri::AppHandle) -> Vec<String> {
+    let mut open: Vec<String> = app
+        .state::<VaultWindows>()
+        .0
+        .lock()
+        .expect("vault windows state poisoned")
+        .iter()
+        .filter(|(_, label)| app.get_webview_window(label).is_some())
+        .map(|(vault, _)| vault.clone())
+        .collect();
+    open.sort();
+    open
+}
+
+/// Open a native folder picker and return the absolute path the user selected.
+///
+/// Returns `Ok(None)` when the user cancels the dialog. The path is validated
+/// to point at an existing directory; symlinks are accepted. The frontend uses
+/// this for the "Open Folder as Vault" flow in #103.
+#[tauri::command]
+async fn pick_vault_folder() -> Result<Option<String>, String> {
+    let result = rfd::AsyncFileDialog::new()
+        .set_title("Choose a folder to open as a vault")
+        .pick_folder()
+        .await;
+    let Some(handle) = result else {
+        return Ok(None);
+    };
+    let path = handle.path().to_path_buf();
+    if !path.is_dir() {
+        return Err(format!("Selected path is not a folder: {}", path.display()));
+    }
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| "Selected path contains invalid UTF-8".to_string())?
+        .to_string();
+    Ok(Some(path_str))
 }
 
 #[cfg(test)]

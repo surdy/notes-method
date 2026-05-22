@@ -16,8 +16,11 @@ type TabState,
 type ViewMode
 } from './tab-state';
 import { vaultStore } from './stores.svelte';
+import { tabStorageKey } from './tab-storage-key';
 
-const STORAGE_KEY = 'notesmith:tabs';
+function storageKey(): string | null {
+	return tabStorageKey(vaultStore.currentVault);
+}
 
 export type { Tab, ViewMode } from './tab-state';
 
@@ -104,7 +107,9 @@ this._persistTabs();
 
 restoreTabs() {
 try {
-const restored = restoreTabState(localStorage.getItem(STORAGE_KEY));
+const key = storageKey();
+if (!key) return;
+const restored = restoreTabState(localStorage.getItem(key));
 if (!restored) {
 return;
 }
@@ -136,8 +141,10 @@ this._recentlyClosed = state.recentlyClosed;
 
 private _persistTabs() {
 try {
+const key = storageKey();
+if (!key) return;
 localStorage.setItem(
-STORAGE_KEY,
+key,
 serializeTabState({
 tabs: this.tabs,
 activeTabIndex: this.activeTabIndex

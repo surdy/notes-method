@@ -440,7 +440,7 @@ test('createAppShell debounces wake resyncs and removes the listener on teardown
 	}
 });
 
-test('createAppShell refreshes vault registrations after vaults.changed events', { concurrency: false }, async () => {
+test('createAppShell refreshes vault registrations after vaults.changed events when not URL-pinned', { concurrency: false }, async () => {
 	stubSvelteRunes();
 
 	const windowStub = createWindowStub();
@@ -486,7 +486,8 @@ test('createAppShell refreshes vault registrations after vaults.changed events',
 	});
 
 	const vaults: string[] = [];
-	await shell.init('work', vaults);
+	// No URL pin → not sticky.
+	await shell.init(null, vaults);
 	assert.deepEqual(vaults, ['work']);
 	assert.equal(vaultStore.currentVault, 'work');
 
@@ -505,6 +506,72 @@ test('createAppShell refreshes vault registrations after vaults.changed events',
 	assert.equal(vaultStore.loadNotesCalls, 2);
 	assert.equal(connectCalls, 2);
 	assert.equal(closeCalls, 1);
+});
+
+test('createAppShell keeps URL-pinned vault sticky even when it disappears from the registry', { concurrency: false }, async () => {
+	stubSvelteRunes();
+
+	const windowStub = createWindowStub();
+	const vaultStore = createVaultStoreStub();
+	const tabStore = createTabStoreStub();
+	const { callbacks } = createCallbacks();
+
+	let onEvent:
+		| ((event: {
+				vault: string;
+				type: string;
+				path: string;
+				timestamp: string;
+		  }) => void)
+		| undefined;
+	let closeCalls = 0;
+	let connectCalls = 0;
+	let listVaultCalls = 0;
+
+	const { createAppShell } = await import('../src/lib/app-shell-core.ts');
+
+	const shell = createAppShell(callbacks, {
+		connectSSE: (_vault, handleEvent) => {
+			connectCalls += 1;
+			onEvent = handleEvent as typeof onEvent;
+			return {
+				close() {
+					closeCalls += 1;
+				}
+			} as EventSource;
+		},
+		listVaults: async () => {
+			listVaultCalls += 1;
+			if (listVaultCalls === 1) {
+				return [{ name: 'work', is_default: true }];
+			}
+			return [{ name: 'home', is_default: true }];
+		},
+		registerHotkeys: () => () => {},
+		vaultStore,
+		tabStore,
+		targetWindow: windowStub.window
+	});
+
+	const vaults: string[] = [];
+	// URL-pinned to 'work' → sticky.
+	await shell.init('work', vaults);
+	assert.equal(vaultStore.currentVault, 'work');
+
+	onEvent?.({
+		vault: 'work',
+		type: 'vaults.changed',
+		path: '',
+		timestamp: new Date().toISOString()
+	});
+	await Promise.resolve();
+	await Promise.resolve();
+
+	// Listed updated, but currentVault stays sticky.
+	assert.equal(listVaultCalls, 2);
+	assert.equal(vaultStore.currentVault, 'work');
+	assert.equal(connectCalls, 1);
+	assert.equal(closeCalls, 0);
 });
 
 test('createAppShell flushes queued saves after SSE reconnects', { concurrency: false }, async () => {

@@ -1,15 +1,23 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import { fade } from 'svelte/transition';
+import { vaultStore } from '$lib/stores.svelte';
 
-const STORAGE_KEY = 'notesmith:onboarding-dismissed';
+const STORAGE_PREFIX = 'notesmith:onboarding-dismissed';
+
+function storageKey(): string | null {
+const vault = vaultStore.currentVault;
+if (!vault) return null;
+return `${STORAGE_PREFIX}:${vault}`;
+}
 
 let ready = $state(false);
 let dismissed = $state(false);
 
 onMount(() => {
 try {
-dismissed = localStorage.getItem(STORAGE_KEY) === 'true';
+const key = storageKey();
+dismissed = key ? localStorage.getItem(key) === 'true' : false;
 } catch {
 dismissed = false;
 }
@@ -20,7 +28,9 @@ ready = true;
 function dismiss() {
 dismissed = true;
 try {
-localStorage.setItem(STORAGE_KEY, 'true');
+const key = storageKey();
+if (!key) return;
+localStorage.setItem(key, 'true');
 } catch {
 // ignore storage failures
 }
