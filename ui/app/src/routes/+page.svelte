@@ -176,15 +176,6 @@
 	<span class="vault-icon" aria-hidden="true">🗄️</span>
 	<span class="vault-name">{vaultStore.currentVault}</span>
 </span>
-<button
-	class="chrome-icon-btn"
-	type="button"
-	onclick={() => void goto(`${base}/settings?vault=${encodeURIComponent(vaultStore.currentVault)}`)}
-	aria-label="Open settings"
-	title="Settings (⌘,)"
->
-	⚙
-</button>
 {/if}
 </section>
 
