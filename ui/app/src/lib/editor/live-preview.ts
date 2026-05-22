@@ -243,7 +243,7 @@ class TableWidget extends WidgetType {
 			if (!target) return;
 			const rowIdx = parseInt(target.dataset.row ?? '-1', 10);
 			const colIdx = parseInt(target.dataset.col ?? '0', 10);
-			showTableContextMenu(event as MouseEvent, rowIdx, colIdx, latestTable, replaceTable);
+			showTableContextMenu(event as MouseEvent, rowIdx, colIdx, latestTable, replaceTable, view);
 		});
 
 		return wrapper;
@@ -298,7 +298,8 @@ function showTableContextMenu(
 	rowIdx: number,
 	colIdx: number,
 	latestTable: () => MarkdownTable,
-	replaceTable: (t: MarkdownTable) => void
+	replaceTable: (t: MarkdownTable) => void,
+	editorView: EditorView
 ) {
 	dismissTableContextMenu();
 
@@ -393,6 +394,7 @@ function showTableContextMenu(
 				e.stopPropagation();
 				dismissTableContextMenu();
 				item.action();
+				editorView.focus();
 			});
 			menu.appendChild(btn);
 		}
