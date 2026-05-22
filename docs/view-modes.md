@@ -91,7 +91,7 @@ Live Preview hides markdown syntax on lines you are not actively editing and ren
 | `~~done~~` | `~~` markers are hidden and the text renders with strikethrough |
 | `[text](url)` | Markdown link syntax is hidden and the link text is styled |
 | `` `code` `` | Backticks are hidden and the text renders with inline code styling |
-| Markdown table | Rendered as an editable table; edit cell text directly, or use `+ Row` / `+ Column` to extend the table |
+| Markdown table | Rendered as an editable table; edit cell text directly. Right-click for a context menu with row operations (insert, move, duplicate, delete) and column operations (insert, move, align, duplicate, delete). |
 | `---` | Replaced with a rendered horizontal rule |
 
 ### Best for
