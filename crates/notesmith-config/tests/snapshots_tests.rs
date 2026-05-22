@@ -42,6 +42,9 @@ fn snapshot_vault_config_full() {
             catch_up: true,
         },
         editor: EditorConfig::default(),
+        appearance: AppearanceConfig {
+            theme: "dark".to_string(),
+        },
         git: GitConfig {
             enabled: true,
             auto_commit_every: Some("15m".to_string()),

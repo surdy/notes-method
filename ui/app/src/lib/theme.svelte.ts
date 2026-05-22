@@ -1,6 +1,5 @@
 export type ThemeChoice = 'dark' | 'light' | 'system' | 'manuscript' | 'hc-dark';
 
-const STORAGE_KEY = 'notesmith:theme';
 const DARK_MODE_QUERY = '(prefers-color-scheme: dark)';
 
 const THEME_CLASSES: Record<Exclude<ThemeChoice, 'system'>, string> = {
@@ -10,7 +9,7 @@ const THEME_CLASSES: Record<Exclude<ThemeChoice, 'system'>, string> = {
 	'hc-dark': 'theme-hc-dark'
 };
 
-function isThemeChoice(value: string | null): value is ThemeChoice {
+export function isThemeChoice(value: string | null | undefined): value is ThemeChoice {
 	return value === 'dark' || value === 'light' || value === 'system' || value === 'manuscript' || value === 'hc-dark';
 }
 
@@ -39,21 +38,13 @@ function applyTheme(choice: ThemeChoice): void {
 }
 
 class ThemeStore {
-	current = $state<ThemeChoice>('dark');
+	current = $state<ThemeChoice>('system');
 
 	constructor() {
 		if (typeof window === 'undefined') return;
 
 		const mediaQuery = window.matchMedia(DARK_MODE_QUERY);
-		let saved: string | null = null;
 
-		try {
-			saved = localStorage.getItem(STORAGE_KEY);
-		} catch {
-			saved = null;
-		}
-
-		this.current = isThemeChoice(saved) ? saved : 'dark';
 		applyTheme(this.current);
 
 		mediaQuery.addEventListener('change', () => {
@@ -63,15 +54,15 @@ class ThemeStore {
 		});
 	}
 
+	/** Called when vault config is loaded to apply the vault's theme. */
+	applyFromConfig(theme: string): void {
+		const choice = isThemeChoice(theme) ? theme : 'system';
+		this.current = choice;
+		applyTheme(choice);
+	}
+
 	set(choice: ThemeChoice): void {
 		this.current = choice;
-
-		try {
-			localStorage.setItem(STORAGE_KEY, choice);
-		} catch {
-			// Ignore unavailable browser storage.
-		}
-
 		applyTheme(choice);
 	}
 }

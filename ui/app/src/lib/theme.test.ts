@@ -3,19 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 type ThemeHarness = ReturnType<typeof createThemeHarness>;
 
 function createThemeHarness({
-	savedTheme = 'dark',
 	prefersDark = true
 }: {
-	savedTheme?: string | null;
 	prefersDark?: boolean;
 } = {}) {
 	const classes = new Set<string>();
-	const storage = new Map<string, string>();
 	const listeners = new Set<() => void>();
-
-	if (savedTheme) {
-		storage.set('notesmith:theme', savedTheme);
-	}
 
 	const mediaQuery = {
 		matches: prefersDark,
@@ -50,14 +43,8 @@ function createThemeHarness({
 			}
 		}
 	});
-	vi.stubGlobal('localStorage', {
-		getItem: vi.fn((key: string) => storage.get(key) ?? null),
-		setItem: vi.fn((key: string, value: string) => {
-			storage.set(key, value);
-		})
-	});
 
-	return { classes, mediaQuery, storage };
+	return { classes, mediaQuery };
 }
 
 afterEach(() => {
@@ -66,16 +53,36 @@ afterEach(() => {
 });
 
 describe('themeStore', () => {
-	it('restores the saved theme and applies its class on init', async () => {
-		const harness: ThemeHarness = createThemeHarness({ savedTheme: 'light', prefersDark: true });
+	it('defaults to system theme on init', async () => {
+		const harness: ThemeHarness = createThemeHarness({ prefersDark: true });
 		const { themeStore } = await import('./theme.svelte.ts');
+
+		expect(themeStore.current).toBe('system');
+		expect([...harness.classes]).toEqual(['theme-dark']);
+	});
+
+	it('applyFromConfig sets theme from vault config', async () => {
+		const harness: ThemeHarness = createThemeHarness({ prefersDark: true });
+		const { themeStore } = await import('./theme.svelte.ts');
+
+		themeStore.applyFromConfig('light');
 
 		expect(themeStore.current).toBe('light');
 		expect([...harness.classes]).toEqual(['theme-light']);
 	});
 
+	it('applyFromConfig falls back to system for invalid values', async () => {
+		const harness: ThemeHarness = createThemeHarness({ prefersDark: false });
+		const { themeStore } = await import('./theme.svelte.ts');
+
+		themeStore.applyFromConfig('invalid-theme');
+
+		expect(themeStore.current).toBe('system');
+		expect([...harness.classes]).toEqual(['theme-light']);
+	});
+
 	it('tracks OS theme changes while system mode is active', async () => {
-		const harness: ThemeHarness = createThemeHarness({ savedTheme: 'system', prefersDark: false });
+		const harness: ThemeHarness = createThemeHarness({ prefersDark: false });
 		const { themeStore } = await import('./theme.svelte.ts');
 
 		expect(themeStore.current).toBe('system');
@@ -86,14 +93,13 @@ describe('themeStore', () => {
 		expect([...harness.classes]).toEqual(['theme-dark']);
 	});
 
-	it('persists explicit selections and replaces prior theme classes', async () => {
-		const harness: ThemeHarness = createThemeHarness({ savedTheme: 'dark', prefersDark: true });
+	it('set replaces prior theme classes', async () => {
+		const harness: ThemeHarness = createThemeHarness({ prefersDark: true });
 		const { themeStore } = await import('./theme.svelte.ts');
 
 		themeStore.set('manuscript');
 
 		expect(themeStore.current).toBe('manuscript');
-		expect(harness.storage.get('notesmith:theme')).toBe('manuscript');
 		expect([...harness.classes]).toEqual(['theme-manuscript']);
 	});
 });

@@ -29,6 +29,9 @@ export interface VaultConfigData {
 		hide_duplicate_h1: boolean;
 		paste_url_image_whitelist: string;
 	};
+	appearance: {
+		theme: string;
+	};
 	git: {
 		enabled: boolean;
 		auto_commit_every?: string | null;

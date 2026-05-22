@@ -37,6 +37,7 @@
 
 	const vaultSections: { id: Section; label: string }[] = [
 		{ id: 'general', label: 'General' },
+		{ id: 'appearance', label: 'Appearance' },
 		{ id: 'daily', label: 'Daily Notes' },
 		{ id: 'editor', label: 'Editor' },
 		{ id: 'sidebar', label: 'Sidebar' },
@@ -45,7 +46,6 @@
 	];
 
 	const appSections: { id: Section; label: string }[] = [
-		{ id: 'appearance', label: 'Appearance' },
 		{ id: 'vaults', label: 'Vaults' }
 	];
 
@@ -183,31 +183,39 @@
 			</div>
 		{/if}
 
-		{#if selectedSection === 'appearance'}
+		{#if selectedSection === 'vaults'}
 			<div class="settings-body">
-				<section class="section-content">
-					<h2>Appearance</h2>
-					<p class="section-description">
-						Choose the theme Notesmith uses across the app and editor.
-					</p>
-					<div class="theme-picker">
-						{#each themeOptions as option}
-							<button
-								class="theme-option"
-								class:active={themeStore.current === option.value}
-								type="button"
-								onclick={() => themeStore.set(option.value)}
-							>
-								<div class="theme-preview {option.value}"></div>
-								<span>{option.label}</span>
-							</button>
-						{/each}
-					</div>
-				</section>
+				<VaultsSettings capabilities={caps} />
 			</div>
 		{:else if cfg}
 			<div class="settings-body">
-				{#if selectedSection === 'general'}
+				{#if selectedSection === 'appearance'}
+					<section class="section-content">
+						<h2>Appearance</h2>
+						<p class="section-description">
+							Choose the theme for this vault. Each vault can have its own appearance.
+						</p>
+						<div class="theme-picker">
+							{#each themeOptions as option}
+								<button
+									class="theme-option"
+									class:active={cfg.appearance.theme === option.value}
+									type="button"
+									onclick={() => {
+										if (cfg) {
+											cfg.appearance = { ...cfg.appearance, theme: option.value };
+											themeStore.set(option.value);
+											settingsStore.markDirty('appearance');
+										}
+									}}
+								>
+									<div class="theme-preview {option.value}"></div>
+									<span>{option.label}</span>
+								</button>
+							{/each}
+						</div>
+					</section>
+				{:else if selectedSection === 'general'}
 					<GeneralSettings
 						{cfg}
 						{fieldError}
@@ -245,8 +253,6 @@
 					/>
 				{:else if selectedSection === 'hooks'}
 					<HooksSettings {cfg} {sectionIsDirty} {saveSection} {revert} {markDirty} />
-				{:else if selectedSection === 'vaults'}
-					<VaultsSettings capabilities={caps} />
 				{/if}
 			</div>
 

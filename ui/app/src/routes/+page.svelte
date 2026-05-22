@@ -5,6 +5,7 @@
 	import type { CustomItem } from '$lib/api';
 	import { createAppShell } from '$lib/app-shell.svelte';
 	import { buildCommands } from '$lib/commands';
+	import { themeStore } from '$lib/theme.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import ConfigToast from '$lib/components/ConfigToast.svelte';
 	import InputPalette from '$lib/components/InputPalette.svelte';
@@ -155,6 +156,13 @@
 		const vault = vaultStore.currentVault;
 		if (vault) {
 			void settingsStore.loadConfig(vault);
+		}
+	});
+
+	$effect(() => {
+		const config = settingsStore.serverConfig;
+		if (config?.appearance?.theme) {
+			themeStore.applyFromConfig(config.appearance.theme);
 		}
 	});
 

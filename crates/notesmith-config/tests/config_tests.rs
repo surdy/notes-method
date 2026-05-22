@@ -241,6 +241,7 @@ fn vault_config_roundtrip() {
         capture: CaptureConfig::default(),
         daily: DailyConfig::default(),
         editor: EditorConfig::default(),
+        appearance: AppearanceConfig::default(),
         git: GitConfig::default(),
         hooks: HooksConfig::default(),
     };

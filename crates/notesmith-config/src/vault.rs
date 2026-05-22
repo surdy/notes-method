@@ -19,6 +19,8 @@ pub struct VaultConfig {
     #[serde(default)]
     pub editor: EditorConfig,
     #[serde(default)]
+    pub appearance: AppearanceConfig,
+    #[serde(default)]
     pub git: GitConfig,
     #[serde(default)]
     pub hooks: HooksConfig,
@@ -37,6 +39,7 @@ impl Default for VaultConfig {
             capture: Default::default(),
             daily: Default::default(),
             editor: Default::default(),
+            appearance: Default::default(),
             git: Default::default(),
             hooks: Default::default(),
         }
@@ -131,6 +134,24 @@ impl Default for EditorConfig {
             show_line_numbers: default_true(),
             hide_duplicate_h1: default_true(),
             paste_url_image_whitelist: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AppearanceConfig {
+    #[serde(default = "default_theme")]
+    pub theme: String,
+}
+
+fn default_theme() -> String {
+    "system".to_string()
+}
+
+impl Default for AppearanceConfig {
+    fn default() -> Self {
+        Self {
+            theme: default_theme(),
         }
     }
 }

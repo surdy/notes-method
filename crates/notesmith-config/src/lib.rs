@@ -15,6 +15,6 @@ pub use error::ConfigError;
 pub use global::{DaemonConfig, GlobalConfig, VaultRegistration};
 pub use lockfile::DaemonLockfile;
 pub use vault::{
-    CURRENT_SCHEMA_VERSION, CaptureConfig, DailyConfig, EditorConfig, GitConfig, HooksConfig,
-    VaultConfig,
+    AppearanceConfig, CURRENT_SCHEMA_VERSION, CaptureConfig, DailyConfig, EditorConfig, GitConfig,
+    HooksConfig, VaultConfig,
 };
