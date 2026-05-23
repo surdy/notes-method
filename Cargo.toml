@@ -14,6 +14,7 @@ members = [
     "crates/notesmith-http",
     "crates/notesmith-mcp",
     "crates/notesmith-cli",
+    "crates/theme-gen",
 ]
 # notesmith-tauri excluded from default members (requires Tauri deps)
 exclude = ["crates/notesmith-tauri", "spikes/*"]
@@ -58,6 +59,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 clap = { version = "4", features = ["derive"] }
+palette = "0.7"
 axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs", "set-header"] }

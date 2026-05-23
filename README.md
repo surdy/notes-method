@@ -30,6 +30,7 @@ crates/
 ├── notesmith-http       # Axum daemon, REST endpoints, SSE
 ├── notesmith-mcp        # MCP adapter wrapping VaultOps
 ├── notesmith-cli        # Clap command tree; produces the `notesmith` binary
+├── theme-gen            # Build-time theme CSS generator from the catalog JSON
 └── notesmith-tauri      # Thin Tauri desktop shell (excluded from default build)
 ```
 
@@ -42,7 +43,7 @@ ui/app/                  # SvelteKit frontend
 ### Features
 
 - **5 themes** — Dark (default), Light, System, Manuscript (dark chrome + light editor), High Contrast
-- **Design tokens** — Legacy `--ns-*` tokens are being migrated to ramp-backed semantic tokens for consistent theming
+- **Design tokens** — Legacy `--ns-*` tokens are being migrated to ramp-backed semantic tokens generated from `ui/app/src/styles/theme-catalog.json`
 - **Command palette** — Fuzzy-searchable command runner (⌘K) with keyboard hints
 - **Input palette** — Sequential multi-step inputs for note creation and templates
 - **Toast notifications** — Non-blocking success/error/warning alerts
@@ -68,6 +69,7 @@ ui/app/                  # SvelteKit frontend
 
 ```sh
 cargo build --workspace     # Rust crates
+cargo run --bin theme-gen -- --catalog ui/app/src/styles/theme-catalog.json --output ui/app/src/styles/themes
 cd ui/app && pnpm build     # SvelteKit app
 ```
 

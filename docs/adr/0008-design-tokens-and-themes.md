@@ -27,17 +27,11 @@ Components reference tokens without fallbacks (`var(--ns-bg)`, not `var(--ns-bg,
 
 ### Theme System
 
-Five themes implemented as CSS class overrides on `<html>`:
+Five themes are authored in `ui/app/src/styles/theme-catalog.json` and compiled by the `theme-gen` workspace binary into `ui/app/src/styles/themes/*.css`.
 
-| Theme | Class | Description |
-|---|---|---|
-| Dark | `.theme-dark` | Default — matches `:root` token values |
-| Light | `.theme-light` | White backgrounds, dark text, blue accent |
-| System | JS-driven | Applies dark or light based on `prefers-color-scheme` |
-| Manuscript | `.theme-manuscript` | Dark chrome + light editor (`--ns-editor-bg`/`--ns-editor-text` overridden) |
-| High Contrast | `.theme-hc-dark` | Pure black, cyan borders, vivid accent colors |
+The generated files expose 12-step ramp primitives (`--neutral-*`, `--red-*`, `--blue-*`, etc.) under `[data-theme="..."][data-tone="..."]` selectors, with OKLab interpolation between catalog endpoints. Split-surface themes additionally emit `[data-theme="..."] .editor-surface` so the editor can use a light-paper ramp while the outer chrome stays dark.
 
-Each theme class only overrides tokens that differ from the dark defaults.
+The runtime theme picker still controls the active theme through the existing theme store and flash-prevention script; semantic tokens consume the generated ramps while legacy `--ns-*` tokens remain as a compatibility layer during migration.
 
 ### Persistence
 
@@ -49,6 +43,6 @@ Each theme class only overrides tokens that differ from the dark defaults.
 ## Consequences
 
 - Adding a new color to the UI requires defining a token in `app.css` first — no ad-hoc hex values in components
-- New themes only need to override the subset of tokens that change
-- The Manuscript theme works because editor tokens (`--ns-editor-*`) are separated from chrome tokens (`--ns-bg`, `--ns-sidebar-bg`)
-- Flash prevention requires the inline script to stay in sync with the theme class names in `app.css`
+- New themes are added by editing `ui/app/src/styles/theme-catalog.json` and regenerating `ui/app/src/styles/themes/*.css`
+- The Manuscript theme works because split-surface generation emits a dedicated `.editor-surface` ramp block separate from the outer theme selector
+- Flash prevention still requires the inline script and runtime theme store to stay in sync with the active theme attributes/classes

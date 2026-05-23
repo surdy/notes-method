@@ -1,6 +1,6 @@
 # Notesmith CLI Reference
 
-Notesmith ships a single binary: **`notesmith`**.
+Notesmith ships a single user-facing binary: **`notesmith`**. The workspace also includes a developer-only helper binary, **`theme-gen`**, for precomputing theme CSS from the catalog JSON.
 
 ```
 notesmith [--vault <name|path>] [--format text|json] <command>
@@ -12,6 +12,23 @@ notesmith [--vault <name|path>] [--format text|json] <command>
 |------|-------------|---------|
 | `--vault <name\|path>` | Override vault detection (name from config or path) | auto-detect |
 | `--format text\|json` | Output format | `text` (JSON when piped) |
+
+---
+
+## theme-gen (developer tool)
+
+Generate ramp-based theme CSS from `ui/app/src/styles/theme-catalog.json` into `ui/app/src/styles/themes/`.
+
+```bash
+cargo run --bin theme-gen -- --catalog ui/app/src/styles/theme-catalog.json --output ui/app/src/styles/themes/
+```
+
+| Flag | Description |
+|------|-------------|
+| `--catalog <path>` | Theme catalog JSON file to read |
+| `--output <dir>` | Directory where generated `*.css` files are written |
+
+On success the binary prints `Generated N theme files`.
 
 ---
 

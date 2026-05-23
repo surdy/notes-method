@@ -236,6 +236,7 @@ notesmith/
 │   ├── notesmith-http/        # Axum daemon, REST endpoints, SSE, static app serving
 │   ├── notesmith-mcp/         # MCP adapter on top of VaultOps
 │   ├── notesmith-cli/         # clap command tree; produces the `notesmith` binary
+│   ├── theme-gen/             # build-time theme CSS generator from the catalog JSON
 │   └── notesmith-tauri/       # thin desktop shell
 ├── ui/
 │   └── app/                   # SvelteKit frontend
@@ -1147,6 +1148,8 @@ v1 layout:
 - command palette as the primary navigation surface.
 
 Tabs ship in v1. Split panes do not.
+
+Theme assets are generated at build time from `ui/app/src/styles/theme-catalog.json` by the `theme-gen` workspace binary. It writes `ui/app/src/styles/themes/*.css` with 12-step neutral and ANSI hue ramps interpolated in OKLab/OKLCH space. Split-surface themes additionally emit a `[data-theme="..."] .editor-surface` block so the editor can use a light-paper ramp while the surrounding chrome stays dark.
 
 ### 19.2 Sidebar views
 
