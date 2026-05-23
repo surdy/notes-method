@@ -27,7 +27,7 @@ Components reference tokens without fallbacks (`var(--ns-bg)`, not `var(--ns-bg,
 
 ### Theme System
 
-Five themes are authored in `ui/app/src/styles/theme-catalog.json` and compiled by the `theme-gen` workspace binary into `ui/app/src/styles/themes/*.css`.
+A curated catalog of theme palettes is authored in `ui/app/src/styles/theme-catalog.json` and compiled by the `theme-gen` workspace binary into `ui/app/src/styles/themes/*.css`.
 
 The generated files expose 12-step ramp primitives (`--neutral-*`, `--red-*`, `--blue-*`, etc.) under `[data-theme="..."][data-tone="..."]` selectors, with OKLab interpolation between catalog endpoints. Split-surface themes additionally emit `[data-theme="..."] .editor-surface` so the editor can use a light-paper ramp while the outer chrome stays dark.
 

@@ -6,7 +6,7 @@ const themeCatalogPath = fileURLToPath(new URL('../styles/theme-catalog.json', i
 const paletteKeys = ['bg', 'fg', 'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'];
 
 describe('theme catalog', () => {
-it('defines the sample theme engine palette catalog', () => {
+it('defines the curated theme engine palette catalog', () => {
 const themeCatalog = JSON.parse(readFileSync(themeCatalogPath, 'utf8')) as Array<{
 name: string;
 display_name: string;
@@ -17,13 +17,9 @@ palette: Record<string, string>;
 tags: string[];
 }>;
 
-expect(themeCatalog).toHaveLength(3);
+expect(themeCatalog.length).toBeGreaterThanOrEqual(35);
+expect(themeCatalog.length).toBeLessThanOrEqual(40);
 expect(new Set(themeCatalog.map((theme) => theme.name)).size).toBe(themeCatalog.length);
-expect(themeCatalog.map((theme) => theme.name)).toEqual([
-'tokyo-night',
-'catppuccin-latte',
-'manuscript'
-]);
 expect(themeCatalog.some((theme) => theme.name === 'manuscript' && theme.split_surface)).toBe(true);
 
 for (const theme of themeCatalog) {
