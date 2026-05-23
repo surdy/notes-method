@@ -211,7 +211,7 @@
 		cursor: pointer;
 		font-size: 14px;
 		text-align: left;
-		color: var(--ns-text);
+		color: var(--text-default);
 	}
 
 	.folder-toggle {
@@ -235,13 +235,13 @@
 	.folder-toggle:hover,
 	.folder-disclosure-button:hover,
 	.folder-name-button:hover {
-		background: var(--ns-surface-hover);
+		background: var(--bg-hover);
 	}
 
 	.folder-disclosure-button.selected,
 	.folder-name-button.selected {
-		background: var(--ns-selected-bg);
-		color: var(--ns-text-inverse);
+		background: var(--bg-selected);
+		color: var(--text-inverse);
 	}
 
 	.disclosure {
@@ -251,7 +251,7 @@
 		width: 16px;
 		height: 16px;
 		font-size: 10px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		transition: transform 0.15s ease;
 		flex-shrink: 0;
 	}
@@ -265,7 +265,7 @@
 		top: 0;
 		bottom: 0;
 		width: 1px;
-		background: var(--ns-border);
+		background: var(--border-default);
 		pointer-events: none;
 	}
 
@@ -281,16 +281,16 @@
 		cursor: pointer;
 		font-size: 13px;
 		text-align: left;
-		color: var(--ns-text-secondary);
+		color: var(--text-secondary);
 	}
 
 	.note-item:hover {
-		background: var(--ns-surface-hover);
+		background: var(--bg-hover);
 	}
 
 	.note-item.selected {
-		background: var(--ns-selected-bg);
-		color: var(--ns-text-inverse);
+		background: var(--bg-selected);
+		color: var(--text-inverse);
 	}
 
 	.folder-context-menu {
@@ -298,10 +298,10 @@
 		z-index: 1000;
 		min-width: 160px;
 		padding: 4px;
-		border: 1px solid var(--ns-border);
+		border: 1px solid var(--border-default);
 		border-radius: 6px;
-		background: var(--ns-surface-elevated);
-		box-shadow: var(--ns-shadow-soft);
+		background: var(--bg-elevated);
+		box-shadow: var(--shadow-soft);
 	}
 
 	.folder-context-menu button {
@@ -311,12 +311,12 @@
 		border: none;
 		border-radius: 4px;
 		background: transparent;
-		color: var(--ns-text);
+		color: var(--text-default);
 		cursor: pointer;
 		text-align: left;
 	}
 
 	.folder-context-menu button:hover {
-		background: var(--ns-surface-hover);
+		background: var(--bg-hover);
 	}
 </style>

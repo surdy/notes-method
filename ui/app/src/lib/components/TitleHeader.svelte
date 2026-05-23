@@ -131,8 +131,8 @@
 		font-size: 2em;
 		font-weight: 700;
 		line-height: 1.2;
-		color: var(--ns-editor-text);
-		border-bottom: 1px solid var(--ns-border);
+		color: var(--editor-text);
+		border-bottom: 1px solid var(--border-default);
 		margin-bottom: 4px;
 		user-select: text;
 		cursor: text;
@@ -142,7 +142,7 @@
 	.title-header--viewer {
 		padding: 0 0 0.3em;
 		margin: 0 0 0.6em;
-		border-bottom: 1px solid var(--ns-border);
+		border-bottom: 1px solid var(--border-default);
 	}
 
 	.title-header--readonly {
@@ -150,17 +150,17 @@
 	}
 
 	.title-header:not(.title-header--readonly):hover {
-		background: var(--ns-surface-hover);
+		background: var(--bg-hover);
 	}
 
 	.title-header:focus-visible {
-		box-shadow: inset 0 0 0 2px var(--ns-accent);
+		box-shadow: inset 0 0 0 2px var(--accent);
 	}
 
 	.title-input {
 		width: 100%;
 		font: inherit;
-		color: var(--ns-editor-text);
+		color: var(--editor-text);
 		background: transparent;
 		border: none;
 		padding: 0;
@@ -170,7 +170,7 @@
 	.title-error {
 		font-size: 0.5em;
 		font-weight: 400;
-		color: var(--ns-danger);
+		color: var(--color-danger);
 		margin-top: 4px;
 	}
 </style>

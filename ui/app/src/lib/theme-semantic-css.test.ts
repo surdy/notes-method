@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 const tokensSemanticCssPath = fileURLToPath(new URL('../styles/tokens-semantic.css', import.meta.url));
 const modeDefaultCssPath = fileURLToPath(new URL('../styles/mode-default.css', import.meta.url));
 const modeHighContrastCssPath = fileURLToPath(
-	new URL('../styles/mode-high-contrast.css', import.meta.url)
+new URL('../styles/mode-high-contrast.css', import.meta.url)
 );
 
 const tokensSemanticCss = readFileSync(tokensSemanticCssPath, 'utf8');
@@ -13,148 +13,337 @@ const modeDefaultCss = readFileSync(modeDefaultCssPath, 'utf8');
 const modeHighContrastCss = readFileSync(modeHighContrastCssPath, 'utf8');
 
 function cssVariablesFor(css: string, selector: string): Record<string, string> {
-	const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-	const match = css.match(new RegExp(`${escapedSelector}\\s*\\{(?<body>[^}]+)\\}`));
-	const body = match?.groups?.body;
-	if (!body) {
-		throw new Error(`Missing CSS rule for ${selector}`);
-	}
-
-	return Object.fromEntries(
-		[...body.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(([, name, value]) => [name, value.trim()])
-	);
+const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const match = css.match(new RegExp(`${escapedSelector}\\s*\\{(?<body>[^}]+)\\}`));
+const body = match?.groups?.body;
+if (!body) {
+throw new Error(`Missing CSS rule for ${selector}`);
 }
 
+return Object.fromEntries(
+[...body.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(([, name, value]) => [name, value.trim()])
+);
+}
+
+const semanticContract = [
+'--bg-default',
+'--bg-secondary',
+'--bg-surface',
+'--bg-elevated',
+'--bg-hover',
+'--bg-active',
+'--bg-selected',
+'--bg-input',
+'--bg-panel',
+'--border-default',
+'--border-strong',
+'--border-subtle',
+'--border-input',
+'--border-overlay',
+'--border-overlay-strong',
+'--border-translucent',
+'--border-translucent-strong',
+'--border-translucent-soft',
+'--text-default',
+'--text-secondary',
+'--text-muted',
+'--text-faint',
+'--text-inverse',
+'--accent',
+'--accent-bg',
+'--accent-text',
+'--accent-hover',
+'--color-danger',
+'--color-success',
+'--color-warning',
+'--color-info',
+'--danger-bg',
+'--danger-bg-muted',
+'--danger-border',
+'--danger-surface',
+'--danger-surface-border',
+'--danger-text',
+'--danger-text-muted',
+'--success-bg',
+'--success-surface',
+'--success-border',
+'--success-text',
+'--warning-bg',
+'--warning-bg-soft',
+'--warning-border',
+'--warning-border-strong',
+'--warning-hover',
+'--warning-surface',
+'--warning-surface-border',
+'--warning-text',
+'--warning-banner-bg',
+'--warning-banner-text',
+'--warning-banner-hint',
+'--info-banner',
+'--info-banner-text',
+'--info-banner-text-muted',
+'--callout-note',
+'--callout-abstract',
+'--callout-info',
+'--callout-todo',
+'--callout-tip',
+'--callout-success',
+'--callout-question',
+'--callout-warning',
+'--callout-failure',
+'--callout-danger',
+'--callout-bug',
+'--callout-example',
+'--callout-quote',
+'--callout-icon',
+'--callout-current',
+'--editor-bg',
+'--editor-text',
+'--editor-text-secondary',
+'--editor-text-muted',
+'--editor-text-faint',
+'--editor-active-line',
+'--editor-selection',
+'--editor-frontmatter-bg',
+'--editor-border',
+'--editor-link',
+'--syntax-comment',
+'--syntax-keyword',
+'--syntax-string',
+'--syntax-constant',
+'--syntax-entity',
+'--syntax-variable',
+'--syntax-tag',
+'--syntax-function',
+'--syntax-atom',
+'--syntax-number',
+'--syntax-definition',
+'--syntax-type',
+'--syntax-property',
+'--syntax-operator',
+'--syntax-punctuation',
+'--syntax-invalid',
+'--button-bg',
+'--button-text',
+'--button-hover',
+'--button-active',
+'--badge-bg',
+'--badge-text',
+'--kbd-bg',
+'--kbd-border',
+'--scrollbar-thumb',
+'--scrollbar-hover',
+'--status-connected',
+'--status-reconnecting',
+'--status-disconnected',
+'--status-restart',
+'--status-idle',
+'--overlay',
+'--overlay-soft',
+'--overlay-panel',
+'--shadow',
+'--shadow-toast',
+'--shadow-soft',
+'--shadow-popover',
+'--surface-translucent',
+'--surface-translucent-hover',
+'--surface-translucent-emphasis',
+'--surface-translucent-strong',
+'--surface-translucent-subtle',
+'--surface-translucent-alt',
+'--onboarding-bg',
+'--onboarding-border',
+'--dirty-dot',
+'--font-mono',
+'--line-height-normal',
+'--line-height-tight',
+'--paragraph-spacing'
+] as const;
+
+const defaultMappings = {
+'--bg-default': 'var(--neutral-0)',
+'--bg-secondary': 'var(--neutral-1)',
+'--bg-surface': 'var(--bg-default)',
+'--bg-elevated': 'var(--neutral-2)',
+'--bg-hover': 'var(--neutral-2)',
+'--bg-active': 'var(--neutral-3)',
+'--bg-selected': 'var(--blue-2)',
+'--bg-input': 'var(--neutral-3)',
+'--bg-panel': 'var(--neutral-1)',
+'--border-default': 'var(--neutral-3)',
+'--border-strong': 'var(--neutral-4)',
+'--border-subtle': 'var(--neutral-2)',
+'--border-input': 'var(--neutral-4)',
+'--border-overlay': 'var(--border-subtle)',
+'--border-overlay-strong': 'var(--border-default)',
+'--border-translucent': 'rgba(255, 255, 255, 0.15)',
+'--border-translucent-strong': 'rgba(255, 255, 255, 0.3)',
+'--border-translucent-soft': 'rgba(255, 255, 255, 0.2)',
+'--text-default': 'var(--neutral-10)',
+'--text-secondary': 'var(--neutral-9)',
+'--text-muted': 'var(--neutral-6)',
+'--text-faint': 'var(--neutral-5)',
+'--accent': 'var(--blue-9)',
+'--accent-bg': 'var(--blue-3)',
+'--accent-text': 'var(--blue-10)',
+'--accent-hover': 'var(--blue-4)',
+'--color-danger': 'var(--red-9)',
+'--color-success': 'var(--green-9)',
+'--color-warning': 'var(--yellow-9)',
+'--color-info': 'var(--cyan-9)',
+'--danger-bg': 'var(--red-2)',
+'--danger-bg-muted': 'var(--red-1)',
+'--danger-border': 'var(--red-3)',
+'--danger-surface': 'var(--red-2)',
+'--danger-surface-border': 'var(--red-4)',
+'--danger-text': 'var(--red-10)',
+'--danger-text-muted': 'var(--red-8)',
+'--success-bg': 'var(--green-2)',
+'--success-surface': 'var(--green-1)',
+'--success-border': 'var(--green-3)',
+'--success-text': 'var(--green-10)',
+'--warning-bg': 'var(--yellow-2)',
+'--warning-bg-soft': 'var(--yellow-1)',
+'--warning-border': 'var(--yellow-3)',
+'--warning-border-strong': 'var(--yellow-4)',
+'--warning-hover': 'var(--yellow-3)',
+'--warning-surface': 'var(--yellow-2)',
+'--warning-surface-border': 'var(--yellow-4)',
+'--warning-text': 'var(--yellow-10)',
+'--warning-banner-bg': 'var(--yellow-2)',
+'--warning-banner-text': 'var(--yellow-10)',
+'--warning-banner-hint': 'var(--yellow-9)',
+'--info-banner': 'var(--blue-3)',
+'--info-banner-text': 'var(--blue-11)',
+'--info-banner-text-muted': 'var(--blue-9)',
+'--callout-note': 'var(--blue-8)',
+'--callout-abstract': 'var(--cyan-8)',
+'--callout-info': 'var(--cyan-9)',
+'--callout-todo': 'var(--cyan-9)',
+'--callout-tip': 'var(--green-8)',
+'--callout-success': 'var(--green-9)',
+'--callout-question': 'var(--green-10)',
+'--callout-warning': 'var(--yellow-9)',
+'--callout-failure': 'var(--red-8)',
+'--callout-danger': 'var(--red-9)',
+'--callout-bug': 'var(--magenta-9)',
+'--callout-example': 'var(--magenta-8)',
+'--callout-quote': 'var(--neutral-6)',
+'--callout-icon': 'var(--neutral-8)',
+'--callout-current': 'var(--callout-note)',
+'--editor-bg': 'var(--bg-default)',
+'--editor-text': 'var(--text-default)',
+'--editor-text-secondary': 'var(--text-faint)',
+'--editor-text-muted': 'var(--text-muted)',
+'--editor-text-faint': 'var(--text-faint)',
+'--editor-active-line': 'var(--bg-hover)',
+'--editor-selection': 'var(--bg-selected)',
+'--editor-frontmatter-bg': 'var(--bg-elevated)',
+'--editor-border': 'var(--border-strong)',
+'--editor-link': 'var(--accent)',
+'--syntax-comment': 'var(--neutral-6)',
+'--syntax-keyword': 'var(--magenta-9)',
+'--syntax-string': 'var(--green-9)',
+'--syntax-constant': 'var(--blue-9)',
+'--syntax-entity': 'var(--yellow-9)',
+'--syntax-variable': 'var(--red-8)',
+'--syntax-tag': 'var(--red-9)',
+'--syntax-function': 'var(--blue-10)',
+'--syntax-atom': 'var(--blue-9)',
+'--syntax-number': 'var(--green-8)',
+'--syntax-definition': 'var(--cyan-9)',
+'--syntax-type': 'var(--cyan-8)',
+'--syntax-property': 'var(--yellow-8)',
+'--syntax-operator': 'var(--neutral-9)',
+'--syntax-punctuation': 'var(--neutral-9)',
+'--syntax-invalid': 'var(--red-9)',
+'--button-bg': 'var(--neutral-3)',
+'--button-text': 'var(--neutral-10)',
+'--button-hover': 'var(--neutral-4)',
+'--button-active': 'var(--neutral-5)',
+'--badge-bg': 'var(--yellow-9)',
+'--badge-text': 'var(--neutral-0)',
+'--kbd-bg': 'var(--neutral-3)',
+'--kbd-border': 'var(--border-subtle)',
+'--scrollbar-thumb': 'var(--neutral-3)',
+'--scrollbar-hover': 'var(--neutral-4)',
+'--status-connected': 'var(--green-9)',
+'--status-reconnecting': 'var(--yellow-9)',
+'--status-disconnected': 'var(--red-9)',
+'--status-restart': 'var(--blue-9)',
+'--status-idle': 'var(--neutral-6)',
+'--overlay': 'rgba(0, 0, 0, 0.65)',
+'--overlay-soft': 'rgba(0, 0, 0, 0.2)',
+'--overlay-panel': 'var(--bg-elevated)',
+'--shadow': '0 24px 60px rgba(0, 0, 0, 0.45)',
+'--shadow-toast': '0 2px 8px rgba(0, 0, 0, 0.2)',
+'--shadow-soft': '0 10px 24px rgba(0, 0, 0, 0.12)',
+'--shadow-popover': '0 -4px 12px rgba(0, 0, 0, 0.3)',
+'--surface-translucent': 'rgba(255, 255, 255, 0.08)',
+'--surface-translucent-hover': 'rgba(255, 255, 255, 0.14)',
+'--surface-translucent-emphasis': 'rgba(255, 255, 255, 0.2)',
+'--surface-translucent-strong': 'rgba(255, 255, 255, 0.12)',
+'--surface-translucent-subtle': 'rgba(255, 255, 255, 0.05)',
+'--surface-translucent-alt': 'rgba(255, 255, 255, 0.03)',
+'--onboarding-bg': 'var(--bg-elevated)',
+'--onboarding-border': 'var(--border-default)',
+'--dirty-dot': 'var(--yellow-9)',
+'--font-mono': "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+'--line-height-normal': '1.5',
+'--line-height-tight': '1.3',
+'--paragraph-spacing': '1rem'
+} as const;
+
 describe('semantic theme CSS', () => {
-	it('declares the semantic token contract', () => {
-		const root = cssVariablesFor(tokensSemanticCss, ':root');
+it('declares the semantic token contract', () => {
+const root = cssVariablesFor(tokensSemanticCss, ':root');
+const expected = Object.fromEntries(semanticContract.map((token) => [token, 'initial']));
 
-		expect(root).toEqual({
-			'--bg-default': 'initial',
-			'--bg-secondary': 'initial',
-			'--bg-surface': 'initial',
-			'--bg-elevated': 'initial',
-			'--bg-hover': 'initial',
-			'--bg-active': 'initial',
-			'--bg-selected': 'initial',
-			'--bg-input': 'initial',
-			'--bg-panel': 'initial',
-			'--border-default': 'initial',
-			'--border-strong': 'initial',
-			'--border-subtle': 'initial',
-			'--border-input': 'initial',
-			'--text-default': 'initial',
-			'--text-secondary': 'initial',
-			'--text-muted': 'initial',
-			'--text-faint': 'initial',
-			'--text-inverse': 'initial',
-			'--accent': 'initial',
-			'--accent-bg': 'initial',
-			'--accent-text': 'initial',
-			'--accent-hover': 'initial',
-			'--color-danger': 'initial',
-			'--color-success': 'initial',
-			'--color-warning': 'initial',
-			'--color-info': 'initial',
-			'--syntax-comment': 'initial',
-			'--syntax-keyword': 'initial',
-			'--syntax-string': 'initial',
-			'--syntax-constant': 'initial',
-			'--syntax-entity': 'initial',
-			'--syntax-variable': 'initial',
-			'--syntax-tag': 'initial',
-			'--syntax-function': 'initial',
-			'--button-bg': 'initial',
-			'--button-text': 'initial',
-			'--button-hover': 'initial',
-			'--button-active': 'initial',
-			'--scrollbar-thumb': 'initial',
-			'--scrollbar-hover': 'initial'
-		});
-	});
+expect(root).toEqual(expected);
+});
 
-	it('maps ramp primitives to the default semantic tokens', () => {
-		const root = cssVariablesFor(modeDefaultCss, ':root');
+it('maps ramp primitives to the default semantic tokens', () => {
+const root = cssVariablesFor(modeDefaultCss, ':root');
 
-		expect(root).toEqual({
-			'--bg-default': 'var(--neutral-0)',
-			'--bg-secondary': 'var(--neutral-1)',
-			'--bg-surface': 'var(--neutral-1)',
-			'--bg-elevated': 'var(--neutral-2)',
-			'--bg-hover': 'var(--neutral-2)',
-			'--bg-active': 'var(--neutral-3)',
-			'--bg-selected': 'var(--blue-2)',
-			'--bg-input': 'var(--neutral-3)',
-			'--bg-panel': 'var(--neutral-1)',
-			'--border-default': 'var(--neutral-3)',
-			'--border-strong': 'var(--neutral-4)',
-			'--border-subtle': 'var(--neutral-2)',
-			'--border-input': 'var(--neutral-4)',
-			'--text-default': 'var(--neutral-10)',
-			'--text-secondary': 'var(--neutral-9)',
-			'--text-muted': 'var(--neutral-6)',
-			'--text-faint': 'var(--neutral-5)',
-			'--accent': 'var(--blue-9)',
-			'--accent-bg': 'var(--blue-3)',
-			'--accent-text': 'var(--blue-10)',
-			'--accent-hover': 'var(--blue-4)',
-			'--color-danger': 'var(--red-9)',
-			'--color-success': 'var(--green-9)',
-			'--color-warning': 'var(--yellow-9)',
-			'--color-info': 'var(--cyan-9)',
-			'--syntax-comment': 'var(--neutral-6)',
-			'--syntax-keyword': 'var(--magenta-9)',
-			'--syntax-string': 'var(--green-9)',
-			'--syntax-constant': 'var(--blue-9)',
-			'--syntax-entity': 'var(--yellow-9)',
-			'--syntax-variable': 'var(--red-8)',
-			'--syntax-tag': 'var(--red-9)',
-			'--syntax-function': 'var(--blue-10)',
-			'--button-bg': 'var(--neutral-3)',
-			'--button-text': 'var(--neutral-10)',
-			'--button-hover': 'var(--neutral-4)',
-			'--button-active': 'var(--neutral-5)',
-			'--scrollbar-thumb': 'var(--neutral-3)',
-			'--scrollbar-hover': 'var(--neutral-4)'
-		});
-	});
+expect(root).toEqual(defaultMappings);
+});
 
-	it('uses tone-specific inverse text overrides', () => {
-		expect(cssVariablesFor(modeDefaultCss, '[data-tone="dark"]')).toEqual({
-			'--text-inverse': '#ffffff'
-		});
-		expect(cssVariablesFor(modeDefaultCss, '[data-tone="light"]')).toEqual({
-			'--text-inverse': '#1a1a1a'
-		});
-	});
+it('uses tone-specific inverse text overrides', () => {
+expect(cssVariablesFor(modeDefaultCss, '[data-tone="dark"]')).toEqual({
+'--text-inverse': '#ffffff'
+});
+expect(cssVariablesFor(modeDefaultCss, '[data-tone="light"]')).toEqual({
+'--text-inverse': '#1a1a1a'
+});
+});
 
-	it('boosts key contrast pairs in high-contrast mode', () => {
-		expect(cssVariablesFor(modeHighContrastCss, '[data-mode="high-contrast"][data-tone="dark"]')).toEqual({
-			'--text-default': 'var(--neutral-11)',
-			'--text-secondary': 'var(--neutral-10)',
-			'--text-muted': 'var(--neutral-8)',
-			'--text-faint': 'var(--neutral-7)',
-			'--border-default': 'var(--neutral-5)',
-			'--border-strong': 'var(--neutral-6)',
-			'--bg-hover': 'var(--neutral-3)',
-			'--bg-active': 'var(--neutral-4)',
-			'--accent': 'var(--blue-10)',
-			'--color-danger': 'var(--red-10)',
-			'--color-success': 'var(--green-10)'
-		});
+it('boosts key contrast pairs in high-contrast mode', () => {
+expect(cssVariablesFor(modeHighContrastCss, '[data-mode="high-contrast"][data-tone="dark"]')).toEqual({
+'--text-default': 'var(--neutral-11)',
+'--text-secondary': 'var(--neutral-10)',
+'--text-muted': 'var(--neutral-8)',
+'--text-faint': 'var(--neutral-7)',
+'--border-default': 'var(--neutral-5)',
+'--border-strong': 'var(--neutral-6)',
+'--bg-hover': 'var(--neutral-3)',
+'--bg-active': 'var(--neutral-4)',
+'--accent': 'var(--blue-10)',
+'--color-danger': 'var(--red-10)',
+'--color-success': 'var(--green-10)'
+});
 
-		expect(cssVariablesFor(modeHighContrastCss, '[data-mode="high-contrast"][data-tone="light"]')).toEqual({
-			'--text-default': 'var(--neutral-0)',
-			'--text-secondary': 'var(--neutral-1)',
-			'--text-muted': 'var(--neutral-3)',
-			'--text-faint': 'var(--neutral-4)',
-			'--border-default': 'var(--neutral-5)',
-			'--border-strong': 'var(--neutral-4)',
-			'--bg-hover': 'var(--neutral-8)',
-			'--bg-active': 'var(--neutral-7)',
-			'--accent': 'var(--blue-2)',
-			'--color-danger': 'var(--red-2)',
-			'--color-success': 'var(--green-2)'
-		});
-	});
+expect(cssVariablesFor(modeHighContrastCss, '[data-mode="high-contrast"][data-tone="light"]')).toEqual({
+'--text-default': 'var(--neutral-0)',
+'--text-secondary': 'var(--neutral-1)',
+'--text-muted': 'var(--neutral-3)',
+'--text-faint': 'var(--neutral-4)',
+'--border-default': 'var(--neutral-5)',
+'--border-strong': 'var(--neutral-4)',
+'--bg-hover': 'var(--neutral-8)',
+'--bg-active': 'var(--neutral-7)',
+'--accent': 'var(--blue-2)',
+'--color-danger': 'var(--red-2)',
+'--color-success': 'var(--green-2)'
+});
+});
 });

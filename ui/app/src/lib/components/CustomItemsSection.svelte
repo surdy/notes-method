@@ -42,19 +42,19 @@ width: 100%;
 padding: 6px 12px;
 border: none;
 background: none;
-color: var(--ns-text-secondary);
+color: var(--text-secondary);
 font-size: 13px;
 text-align: left;
 cursor: pointer;
 }
 
 .item:hover {
-background: var(--ns-surface-hover);
+background: var(--bg-hover);
 }
 
 .item.active {
-background: var(--ns-selected-bg);
-color: var(--ns-text-inverse);
+background: var(--bg-selected);
+color: var(--text-inverse);
 }
 
 .item-icon {
@@ -71,6 +71,6 @@ white-space: nowrap;
 .empty {
 padding: 8px 12px;
 font-size: 12px;
-color: var(--ns-text-muted);
+color: var(--text-muted);
 }
 </style>

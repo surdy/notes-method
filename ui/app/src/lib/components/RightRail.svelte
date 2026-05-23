@@ -282,8 +282,8 @@
 		display: flex;
 		flex-direction: column;
 		height: 100%;
-		background: var(--ns-sidebar-bg);
-		border-left: 1px solid var(--ns-border);
+		background: var(--bg-secondary);
+		border-left: 1px solid var(--border-default);
 		overflow: hidden;
 		opacity: 1;
 		transition:
@@ -302,7 +302,7 @@
 		justify-content: space-between;
 		gap: 12px;
 		padding: 14px 16px 12px;
-		border-bottom: 1px solid var(--ns-border);
+		border-bottom: 1px solid var(--border-default);
 	}
 
 	.rail-header h2 {
@@ -312,7 +312,7 @@
 
 	.rail-header p {
 		margin: 4px 0 0;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 12px;
 		word-break: break-word;
 	}
@@ -320,13 +320,13 @@
 	.rail-status,
 	.section-empty,
 	.rail-empty {
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 12px;
 	}
 
 	.rail-tab-bar {
 		display: flex;
-		border-bottom: 1px solid var(--ns-border);
+		border-bottom: 1px solid var(--border-default);
 		flex-shrink: 0;
 	}
 
@@ -335,7 +335,7 @@
 		padding: 8px 4px;
 		border: none;
 		background: transparent;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 12px;
 		font-weight: 600;
 		cursor: pointer;
@@ -345,13 +345,13 @@
 	}
 
 	.rail-tab:hover {
-		color: var(--ns-text);
-		background: var(--ns-surface-hover);
+		color: var(--text-default);
+		background: var(--bg-hover);
 	}
 
 	.rail-tab.active {
-		color: var(--ns-accent);
-		border-bottom-color: var(--ns-accent);
+		color: var(--accent);
+		border-bottom-color: var(--accent);
 	}
 
 	.rail-content {
@@ -365,8 +365,8 @@
 	}
 
 	.rail-error {
-		color: var(--ns-danger-text-muted);
-		background: var(--ns-danger-bg-muted);
+		color: var(--danger-text-muted);
+		background: var(--danger-bg-muted);
 	}
 
 	.metadata-list,
@@ -389,7 +389,7 @@
 	}
 
 	.metadata-key {
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 11px;
 		text-transform: uppercase;
 	}
@@ -407,19 +407,19 @@
 	.tag-chip {
 		padding: 2px 8px;
 		border-radius: 999px;
-		background: var(--ns-accent-surface);
-		color: var(--ns-accent-surface-text);
+		background: var(--accent-bg);
+		color: var(--accent-text);
 		font-size: 12px;
 	}
 
 	.links-group + .links-group {
-		border-top: 1px solid var(--ns-border);
+		border-top: 1px solid var(--border-default);
 	}
 
 	.links-heading {
 		margin: 0;
 		padding: 12px 16px 8px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 12px;
 		font-weight: 700;
 		letter-spacing: 0.03em;
@@ -436,12 +436,12 @@
 		border: none;
 		border-radius: 0;
 		background: transparent;
-		color: var(--ns-text);
+		color: var(--text-default);
 		text-align: left;
 	}
 
 	.link-item:hover {
-		background: var(--ns-surface-hover);
+		background: var(--bg-hover);
 	}
 
 	.link-label {
@@ -450,7 +450,7 @@
 	}
 
 	.link-path {
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 12px;
 		word-break: break-word;
 	}

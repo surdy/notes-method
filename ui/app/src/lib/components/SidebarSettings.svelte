@@ -711,13 +711,13 @@
 <style>
 	.error-banner {
 		padding: 10px 0;
-		color: var(--ns-danger);
+		color: var(--color-danger);
 		font-size: 13px;
 	}
 
 	.conflict-banner {
 		padding: 10px 0;
-		color: var(--ns-warning);
+		color: var(--color-warning);
 		font-size: 13px;
 	}
 
@@ -732,10 +732,10 @@
 
 	.conflict-actions button {
 		padding: 4px 12px;
-		border: 1px solid var(--ns-warning-border);
+		border: 1px solid var(--warning-border);
 		border-radius: 4px;
 		background: transparent;
-		color: var(--ns-warning);
+		color: var(--color-warning);
 		font-size: 12px;
 		cursor: pointer;
 	}
@@ -747,7 +747,7 @@
 	}
 
 	.view-card {
-		border: 1px solid var(--ns-border);
+		border: 1px solid var(--border-default);
 		border-radius: 6px;
 		overflow: hidden;
 	}
@@ -757,7 +757,7 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 8px 12px;
-		background: var(--ns-bg-secondary);
+		background: var(--bg-secondary);
 	}
 
 	.view-toggle {
@@ -766,7 +766,7 @@
 		gap: 6px;
 		background: none;
 		border: none;
-		color: var(--ns-text);
+		color: var(--text-default);
 		font-size: 13px;
 		cursor: pointer;
 		padding: 0;
@@ -782,7 +782,7 @@
 	}
 
 	.dirty-dot {
-		color: var(--ns-warning);
+		color: var(--color-warning);
 		font-size: 10px;
 	}
 
@@ -795,7 +795,7 @@
 	.icon-btn {
 		background: none;
 		border: 1px solid transparent;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 12px;
 		cursor: pointer;
 		padding: 2px 6px;
@@ -803,8 +803,8 @@
 	}
 
 	.icon-btn:hover:not(:disabled) {
-		background: var(--ns-surface-hover);
-		color: var(--ns-text);
+		background: var(--bg-hover);
+		color: var(--text-default);
 	}
 
 	.icon-btn:disabled {
@@ -813,12 +813,12 @@
 	}
 
 	.icon-btn.danger:hover:not(:disabled) {
-		color: var(--ns-danger);
+		color: var(--color-danger);
 	}
 
 	.view-body {
 		padding: 12px;
-		border-top: 1px solid var(--ns-border);
+		border-top: 1px solid var(--border-default);
 	}
 
 	.view-props {
@@ -834,11 +834,11 @@
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.section-card {
-		border: 1px solid var(--ns-border);
+		border: 1px solid var(--border-default);
 		border-radius: 4px;
 		margin-bottom: 8px;
 		overflow: hidden;
@@ -849,13 +849,13 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 6px 10px;
-		background: var(--ns-surface-translucent-alt);
+		background: var(--surface-translucent-alt);
 	}
 
 	.section-type {
 		font-size: 12px;
 		font-weight: 500;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.section-fields {
@@ -871,17 +871,17 @@
 
 	.field-label {
 		font-size: 11px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.field input[type='text'],
 	.field input[type='number'],
 	.field select {
 		padding: 5px 8px;
-		border: 1px solid var(--ns-border-strong);
+		border: 1px solid var(--border-strong);
 		border-radius: 4px;
-		background: var(--ns-bg-secondary);
-		color: var(--ns-text);
+		background: var(--bg-secondary);
+		color: var(--text-default);
 		font-size: 12px;
 		max-width: 360px;
 	}
@@ -889,7 +889,7 @@
 	.field input:focus,
 	.field select:focus {
 		outline: none;
-		border-color: var(--ns-accent-bg);
+		border-color: var(--accent-bg);
 	}
 
 	.folder-list,
@@ -914,10 +914,10 @@
 	.autocomplete-wrapper input {
 		width: 100%;
 		padding: 5px 8px;
-		border: 1px solid var(--ns-border-strong);
+		border: 1px solid var(--border-strong);
 		border-radius: 4px;
-		background: var(--ns-bg-secondary);
-		color: var(--ns-text);
+		background: var(--bg-secondary);
+		color: var(--text-default);
 		font-size: 12px;
 	}
 
@@ -926,8 +926,8 @@
 		top: 100%;
 		left: 0;
 		right: 0;
-		background: var(--ns-bg);
-		border: 1px solid var(--ns-border-strong);
+		background: var(--bg-default);
+		border: 1px solid var(--border-strong);
 		border-radius: 0 0 4px 4px;
 		list-style: none;
 		margin: 0;
@@ -943,18 +943,18 @@
 		padding: 5px 8px;
 		background: none;
 		border: none;
-		color: var(--ns-text);
+		color: var(--text-default);
 		font-size: 12px;
 		text-align: left;
 		cursor: pointer;
 	}
 
 	.autocomplete-dropdown li button:hover {
-		background: var(--ns-surface-hover);
+		background: var(--bg-hover);
 	}
 
 	.item-card {
-		border: 1px solid var(--ns-border);
+		border: 1px solid var(--border-default);
 		border-radius: 4px;
 		padding: 8px;
 		margin-bottom: 4px;
@@ -974,8 +974,8 @@
 
 	.btn-add-small {
 		background: none;
-		border: 1px dashed var(--ns-border-strong);
-		color: var(--ns-text-muted);
+		border: 1px dashed var(--border-strong);
+		color: var(--text-muted);
 		font-size: 11px;
 		padding: 4px 10px;
 		border-radius: 4px;
@@ -983,8 +983,8 @@
 	}
 
 	.btn-add-small:hover {
-		color: var(--ns-text);
-		border-color: var(--ns-text-muted);
+		color: var(--text-default);
+		border-color: var(--text-muted);
 	}
 
 	.add-section-row {
@@ -996,7 +996,7 @@
 
 	.add-label {
 		font-size: 11px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.view-save-row,
@@ -1005,26 +1005,26 @@
 		gap: 6px;
 		margin-top: 10px;
 		padding-top: 10px;
-		border-top: 1px solid var(--ns-border);
+		border-top: 1px solid var(--border-default);
 	}
 
 	.btn-save,
 	.btn-revert {
 		padding: 5px 14px;
 		border-radius: 4px;
-		border: 1px solid var(--ns-border-strong);
+		border: 1px solid var(--border-strong);
 		font-size: 12px;
 		cursor: pointer;
 	}
 
 	.btn-save {
-		background: var(--ns-accent-bg);
-		color: var(--ns-text-inverse);
-		border-color: var(--ns-accent-bg);
+		background: var(--accent-bg);
+		color: var(--text-inverse);
+		border-color: var(--accent-bg);
 	}
 
 	.btn-save:hover {
-		background: var(--ns-accent-bg-hover);
+		background: var(--accent-hover);
 	}
 
 	.btn-save:disabled {
@@ -1034,31 +1034,31 @@
 
 	.btn-revert {
 		background: transparent;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.btn-revert:hover {
-		background: var(--ns-surface-hover);
-		color: var(--ns-text);
+		background: var(--bg-hover);
+		color: var(--text-default);
 	}
 
 	.btn-add-view {
 		padding: 8px 16px;
-		border: 1px dashed var(--ns-border-strong);
+		border: 1px dashed var(--border-strong);
 		border-radius: 6px;
 		background: none;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 13px;
 		cursor: pointer;
 	}
 
 	.btn-add-view:hover {
-		border-color: var(--ns-text-muted);
-		color: var(--ns-text);
+		border-color: var(--text-muted);
+		color: var(--text-default);
 	}
 
 	.loading {
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 13px;
 	}
 </style>

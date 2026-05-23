@@ -39,19 +39,19 @@ export function show(message: string, type: 'info' | 'error' = 'info') {
 	padding: 10px 14px;
 	border-radius: 6px;
 	font-size: 13px;
-	box-shadow: var(--ns-shadow-toast);
+	box-shadow: var(--shadow-toast);
 	max-width: 400px;
 	animation: slide-in 0.2s ease-out;
 }
 .toast-info {
-	background: var(--ns-bg-secondary);
-	color: var(--ns-text);
-	border: 1px solid var(--ns-border-strong);
+	background: var(--bg-secondary);
+	color: var(--text-default);
+	border: 1px solid var(--border-strong);
 }
 .toast-error {
-	background: var(--ns-danger-bg);
-	color: var(--ns-danger);
-	border: 1px solid var(--ns-danger-border);
+	background: var(--danger-bg);
+	color: var(--color-danger);
+	border: 1px solid var(--danger-border);
 }
 .toast-close {
 	background: none;

@@ -166,9 +166,9 @@
 		flex: 1;
 		overflow-y: auto;
 		padding: 24px 32px;
-		background: var(--ns-editor-bg);
-		color: var(--ns-editor-text);
-		line-height: var(--ns-line-height-normal);
+		background: var(--editor-bg);
+		color: var(--editor-text);
+		line-height: var(--line-height-normal);
 	}
 
 	.empty-state {
@@ -176,11 +176,11 @@
 		align-items: center;
 		justify-content: center;
 		height: 100%;
-		color: var(--ns-editor-text-muted);
+		color: var(--editor-text-muted);
 	}
 
 	.content :global(p) {
-		margin: 0 0 var(--ns-paragraph-spacing);
+		margin: 0 0 var(--paragraph-spacing);
 	}
 
 	.content :global(p:last-child) {
@@ -189,7 +189,7 @@
 
 	.content :global(ul),
 	.content :global(ol) {
-		margin: 0 0 var(--ns-paragraph-spacing);
+		margin: 0 0 var(--paragraph-spacing);
 		padding-left: 1.5em;
 	}
 
@@ -213,7 +213,7 @@
 	}
 
 	.content :global(a.wikilink) {
-		color: var(--ns-editor-link);
+		color: var(--editor-link);
 		cursor: pointer;
 		text-decoration: underline;
 		text-decoration-style: dotted;
@@ -244,21 +244,21 @@
 
 	.content :global(th),
 	.content :global(td) {
-		border: 1px solid var(--ns-editor-border);
+		border: 1px solid var(--editor-border);
 		padding: 6px 12px;
 	}
 
 	.content :global(blockquote) {
-		border-left: 3px solid var(--ns-editor-border);
+		border-left: 3px solid var(--editor-border);
 		margin: 1em 0;
 		padding: 0.5em 1em;
-		color: var(--ns-editor-text-faint);
+		color: var(--editor-text-faint);
 	}
 
 	.content :global(code) {
 		padding: 0.15em 0.35em;
 		border-radius: 4px;
-		background: var(--ns-panel-bg-strong);
+		background: var(--bg-panel);
 		font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
 		font-size: 0.9em;
 	}
@@ -266,9 +266,9 @@
 	.content :global(pre) {
 		margin: 1em 0;
 		padding: 1em;
-		border: 1px solid var(--ns-editor-border);
+		border: 1px solid var(--editor-border);
 		border-radius: 8px;
-		background: var(--ns-panel-bg-strong);
+		background: var(--bg-panel);
 		overflow-x: auto;
 	}
 
@@ -278,27 +278,27 @@
 	}
 
 	.content :global(.callout) {
-		--ns-callout-current: var(--ns-callout-note);
-		--ns-callout-icon: '✎';
-		border: 1px solid color-mix(in srgb, var(--ns-callout-current) 42%, transparent);
-		border-left: 4px solid var(--ns-callout-current);
+		--callout-current: var(--callout-note);
+		--callout-icon: '✎';
+		border: 1px solid color-mix(in srgb, var(--callout-current) 42%, transparent);
+		border-left: 4px solid var(--callout-current);
 		border-radius: 8px;
 		padding: 12px 16px;
 		margin: 1em 0;
-		background: color-mix(in srgb, var(--ns-callout-current) 13%, var(--ns-editor-bg));
-		color: var(--ns-editor-text);
+		background: color-mix(in srgb, var(--callout-current) 13%, var(--editor-bg));
+		color: var(--editor-text);
 	}
 
 	.content :global(.callout-title) {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		color: var(--ns-callout-current);
+		color: var(--callout-current);
 		font-weight: 700;
 	}
 
 	.content :global(.callout-title::before) {
-		content: var(--ns-callout-icon);
+		content: var(--callout-icon);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -313,7 +313,7 @@
 	.content :global(.callout[data-fold] .callout-title::after) {
 		content: '⌄';
 		margin-left: auto;
-		color: var(--ns-editor-text-muted);
+		color: var(--editor-text-muted);
 	}
 
 	.content :global(.callout[data-fold='closed'] .callout-title::after) {
@@ -333,68 +333,68 @@
 	}
 
 	.content :global(.callout-note) {
-		--ns-callout-current: var(--ns-callout-note);
-		--ns-callout-icon: '✎';
+		--callout-current: var(--callout-note);
+		--callout-icon: '✎';
 	}
 
 	.content :global(.callout-abstract) {
-		--ns-callout-current: var(--ns-callout-abstract);
-		--ns-callout-icon: '☷';
+		--callout-current: var(--callout-abstract);
+		--callout-icon: '☷';
 	}
 
 	.content :global(.callout-info) {
-		--ns-callout-current: var(--ns-callout-info);
-		--ns-callout-icon: 'ⓘ';
+		--callout-current: var(--callout-info);
+		--callout-icon: 'ⓘ';
 	}
 
 	.content :global(.callout-todo) {
-		--ns-callout-current: var(--ns-callout-todo);
-		--ns-callout-icon: '☑';
+		--callout-current: var(--callout-todo);
+		--callout-icon: '☑';
 	}
 
 	.content :global(.callout-tip) {
-		--ns-callout-current: var(--ns-callout-tip);
-		--ns-callout-icon: '🔥';
+		--callout-current: var(--callout-tip);
+		--callout-icon: '🔥';
 	}
 
 	.content :global(.callout-success) {
-		--ns-callout-current: var(--ns-callout-success);
-		--ns-callout-icon: '✓';
+		--callout-current: var(--callout-success);
+		--callout-icon: '✓';
 	}
 
 	.content :global(.callout-question) {
-		--ns-callout-current: var(--ns-callout-question);
-		--ns-callout-icon: '?';
+		--callout-current: var(--callout-question);
+		--callout-icon: '?';
 	}
 
 	.content :global(.callout-warning) {
-		--ns-callout-current: var(--ns-callout-warning);
-		--ns-callout-icon: '⚠';
+		--callout-current: var(--callout-warning);
+		--callout-icon: '⚠';
 	}
 
 	.content :global(.callout-failure) {
-		--ns-callout-current: var(--ns-callout-failure);
-		--ns-callout-icon: '✕';
+		--callout-current: var(--callout-failure);
+		--callout-icon: '✕';
 	}
 
 	.content :global(.callout-danger) {
-		--ns-callout-current: var(--ns-callout-danger);
-		--ns-callout-icon: '⚡';
+		--callout-current: var(--callout-danger);
+		--callout-icon: '⚡';
 	}
 
 	.content :global(.callout-bug) {
-		--ns-callout-current: var(--ns-callout-bug);
-		--ns-callout-icon: '◉';
+		--callout-current: var(--callout-bug);
+		--callout-icon: '◉';
 	}
 
 	.content :global(.callout-example) {
-		--ns-callout-current: var(--ns-callout-example);
-		--ns-callout-icon: '▦';
+		--callout-current: var(--callout-example);
+		--callout-icon: '▦';
 	}
 
 	.content :global(.callout-quote) {
-		--ns-callout-current: var(--ns-callout-quote);
-		--ns-callout-icon: '❝';
+		--callout-current: var(--callout-quote);
+		--callout-icon: '❝';
 	}
 
 	.content :global(input[type='checkbox']) {
@@ -403,7 +403,7 @@
 	}
 
 	.content :global(li) {
-		color: var(--ns-editor-text);
+		color: var(--editor-text);
 	}
 
 	.loading,
@@ -413,6 +413,6 @@
 	}
 
 	.error {
-		color: var(--ns-danger);
+		color: var(--color-danger);
 	}
 </style>

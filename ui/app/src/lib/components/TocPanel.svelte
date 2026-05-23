@@ -28,7 +28,7 @@
 <style>
 	.toc-empty {
 		padding: 12px 16px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 12px;
 	}
 
@@ -46,19 +46,19 @@
 		border: none;
 		border-left: 2px solid transparent;
 		background: transparent;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		text-align: left;
 		cursor: pointer;
 	}
 
 	.toc-item:hover {
-		background: var(--ns-surface-hover);
-		color: var(--ns-text);
+		background: var(--bg-hover);
+		color: var(--text-default);
 	}
 
 	.toc-item.active {
-		border-left-color: var(--ns-accent);
-		color: var(--ns-accent);
-		background: var(--ns-accent-surface);
+		border-left-color: var(--accent);
+		color: var(--accent);
+		background: var(--accent-bg);
 	}
  </style>

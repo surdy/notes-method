@@ -637,8 +637,8 @@ flex: 1;
 min-height: 0;
 display: flex;
 flex-direction: column;
-background: var(--ns-editor-bg);
-color: var(--ns-text);
+background: var(--editor-bg);
+color: var(--text-default);
 }
 
 .editor-container {
@@ -671,7 +671,7 @@ padding: 24px 32px;
 }
 
 .empty-state {
-color: var(--ns-text-muted);
+color: var(--text-muted);
 }
 
 .conflict-banner {
@@ -680,8 +680,8 @@ align-items: center;
 justify-content: space-between;
 gap: 12px;
 padding: 10px 16px;
-border-bottom: 1px solid var(--ns-border);
-background: var(--ns-warning-bg-soft);
+border-bottom: 1px solid var(--border-default);
+background: var(--warning-bg-soft);
 }
 
 .conflict-actions {
@@ -691,14 +691,14 @@ gap: 8px;
 
 button {
 padding: 6px 10px;
-border: 1px solid var(--ns-border-strong);
+border: 1px solid var(--border-strong);
 border-radius: 6px;
-background: var(--ns-panel-bg-strong);
+background: var(--bg-panel);
 color: inherit;
 cursor: pointer;
 }
 
 button:hover {
-background: var(--ns-panel-hover-strong);
+background: var(--bg-active);
 }
 </style>

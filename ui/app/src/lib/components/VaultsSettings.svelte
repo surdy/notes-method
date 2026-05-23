@@ -39,7 +39,7 @@
 	// Reindex state
 	let reindexingVault = $state<string | null>(null);
 
-	// Open-vault tracking (#103) — disable Remove for vaults with a live window.
+	// Open-vault tracking for issue 103 — disable Remove for vaults with a live window.
 	let openVaults = $state<string[]>([]);
 	const tauriBridge = resolveTauri();
 	let openVaultsPollHandle: ReturnType<typeof setInterval> | null = null;
@@ -329,12 +329,12 @@
 <style>
 	.error-banner {
 		padding: 10px 0;
-		color: var(--ns-danger);
+		color: var(--color-danger);
 		font-size: 13px;
 	}
 
 	.loading {
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 13px;
 	}
 
@@ -346,14 +346,14 @@
 	}
 
 	.vault-card {
-		border: 1px solid var(--ns-border);
+		border: 1px solid var(--border-default);
 		border-radius: 6px;
 		padding: 10px 12px;
-		background: var(--ns-bg-secondary);
+		background: var(--bg-secondary);
 	}
 
 	.vault-card.is-default {
-		border-color: var(--ns-accent-bg);
+		border-color: var(--accent-bg);
 	}
 
 	.vault-main {
@@ -377,7 +377,7 @@
 
 	.vault-path {
 		font-size: 11px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -396,31 +396,31 @@
 		font-size: 16px;
 		cursor: pointer;
 		padding: 2px 4px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.default-btn.active {
-		color: var(--ns-warning);
+		color: var(--color-warning);
 		cursor: default;
 	}
 
 	.default-btn:hover:not(.active) {
-		color: var(--ns-warning);
+		color: var(--color-warning);
 	}
 
 	.btn-small {
 		padding: 3px 8px;
-		border: 1px solid var(--ns-border-strong);
+		border: 1px solid var(--border-strong);
 		border-radius: 4px;
 		background: transparent;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 11px;
 		cursor: pointer;
 	}
 
 	.btn-small:hover:not(:disabled) {
-		background: var(--ns-surface-hover);
-		color: var(--ns-text);
+		background: var(--bg-hover);
+		color: var(--text-default);
 	}
 
 	.btn-small:disabled {
@@ -429,12 +429,12 @@
 	}
 
 	.btn-small.danger:hover:not(:disabled) {
-		color: var(--ns-danger);
-		border-color: var(--ns-danger);
+		color: var(--color-danger);
+		border-color: var(--color-danger);
 	}
 
 	.btn-small.muted {
-		color: var(--ns-text-subtle);
+		color: var(--text-faint);
 	}
 
 	.rename-row {
@@ -445,23 +445,23 @@
 
 	.rename-input {
 		padding: 3px 8px;
-		border: 1px solid var(--ns-accent-bg);
+		border: 1px solid var(--accent-bg);
 		border-radius: 4px;
-		background: var(--ns-bg);
-		color: var(--ns-text);
+		background: var(--bg-default);
+		color: var(--text-default);
 		font-size: 13px;
 		width: 160px;
 	}
 
 	.inline-error {
-		color: var(--ns-danger);
+		color: var(--color-danger);
 		font-size: 11px;
 		display: block;
 		margin-top: 2px;
 	}
 
 	.add-form {
-		border: 1px solid var(--ns-border);
+		border: 1px solid var(--border-default);
 		border-radius: 6px;
 		padding: 12px;
 		margin-top: 8px;
@@ -482,22 +482,22 @@
 
 	.field-label {
 		font-size: 11px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.field input[type='text'] {
 		padding: 5px 8px;
-		border: 1px solid var(--ns-border-strong);
+		border: 1px solid var(--border-strong);
 		border-radius: 4px;
-		background: var(--ns-bg-secondary);
-		color: var(--ns-text);
+		background: var(--bg-secondary);
+		color: var(--text-default);
 		font-size: 13px;
 		max-width: 360px;
 	}
 
 	.field input:focus {
 		outline: none;
-		border-color: var(--ns-accent-bg);
+		border-color: var(--accent-bg);
 	}
 
 	.path-prefix {
@@ -509,11 +509,11 @@
 
 	.prefix {
 		padding: 5px 6px;
-		background: var(--ns-surface-translucent-subtle);
-		border: 1px solid var(--ns-border-strong);
+		background: var(--surface-translucent-subtle);
+		border: 1px solid var(--border-strong);
 		border-right: none;
 		border-radius: 4px 0 0 4px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 12px;
 		white-space: nowrap;
 	}
@@ -532,19 +532,19 @@
 	.btn-revert {
 		padding: 5px 14px;
 		border-radius: 4px;
-		border: 1px solid var(--ns-border-strong);
+		border: 1px solid var(--border-strong);
 		font-size: 12px;
 		cursor: pointer;
 	}
 
 	.btn-save {
-		background: var(--ns-accent-bg);
-		color: var(--ns-text-inverse);
-		border-color: var(--ns-accent-bg);
+		background: var(--accent-bg);
+		color: var(--text-inverse);
+		border-color: var(--accent-bg);
 	}
 
 	.btn-save:hover:not(:disabled) {
-		background: var(--ns-accent-bg-hover);
+		background: var(--accent-hover);
 	}
 
 	.btn-save:disabled {
@@ -553,27 +553,27 @@
 
 	.btn-revert {
 		background: transparent;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.btn-revert:hover {
-		background: var(--ns-surface-hover);
-		color: var(--ns-text);
+		background: var(--bg-hover);
+		color: var(--text-default);
 	}
 
 	.btn-add-vault {
 		padding: 8px 16px;
-		border: 1px dashed var(--ns-border-strong);
+		border: 1px dashed var(--border-strong);
 		border-radius: 6px;
 		background: none;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 13px;
 		cursor: pointer;
 		margin-top: 8px;
 	}
 
 	.btn-add-vault:hover {
-		border-color: var(--ns-text-muted);
-		color: var(--ns-text);
+		border-color: var(--text-muted);
+		color: var(--text-default);
 	}
 </style>

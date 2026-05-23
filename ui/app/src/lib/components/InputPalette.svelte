@@ -174,7 +174,7 @@
 	.palette-backdrop {
 		position: fixed;
 		inset: 0;
-		background: var(--ns-overlay);
+		background: var(--overlay);
 		display: flex;
 		justify-content: center;
 		align-items: flex-start;
@@ -187,17 +187,17 @@
 		max-height: min(60vh, 720px);
 		display: flex;
 		flex-direction: column;
-		background: var(--ns-panel-bg-strong);
-		border: 1px solid var(--ns-border-overlay);
+		background: var(--bg-panel);
+		border: 1px solid var(--border-overlay);
 		border-radius: 16px;
-		box-shadow: var(--ns-shadow);
+		box-shadow: var(--shadow);
 		overflow: hidden;
 		animation: palette-slide-in 0.18s ease-out;
 	}
 
 	.palette-header {
 		padding: 16px 20px 8px;
-		border-bottom: 1px solid var(--ns-border-overlay);
+		border-bottom: 1px solid var(--border-overlay);
 	}
 
 	.step-label {
@@ -205,7 +205,7 @@
 		font-size: 13px;
 		font-weight: 700;
 		letter-spacing: 0.04em;
-		color: var(--ns-text-muted-soft);
+		color: var(--text-muted);
 		text-transform: uppercase;
 	}
 
@@ -214,10 +214,10 @@
 		padding: 18px 20px;
 		border: none;
 		outline: none;
-		background: var(--ns-panel-bg-strong);
-		color: var(--ns-text);
+		background: var(--bg-panel);
+		color: var(--text-default);
 		font-size: 17px;
-		border-bottom: 1px solid var(--ns-border-overlay);
+		border-bottom: 1px solid var(--border-overlay);
 	}
 
 	.palette-results {
@@ -233,14 +233,14 @@
 		border: none;
 		border-radius: 10px;
 		background: transparent;
-		color: var(--ns-text);
+		color: var(--text-default);
 		cursor: pointer;
 		text-align: left;
 	}
 
 	.palette-item:hover,
 	.palette-item.selected {
-		background: var(--ns-surface-hover-strong);
+		background: var(--bg-active);
 	}
 
 	.item-body {
@@ -258,14 +258,14 @@
 
 	.item-description {
 		font-size: 12px;
-		color: var(--ns-text-muted-strong);
+		color: var(--text-secondary);
 	}
 
 	.text-hint,
 	.no-results {
 		padding: 24px;
 		text-align: center;
-		color: var(--ns-text-muted-soft);
+		color: var(--text-muted);
 	}
 
 	.palette-footer {
@@ -274,8 +274,8 @@
 		gap: 12px;
 		flex-wrap: wrap;
 		padding: 12px 16px;
-		border-top: 1px solid var(--ns-border-overlay);
-		background: var(--ns-surface-translucent-subtle);
+		border-top: 1px solid var(--border-overlay);
+		background: var(--surface-translucent-subtle);
 	}
 
 	.hint {
@@ -283,15 +283,15 @@
 		align-items: center;
 		gap: 6px;
 		font-size: 12px;
-		color: var(--ns-text-muted-strong);
+		color: var(--text-secondary);
 	}
 
 	kbd {
 		padding: 3px 8px;
 		border-radius: 999px;
-		background: var(--ns-kbd-bg);
-		border: 1px solid var(--ns-kbd-border);
-		color: var(--ns-text);
+		background: var(--kbd-bg);
+		border: 1px solid var(--kbd-border);
+		color: var(--text-default);
 		font-size: 12px;
 	}
 

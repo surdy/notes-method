@@ -117,7 +117,7 @@ gap: 10px;
 order: -1;
 width: 16px;
 height: 16px;
-accent-color: var(--ns-accent-bg);
+accent-color: var(--accent-bg);
 }
 
 .field-toggle .field-label {
@@ -139,12 +139,12 @@ margin-left: 26px;
 
 .field-label {
 font-size: 12px;
-color: var(--ns-text-muted);
+color: var(--text-muted);
 }
 
 .field-description {
 font-size: 11px;
-color: var(--ns-text-muted);
+color: var(--text-muted);
 line-height: 1.4;
 max-width: 420px;
 }
@@ -152,10 +152,10 @@ max-width: 420px;
 .field select,
 .field textarea {
 padding: 6px 10px;
-border: 1px solid var(--ns-border-strong);
+border: 1px solid var(--border-strong);
 border-radius: 4px;
-background: var(--ns-bg-secondary);
-color: var(--ns-text);
+background: var(--bg-secondary);
+color: var(--text-default);
 font-size: 13px;
 max-width: 400px;
 }
@@ -168,7 +168,7 @@ resize: vertical;
 .field select:focus,
 .field textarea:focus {
 outline: none;
-border-color: var(--ns-accent-bg);
+border-color: var(--accent-bg);
 }
 
 @media (max-width: 600px) {

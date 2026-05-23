@@ -14,16 +14,16 @@ Additionally, `window.prompt()` and `window.alert()` silently fail in Tauri's WK
 
 ### Design Tokens
 
-All UI colors are defined as `--ns-*` CSS custom properties in a single `:root {}` block in `ui/app/src/app.css`. The `--ns-` prefix avoids collisions with library CSS. Token categories:
+All component-facing UI colors now use bare semantic tokens declared in `ui/app/src/styles/tokens-semantic.css` and mapped in `ui/app/src/styles/mode-default.css`. The semantic layer sits on top of generated ramp primitives so components depend on stable roles instead of theme-specific values. Token categories include:
 
-- **Surfaces**: `--ns-bg`, `--ns-sidebar-bg`, `--ns-surface`, `--ns-surface-hover`, `--ns-surface-active`
-- **Borders**: `--ns-border`, `--ns-border-strong`, `--ns-border-input`
-- **Text**: `--ns-text`, `--ns-text-secondary`, `--ns-text-muted`
-- **Accent**: `--ns-accent`, `--ns-accent-bg`
-- **Semantic**: `--ns-success`, `--ns-warning`, `--ns-danger` (with `-bg`, `-text`, `-border` variants)
-- **Editor**: `--ns-editor-bg`, `--ns-editor-text` (separate from chrome tokens for Manuscript theme)
+- **Surfaces**: `--bg-default`, `--bg-secondary`, `--bg-elevated`, `--bg-hover`, `--bg-active`
+- **Borders**: `--border-default`, `--border-strong`, `--border-input`, `--border-overlay`
+- **Text**: `--text-default`, `--text-secondary`, `--text-muted`, `--text-inverse`
+- **Accent**: `--accent`, `--accent-bg`, `--accent-text`, `--accent-hover`
+- **Semantic states**: `--color-success`, `--color-warning`, `--color-danger`, plus `--success-*`, `--warning-*`, `--danger-*` surface variants
+- **Editor/callouts**: `--editor-*`, `--callout-*`, and `--syntax-*` tokens for split-surface and syntax-aware UI
 
-Components reference tokens without fallbacks (`var(--ns-bg)`, not `var(--ns-bg, #1e1e1e)`).
+Components reference semantic tokens without fallbacks (`var(--bg-default)`, not `var(--bg-default, #1e1e1e)`).
 
 ### Theme System
 
@@ -31,7 +31,7 @@ A curated catalog of theme palettes is authored in `ui/app/src/styles/theme-cata
 
 The generated files expose 12-step ramp primitives (`--neutral-*`, `--red-*`, `--blue-*`, etc.) under `[data-theme="..."][data-tone="..."]` selectors, with OKLab interpolation between catalog endpoints. Split-surface themes additionally emit `[data-theme="..."] .editor-surface` so the editor can use a light-paper ramp while the outer chrome stays dark.
 
-The runtime theme picker still controls the active theme through the existing theme store and flash-prevention script; semantic tokens consume the generated ramps while legacy `--ns-*` tokens remain as a compatibility layer during migration.
+The runtime theme store and flash-prevention script control the active theme exclusively through `data-theme`, `data-tone`, and `data-mode` attributes on `<html>`. Semantic tokens consume the generated ramps directly; legacy theme classes and `--ns-*` compatibility tokens have been removed from component code.
 
 ### Persistence
 
@@ -42,7 +42,7 @@ The runtime theme picker still controls the active theme through the existing th
 
 ## Consequences
 
-- Adding a new color to the UI requires defining a token in `app.css` first — no ad-hoc hex values in components
+- Adding a new color to the UI requires extending the semantic contract in `tokens-semantic.css` / `mode-default.css` first — no ad-hoc hex values in components
 - New themes are added by editing `ui/app/src/styles/theme-catalog.json` and regenerating `ui/app/src/styles/themes/*.css`
-- The Manuscript theme works because split-surface generation emits a dedicated `.editor-surface` ramp block separate from the outer theme selector
-- Flash prevention still requires the inline script and runtime theme store to stay in sync with the active theme attributes, with legacy class mirroring only as a temporary migration shim
+- The Manuscript theme works because split-surface generation emits a dedicated `.editor-surface` ramp block separate from the outer theme selector, while semantic overrides can tune the main content area where needed
+- Flash prevention still requires the inline script and runtime theme store to stay in sync with the active `data-theme`, `data-tone`, and `data-mode` attributes

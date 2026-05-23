@@ -282,8 +282,8 @@ display: grid;
 grid-template-columns: 1fr 1fr;
 gap: 1px;
 padding: 6px;
-border-bottom: 1px solid var(--ns-border);
-background: var(--ns-sidebar-bg);
+border-bottom: 1px solid var(--border-default);
+background: var(--bg-secondary);
 }
 
 .tab-button {
@@ -295,7 +295,7 @@ padding: 6px 8px;
 border: 1px solid transparent;
 border-radius: 6px;
 background: transparent;
-color: var(--ns-text-secondary);
+color: var(--text-secondary);
 font-size: 12px;
 font-weight: 500;
 cursor: pointer;
@@ -304,13 +304,13 @@ overflow: hidden;
 }
 
 .tab-button:hover {
-background: var(--ns-surface-hover);
+background: var(--bg-hover);
 }
 
 .tab-button.active {
-background: var(--ns-selected-bg);
-color: var(--ns-text-inverse);
-border-color: var(--ns-selected-border);
+background: var(--bg-selected);
+color: var(--text-inverse);
+border-color: var(--accent-bg);
 }
 
 .tab-icon {
@@ -342,7 +342,7 @@ padding: 4px 0;
 .section-separator {
 margin: 4px 0;
 border: none;
-border-top: 1px solid var(--ns-border);
+border-top: 1px solid var(--border-default);
 }
 
 .section {
@@ -363,12 +363,12 @@ text-align: left;
 }
 
 .section-header:hover {
-background: var(--ns-surface-hover);
+background: var(--bg-hover);
 }
 
 .section-chevron {
 font-size: 12px;
-color: var(--ns-text-muted);
+color: var(--text-muted);
 width: 12px;
 flex-shrink: 0;
 }
@@ -378,7 +378,7 @@ font-size: 11px;
 font-weight: 700;
 letter-spacing: 0.08em;
 text-transform: uppercase;
-color: var(--ns-text-muted);
+color: var(--text-muted);
 }
 
 .section-body {
@@ -389,23 +389,23 @@ flex-direction: column;
 .state-msg {
 padding: 16px;
 text-align: center;
-color: var(--ns-text-muted);
+color: var(--text-muted);
 font-size: 12px;
 }
 
 .refresh-btn {
 margin-top: 10px;
 padding: 6px 10px;
-border: 1px solid var(--ns-border);
+border: 1px solid var(--border-default);
 border-radius: 6px;
-background: var(--ns-panel-bg);
-color: var(--ns-text);
+background: var(--bg-panel);
+color: var(--text-default);
 font-size: 12px;
 cursor: pointer;
 }
 
 .refresh-btn:hover {
-background: var(--ns-panel-hover);
+background: var(--bg-hover);
 }
 
 

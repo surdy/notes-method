@@ -73,8 +73,8 @@
 		padding: 8px 12px;
 		border-radius: 999px;
 		border: 1px solid transparent;
-		background: var(--ns-overlay-panel);
-		color: var(--ns-text);
+		background: var(--overlay-panel);
+		color: var(--text-default);
 	}
 
 	.save-indicator.inline {
@@ -83,7 +83,7 @@
 		border: 0;
 		border-radius: 0;
 		background: none;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		gap: 6px;
 	}
 
@@ -109,38 +109,38 @@
 	}
 
 	.save-indicator.floating.saved {
-		background: var(--ns-success-surface);
-		border-color: var(--ns-success-border);
-		color: var(--ns-success-text);
+		background: var(--success-surface);
+		border-color: var(--success-border);
+		color: var(--success-text);
 	}
 
 	.save-indicator.floating.failed-retrying {
-		background: var(--ns-warning-surface);
-		border-color: var(--ns-warning-surface-border);
-		color: var(--ns-warning-text);
+		background: var(--warning-surface);
+		border-color: var(--warning-surface-border);
+		color: var(--warning-text);
 	}
 
 	.save-indicator.floating.failed {
-		background: var(--ns-danger-surface);
-		border-color: var(--ns-danger-surface-border);
-		color: var(--ns-danger-text);
+		background: var(--danger-surface);
+		border-color: var(--danger-surface-border);
+		color: var(--danger-text);
 		cursor: pointer;
 	}
 
 	.save-indicator.inline.saved {
-		color: var(--ns-success-text);
+		color: var(--success-text);
 	}
 
 	.save-indicator.inline.saving {
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.save-indicator.inline.failed-retrying {
-		color: var(--ns-warning-text);
+		color: var(--warning-text);
 	}
 
 	.save-indicator.inline.failed {
-		color: var(--ns-danger-text);
+		color: var(--danger-text);
 		cursor: pointer;
 	}
 
@@ -151,7 +151,7 @@
 	.spinner {
 		width: 12px;
 		height: 12px;
-		border: 2px solid var(--ns-border-translucent-soft);
+		border: 2px solid var(--border-translucent-soft);
 		border-top-color: currentColor;
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;

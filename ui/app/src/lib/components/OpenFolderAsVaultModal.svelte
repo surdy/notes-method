@@ -158,9 +158,9 @@
 	}
 
 	.modal-sheet {
-		background: var(--ns-surface-elevated);
-		color: var(--ns-text);
-		border: 1px solid var(--ns-border);
+		background: var(--bg-elevated);
+		color: var(--text-default);
+		border: 1px solid var(--border-default);
 		border-radius: 8px;
 		padding: 20px;
 		min-width: 420px;
@@ -177,12 +177,12 @@
 	.modal-body {
 		margin: 0 0 12px;
 		font-size: 13px;
-		color: var(--ns-text-secondary);
+		color: var(--text-secondary);
 	}
 
 	.folder-path {
-		font-family: var(--ns-font-mono, monospace);
-		background: var(--ns-bg);
+		font-family: var(--font-mono);
+		background: var(--bg-default);
 		padding: 2px 6px;
 		border-radius: 3px;
 		font-size: 12px;
@@ -198,25 +198,25 @@
 
 	.field-label {
 		font-size: 11px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.name-input {
 		padding: 6px 10px;
-		border: 1px solid var(--ns-border-input);
+		border: 1px solid var(--border-input);
 		border-radius: 4px;
-		background: var(--ns-input-bg);
-		color: var(--ns-text);
+		background: var(--bg-input);
+		color: var(--text-default);
 		font-size: 13px;
 	}
 
 	.name-input:focus {
 		outline: none;
-		border-color: var(--ns-accent);
+		border-color: var(--accent);
 	}
 
 	.inline-error {
-		color: var(--ns-danger);
+		color: var(--color-danger);
 		font-size: 12px;
 		margin-bottom: 8px;
 	}
@@ -234,17 +234,17 @@
 		border-radius: 4px;
 		font-size: 13px;
 		cursor: pointer;
-		border: 1px solid var(--ns-border-strong);
+		border: 1px solid var(--border-strong);
 	}
 
 	.btn-primary {
-		background: var(--ns-accent-bg);
-		color: var(--ns-text-inverse);
-		border-color: var(--ns-accent-bg);
+		background: var(--accent-bg);
+		color: var(--text-inverse);
+		border-color: var(--accent-bg);
 	}
 
 	.btn-primary:hover:not(:disabled) {
-		background: var(--ns-accent-bg-hover);
+		background: var(--accent-hover);
 	}
 
 	.btn-primary:disabled {
@@ -254,11 +254,11 @@
 
 	.btn-secondary {
 		background: transparent;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.btn-secondary:hover {
-		background: var(--ns-surface-hover);
-		color: var(--ns-text);
+		background: var(--bg-hover);
+		color: var(--text-default);
 	}
 </style>

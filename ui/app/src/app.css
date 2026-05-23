@@ -43,556 +43,88 @@
 
 /* Suppress transitions during theme switch */
 [data-theme-switching] * {
-	transition-duration: 0s !important;
-	transition-delay: 0s !important;
+transition-duration: 0s !important;
+transition-delay: 0s !important;
 }
 
-/* Notesmith design tokens */
-:root {
-	/* Surfaces */
-	--ns-bg: #1e1e1e;
-	--ns-bg-secondary: #2a2a2a;
-	--ns-sidebar-bg: #252526;
-	--ns-surface: #1e1e1e;
-	--ns-surface-elevated: #252526;
-	--ns-surface-hover: #2a2d2e;
-	--ns-surface-hover-subtle: #333;
-	--ns-surface-hover-strong: #3a3a3a;
-	--ns-surface-active: #37373d;
-	--ns-input-bg: #3c3c3c;
-	--ns-panel-bg: #2a2d2e;
-	--ns-panel-bg-strong: #2d2d2d;
-	--ns-panel-hover: #323537;
-	--ns-panel-hover-strong: #373737;
-	--ns-selected-bg: #094771;
-	--ns-selected-border: color-mix(in srgb, var(--ns-selected-bg) 70%, white 30%);
-
-	/* Borders */
-	--ns-border: #333;
-	--ns-border-strong: #444;
-	--ns-border-input: #555;
-	--ns-border-overlay: rgb(255 255 255 / 8%);
-	--ns-border-overlay-strong: rgb(255 255 255 / 10%);
-	--ns-border-translucent: rgba(255, 255, 255, 0.15);
-	--ns-border-translucent-strong: rgba(255, 255, 255, 0.3);
-
-	/* Text */
-	--ns-text: #e0e0e0;
-	--ns-text-secondary: #cccccc;
-	--ns-text-muted: #888;
-	--ns-text-muted-soft: #8f8f8f;
-	--ns-text-muted-strong: #989898;
-	--ns-text-subtle: #666;
-	--ns-text-faint: #aaa;
-	--ns-text-inverse: #fff;
-	--ns-text-inverse-soft: rgba(255, 255, 255, 0.75);
-	--ns-text-inverse-muted: rgba(255, 255, 255, 0.8);
-	--ns-text-inverse-muted-strong: rgba(255, 255, 255, 0.85);
-
-	/* Accent */
-	--ns-accent: #7ec8e3;
-	--ns-accent-bg: #264f78;
-	--ns-accent-bg-hover: #2d5f8e;
-	--ns-accent-surface: #1f3a4a;
-	--ns-accent-surface-text: #9cdcfe;
-
-	/* Semantic */
-	--ns-success: #4caf50;
-	--ns-success-bg: #1a3d2a;
-	--ns-success-surface: rgba(46, 125, 50, 0.18);
-	--ns-success-border: rgba(76, 175, 80, 0.35);
-	--ns-success-text: #b9f6ca;
-	--ns-warning: #f5c842;
-	--ns-warning-bg: #3a3018;
-	--ns-warning-banner-bg: #3a2b0b;
-	--ns-warning-banner-text: #f5e7b6;
-	--ns-warning-banner-hint: #f8ddb0;
-	--ns-warning-bg-soft: #2a2014;
-	--ns-warning-border: #5a4a20;
-	--ns-warning-border-strong: #7a5a12;
-	--ns-warning-hover: #4a3a10;
-	--ns-warning-surface: rgba(120, 76, 20, 0.32);
-	--ns-warning-surface-border: rgba(255, 167, 38, 0.35);
-	--ns-warning-text: #ffd180;
-	--ns-warning-callout-bg: #3d3018;
-	--ns-warning-callout-border: #ffb347;
-	--ns-danger: #ff6b6b;
-	--ns-danger-bg: #3a1a1a;
-	--ns-danger-bg-muted: #3a1f24;
-	--ns-danger-border: #5a2a2a;
-	--ns-danger-surface: rgba(124, 36, 36, 0.35);
-	--ns-danger-surface-border: rgba(255, 107, 107, 0.4);
-	--ns-danger-text: #ffb4b4;
-	--ns-danger-text-muted: #ff8b8b;
-	--ns-info: #4a9eff;
-	--ns-info-bg: #1a3a5c;
-	--ns-info-banner: #1e5aa5;
-	--ns-info-banner-text: #f3f8ff;
-	--ns-info-banner-text-muted: #d9ecff;
-
-	/* Callouts */
-	--ns-callout-current: var(--ns-callout-note);
-	--ns-callout-note: #448aff;
-	--ns-callout-abstract: #00b0ff;
-	--ns-callout-info: #00b8d4;
-	--ns-callout-todo: #00b8d4;
-	--ns-callout-tip: #00bfa5;
-	--ns-callout-success: #00c853;
-	--ns-callout-question: #64dd17;
-	--ns-callout-warning: #ff9100;
-	--ns-callout-failure: #ff5252;
-	--ns-callout-danger: #ff1744;
-	--ns-callout-bug: #f50057;
-	--ns-callout-example: #7c4dff;
-	--ns-callout-quote: #9e9e9e;
-
-	/* Editor */
-	--ns-editor-bg: #1e1e1e;
-	--ns-editor-text: #e0e0e0;
-	--ns-editor-text-secondary: #555;
-	--ns-editor-text-muted: #888;
-	--ns-editor-text-faint: #aaa;
-	--ns-editor-active-line: #2a2d2e44;
-	--ns-editor-selection: #264f78;
-	--ns-editor-frontmatter-bg: #252526;
-	--ns-editor-border: #444;
-	--ns-editor-link: #7ec8e3;
-
-	/* Syntax highlighting */
-	--ns-syntax-keyword: #c586c0;
-	--ns-syntax-atom: #569cd6;
-	--ns-syntax-string: #ce9178;
-	--ns-syntax-number: #b5cea8;
-	--ns-syntax-comment: #6a9955;
-	--ns-syntax-variable: #9cdcfe;
-	--ns-syntax-definition: #4fc1ff;
-	--ns-syntax-type: #4ec9b0;
-	--ns-syntax-property: #dcdcaa;
-	--ns-syntax-operator: #d4d4d4;
-	--ns-syntax-punctuation: #d4d4d4;
-	--ns-syntax-invalid: #f44747;
-
-	/* Links */
-	--ns-link: #7ec8e3;
-
-	/* Misc */
-	--ns-overlay: rgb(0 0 0 / 65%);
-	--ns-overlay-soft: rgba(0, 0, 0, 0.2);
-	--ns-overlay-medium: rgba(0, 0, 0, 0.3);
-	--ns-overlay-panel: rgba(53, 53, 53, 0.92);
-	--ns-shadow: 0 24px 60px rgb(0 0 0 / 45%);
-	--ns-shadow-toast: 0 2px 8px rgba(0, 0, 0, 0.2);
-	--ns-shadow-soft: 0 10px 24px rgba(0, 0, 0, 0.12);
-	--ns-shadow-popover: 0 -4px 12px rgba(0, 0, 0, 0.3);
-	--ns-badge-bg: #ff9800;
-	--ns-badge-text: #1f1f1f;
-	--ns-kbd-bg: #3a3a3a;
-	--ns-kbd-border: rgb(255 255 255 / 10%);
-	--ns-scrollbar: #555;
-	--ns-surface-translucent: rgba(255, 255, 255, 0.08);
-	--ns-surface-translucent-hover: rgba(255, 255, 255, 0.14);
-	--ns-surface-translucent-emphasis: rgba(255, 255, 255, 0.2);
-	--ns-surface-translucent-strong: rgba(255, 255, 255, 0.12);
-	--ns-surface-translucent-subtle: rgba(255, 255, 255, 0.05);
-	--ns-onboarding-border: color-mix(in srgb, var(--ns-border) 88%, white 12%);
-	--ns-onboarding-bg: color-mix(in srgb, var(--ns-sidebar-bg) 82%, white 18%);
-	--ns-surface-translucent-alt: rgba(255, 255, 255, 0.03);
-	--ns-status-connected: #4caf50;
-	--ns-status-reconnecting: #ff9800;
-	--ns-status-disconnected: #f44336;
-	--ns-status-restart: #2196f3;
-	--ns-status-idle: #9e9e9e;
-	--ns-border-translucent-soft: rgba(255, 255, 255, 0.2);
-	--ns-dirty-dot: #ffb347;
-
-	/* Typography — Obsidian-aligned defaults */
-	--ns-line-height-normal: 1.5;
-	--ns-line-height-tight: 1.3;
-	--ns-paragraph-spacing: 1rem;
-}
-
-.theme-dark {
-	color-scheme: dark;
-}
-
-.theme-light {
-	color-scheme: light;
-	--ns-bg: #ffffff;
-	--ns-bg-secondary: #f5f5f5;
-	--ns-sidebar-bg: #f0f0f0;
-	--ns-surface: #ffffff;
-	--ns-surface-elevated: #f5f5f5;
-	--ns-surface-hover: #e8e8e8;
-	--ns-surface-hover-subtle: #ececec;
-	--ns-surface-hover-strong: #e0e0e0;
-	--ns-surface-active: #d8d8d8;
-	--ns-input-bg: #ffffff;
-	--ns-panel-bg: #f5f5f5;
-	--ns-panel-bg-strong: #eeeeee;
-	--ns-panel-hover: #e8e8e8;
-	--ns-panel-hover-strong: #e0e0e0;
-	--ns-selected-bg: #cce5ff;
-	--ns-selected-border: color-mix(in srgb, var(--ns-selected-bg) 76%, #0f3c69 24%);
-
-	/* Borders */
-	--ns-border: #d0d0d0;
-	--ns-border-strong: #b0b0b0;
-	--ns-border-input: #c0c0c0;
-	--ns-border-overlay: rgba(0, 0, 0, 0.08);
-	--ns-border-overlay-strong: rgba(0, 0, 0, 0.12);
-	--ns-border-translucent: rgba(0, 0, 0, 0.12);
-	--ns-border-translucent-strong: rgba(0, 0, 0, 0.2);
-	--ns-border-translucent-soft: rgba(0, 0, 0, 0.14);
-
-	/* Text */
-	--ns-text: #1a1a1a;
-	--ns-text-secondary: #333333;
-	--ns-text-muted: #666666;
-	--ns-text-muted-soft: #777777;
-	--ns-text-muted-strong: #555555;
-	--ns-text-subtle: #999999;
-	--ns-text-faint: #aaaaaa;
-	--ns-text-inverse: #ffffff;
-
-	/* Accent */
-	--ns-accent: #0078d4;
-	--ns-accent-bg: #e1f0ff;
-	--ns-accent-bg-hover: #cce5ff;
-	--ns-accent-surface: #e8f4fd;
-	--ns-accent-surface-text: #005a9e;
-
-	/* Semantic */
-	--ns-success: #2e7d32;
-	--ns-success-bg: #e8f5e9;
-	--ns-success-surface: rgba(46, 125, 50, 0.12);
-	--ns-success-border: rgba(46, 125, 50, 0.25);
-	--ns-success-text: #1b5e20;
-	--ns-warning: #ed6c02;
-	--ns-warning-bg: #fff3e0;
-	--ns-warning-banner-bg: #fff0d8;
-	--ns-warning-banner-text: #8a3f00;
-	--ns-warning-banner-hint: #ad5700;
-	--ns-warning-bg-soft: #fff7eb;
-	--ns-warning-border: #f0b37e;
-	--ns-warning-border-strong: #d88a3d;
-	--ns-warning-hover: #ffe6c2;
-	--ns-warning-surface: rgba(237, 108, 2, 0.12);
-	--ns-warning-surface-border: rgba(237, 108, 2, 0.24);
-	--ns-warning-text: #e65100;
-	--ns-warning-callout-bg: #fff6e6;
-	--ns-warning-callout-border: #ed6c02;
-	--ns-danger: #d32f2f;
-	--ns-danger-bg: #ffebee;
-	--ns-danger-bg-muted: #fff1f3;
-	--ns-danger-border: #ef9a9a;
-	--ns-danger-surface: rgba(211, 47, 47, 0.1);
-	--ns-danger-surface-border: rgba(211, 47, 47, 0.22);
-	--ns-danger-text: #c62828;
-	--ns-danger-text-muted: #d75b5b;
-	--ns-info: #1976d2;
-	--ns-info-bg: #e8f2ff;
-	--ns-info-banner: #1976d2;
-	--ns-info-banner-text: #ffffff;
-	--ns-info-banner-text-muted: rgba(255, 255, 255, 0.82);
-
-	/* Editor */
-	--ns-editor-bg: #ffffff;
-	--ns-editor-text: #1a1a1a;
-	--ns-editor-text-secondary: #999999;
-	--ns-editor-text-muted: #666666;
-	--ns-editor-text-faint: #aaaaaa;
-	--ns-editor-active-line: rgba(0, 0, 0, 0.04);
-	--ns-editor-selection: #b4d7ff;
-	--ns-editor-frontmatter-bg: #f5f5f5;
-	--ns-editor-border: #b0b0b0;
-	--ns-editor-link: #0078d4;
-
-	/* Syntax highlighting */
-	--ns-syntax-keyword: #0000ff;
-	--ns-syntax-atom: #0000ff;
-	--ns-syntax-string: #a31515;
-	--ns-syntax-number: #098658;
-	--ns-syntax-comment: #008000;
-	--ns-syntax-variable: #001080;
-	--ns-syntax-definition: #795e26;
-	--ns-syntax-type: #267f99;
-	--ns-syntax-property: #795e26;
-	--ns-syntax-operator: #000000;
-	--ns-syntax-punctuation: #000000;
-	--ns-syntax-invalid: #cd3131;
-
-	/* Links */
-	--ns-link: #0078d4;
-
-	/* Misc */
-	--ns-overlay: rgba(0, 0, 0, 0.4);
-	--ns-overlay-soft: rgba(0, 0, 0, 0.08);
-	--ns-overlay-medium: rgba(0, 0, 0, 0.14);
-	--ns-overlay-panel: rgba(255, 255, 255, 0.94);
-	--ns-shadow: 0 24px 60px rgba(0, 0, 0, 0.15);
-	--ns-shadow-toast: 0 2px 8px rgba(0, 0, 0, 0.12);
-	--ns-shadow-soft: 0 10px 24px rgba(0, 0, 0, 0.08);
-	--ns-shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.12);
-	--ns-kbd-bg: #f0f0f0;
-	--ns-kbd-border: rgba(0, 0, 0, 0.1);
-	--ns-scrollbar: #c0c0c0;
-	--ns-surface-translucent: rgba(0, 0, 0, 0.05);
-	--ns-surface-translucent-hover: rgba(0, 0, 0, 0.08);
-	--ns-surface-translucent-emphasis: rgba(0, 0, 0, 0.12);
-	--ns-surface-translucent-strong: rgba(0, 0, 0, 0.07);
-	--ns-surface-translucent-subtle: rgba(0, 0, 0, 0.03);
-	--ns-surface-translucent-alt: rgba(0, 0, 0, 0.04);
-	--ns-status-connected: #2e7d32;
-	--ns-status-reconnecting: #ed6c02;
-	--ns-status-disconnected: #d32f2f;
-	--ns-status-restart: #1976d2;
-}
-
-.theme-manuscript {
-	color-scheme: dark;
-	--ns-editor-bg: #faf8f5;
-	--ns-editor-text: #2c2c2c;
-	--ns-editor-text-secondary: #888888;
-	--ns-editor-text-muted: #666666;
-	--ns-editor-text-faint: #999999;
-	--ns-editor-active-line: rgba(0, 0, 0, 0.04);
-	--ns-editor-selection: #b4d7ff;
-	--ns-editor-frontmatter-bg: #f0ede8;
-	--ns-editor-border: #c0b8a8;
-	--ns-editor-link: #0078d4;
-
-	/* Syntax highlighting */
-	--ns-syntax-keyword: #0000ff;
-	--ns-syntax-atom: #0000ff;
-	--ns-syntax-string: #a31515;
-	--ns-syntax-number: #098658;
-	--ns-syntax-comment: #008000;
-	--ns-syntax-variable: #001080;
-	--ns-syntax-definition: #795e26;
-	--ns-syntax-type: #267f99;
-	--ns-syntax-property: #795e26;
-	--ns-syntax-operator: #2c2c2c;
-	--ns-syntax-punctuation: #2c2c2c;
-	--ns-syntax-invalid: #cd3131;
-}
-
-.theme-manuscript .content-area {
-	--ns-accent-surface: #e8f4fd;
-	--ns-accent-surface-text: #005a9e;
-	--ns-info: #1976d2;
-	--ns-info-bg: #e8f2ff;
-	--ns-warning-callout-bg: #fff6e6;
-	--ns-warning-callout-border: #ed6c02;
-	--ns-success: #2e7d32;
-	--ns-success-bg: #e8f5e9;
-}
-
-.theme-hc-dark {
-	color-scheme: dark;
-	--ns-bg: #000000;
-	--ns-bg-secondary: #0a0a0a;
-	--ns-sidebar-bg: #000000;
-	--ns-surface: #000000;
-	--ns-surface-elevated: #0a0a0a;
-	--ns-surface-hover: #1a1a1a;
-	--ns-surface-hover-subtle: #121212;
-	--ns-surface-hover-strong: #242424;
-	--ns-surface-active: #2a2a2a;
-	--ns-input-bg: #0a0a0a;
-	--ns-panel-bg: #0a0a0a;
-	--ns-panel-bg-strong: #111111;
-	--ns-panel-hover: #141414;
-	--ns-panel-hover-strong: #1f1f1f;
-	--ns-selected-bg: #003366;
-	--ns-selected-border: #00e5ff;
-
-	/* Borders */
-	--ns-border: #00e5ff;
-	--ns-border-strong: #00e5ff;
-	--ns-border-input: #00e5ff;
-	--ns-border-overlay: rgba(0, 229, 255, 0.45);
-	--ns-border-overlay-strong: rgba(0, 229, 255, 0.65);
-	--ns-border-translucent: rgba(0, 229, 255, 0.35);
-	--ns-border-translucent-strong: rgba(0, 229, 255, 0.55);
-	--ns-border-translucent-soft: rgba(0, 229, 255, 0.4);
-
-	/* Text */
-	--ns-text: #ffffff;
-	--ns-text-secondary: #ffffff;
-	--ns-text-muted: #e0e0e0;
-	--ns-text-muted-soft: #d0d0d0;
-	--ns-text-muted-strong: #f2f2f2;
-	--ns-text-subtle: #c0c0c0;
-	--ns-text-faint: #b5b5b5;
-
-	/* Accent */
-	--ns-accent: #00e5ff;
-	--ns-accent-bg: #003344;
-	--ns-accent-bg-hover: #00485c;
-	--ns-accent-surface: #012a35;
-	--ns-accent-surface-text: #7ff5ff;
-
-	/* Semantic */
-	--ns-success: #00ff88;
-	--ns-success-bg: #002b18;
-	--ns-success-surface: rgba(0, 255, 136, 0.18);
-	--ns-success-border: rgba(0, 255, 136, 0.5);
-	--ns-success-text: #b9ffd8;
-	--ns-warning: #ffdd00;
-	--ns-warning-bg: #2f2600;
-	--ns-warning-banner-bg: #3a2f00;
-	--ns-warning-banner-text: #fff7bf;
-	--ns-warning-banner-hint: #ffe86a;
-	--ns-warning-bg-soft: #241c00;
-	--ns-warning-border: #ffdd00;
-	--ns-warning-border-strong: #ffee58;
-	--ns-warning-hover: #443800;
-	--ns-warning-surface: rgba(255, 221, 0, 0.16);
-	--ns-warning-surface-border: rgba(255, 221, 0, 0.45);
-	--ns-warning-text: #fff1a8;
-	--ns-warning-callout-bg: #302600;
-	--ns-warning-callout-border: #ffdd00;
-	--ns-danger: #ff4444;
-	--ns-danger-bg: #330000;
-	--ns-danger-bg-muted: #250000;
-	--ns-danger-border: #ff4444;
-	--ns-danger-surface: rgba(255, 68, 68, 0.18);
-	--ns-danger-surface-border: rgba(255, 68, 68, 0.5);
-	--ns-danger-text: #ffd0d0;
-	--ns-danger-text-muted: #ff9a9a;
-	--ns-info: #6ab8ff;
-	--ns-info-bg: #001f3d;
-	--ns-info-banner: #0057a8;
-	--ns-info-banner-text: #ffffff;
-	--ns-info-banner-text-muted: rgba(255, 255, 255, 0.88);
-
-	/* Editor */
-	--ns-editor-bg: #000000;
-	--ns-editor-text: #ffffff;
-	--ns-editor-text-secondary: #c0c0c0;
-	--ns-editor-text-muted: #e0e0e0;
-	--ns-editor-text-faint: #b5b5b5;
-	--ns-editor-active-line: rgba(255, 255, 255, 0.08);
-	--ns-editor-selection: #003366;
-	--ns-editor-frontmatter-bg: #0a0a0a;
-	--ns-editor-border: #00e5ff;
-	--ns-editor-link: #00e5ff;
-
-	/* Syntax highlighting */
-	--ns-syntax-keyword: #ff66ff;
-	--ns-syntax-atom: #00e5ff;
-	--ns-syntax-string: #ffdd00;
-	--ns-syntax-number: #00ff88;
-	--ns-syntax-comment: #c0c0c0;
-	--ns-syntax-variable: #ffffff;
-	--ns-syntax-definition: #00e5ff;
-	--ns-syntax-type: #00ff88;
-	--ns-syntax-property: #ffdd00;
-	--ns-syntax-operator: #ffffff;
-	--ns-syntax-punctuation: #ffffff;
-	--ns-syntax-invalid: #ff4444;
-
-	/* Links */
-	--ns-link: #00e5ff;
-
-	/* Misc */
-	--ns-overlay: rgba(0, 0, 0, 0.8);
-	--ns-overlay-soft: rgba(0, 0, 0, 0.28);
-	--ns-overlay-medium: rgba(0, 0, 0, 0.4);
-	--ns-overlay-panel: rgba(0, 0, 0, 0.95);
-	--ns-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
-	--ns-shadow-toast: 0 4px 12px rgba(0, 0, 0, 0.45);
-	--ns-shadow-soft: 0 12px 28px rgba(0, 0, 0, 0.38);
-	--ns-shadow-popover: 0 0 0 rgba(0, 0, 0, 0);
-	--ns-badge-bg: #ffdd00;
-	--ns-badge-text: #000000;
-	--ns-kbd-bg: #0f0f0f;
-	--ns-kbd-border: rgba(0, 229, 255, 0.4);
-	--ns-scrollbar: #00e5ff;
-	--ns-surface-translucent: rgba(0, 229, 255, 0.12);
-	--ns-surface-translucent-hover: rgba(0, 229, 255, 0.18);
-	--ns-surface-translucent-emphasis: rgba(0, 229, 255, 0.24);
-	--ns-surface-translucent-strong: rgba(0, 229, 255, 0.16);
-	--ns-surface-translucent-subtle: rgba(0, 229, 255, 0.08);
-	--ns-onboarding-border: #00e5ff;
-	--ns-onboarding-bg: #00161c;
-	--ns-surface-translucent-alt: rgba(0, 229, 255, 0.05);
-	--ns-status-connected: #00ff88;
-	--ns-status-reconnecting: #ffdd00;
-	--ns-status-disconnected: #ff4444;
-	--ns-status-restart: #00e5ff;
-	--ns-status-idle: #d0d0d0;
-	--ns-dirty-dot: #ffdd00;
+[data-theme="manuscript"] .content-area {
+--accent-bg: #e8f4fd;
+--accent-text: #005a9e;
+--color-info: #1976d2;
+--warning-bg: #fff6e6;
+--warning-border: #ed6c02;
+--color-success: #2e7d32;
+--success-bg: #e8f5e9;
 }
 
 body {
-	margin: 0;
-	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-	background: var(--ns-bg);
-	color: var(--ns-text);
+margin: 0;
+font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+background: var(--bg-default);
+color: var(--text-default);
 }
 
 * {
-	box-sizing: border-box;
+box-sizing: border-box;
 }
 
 button,
 input,
 select,
 textarea {
-	color: inherit;
-	font: inherit;
+color: inherit;
+font: inherit;
 }
 
 .ns-highlighted-code .tok-keyword,
 .ns-highlighted-code .tok-modifier {
-	color: var(--ns-syntax-keyword);
+color: var(--syntax-keyword);
 }
 
 .ns-highlighted-code .tok-atom,
 .ns-highlighted-code .tok-bool,
 .ns-highlighted-code .tok-url,
 .ns-highlighted-code .tok-labelName {
-	color: var(--ns-syntax-atom);
+color: var(--syntax-atom);
 }
 
 .ns-highlighted-code .tok-string,
 .ns-highlighted-code .tok-character,
 .ns-highlighted-code .tok-special\(tok-string\) {
-	color: var(--ns-syntax-string);
+color: var(--syntax-string);
 }
 
 .ns-highlighted-code .tok-number,
 .ns-highlighted-code .tok-integer,
 .ns-highlighted-code .tok-float {
-	color: var(--ns-syntax-number);
+color: var(--syntax-number);
 }
 
 .ns-highlighted-code .tok-comment,
 .ns-highlighted-code .tok-lineComment,
 .ns-highlighted-code .tok-blockComment,
 .ns-highlighted-code .tok-docComment {
-	color: var(--ns-syntax-comment);
+color: var(--syntax-comment);
 }
 
 .ns-highlighted-code .tok-variableName {
-	color: var(--ns-syntax-variable);
+color: var(--syntax-variable);
 }
 
 .ns-highlighted-code .tok-definition,
 .ns-highlighted-code .tok-function\(tok-variableName\) {
-	color: var(--ns-syntax-definition);
+color: var(--syntax-definition);
 }
 
 .ns-highlighted-code .tok-typeName,
 .ns-highlighted-code .tok-className,
 .ns-highlighted-code .tok-namespace {
-	color: var(--ns-syntax-type);
+color: var(--syntax-type);
 }
 
 .ns-highlighted-code .tok-propertyName,
 .ns-highlighted-code .tok-attributeName {
-	color: var(--ns-syntax-property);
+color: var(--syntax-property);
 }
 
 .ns-highlighted-code .tok-operator,
@@ -600,16 +132,16 @@ textarea {
 .ns-highlighted-code .tok-arithmeticOperator,
 .ns-highlighted-code .tok-logicOperator,
 .ns-highlighted-code .tok-bitwiseOperator {
-	color: var(--ns-syntax-operator);
+color: var(--syntax-operator);
 }
 
 .ns-highlighted-code .tok-punctuation,
 .ns-highlighted-code .tok-brace,
 .ns-highlighted-code .tok-paren,
 .ns-highlighted-code .tok-squareBracket {
-	color: var(--ns-syntax-punctuation);
+color: var(--syntax-punctuation);
 }
 
 .ns-highlighted-code .tok-invalid {
-	color: var(--ns-syntax-invalid);
+color: var(--syntax-invalid);
 }

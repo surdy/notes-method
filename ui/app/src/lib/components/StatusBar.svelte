@@ -49,10 +49,10 @@
 		align-items: center;
 		height: 28px;
 		padding: 0 12px;
-		background: var(--ns-sidebar-bg);
-		border-top: 1px solid var(--ns-border);
+		background: var(--bg-secondary);
+		border-top: 1px solid var(--border-default);
 		font-size: 12px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		flex-shrink: 0;
 		gap: 16px;
 	}

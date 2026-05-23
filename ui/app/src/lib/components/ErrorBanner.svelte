@@ -43,10 +43,10 @@
 		justify-content: space-between;
 		gap: 12px;
 		padding: 10px 12px;
-		border: 1px solid var(--ns-warning-border-strong);
+		border: 1px solid var(--warning-border-strong);
 		border-radius: 8px;
-		background: var(--ns-warning-banner-bg);
-		color: var(--ns-warning-banner-text);
+		background: var(--warning-banner-bg);
+		color: var(--warning-banner-text);
 	}
 
 	.error-content {
@@ -57,7 +57,7 @@
 	}
 
 	.hint {
-		color: var(--ns-warning-banner-hint);
+		color: var(--warning-banner-hint);
 	}
 
 	.error-actions {
@@ -70,8 +70,8 @@
 	.action-btn,
 	.dismiss-btn {
 		border-radius: 6px;
-		border: 1px solid var(--ns-border-translucent);
-		background: var(--ns-surface-translucent);
+		border: 1px solid var(--border-translucent);
+		background: var(--surface-translucent);
 		color: inherit;
 		cursor: pointer;
 	}
@@ -91,7 +91,7 @@
 
 	.action-btn:hover,
 	.dismiss-btn:hover {
-		background: var(--ns-surface-translucent-hover);
+		background: var(--surface-translucent-hover);
 	}
 
 	@media (max-width: 640px) {

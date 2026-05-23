@@ -66,10 +66,10 @@
 		align-items: center;
 		height: 32px;
 		padding: 0 12px;
-		background: var(--ns-surface);
-		border-bottom: 1px solid var(--ns-border);
+		background: var(--bg-default);
+		border-bottom: 1px solid var(--border-default);
 		font-size: 12px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		flex-shrink: 0;
 	}
 
@@ -97,7 +97,7 @@
 	}
 
 	.path-leaf {
-		color: var(--ns-text);
+		color: var(--text-default);
 		font-weight: 500;
 	}
 
@@ -115,13 +115,13 @@
 		border: none;
 		border-radius: 4px;
 		background: transparent;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		cursor: pointer;
 		transition: background 0.15s, color 0.15s;
 	}
 
 	.view-toggle:hover {
-		background: var(--ns-surface-hover-subtle);
-		color: var(--ns-text);
+		background: var(--bg-hover);
+		color: var(--text-default);
 	}
 </style>

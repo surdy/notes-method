@@ -37,7 +37,7 @@
 
 	function openFolderAsVault() {
 		if (typeof window === 'undefined') return;
-		// #103 will land a modal that listens for this event. For now the
+		// Issue 103 will land a modal that listens for this event. For now the
 		// menu route also emits the same event from the Tauri side.
 		window.dispatchEvent(new CustomEvent(OPEN_FOLDER_EVENT));
 	}
@@ -80,7 +80,7 @@
 <style>
 	.vault-switcher {
 		padding: 6px 4px;
-		border-bottom: 1px solid var(--ns-border);
+		border-bottom: 1px solid var(--border-default);
 	}
 
 	.vault-list {
@@ -100,7 +100,7 @@
 		width: 100%;
 		padding: 6px 10px;
 		background: transparent;
-		color: var(--ns-text);
+		color: var(--text-default);
 		border: 1px solid transparent;
 		border-radius: 4px;
 		font-size: 13px;
@@ -109,11 +109,11 @@
 	}
 
 	.vault-row:hover:not(:disabled) {
-		background: var(--ns-surface-hover);
+		background: var(--bg-hover);
 	}
 
 	.vault-row.current {
-		background: var(--ns-surface-active);
+		background: var(--bg-active);
 		cursor: default;
 	}
 
@@ -127,7 +127,7 @@
 	}
 
 	.vault-row.open-folder {
-		border-top: 1px dashed var(--ns-border);
+		border-top: 1px dashed var(--border-default);
 		margin-top: 4px;
 		padding-top: 8px;
 		opacity: 0.85;

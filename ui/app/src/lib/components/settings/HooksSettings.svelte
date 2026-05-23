@@ -64,29 +64,29 @@ margin-bottom: 12px;
 .btn-revert {
 padding: 5px 14px;
 border-radius: 4px;
-border: 1px solid var(--ns-border-strong);
+border: 1px solid var(--border-strong);
 font-size: 12px;
 cursor: pointer;
 }
 
 .btn-save {
-background: var(--ns-accent-bg);
-color: var(--ns-text-inverse);
-border-color: var(--ns-accent-bg);
+background: var(--accent-bg);
+color: var(--text-inverse);
+border-color: var(--accent-bg);
 }
 
 .btn-save:hover {
-background: var(--ns-accent-bg-hover);
+background: var(--accent-hover);
 }
 
 .btn-revert {
 background: transparent;
-color: var(--ns-text-muted);
+color: var(--text-muted);
 }
 
 .btn-revert:hover {
-background: var(--ns-surface-hover);
-color: var(--ns-text);
+background: var(--bg-hover);
+color: var(--text-default);
 }
 
 .field {
@@ -98,22 +98,22 @@ margin-bottom: 14px;
 
 .field-label {
 font-size: 12px;
-color: var(--ns-text-muted);
+color: var(--text-muted);
 }
 
 .field input[type='text'] {
 padding: 6px 10px;
-border: 1px solid var(--ns-border-strong);
+border: 1px solid var(--border-strong);
 border-radius: 4px;
-background: var(--ns-bg-secondary);
-color: var(--ns-text);
+background: var(--bg-secondary);
+color: var(--text-default);
 font-size: 13px;
 max-width: 400px;
 }
 
 .field input[type='text']:focus {
 outline: none;
-border-color: var(--ns-accent-bg);
+border-color: var(--accent-bg);
 }
 
 @media (max-width: 600px) {

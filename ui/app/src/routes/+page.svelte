@@ -306,8 +306,8 @@ overflow: hidden;
 .workspace-chrome {
 display: flex;
 min-height: 38px;
-border-bottom: 1px solid var(--ns-border);
-background: var(--ns-panel-bg-strong);
+border-bottom: 1px solid var(--border-default);
+background: var(--bg-panel);
 }
 
 .workspace-chrome-left,
@@ -316,7 +316,7 @@ display: flex;
 align-items: center;
 gap: 8px;
 padding: 0 8px;
-background: var(--ns-sidebar-bg);
+background: var(--bg-secondary);
 overflow: hidden;
 transition:
 	flex-basis 180ms ease,
@@ -326,14 +326,14 @@ transition:
 .workspace-chrome-left {
 flex: 0 0 var(--workspace-left-width);
 width: var(--workspace-left-width);
-border-right: 1px solid var(--ns-border);
+border-right: 1px solid var(--border-default);
 }
 
 .workspace-chrome-right {
 flex: 0 0 var(--workspace-right-width);
 width: var(--workspace-right-width);
 justify-content: space-between;
-border-left: 1px solid var(--ns-border);
+border-left: 1px solid var(--border-default);
 }
 
 .workspace-chrome-left.collapsed,
@@ -359,15 +359,15 @@ padding: 0;
 border: 1px solid transparent;
 border-radius: 6px;
 background: transparent;
-color: var(--ns-text-muted);
+color: var(--text-muted);
 cursor: pointer;
 flex-shrink: 0;
 }
 
 .chrome-icon-btn:hover,
 .chrome-icon-btn:focus-visible {
-background: var(--ns-surface-hover);
-color: var(--ns-text);
+background: var(--bg-hover);
+color: var(--text-default);
 outline: none;
 }
 
@@ -429,8 +429,8 @@ overflow: hidden;
 width: var(--workspace-left-width);
 min-width: var(--workspace-left-width);
 flex: 0 0 var(--workspace-left-width);
-background: var(--ns-sidebar-bg);
-border-right: 1px solid var(--ns-border);
+background: var(--bg-secondary);
+border-right: 1px solid var(--border-default);
 display: flex;
 flex-direction: column;
 overflow: hidden;
@@ -473,7 +473,7 @@ text-overflow: ellipsis;
 }
 
 .chrome-section-title {
-color: var(--ns-text-secondary);
+color: var(--text-secondary);
 font-size: 12px;
 font-weight: 700;
 letter-spacing: 0.08em;
@@ -516,7 +516,7 @@ min-width: 0;
 flex-basis: auto;
 height: 40vh;
 border-right: none;
-border-bottom: 1px solid var(--ns-border);
+border-bottom: 1px solid var(--border-default);
 }
 
 .workspace-chrome-right {

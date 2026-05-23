@@ -20,6 +20,11 @@
   --border-strong: initial;
   --border-subtle: initial;
   --border-input: initial;
+  --border-overlay: initial;
+  --border-overlay-strong: initial;
+  --border-translucent: initial;
+  --border-translucent-strong: initial;
+  --border-translucent-soft: initial;
 
   /* Text */
   --text-default: initial;
@@ -34,13 +39,69 @@
   --accent-text: initial;
   --accent-hover: initial;
 
-  /* Semantic Colors */
+  /* Semantic colors */
   --color-danger: initial;
   --color-success: initial;
   --color-warning: initial;
   --color-info: initial;
 
-  /* Syntax Highlighting */
+  /* Semantic surfaces */
+  --danger-bg: initial;
+  --danger-bg-muted: initial;
+  --danger-border: initial;
+  --danger-surface: initial;
+  --danger-surface-border: initial;
+  --danger-text: initial;
+  --danger-text-muted: initial;
+  --success-bg: initial;
+  --success-surface: initial;
+  --success-border: initial;
+  --success-text: initial;
+  --warning-bg: initial;
+  --warning-bg-soft: initial;
+  --warning-border: initial;
+  --warning-border-strong: initial;
+  --warning-hover: initial;
+  --warning-surface: initial;
+  --warning-surface-border: initial;
+  --warning-text: initial;
+  --warning-banner-bg: initial;
+  --warning-banner-text: initial;
+  --warning-banner-hint: initial;
+  --info-banner: initial;
+  --info-banner-text: initial;
+  --info-banner-text-muted: initial;
+
+  /* Callouts */
+  --callout-note: initial;
+  --callout-abstract: initial;
+  --callout-info: initial;
+  --callout-todo: initial;
+  --callout-tip: initial;
+  --callout-success: initial;
+  --callout-question: initial;
+  --callout-warning: initial;
+  --callout-failure: initial;
+  --callout-danger: initial;
+  --callout-bug: initial;
+  --callout-example: initial;
+  --callout-quote: initial;
+  --callout-icon: initial;
+  --callout-current: initial;
+
+  /* Editor */
+  --editor-bg: initial;
+  --editor-text: initial;
+  --editor-text-secondary: initial;
+  --editor-text-muted: initial;
+  --editor-text-faint: initial;
+  --editor-active-line: initial;
+  --editor-selection: initial;
+  --editor-frontmatter-bg: initial;
+  --editor-border: initial;
+  --editor-link: initial;
+
+  /* Syntax highlighting */
   --syntax-comment: initial;
   --syntax-keyword: initial;
   --syntax-string: initial;
@@ -49,14 +110,57 @@
   --syntax-variable: initial;
   --syntax-tag: initial;
   --syntax-function: initial;
+  --syntax-atom: initial;
+  --syntax-number: initial;
+  --syntax-definition: initial;
+  --syntax-type: initial;
+  --syntax-property: initial;
+  --syntax-operator: initial;
+  --syntax-punctuation: initial;
+  --syntax-invalid: initial;
 
   /* Interactive */
   --button-bg: initial;
   --button-text: initial;
   --button-hover: initial;
   --button-active: initial;
+  --badge-bg: initial;
+  --badge-text: initial;
+  --kbd-bg: initial;
+  --kbd-border: initial;
 
   /* Scrollbar */
   --scrollbar-thumb: initial;
   --scrollbar-hover: initial;
+
+  /* Status */
+  --status-connected: initial;
+  --status-reconnecting: initial;
+  --status-disconnected: initial;
+  --status-restart: initial;
+  --status-idle: initial;
+
+  /* Overlays and shadows */
+  --overlay: initial;
+  --overlay-soft: initial;
+  --overlay-panel: initial;
+  --shadow: initial;
+  --shadow-toast: initial;
+  --shadow-soft: initial;
+  --shadow-popover: initial;
+
+  /* Misc */
+  --surface-translucent: initial;
+  --surface-translucent-hover: initial;
+  --surface-translucent-emphasis: initial;
+  --surface-translucent-strong: initial;
+  --surface-translucent-subtle: initial;
+  --surface-translucent-alt: initial;
+  --onboarding-bg: initial;
+  --onboarding-border: initial;
+  --dirty-dot: initial;
+  --font-mono: initial;
+  --line-height-normal: initial;
+  --line-height-tight: initial;
+  --paragraph-spacing: initial;
 }

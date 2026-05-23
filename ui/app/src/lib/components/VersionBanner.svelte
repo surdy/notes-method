@@ -65,10 +65,10 @@
 		justify-content: space-between;
 		gap: 12px;
 		padding: 8px 16px;
-		background: var(--ns-info-banner);
-		color: var(--ns-info-banner-text);
+		background: var(--info-banner);
+		color: var(--info-banner-text);
 		font-size: 13px;
-		border-bottom: 1px solid var(--ns-border-translucent);
+		border-bottom: 1px solid var(--border-translucent);
 	}
 
 	.banner-copy {
@@ -79,14 +79,14 @@
 	}
 
 	.banner-error {
-		color: var(--ns-info-banner-text-muted);
+		color: var(--info-banner-text-muted);
 		opacity: 0.9;
 	}
 
 	.banner-action {
-		border: 1px solid var(--ns-border-translucent-strong);
+		border: 1px solid var(--border-translucent-strong);
 		border-radius: 999px;
-		background: var(--ns-surface-translucent-strong);
+		background: var(--surface-translucent-strong);
 		color: inherit;
 		padding: 4px 10px;
 		font-size: 12px;
@@ -95,7 +95,7 @@
 	}
 
 	.banner-action:hover {
-		background: var(--ns-surface-translucent-emphasis);
+		background: var(--surface-translucent-emphasis);
 	}
 
 	@media (max-width: 768px) {

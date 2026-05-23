@@ -317,7 +317,7 @@
 	.status-shell.sidebar {
 		margin-top: auto;
 		padding: 8px 12px 12px;
-		border-top: 1px solid var(--ns-border);
+		border-top: 1px solid var(--border-default);
 	}
 
 	.status-shell.inline {
@@ -334,7 +334,7 @@
 		cursor: pointer;
 		border-radius: 4px;
 		font-size: 12px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		border: none;
 		background: none;
 		width: 100%;
@@ -347,7 +347,7 @@
 	}
 
 	.status-pill:hover {
-		background: var(--ns-surface-hover);
+		background: var(--bg-hover);
 	}
 
 	.status-label {
@@ -369,8 +369,8 @@
 		height: 18px;
 		padding: 0 6px;
 		border-radius: 999px;
-		background: var(--ns-badge-bg);
-		color: var(--ns-badge-text);
+		background: var(--badge-bg);
+		color: var(--badge-text);
 		font-size: 11px;
 		font-weight: 700;
 		flex-shrink: 0;
@@ -384,24 +384,24 @@
 	}
 
 	.status-dot.connected {
-		background: var(--ns-status-connected);
+		background: var(--status-connected);
 	}
 
 	.status-dot.reconnecting {
-		background: var(--ns-status-reconnecting);
+		background: var(--status-reconnecting);
 		animation: pulse 1.5s infinite;
 	}
 
 	.status-dot.disconnected {
-		background: var(--ns-status-disconnected);
+		background: var(--status-disconnected);
 	}
 
 	.status-dot.restart-required {
-		background: var(--ns-status-restart);
+		background: var(--status-restart);
 	}
 
 	.status-dot.rebuilding {
-		background: var(--ns-status-idle);
+		background: var(--status-idle);
 	}
 
 	.status-popover {
@@ -410,15 +410,15 @@
 		left: 0;
 		right: 0;
 		margin-bottom: 4px;
-		background: var(--ns-sidebar-bg);
-		border: 1px solid var(--ns-border);
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-default);
 		border-radius: 8px;
 		padding: 12px;
-		box-shadow: var(--ns-shadow-popover);
+		box-shadow: var(--shadow-popover);
 		z-index: 100;
 		max-height: 400px;
 		overflow-y: auto;
-		color: var(--ns-text);
+		color: var(--text-default);
 		font-size: 12px;
 	}
 
@@ -440,7 +440,7 @@
 	}
 
 	.detail-line.hint {
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.detail-section {
@@ -449,16 +449,16 @@
 	}
 
 	.state-text {
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.state-text.error {
-		color: var(--ns-danger);
+		color: var(--color-danger);
 	}
 
 	.divider {
 		border: 0;
-		border-top: 1px solid var(--ns-border);
+		border-top: 1px solid var(--border-default);
 		margin: 10px 0;
 	}
 
@@ -469,10 +469,10 @@
 	}
 
 	.action-btn {
-		border: 1px solid var(--ns-border);
+		border: 1px solid var(--border-default);
 		border-radius: 6px;
-		background: var(--ns-surface-hover);
-		color: var(--ns-text);
+		background: var(--bg-hover);
+		color: var(--text-default);
 		font-size: 12px;
 		padding: 6px 10px;
 		cursor: pointer;
@@ -493,9 +493,9 @@
 		overflow: auto;
 		padding: 8px;
 		border-radius: 6px;
-		background: var(--ns-overlay-soft);
-		border: 1px solid var(--ns-border);
-		color: var(--ns-text);
+		background: var(--overlay-soft);
+		border: 1px solid var(--border-default);
+		color: var(--text-default);
 		font-family:
 			ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
 			'Courier New', monospace;

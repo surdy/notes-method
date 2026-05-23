@@ -164,7 +164,7 @@
 		font-weight: 700;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.view-row {
@@ -176,7 +176,7 @@
 		padding: 8px 12px;
 		border: none;
 		background: none;
-		color: var(--ns-text-secondary);
+		color: var(--text-secondary);
 		text-align: left;
 	}
 
@@ -185,12 +185,12 @@
 	}
 
 	.view-row.openable:hover {
-		background: var(--ns-surface-hover);
+		background: var(--bg-hover);
 	}
 
 	.view-row.selected {
-		background: var(--ns-selected-bg);
-		color: var(--ns-text-inverse);
+		background: var(--bg-selected);
+		color: var(--text-inverse);
 	}
 
 	.view-row:disabled {
@@ -204,12 +204,12 @@
 
 	.row-path {
 		font-size: 11px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		word-break: break-word;
 	}
 
 	.view-row.selected .row-path {
-		color: var(--ns-text-inverse-muted);
+		color: var(--text-inverse);
 	}
 
 	.row-meta {
@@ -218,11 +218,11 @@
 		gap: 4px;
 		margin-top: 2px;
 		font-size: 11px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.view-row.selected .row-meta {
-		color: var(--ns-text-inverse-muted-strong);
+		color: var(--text-inverse);
 	}
 
 	.meta-pill {
@@ -233,10 +233,10 @@
 	.sidebar-state {
 		padding: 16px;
 		text-align: center;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.sidebar-state.error {
-		color: var(--ns-danger);
+		color: var(--color-danger);
 	}
 </style>
