@@ -153,8 +153,8 @@
 
 	$effect(() => {
 		const config = settingsStore.serverConfig;
-		if (config?.appearance?.theme) {
-			themeStore.applyFromConfig(config.appearance.theme);
+		if (config?.appearance) {
+			themeStore.applyFromConfig(config.appearance);
 		}
 	});
 

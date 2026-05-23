@@ -42,7 +42,7 @@ ui/app/                  # SvelteKit frontend
 
 ### Features
 
-- **5 themes** — Dark (default), Light, System, Manuscript (dark chrome + light editor), High Contrast
+- **Catalog-backed themes** — Ramp CSS generated from `ui/app/src/styles/theme-catalog.json`, selected at runtime with theme, tone, and visual-mode controls
 - **Design tokens** — Legacy `--ns-*` tokens are being migrated to ramp-backed semantic tokens generated from `ui/app/src/styles/theme-catalog.json`
 - **Command palette** — Fuzzy-searchable command runner (⌘K) with keyboard hints
 - **Input palette** — Sequential multi-step inputs for note creation and templates

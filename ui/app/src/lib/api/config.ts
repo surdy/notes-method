@@ -30,7 +30,9 @@ export interface VaultConfigData {
 		paste_url_image_whitelist: string;
 	};
 	appearance?: {
-		theme: string;
+		theme?: string;
+		mode?: string;
+		visualMode?: string;
 	};
 	git: {
 		enabled: boolean;

@@ -35,9 +35,9 @@ The runtime theme picker still controls the active theme through the existing th
 
 ### Persistence
 
-- Theme choice stored in `localStorage` under `notesmith:theme`
-- An inline `<script>` in `app.html` reads localStorage and applies the theme class before any CSS loads, preventing flash of wrong theme
-- System mode uses `matchMedia('(prefers-color-scheme: dark)')` with a change listener
+- Theme state stored in `localStorage` under `notesmith:theme`
+- An inline `<script>` in `app.html` reads localStorage and applies `data-theme`, `data-tone`, and `data-mode` on `<html>` before any CSS loads, preventing flash of wrong theme
+- System mode uses `matchMedia('(prefers-color-scheme: dark)')` with a change listener to keep `data-tone` current
 - CodeMirror editor theme reads from CSS vars, so it follows the active theme automatically
 
 ## Consequences
@@ -45,4 +45,4 @@ The runtime theme picker still controls the active theme through the existing th
 - Adding a new color to the UI requires defining a token in `app.css` first — no ad-hoc hex values in components
 - New themes are added by editing `ui/app/src/styles/theme-catalog.json` and regenerating `ui/app/src/styles/themes/*.css`
 - The Manuscript theme works because split-surface generation emits a dedicated `.editor-surface` ramp block separate from the outer theme selector
-- Flash prevention still requires the inline script and runtime theme store to stay in sync with the active theme attributes/classes
+- Flash prevention still requires the inline script and runtime theme store to stay in sync with the active theme attributes, with legacy class mirroring only as a temporary migration shim

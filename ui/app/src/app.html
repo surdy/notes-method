@@ -6,23 +6,50 @@
 		<meta name="text-scale" content="scale" />
 		<script>
 			(function () {
-				var theme = 'dark';
-				var classes = {
-					dark: 'theme-dark',
-					light: 'theme-light',
-					manuscript: 'theme-manuscript',
-					'hc-dark': 'theme-hc-dark'
+				var defaults = { theme: 'notesmith-dark', mode: 'system', visualMode: 'default', resolvedTone: 'dark' };
+				var legacy = {
+					dark: { theme: 'notesmith-dark', mode: 'dark', visualMode: 'default', resolvedTone: 'dark' },
+					light: { theme: 'notesmith-light', mode: 'light', visualMode: 'default', resolvedTone: 'light' },
+					system: { theme: 'notesmith-dark', mode: 'system', visualMode: 'default', resolvedTone: 'dark' },
+					manuscript: { theme: 'manuscript', mode: 'dark', visualMode: 'default', resolvedTone: 'dark' },
+					'hc-dark': { theme: 'notesmith-dark', mode: 'dark', visualMode: 'high-contrast', resolvedTone: 'dark' }
 				};
+				var state = defaults;
 
 				try {
-					theme = localStorage.getItem('notesmith:theme') || 'dark';
+					var stored = localStorage.getItem('notesmith:theme');
+					if (stored) {
+						try {
+							var parsed = JSON.parse(stored);
+							state = typeof parsed === 'string' ? (legacy[parsed] || defaults) : parsed;
+						} catch (_parseError) {
+							state = legacy[stored] || defaults;
+						}
+					}
 				} catch (_error) {}
 
-				if (theme === 'system') {
-					theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+				var tone = state.resolvedTone || 'dark';
+				if (state.mode === 'system') {
+					tone = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+				} else if (state.mode === 'dark' || state.mode === 'light') {
+					tone = state.mode;
 				}
 
-				document.documentElement.classList.add(classes[theme] || 'theme-dark');
+				var html = document.documentElement;
+				html.setAttribute('data-theme', state.theme || defaults.theme);
+				html.setAttribute('data-tone', tone);
+				html.setAttribute('data-mode', state.visualMode || defaults.visualMode);
+				html.style.colorScheme = tone;
+
+				var legacyClass = state.visualMode === 'high-contrast'
+					? 'theme-hc-dark'
+					: state.theme === 'manuscript'
+						? 'theme-manuscript'
+						: tone === 'light'
+							? 'theme-light'
+							: 'theme-dark';
+				html.classList.remove('theme-dark', 'theme-light', 'theme-manuscript', 'theme-hc-dark');
+				html.classList.add(legacyClass);
 			})();
 		</script>
 		%sveltekit.head%
