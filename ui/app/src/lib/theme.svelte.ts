@@ -63,9 +63,20 @@ if (isThemeChoice(theme)) return LEGACY_MAPPING[theme].theme;
 return THEME_NAMES.has(theme) ? theme : DEFAULT_THEME;
 }
 
-function resolveThemeTone(_theme: string, mode: ThemeMode): ResolvedTone {
-if (mode === 'system') return getSystemTone();
-return mode;
+function resolveThemeTone(theme: string, mode: ThemeMode): ResolvedTone {
+const entry = THEME_ENTRIES.find((t) => t.name === theme);
+const nativeTone = entry?.tone ?? 'dark';
+
+if (mode === 'system') {
+	const systemTone = getSystemTone();
+	// If theme only supports one tone, stay with its native tone
+	const hasVariant = THEME_ENTRIES.some((t) => t.name === theme && t.tone === systemTone);
+	return hasVariant ? systemTone : nativeTone;
+}
+
+// If user explicitly picks a mode that doesn't match the theme, stay native
+const hasVariant = THEME_ENTRIES.some((t) => t.name === theme && t.tone === mode);
+return hasVariant ? mode : nativeTone;
 }
 
 function applyToDOM(state: ThemeState): void {

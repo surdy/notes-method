@@ -100,15 +100,21 @@ expect(harness.attributes.get('data-theme')).toBe('tokyo-night');
 expect(harness.classes.size).toBe(0);
 });
 
-it('sets data-tone when the mode changes', async () => {
+it('sets data-tone when the mode changes (respects theme native tone)', async () => {
 const harness: ThemeHarness = createThemeHarness({ prefersDark: true });
 const { themeStore } = await import('./theme.svelte.ts');
 
+// Default theme is notesmith-dark (dark-only) — setting mode to light
+// still resolves to dark because the theme has no light variant
 themeStore.setMode('light');
 
 expect(themeStore.mode).toBe('light');
-expect(harness.attributes.get('data-tone')).toBe('light');
+expect(harness.attributes.get('data-tone')).toBe('dark');
 expect(harness.classes.size).toBe(0);
+
+// Switch to a light theme — tone follows
+themeStore.setTheme('notesmith-light');
+expect(harness.attributes.get('data-tone')).toBe('light');
 });
 
 it('sets data-mode when the visual mode changes', async () => {
@@ -152,8 +158,9 @@ resolvedTone: 'dark'
 });
 const { themeStore } = await import('./theme.svelte.ts');
 
+// notesmith-dark is dark-only, so even with system=light it stays dark
 expect(themeStore.mode).toBe('system');
-expect(harness.attributes.get('data-tone')).toBe('light');
+expect(harness.attributes.get('data-tone')).toBe('dark');
 expect(harness.classes.size).toBe(0);
 
 harness.mediaQuery.dispatch(true);
@@ -171,11 +178,12 @@ themeStore.setTheme('tokyo-night');
 themeStore.setMode('light');
 themeStore.setVisualMode('high-contrast');
 
+// tokyo-night is dark-only, so resolvedTone stays 'dark' even with mode='light'
 expect(JSON.parse(harness.storage.get(STORAGE_KEY) ?? '{}')).toMatchObject({
 theme: 'tokyo-night',
 mode: 'light',
 visualMode: 'high-contrast',
-resolvedTone: 'light'
+resolvedTone: 'dark'
 });
 });
 });
