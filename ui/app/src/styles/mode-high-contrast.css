@@ -1,0 +1,29 @@
+/* High-contrast mode: boost contrast on key token pairs. */
+
+[data-mode="high-contrast"][data-tone="dark"] {
+  --text-default: var(--neutral-11);
+  --text-secondary: var(--neutral-10);
+  --text-muted: var(--neutral-8);
+  --text-faint: var(--neutral-7);
+  --border-default: var(--neutral-5);
+  --border-strong: var(--neutral-6);
+  --bg-hover: var(--neutral-3);
+  --bg-active: var(--neutral-4);
+  --accent: var(--blue-10);
+  --color-danger: var(--red-10);
+  --color-success: var(--green-10);
+}
+
+[data-mode="high-contrast"][data-tone="light"] {
+  --text-default: var(--neutral-0);
+  --text-secondary: var(--neutral-1);
+  --text-muted: var(--neutral-3);
+  --text-faint: var(--neutral-4);
+  --border-default: var(--neutral-5);
+  --border-strong: var(--neutral-4);
+  --bg-hover: var(--neutral-8);
+  --bg-active: var(--neutral-7);
+  --accent: var(--blue-2);
+  --color-danger: var(--red-2);
+  --color-success: var(--green-2);
+}

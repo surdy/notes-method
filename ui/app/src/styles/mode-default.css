@@ -1,0 +1,70 @@
+/* Default semantic token mapping.
+ * Ramps are always generated from background → foreground, so most mappings are tone-independent.
+ * Only inverse text needs tone-specific overrides.
+ */
+
+:root {
+  /* Surfaces */
+  --bg-default: var(--neutral-0);
+  --bg-secondary: var(--neutral-1);
+  --bg-surface: var(--neutral-1);
+  --bg-elevated: var(--neutral-2);
+  --bg-hover: var(--neutral-2);
+  --bg-active: var(--neutral-3);
+  --bg-selected: var(--blue-2);
+  --bg-input: var(--neutral-3);
+  --bg-panel: var(--neutral-1);
+
+  /* Borders */
+  --border-default: var(--neutral-3);
+  --border-strong: var(--neutral-4);
+  --border-subtle: var(--neutral-2);
+  --border-input: var(--neutral-4);
+
+  /* Text */
+  --text-default: var(--neutral-10);
+  --text-secondary: var(--neutral-9);
+  --text-muted: var(--neutral-6);
+  --text-faint: var(--neutral-5);
+
+  /* Accent */
+  --accent: var(--blue-9);
+  --accent-bg: var(--blue-3);
+  --accent-text: var(--blue-10);
+  --accent-hover: var(--blue-4);
+
+  /* Semantic Colors */
+  --color-danger: var(--red-9);
+  --color-success: var(--green-9);
+  --color-warning: var(--yellow-9);
+  --color-info: var(--cyan-9);
+
+  /* Syntax Highlighting */
+  --syntax-comment: var(--neutral-6);
+  --syntax-keyword: var(--magenta-9);
+  --syntax-string: var(--green-9);
+  --syntax-constant: var(--blue-9);
+  --syntax-entity: var(--yellow-9);
+  --syntax-variable: var(--red-8);
+  --syntax-tag: var(--red-9);
+  --syntax-function: var(--blue-10);
+
+  /* Interactive */
+  --button-bg: var(--neutral-3);
+  --button-text: var(--neutral-10);
+  --button-hover: var(--neutral-4);
+  --button-active: var(--neutral-5);
+
+  /* Scrollbar */
+  --scrollbar-thumb: var(--neutral-3);
+  --scrollbar-hover: var(--neutral-4);
+}
+
+/* Inverse text must follow tone because accent ramps can be light or dark. */
+[data-tone="dark"] {
+  --text-inverse: #ffffff;
+}
+
+[data-tone="light"] {
+  --text-inverse: #1a1a1a;
+}

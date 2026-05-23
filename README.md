@@ -42,7 +42,7 @@ ui/app/                  # SvelteKit frontend
 ### Features
 
 - **5 themes** — Dark (default), Light, System, Manuscript (dark chrome + light editor), High Contrast
-- **Design tokens** — All colors centralized as `--ns-*` CSS custom properties for consistent theming
+- **Design tokens** — Legacy `--ns-*` tokens are being migrated to ramp-backed semantic tokens for consistent theming
 - **Command palette** — Fuzzy-searchable command runner (⌘K) with keyboard hints
 - **Input palette** — Sequential multi-step inputs for note creation and templates
 - **Toast notifications** — Non-blocking success/error/warning alerts

@@ -1,0 +1,62 @@
+/* Notesmith Semantic Design Tokens
+ * These are the ONLY tokens components should reference.
+ * Values are set by mode-default.css based on active ramp primitives.
+ */
+
+:root {
+  /* Surfaces */
+  --bg-default: initial;
+  --bg-secondary: initial;
+  --bg-surface: initial;
+  --bg-elevated: initial;
+  --bg-hover: initial;
+  --bg-active: initial;
+  --bg-selected: initial;
+  --bg-input: initial;
+  --bg-panel: initial;
+
+  /* Borders */
+  --border-default: initial;
+  --border-strong: initial;
+  --border-subtle: initial;
+  --border-input: initial;
+
+  /* Text */
+  --text-default: initial;
+  --text-secondary: initial;
+  --text-muted: initial;
+  --text-faint: initial;
+  --text-inverse: initial;
+
+  /* Accent */
+  --accent: initial;
+  --accent-bg: initial;
+  --accent-text: initial;
+  --accent-hover: initial;
+
+  /* Semantic Colors */
+  --color-danger: initial;
+  --color-success: initial;
+  --color-warning: initial;
+  --color-info: initial;
+
+  /* Syntax Highlighting */
+  --syntax-comment: initial;
+  --syntax-keyword: initial;
+  --syntax-string: initial;
+  --syntax-constant: initial;
+  --syntax-entity: initial;
+  --syntax-variable: initial;
+  --syntax-tag: initial;
+  --syntax-function: initial;
+
+  /* Interactive */
+  --button-bg: initial;
+  --button-text: initial;
+  --button-hover: initial;
+  --button-active: initial;
+
+  /* Scrollbar */
+  --scrollbar-thumb: initial;
+  --scrollbar-hover: initial;
+}
