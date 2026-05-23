@@ -31,8 +31,11 @@ export interface VaultConfigData {
 	};
 	appearance?: {
 		theme?: string;
-		mode?: string;
+		followSystem?: boolean;
+		darkTheme?: string;
+		lightTheme?: string;
 		visualMode?: string;
+		mode?: string;
 	};
 	git: {
 		enabled: boolean;

@@ -7,12 +7,7 @@
 	import { noteIcon } from '$lib/note-icons';
 	import { getRecentlyViewed } from '$lib/recently-viewed';
 	import { settingsStore } from '$lib/settings.svelte';
-	import {
-		themeStore,
-		type ThemeEntry,
-		type ThemeMode,
-		type VisualMode
-	} from '$lib/theme.svelte';
+	import { themeStore, type ThemeEntry, type VisualMode } from '$lib/theme.svelte';
 	import { filterThemes, findThemeByName } from '$lib/theme-picker';
 	import { toastStore } from '$lib/toast-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
@@ -47,7 +42,9 @@
 
 	type ThemeSnapshot = {
 		theme: string;
-		mode: ThemeMode;
+		followSystem: boolean;
+		darkTheme: string;
+		lightTheme: string;
 		visualMode: VisualMode;
 	};
 
@@ -154,7 +151,7 @@
 	}
 
 	function currentThemeEntry(): ThemeEntry | undefined {
-		return findThemeByName(themeCatalog, themeStore.theme);
+		return findThemeByName(themeCatalog, themeStore.activeTheme);
 	}
 
 	function clearThemePreview(revert = true) {
@@ -168,9 +165,9 @@
 	async function enterThemePicker() {
 		themePickerMode = true;
 		themeQueryDirty = false;
-		rawInput = currentThemeEntry()?.display_name ?? themeStore.theme;
+		rawInput = currentThemeEntry()?.display_name ?? themeStore.activeTheme;
 		selectedIndex = Math.max(
-			themeCatalog.findIndex((theme) => theme.name === themeStore.theme),
+			themeCatalog.findIndex((theme) => theme.name === themeStore.activeTheme),
 			0
 		);
 		await tick();
@@ -195,6 +192,7 @@
 
 	async function persistThemeSelection(theme: ThemeEntry, previousState: ThemeSnapshot) {
 		themeStore.setTheme(theme.name);
+		themeStore.setFollowSystem(false);
 
 		const vault = vaultStore.currentVault;
 		if (!vault || !settingsStore.draftConfig) {
@@ -209,7 +207,9 @@
 		settingsStore.draftConfig.appearance = {
 			...settingsStore.draftConfig.appearance,
 			theme: theme.name,
-			mode: themeStore.mode,
+			followSystem: false,
+			darkTheme: themeStore.darkTheme,
+			lightTheme: themeStore.lightTheme,
 			visualMode: themeStore.visualMode
 		};
 		settingsStore.markDirty('appearance');
@@ -252,7 +252,9 @@
 		if (item.kind === 'theme') {
 			const previousState: ThemeSnapshot = {
 				theme: themeStore.theme,
-				mode: themeStore.mode,
+				followSystem: themeStore.followSystem,
+				darkTheme: themeStore.darkTheme,
+				lightTheme: themeStore.lightTheme,
 				visualMode: themeStore.visualMode
 			};
 			clearThemePreview(false);
@@ -537,10 +539,9 @@
 								<span class="theme-body">
 									<span class="theme-line">
 										<span class="item-label">{item.theme.display_name}</span>
-										{#if themeStore.theme === item.theme.name}
+										{#if themeStore.activeTheme === item.theme.name}
 											<span class="theme-current-badge">Current</span>
 										{/if}
-										<span class="theme-tone-badge">{item.theme.tone}</span>
 									</span>
 									<span class="theme-description">
 										{item.theme.author} · {item.theme.tags.slice(0, 2).join(' · ')}
@@ -569,7 +570,7 @@
 			{:else}
 				<span class="hint current-theme-hint">
 					Current:
-					<strong>{currentThemeEntry()?.display_name ?? themeStore.theme}</strong>
+					<strong>{currentThemeEntry()?.display_name ?? themeStore.activeTheme}</strong>
 				</span>
 			{/if}
 		</div>
@@ -747,7 +748,6 @@
 	}
 
 	.theme-current-badge,
-	.theme-tone-badge,
 	.item-shortcut,
 	.hint kbd {
 		padding: 3px 8px;
@@ -764,10 +764,6 @@
 		color: var(--accent-text);
 	}
 
-	.theme-tone-badge {
-		color: var(--text-muted);
-		text-transform: capitalize;
-	}
 
 	.no-results {
 		padding: 24px;

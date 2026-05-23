@@ -6,50 +6,99 @@
 		<meta name="text-scale" content="scale" />
 		<script>
 			(function () {
-				var defaults = { theme: 'notesmith-dark', mode: 'system', visualMode: 'default', resolvedTone: 'dark' };
-				var legacy = {
-					dark: { theme: 'notesmith-dark', mode: 'dark', visualMode: 'default', resolvedTone: 'dark' },
-					light: { theme: 'notesmith-light', mode: 'light', visualMode: 'default', resolvedTone: 'light' },
-					system: { theme: 'notesmith-dark', mode: 'system', visualMode: 'default', resolvedTone: 'dark' },
-					manuscript: { theme: 'manuscript', mode: 'dark', visualMode: 'default', resolvedTone: 'dark' },
-					'hc-dark': { theme: 'notesmith-dark', mode: 'dark', visualMode: 'high-contrast', resolvedTone: 'dark' }
+				var defaults = {
+					theme: 'notesmith-dark',
+					followSystem: false,
+					darkTheme: 'notesmith-dark',
+					lightTheme: 'notesmith-light',
+					visualMode: 'default'
 				};
 				var state = defaults;
+				var legacy = {
+					dark: { theme: 'notesmith-dark', followSystem: false },
+					light: { theme: 'notesmith-light', followSystem: false },
+					system: {
+						theme: 'notesmith-dark',
+						followSystem: true,
+						darkTheme: 'notesmith-dark',
+						lightTheme: 'notesmith-light'
+					},
+					manuscript: { theme: 'manuscript', followSystem: false },
+					'hc-dark': {
+						theme: 'notesmith-dark',
+						followSystem: false,
+						visualMode: 'high-contrast'
+					}
+				};
+
+				function mergeState(partial) {
+					var next = partial && typeof partial === 'object' ? partial : {};
+					return {
+						theme: next.theme || defaults.theme,
+						followSystem: typeof next.followSystem === 'boolean' ? next.followSystem : defaults.followSystem,
+						darkTheme: next.darkTheme || defaults.darkTheme,
+						lightTheme: next.lightTheme || defaults.lightTheme,
+						visualMode: next.visualMode || defaults.visualMode
+					};
+				}
+
+				function migrateOldState(parsed) {
+					if (parsed.mode !== undefined && parsed.followSystem === undefined) {
+						var followSystem = parsed.mode === 'system';
+						var parsedTheme = parsed.theme || defaults.theme;
+						var lowerTheme = parsedTheme.toLowerCase();
+						var isLightTheme =
+							lowerTheme.indexOf('light') !== -1 ||
+							lowerTheme.indexOf('latte') !== -1 ||
+							lowerTheme.indexOf('dawn') !== -1;
+						return {
+							theme: parsedTheme,
+							followSystem: followSystem,
+							darkTheme: isLightTheme ? defaults.darkTheme : parsedTheme,
+							lightTheme: isLightTheme ? parsedTheme : defaults.lightTheme,
+							visualMode: parsed.visualMode || defaults.visualMode
+						};
+					}
+					return parsed;
+				}
 
 				try {
 					var stored = localStorage.getItem('notesmith:theme');
 					if (stored) {
 						try {
 							var parsed = JSON.parse(stored);
-							state = typeof parsed === 'string' ? (legacy[parsed] || defaults) : parsed;
-						} catch (_parseError) {
-							state = legacy[stored] || defaults;
+							state =
+								typeof parsed === 'string'
+									? mergeState(legacy[parsed] || defaults)
+									: mergeState(migrateOldState(parsed));
+						} catch (_) {
+							state = mergeState(legacy[stored] || defaults);
 						}
 					}
-				} catch (_error) {}
+				} catch (_) {}
 
-				var tone = state.resolvedTone || 'dark';
-				if (state.mode === 'system') {
-					tone = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-				} else if (state.mode === 'dark' || state.mode === 'light') {
-					tone = state.mode;
+				var activeTheme = state.theme || defaults.theme;
+				if (state.followSystem) {
+					activeTheme = window.matchMedia('(prefers-color-scheme: dark)').matches
+						? state.darkTheme || defaults.darkTheme
+						: state.lightTheme || defaults.lightTheme;
+				}
+
+				var lightPatterns = ['light', 'latte', 'dawn'];
+				var tone = 'dark';
+				var lowerTheme = activeTheme.toLowerCase();
+				for (var i = 0; i < lightPatterns.length; i++) {
+					if (lowerTheme.indexOf(lightPatterns[i]) !== -1) {
+						tone = 'light';
+						break;
+					}
 				}
 
 				var html = document.documentElement;
-				html.setAttribute('data-theme', state.theme || defaults.theme);
+				html.setAttribute('data-theme', activeTheme);
 				html.setAttribute('data-tone', tone);
-				html.setAttribute('data-mode', state.visualMode || defaults.visualMode);
+				html.setAttribute('data-mode', state.visualMode || 'default');
 				html.style.colorScheme = tone;
-
-				var legacyClass = state.visualMode === 'high-contrast'
-					? 'theme-hc-dark'
-					: state.theme === 'manuscript'
-						? 'theme-manuscript'
-						: tone === 'light'
-							? 'theme-light'
-							: 'theme-dark';
-				html.classList.remove('theme-dark', 'theme-light', 'theme-manuscript', 'theme-hc-dark');
-				html.classList.add(legacyClass);
 			})();
 		</script>
 		%sveltekit.head%
