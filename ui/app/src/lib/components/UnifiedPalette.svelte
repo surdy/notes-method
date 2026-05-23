@@ -1,12 +1,23 @@
 <script lang="ts">
+	import { onDestroy, tick } from 'svelte';
+
 	import type { NoteSummary } from '$lib/api';
 	import type { Command } from '$lib/commands';
 	import { fuzzyFilter } from '$lib/fuzzy';
 	import { noteIcon } from '$lib/note-icons';
 	import { getRecentlyViewed } from '$lib/recently-viewed';
+	import { settingsStore } from '$lib/settings.svelte';
+	import {
+		themeStore,
+		type ThemeEntry,
+		type ThemeMode,
+		type VisualMode
+	} from '$lib/theme.svelte';
+	import { filterThemes, findThemeByName } from '$lib/theme-picker';
+	import { toastStore } from '$lib/toast-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
-	type Mode = 'files' | 'commands';
+	type Mode = 'files' | 'commands' | 'themes';
 
 	type FileItem = {
 		kind: 'file';
@@ -28,9 +39,22 @@
 		command: Command;
 	};
 
-	type PaletteItem = FileItem | CreateItem | CommandItem;
+	type ThemeItem = {
+		kind: 'theme';
+		id: string;
+		theme: ThemeEntry;
+	};
+
+	type ThemeSnapshot = {
+		theme: string;
+		mode: ThemeMode;
+		visualMode: VisualMode;
+	};
+
+	type PaletteItem = FileItem | CreateItem | CommandItem | ThemeItem;
 
 	const RECENT_COMMAND_LIMIT = 10;
+	const themeCatalog = themeStore.getCatalog();
 
 	let { commands, initialMode, onClose, onSelectNote, onCreateNote }:
 		{
@@ -46,6 +70,10 @@
 	let inputRef: HTMLInputElement | undefined;
 	let resultsRef: HTMLDivElement | undefined;
 	let recentCommandIds = $state<string[]>(loadRecentCommandIds(vaultStore.currentVault));
+	let themePickerMode = $state(false);
+	let themeQueryDirty = $state(false);
+	let previewedThemeName = $state<string | null>(null);
+	let themeRestore: (() => void) | null = null;
 	let initialized = false;
 
 	function recentCommandsKey(vault: string): string | null {
@@ -62,7 +90,9 @@
 			if (!stored) return [];
 			const parsed = JSON.parse(stored);
 			return Array.isArray(parsed)
-				? parsed.filter((value): value is string => typeof value === 'string').slice(0, RECENT_COMMAND_LIMIT)
+				? parsed
+						.filter((value): value is string => typeof value === 'string')
+						.slice(0, RECENT_COMMAND_LIMIT)
 				: [];
 		} catch {
 			return [];
@@ -123,6 +153,89 @@
 		return value.trim().toLowerCase();
 	}
 
+	function currentThemeEntry(): ThemeEntry | undefined {
+		return findThemeByName(themeCatalog, themeStore.theme);
+	}
+
+	function clearThemePreview(revert = true) {
+		if (themeRestore && revert) {
+			themeRestore();
+		}
+		themeRestore = null;
+		previewedThemeName = null;
+	}
+
+	async function enterThemePicker() {
+		themePickerMode = true;
+		themeQueryDirty = false;
+		rawInput = currentThemeEntry()?.display_name ?? themeStore.theme;
+		selectedIndex = Math.max(
+			themeCatalog.findIndex((theme) => theme.name === themeStore.theme),
+			0
+		);
+		await tick();
+		inputRef?.focus();
+		inputRef?.select();
+	}
+
+	function exitThemePicker() {
+		clearThemePreview();
+		themePickerMode = false;
+		themeQueryDirty = false;
+		rawInput = '> ';
+		selectedIndex = 0;
+	}
+
+	function closePalette() {
+		clearThemePreview();
+		themePickerMode = false;
+		themeQueryDirty = false;
+		onClose();
+	}
+
+	async function persistThemeSelection(theme: ThemeEntry, previousState: ThemeSnapshot) {
+		themeStore.setTheme(theme.name);
+
+		const vault = vaultStore.currentVault;
+		if (!vault || !settingsStore.draftConfig) {
+			toastStore.add(`Theme changed to ${theme.display_name}.`, 'success');
+			return;
+		}
+
+		const previousAppearance = settingsStore.draftConfig.appearance
+			? structuredClone(settingsStore.draftConfig.appearance)
+			: undefined;
+		const wasAppearanceDirty = settingsStore.dirtySections.has('appearance');
+		settingsStore.draftConfig.appearance = {
+			...settingsStore.draftConfig.appearance,
+			theme: theme.name,
+			mode: themeStore.mode,
+			visualMode: themeStore.visualMode
+		};
+		settingsStore.markDirty('appearance');
+
+		const saved = await settingsStore.saveConfig(vault);
+		if (!saved) {
+			themeStore.applyFromConfig(previousState);
+			settingsStore.draftConfig.appearance = previousAppearance
+				? structuredClone(previousAppearance)
+				: undefined;
+			if (!wasAppearanceDirty) {
+				settingsStore.markClean('appearance');
+			}
+			toastStore.add(settingsStore.error ?? 'Failed to save theme selection.', 'error');
+			return;
+		}
+
+		toastStore.add(`Theme changed to ${theme.display_name}.`, 'success');
+	}
+
+	function handleInput() {
+		if (themePickerMode) {
+			themeQueryDirty = true;
+		}
+	}
+
 	function selectItem(item: PaletteItem) {
 		if (item.kind === 'file') {
 			onSelectNote(item.note.path);
@@ -136,7 +249,26 @@
 			return;
 		}
 
+		if (item.kind === 'theme') {
+			const previousState: ThemeSnapshot = {
+				theme: themeStore.theme,
+				mode: themeStore.mode,
+				visualMode: themeStore.visualMode
+			};
+			clearThemePreview(false);
+			themePickerMode = false;
+			themeQueryDirty = false;
+			onClose();
+			void persistThemeSelection(item.theme, previousState);
+			return;
+		}
+
 		recordRecentCommand(item.command.id);
+		if (item.command.id === 'change-theme') {
+			void enterThemePicker();
+			return;
+		}
+
 		onClose();
 		void Promise.resolve(item.command.execute()).catch((error) => {
 			console.error('Command failed', error);
@@ -161,13 +293,27 @@
 				break;
 			case 'Escape':
 				event.preventDefault();
-				onClose();
+				if (themePickerMode) {
+					exitThemePicker();
+					break;
+				}
+				closePalette();
 				break;
 		}
 	}
 
-	let activeMode = $derived<Mode>(rawInput.startsWith('> ') ? 'commands' : 'files');
-	let query = $derived(activeMode === 'commands' ? rawInput.slice(2) : rawInput);
+	let activeMode = $derived<Mode>(
+		themePickerMode ? 'themes' : rawInput.startsWith('> ') ? 'commands' : 'files'
+	);
+	let query = $derived.by(() => {
+		if (activeMode === 'commands') {
+			return rawInput.slice(2);
+		}
+		if (activeMode === 'themes') {
+			return themeQueryDirty ? rawInput : '';
+		}
+		return rawInput;
+	});
 	let trimmedQuery = $derived(query.trim());
 
 	let fileResults = $derived.by((): (FileItem | CreateItem)[] => {
@@ -221,8 +367,10 @@
 				}));
 		}
 
-		const recentBoost = new Map(recentCommandIds.map((id, index) => [id, RECENT_COMMAND_LIMIT - index]));
-		return fuzzyFilter(currentQuery, commands, (command) => command.label)
+		const recentBoost = new Map(
+			recentCommandIds.map((id, index) => [id, RECENT_COMMAND_LIMIT - index])
+		);
+		return fuzzyFilter(currentQuery, commands, (command) => `${command.label} ${command.category}`)
 			.map((match) => ({
 				match,
 				score: match.score + (recentBoost.get(match.item.id) ?? 0)
@@ -241,9 +389,19 @@
 			}));
 	});
 
-	let results = $derived.by((): PaletteItem[] =>
-		activeMode === 'commands' ? [...commandResults] : [...fileResults]
+	let themeResults = $derived.by((): ThemeItem[] =>
+		filterThemes(themeCatalog, trimmedQuery).map((theme) => ({
+			kind: 'theme',
+			id: `theme:${theme.name}`,
+			theme
+		}))
 	);
+
+	let results = $derived.by((): PaletteItem[] => {
+		if (activeMode === 'commands') return [...commandResults];
+		if (activeMode === 'themes') return [...themeResults];
+		return [...fileResults];
+	});
 
 	$effect(() => {
 		initialMode;
@@ -259,7 +417,10 @@
 	});
 
 	$effect(() => {
-		rawInput;
+		if (themePickerMode && !themeQueryDirty) {
+			return;
+		}
+		trimmedQuery;
 		selectedIndex = 0;
 	});
 
@@ -279,11 +440,35 @@
 		const selected = resultsRef?.querySelector<HTMLElement>(`[data-index="${selectedIndex}"]`);
 		selected?.scrollIntoView({ block: 'nearest' });
 	});
+
+	$effect(() => {
+		if (!themePickerMode) {
+			return;
+		}
+
+		const selectedTheme = themeResults[selectedIndex]?.theme;
+		if (!selectedTheme) {
+			clearThemePreview();
+			return;
+		}
+
+		if (previewedThemeName === selectedTheme.name) {
+			return;
+		}
+
+		clearThemePreview();
+		themeRestore = themeStore.preview(selectedTheme.name);
+		previewedThemeName = selectedTheme.name;
+	});
+
+	onDestroy(() => {
+		clearThemePreview();
+	});
 </script>
 
 <div
 	class="palette-backdrop"
-	onclick={(event) => event.target === event.currentTarget && onClose()}
+	onclick={(event) => event.target === event.currentTarget && closePalette()}
 	onkeydown={handleKeydown}
 	role="dialog"
 	aria-modal="true"
@@ -291,12 +476,21 @@
 >
 	<div class="palette">
 		<div class="palette-header">
-			<span class="mode-pill">{activeMode === 'files' ? 'Files' : 'Commands'}</span>
+			<span class="mode-pill">
+				{activeMode === 'files' ? 'Files' : activeMode === 'commands' ? 'Commands' : 'Themes'}
+			</span>
 			<input
 				bind:this={inputRef}
 				bind:value={rawInput}
 				class="palette-input"
-				placeholder={activeMode === 'files' ? 'Open a note...' : 'Type a command...'}
+				oninput={handleInput}
+				placeholder={
+					activeMode === 'files'
+						? 'Open a note...'
+						: activeMode === 'commands'
+							? 'Type a command...'
+							: 'Filter themes by name, tone, or tags...'
+				}
 				type="text"
 			/>
 		</div>
@@ -309,6 +503,7 @@
 					<button
 						class="palette-item"
 						class:selected={index === selectedIndex}
+						class:theme-item={item.kind === 'theme'}
 						data-index={index}
 						onclick={() => selectItem(item)}
 						onmouseenter={() => (selectedIndex = index)}
@@ -330,6 +525,28 @@
 									<span class="file-path">{item.folderPath}</span>
 								</span>
 							</span>
+						{:else if item.kind === 'theme'}
+							<span class="theme-row">
+								<span class="theme-swatch-strip" aria-hidden="true">
+									<span class="theme-swatch" style={`background: ${item.theme.palette.bg}`}></span>
+									<span class="theme-swatch" style={`background: ${item.theme.palette.fg}`}></span>
+									<span class="theme-swatch" style={`background: ${item.theme.palette.blue}`}></span>
+									<span class="theme-swatch" style={`background: ${item.theme.palette.red}`}></span>
+									<span class="theme-swatch" style={`background: ${item.theme.palette.green}`}></span>
+								</span>
+								<span class="theme-body">
+									<span class="theme-line">
+										<span class="item-label">{item.theme.display_name}</span>
+										{#if themeStore.theme === item.theme.name}
+											<span class="theme-current-badge">Current</span>
+										{/if}
+										<span class="theme-tone-badge">{item.theme.tone}</span>
+									</span>
+									<span class="theme-description">
+										{item.theme.author} · {item.theme.tags.slice(0, 2).join(' · ')}
+									</span>
+								</span>
+							</span>
 						{:else}
 							<span class="file-row create-row">
 								<span class="file-icon">✨</span>
@@ -346,8 +563,15 @@
 		<div class="palette-footer">
 			<span class="hint"><kbd>↑↓</kbd> navigate</span>
 			<span class="hint"><kbd>Enter</kbd> select</span>
-			<span class="hint"><kbd>Esc</kbd> close</span>
-			<span class="hint"><kbd>&gt;</kbd> commands</span>
+			<span class="hint"><kbd>Esc</kbd> {activeMode === 'themes' ? 'back' : 'close'}</span>
+			{#if activeMode !== 'themes'}
+				<span class="hint"><kbd>&gt;</kbd> commands</span>
+			{:else}
+				<span class="hint current-theme-hint">
+					Current:
+					<strong>{currentThemeEntry()?.display_name ?? themeStore.theme}</strong>
+				</span>
+			{/if}
 		</div>
 	</div>
 </div>
@@ -356,23 +580,23 @@
 	.palette-backdrop {
 		position: fixed;
 		inset: 0;
-		background: var(--ns-overlay);
 		display: flex;
 		justify-content: center;
 		align-items: flex-start;
 		padding: min(18vh, 140px) 16px 16px;
+		background: color-mix(in srgb, var(--bg-default) 74%, transparent);
 		z-index: 50;
 	}
 
 	.palette {
-		width: min(600px, 100%);
-		max-height: min(60vh, 720px);
+		width: min(640px, 100%);
+		max-height: min(62vh, 720px);
 		display: flex;
 		flex-direction: column;
-		background: var(--ns-panel-bg-strong);
-		border: 1px solid var(--ns-border-overlay);
+		background: var(--bg-panel);
+		border: 1px solid var(--border-default);
 		border-radius: 16px;
-		box-shadow: var(--ns-shadow);
+		box-shadow: 0 24px 60px color-mix(in srgb, var(--bg-default) 86%, transparent);
 		overflow: hidden;
 	}
 
@@ -381,17 +605,20 @@
 		align-items: center;
 		gap: 12px;
 		padding: 0 16px;
-		border-bottom: 1px solid var(--ns-border-overlay);
-		background: var(--ns-panel-bg-strong);
+		border-bottom: 1px solid var(--border-default);
+		background: var(--bg-panel);
 	}
 
 	.mode-pill {
 		flex: 0 0 auto;
+		padding: 3px 10px;
+		border-radius: 999px;
+		background: var(--bg-secondary);
 		font-size: 11px;
-		padding: 2px 8px;
-		border-radius: 4px;
-		background: var(--ns-surface-hover);
-		color: var(--ns-text-muted);
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--text-muted);
 	}
 
 	.palette-input {
@@ -399,8 +626,8 @@
 		padding: 18px 4px 18px 0;
 		border: none;
 		outline: none;
-		background: var(--ns-panel-bg-strong);
-		color: var(--ns-text);
+		background: var(--bg-panel);
+		color: var(--text-default);
 		font-size: 17px;
 	}
 
@@ -419,17 +646,22 @@
 		border: none;
 		border-radius: 10px;
 		background: transparent;
-		color: var(--ns-text);
+		color: var(--text-default);
 		cursor: pointer;
 		text-align: left;
 	}
 
 	.palette-item:hover,
 	.palette-item.selected {
-		background: var(--ns-surface-hover-strong);
+		background: var(--bg-hover);
 	}
 
-	.file-row {
+	.theme-item {
+		align-items: stretch;
+	}
+
+	.file-row,
+	.theme-row {
 		display: flex;
 		align-items: center;
 		gap: 14px;
@@ -442,14 +674,15 @@
 		flex: 0 0 20px;
 		text-align: center;
 		line-height: 1;
-		color: var(--ns-text-muted-strong);
+		color: var(--text-muted);
 	}
 
-	.file-body {
+	.file-body,
+	.theme-body {
 		display: flex;
 		flex: 1;
 		flex-direction: column;
-		gap: 2px;
+		gap: 4px;
 		min-width: 0;
 	}
 
@@ -457,15 +690,18 @@
 	.item-label {
 		min-width: 0;
 		font-size: 14px;
-		font-weight: 500;
+		font-weight: 600;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		color: var(--text-default);
 	}
 
-	.file-path {
+	.file-path,
+	.theme-description,
+	.cmd-category {
 		font-size: 12px;
-		color: var(--ns-text-muted-strong);
+		color: var(--text-muted);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -473,37 +709,70 @@
 
 	.create-row .file-title {
 		font-style: italic;
-		color: var(--ns-text-secondary);
+		color: var(--text-secondary);
 	}
 
-	.item-meta {
+	.item-meta,
+	.theme-line {
 		display: flex;
 		align-items: center;
 		gap: 10px;
 		white-space: nowrap;
+	}
+
+	.item-meta {
 		margin-left: auto;
 	}
 
-	.cmd-category {
-		font-size: 12px;
-		color: var(--ns-text-muted-strong);
-		text-align: right;
+	.theme-line {
+		flex-wrap: wrap;
+		gap: 8px;
 	}
 
+	.theme-swatch-strip {
+		display: grid;
+		grid-template-columns: repeat(5, minmax(0, 1fr));
+		gap: 4px;
+		flex: 0 0 88px;
+		padding: 6px;
+		border: 1px solid var(--border-subtle);
+		border-radius: 10px;
+		background: var(--bg-default);
+	}
+
+	.theme-swatch {
+		display: block;
+		height: 34px;
+		border-radius: 6px;
+	}
+
+	.theme-current-badge,
+	.theme-tone-badge,
 	.item-shortcut,
 	.hint kbd {
 		padding: 3px 8px;
 		border-radius: 999px;
-		background: var(--ns-kbd-bg);
-		border: 1px solid var(--ns-kbd-border);
+		border: 1px solid var(--border-default);
+		background: var(--bg-secondary);
 		font-size: 12px;
-		color: var(--ns-text);
+		color: var(--text-default);
+	}
+
+	.theme-current-badge {
+		border-color: var(--accent);
+		background: var(--accent-bg);
+		color: var(--accent-text);
+	}
+
+	.theme-tone-badge {
+		color: var(--text-muted);
+		text-transform: capitalize;
 	}
 
 	.no-results {
 		padding: 24px;
 		text-align: center;
-		color: var(--ns-text-muted-soft);
+		color: var(--text-muted);
 	}
 
 	.palette-footer {
@@ -512,8 +781,8 @@
 		gap: 12px;
 		flex-wrap: wrap;
 		padding: 12px 16px;
-		border-top: 1px solid var(--ns-border-overlay);
-		background: var(--ns-surface-translucent-subtle);
+		border-top: 1px solid var(--border-default);
+		background: var(--bg-surface);
 	}
 
 	.hint {
@@ -521,6 +790,10 @@
 		align-items: center;
 		gap: 6px;
 		font-size: 12px;
-		color: var(--ns-text-muted-strong);
+		color: var(--text-muted);
+	}
+
+	.current-theme-hint strong {
+		color: var(--text-default);
 	}
 </style>

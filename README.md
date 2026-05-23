@@ -42,9 +42,9 @@ ui/app/                  # SvelteKit frontend
 
 ### Features
 
-- **Catalog-backed themes** — Ramp CSS generated from `ui/app/src/styles/theme-catalog.json`, selected at runtime with theme, tone, and visual-mode controls
+- **Catalog-backed themes** — Ramp CSS generated from `ui/app/src/styles/theme-catalog.json`, selected at runtime from a visual settings gallery with tone and visual-mode controls
 - **Design tokens** — Legacy `--ns-*` tokens are being migrated to ramp-backed semantic tokens generated from `ui/app/src/styles/theme-catalog.json`
-- **Command palette** — Fuzzy-searchable command runner (⌘K) with keyboard hints
+- **Command palette** — Fuzzy-searchable command runner (⌘K) with keyboard hints and an in-palette theme browser
 - **Input palette** — Sequential multi-step inputs for note creation and templates
 - **Toast notifications** — Non-blocking success/error/warning alerts
 - **Status bar** — Connection status, vault name, cursor position, word count, save state

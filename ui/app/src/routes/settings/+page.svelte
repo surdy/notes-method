@@ -4,10 +4,10 @@
 	import { base } from '$app/paths';
 	import { settingsStore } from '$lib/settings.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
-	import { themeStore, type ThemeEntry, type ThemeMode, type VisualMode } from '$lib/theme.svelte';
 	import { registerHotkeys } from '$lib/hotkeys';
 	import SidebarSettings from '$lib/components/SidebarSettings.svelte';
 	import VaultsSettings from '$lib/components/VaultsSettings.svelte';
+	import AppearanceSettings from '$lib/components/settings/AppearanceSettings.svelte';
 	import DailySettings from '$lib/components/settings/DailySettings.svelte';
 	import EditorSettings from '$lib/components/settings/EditorSettings.svelte';
 	import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte';
@@ -49,17 +49,6 @@
 		{ id: 'vaults', label: 'Vaults' }
 	];
 
-	const themeOptions: ThemeEntry[] = themeStore.getCatalog();
-	const modeOptions: Array<{ value: ThemeMode; label: string }> = [
-		{ value: 'system', label: 'System' },
-		{ value: 'dark', label: 'Dark' },
-		{ value: 'light', label: 'Light' }
-	];
-	const visualModeOptions: Array<{ value: VisualMode; label: string }> = [
-		{ value: 'default', label: 'Default' },
-		{ value: 'high-contrast', label: 'High Contrast' }
-	];
-
 	function navigateBack() {
 		settingsStore.resetState();
 		void goto(`${base}/?vault=${encodeURIComponent(vault)}`);
@@ -93,40 +82,6 @@
 
 	function fieldWarning(key: string): string | null {
 		return warnings[key] ?? null;
-	}
-
-	function currentThemeName(): string {
-		const theme = cfg?.appearance?.theme;
-		return theme === 'dark' || theme === 'light' || theme === 'system' || theme === 'manuscript' || theme === 'hc-dark'
-			? themeStore.theme
-			: theme ?? themeStore.theme;
-	}
-
-	function currentModeValue(): ThemeMode {
-		const mode = cfg?.appearance?.mode;
-		return mode === 'dark' || mode === 'light' || mode === 'system' ? mode : themeStore.mode;
-	}
-
-	function currentVisualModeValue(): VisualMode {
-		const visualMode = cfg?.appearance?.visualMode;
-		return visualMode === 'default' || visualMode === 'high-contrast'
-			? visualMode
-			: themeStore.visualMode;
-	}
-
-	function updateAppearance(partial: Partial<{ theme: string; mode: ThemeMode; visualMode: VisualMode }>) {
-		if (!cfg) return;
-
-		cfg.appearance = {
-			theme: currentThemeName(),
-			mode: currentModeValue(),
-			visualMode: currentVisualModeValue(),
-			...partial
-		};
-	}
-
-	function selectedThemeEntry(): ThemeEntry | undefined {
-		return themeOptions.find((option) => option.name === currentThemeName());
 	}
 
 	onMount(() => {
@@ -223,71 +178,7 @@
 		{:else if cfg}
 			<div class="settings-body">
 				{#if selectedSection === 'appearance'}
-					<section class="section-content">
-						<h2>Appearance</h2>
-						<p class="section-description">
-							Choose a catalog theme, tone preference, and optional high-contrast overlay for this vault.
-						</p>
-						<div class="appearance-grid">
-							<label class="appearance-field">
-								<span>Theme</span>
-								<select
-									value={currentThemeName()}
-									onchange={(event) => {
-										const theme = (event.currentTarget as HTMLSelectElement).value;
-										updateAppearance({ theme });
-										themeStore.setTheme(theme);
-										void saveImmediate('appearance');
-									}}
-								>
-									{#each themeOptions as option}
-										<option value={option.name}>{option.display_name}</option>
-									{/each}
-								</select>
-								{#if selectedThemeEntry()}
-									<span class="appearance-meta">
-										{selectedThemeEntry()?.author} · {selectedThemeEntry()?.tone}
-									</span>
-								{/if}
-							</label>
-
-							<label class="appearance-field">
-								<span>Tone</span>
-								<select
-									value={currentModeValue()}
-									onchange={(event) => {
-										const mode = (event.currentTarget as HTMLSelectElement).value as ThemeMode;
-										updateAppearance({ mode });
-										themeStore.setMode(mode);
-										void saveImmediate('appearance');
-									}}
-								>
-									{#each modeOptions as option}
-										<option value={option.value}>{option.label}</option>
-									{/each}
-								</select>
-								<span class="appearance-meta">System follows the OS color-scheme setting.</span>
-							</label>
-
-							<label class="appearance-field">
-								<span>Visual mode</span>
-								<select
-									value={currentVisualModeValue()}
-									onchange={(event) => {
-										const visualMode = (event.currentTarget as HTMLSelectElement).value as VisualMode;
-										updateAppearance({ visualMode });
-										themeStore.setVisualMode(visualMode);
-										void saveImmediate('appearance');
-									}}
-								>
-									{#each visualModeOptions as option}
-										<option value={option.value}>{option.label}</option>
-									{/each}
-								</select>
-								<span class="appearance-meta">High Contrast boosts semantic token contrast on top of the active theme.</span>
-							</label>
-						</div>
-					</section>
+					<AppearanceSettings {cfg} {saveImmediate} />
 				{:else if selectedSection === 'general'}
 					<GeneralSettings
 						{cfg}
@@ -356,8 +247,8 @@
 	.settings-nav {
 		width: 220px;
 		min-width: 180px;
-		background: var(--ns-sidebar-bg);
-		border-right: 1px solid var(--ns-border);
+		background: var(--bg-secondary);
+		border-right: 1px solid var(--border-default);
 		display: flex;
 		flex-direction: column;
 		padding: 0;
@@ -370,16 +261,16 @@
 		padding: 14px 16px;
 		background: none;
 		border: none;
-		border-bottom: 1px solid var(--ns-border);
-		color: var(--ns-text-muted);
+		border-bottom: 1px solid var(--border-default);
+		color: var(--text-muted);
 		font-size: 13px;
 		cursor: pointer;
 		text-align: left;
 	}
 
 	.back-btn:hover {
-		background: var(--ns-surface-hover);
-		color: var(--ns-text);
+		background: var(--bg-hover);
+		color: var(--text-default);
 	}
 
 	.nav-group {
@@ -393,7 +284,7 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.nav-item {
@@ -404,24 +295,24 @@
 		padding: 7px 16px;
 		background: none;
 		border: none;
-		color: var(--ns-text);
+		color: var(--text-default);
 		font-size: 13px;
 		cursor: pointer;
 		text-align: left;
 	}
 
 	.nav-item:hover {
-		background: var(--ns-surface-hover);
+		background: var(--bg-hover);
 	}
 
 	.nav-item.active {
-		background: var(--ns-surface-active);
-		color: var(--ns-text-inverse);
+		background: var(--bg-active);
+		color: var(--text-inverse);
 		font-weight: 500;
 	}
 
 	.dirty-dot {
-		color: var(--ns-warning);
+		color: var(--color-warning);
 		font-size: 10px;
 	}
 
@@ -437,7 +328,7 @@
 		align-items: center;
 		gap: 12px;
 		padding: 14px 24px;
-		border-bottom: 1px solid var(--ns-border);
+		border-bottom: 1px solid var(--border-default);
 		flex-shrink: 0;
 	}
 
@@ -449,22 +340,22 @@
 
 	.status-badge {
 		font-size: 12px;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 	}
 
 	.error-banner {
 		padding: 10px 24px;
-		background: var(--ns-danger-bg);
-		color: var(--ns-danger);
-		border-bottom: 1px solid var(--ns-danger-border);
+		background: var(--danger-bg);
+		color: var(--color-danger);
+		border-bottom: 1px solid var(--danger-border);
 		font-size: 13px;
 	}
 
 	.conflict-banner {
 		padding: 10px 24px;
-		background: var(--ns-warning-bg);
-		color: var(--ns-warning);
-		border-bottom: 1px solid var(--ns-warning-border);
+		background: var(--warning-bg);
+		color: var(--color-warning);
+		border-bottom: 1px solid var(--warning-border);
 		font-size: 13px;
 	}
 
@@ -479,16 +370,16 @@
 
 	.conflict-actions button {
 		padding: 4px 12px;
-		border: 1px solid var(--ns-warning-border);
+		border: 1px solid var(--warning-border);
 		border-radius: 4px;
 		background: transparent;
-		color: var(--ns-warning);
+		color: var(--color-warning);
 		font-size: 12px;
 		cursor: pointer;
 	}
 
 	.conflict-actions button:hover {
-		background: var(--ns-warning-hover);
+		background: var(--warning-hover);
 	}
 
 	.settings-body {
@@ -497,72 +388,21 @@
 		padding: 0;
 	}
 
-	.section-content {
-		padding: 16px 24px;
-		max-width: 760px;
-	}
-
-	.section-content h2 {
-		margin: 0 0 8px;
-		font-size: 20px;
-	}
-
-	.section-description {
-		margin: 0 0 18px;
-		color: var(--ns-text-muted);
-		font-size: 13px;
-	}
-
-	.appearance-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-		gap: 16px;
-	}
-
-	.appearance-field {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		padding: 12px;
-		border: 1px solid var(--ns-border);
-		border-radius: 10px;
-		background: var(--ns-surface-elevated);
-		color: var(--ns-text);
-		font-size: 13px;
-		font-weight: 600;
-	}
-
-	.appearance-field select {
-		padding: 8px 10px;
-		border: 1px solid var(--ns-border-input);
-		border-radius: 8px;
-		background: var(--ns-input-bg);
-		color: var(--ns-text);
-		font-size: 13px;
-	}
-
-	.appearance-meta {
-		color: var(--ns-text-muted);
-		font-size: 12px;
-		font-weight: 400;
-		line-height: 1.4;
-	}
-
 	.config-footer {
 		padding: 8px 24px;
-		border-top: 1px solid var(--ns-border);
+		border-top: 1px solid var(--border-default);
 		flex-shrink: 0;
 	}
 
 	.config-path {
 		font-size: 11px;
-		color: var(--ns-text-subtle);
+		color: var(--text-faint);
 	}
 
 	.settings-empty {
 		padding: 32px 24px;
 		text-align: center;
-		color: var(--ns-text-muted);
+		color: var(--text-muted);
 		font-size: 13px;
 	}
 
@@ -570,10 +410,6 @@
 		.settings-nav {
 			width: 160px;
 			min-width: 140px;
-		}
-
-		.section-content {
-			padding: 12px 16px;
 		}
 	}
 </style>

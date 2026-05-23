@@ -18,7 +18,7 @@ import { vaultStore } from './stores.svelte';
 export interface Command {
 id: string;
 label: string;
-category: 'Notes' | 'Tasks' | 'Templates' | 'Navigation' | 'Vault' | 'Settings';
+category: 'Notes' | 'Tasks' | 'Templates' | 'Navigation' | 'Vault' | 'Settings' | 'Appearance';
 shortcut?: string;
 execute: () => void | Promise<void>;
 }
@@ -341,6 +341,14 @@ category: 'Navigation',
 shortcut: '⌘E',
 execute: () => {
 tabStore.toggleViewMode();
+}
+},
+{
+id: 'change-theme',
+label: 'Change Theme',
+category: 'Appearance',
+execute: () => {
+// Handled by the unified palette theme picker mode.
 }
 },
 {

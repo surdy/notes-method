@@ -72,6 +72,18 @@ afterEach(() => {
 });
 
 describe('buildCommands', () => {
+	it('registers a change theme command for the command palette', async () => {
+		const { buildCommands } = await import('./commands.ts');
+		const commands = buildCommands('vault-a', vi.fn());
+		const command = commands.find((entry) => entry.id === 'change-theme');
+
+		expect(command).toMatchObject({
+			id: 'change-theme',
+			label: 'Change Theme',
+			category: 'Appearance'
+		});
+	});
+
 	it('opens the sequential input palette for new note creation', async () => {
 		const { buildCommands } = await import('./commands.ts');
 		const commands = buildCommands('vault-a', vi.fn());
