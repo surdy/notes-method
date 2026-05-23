@@ -236,7 +236,7 @@ onClose={() => (activeMiddlePaneItem = null)}
 />
 {/if}
 
-<main class="content-area">
+<main class="content-area editor-surface">
 <NoteToolbar />
 {#if tabStore.activeViewMode === 'reading'}
 <NoteViewer path={tabStore.selectedPath} />

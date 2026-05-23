@@ -171,3 +171,166 @@
 [data-tone="light"] {
   --text-inverse: #1a1a1a;
 }
+
+/* Split-surface themes: re-declare the full semantic mapping so tokens
+ * resolve against the local (light) ramp, not the inherited dark values.
+ * CSS custom properties resolve at computed-value time on the element where
+ * they're defined — overriding --neutral-0 on a child does NOT re-resolve
+ * --bg-default that was already computed on :root. */
+[data-theme="manuscript"] .editor-surface {
+  /* Surfaces */
+  --bg-default: var(--neutral-0);
+  --bg-secondary: var(--neutral-1);
+  --bg-surface: var(--neutral-0);
+  --bg-elevated: var(--neutral-2);
+  --bg-hover: var(--neutral-2);
+  --bg-active: var(--neutral-3);
+  --bg-selected: var(--blue-2);
+  --bg-input: var(--neutral-3);
+  --bg-panel: var(--neutral-1);
+
+  /* Borders */
+  --border-default: var(--neutral-3);
+  --border-strong: var(--neutral-4);
+  --border-subtle: var(--neutral-2);
+  --border-input: var(--neutral-4);
+  --border-overlay: var(--neutral-2);
+  --border-overlay-strong: var(--neutral-3);
+  --border-translucent: rgba(0, 0, 0, 0.12);
+  --border-translucent-strong: rgba(0, 0, 0, 0.25);
+  --border-translucent-soft: rgba(0, 0, 0, 0.15);
+
+  /* Text */
+  --text-default: var(--neutral-10);
+  --text-secondary: var(--neutral-9);
+  --text-muted: var(--neutral-6);
+  --text-faint: var(--neutral-5);
+  --text-inverse: #1a1a1a;
+
+  /* Accent */
+  --accent: var(--blue-9);
+  --accent-bg: var(--blue-3);
+  --accent-text: var(--blue-10);
+  --accent-hover: var(--blue-4);
+
+  /* Semantic colors */
+  --color-danger: var(--red-9);
+  --color-success: var(--green-9);
+  --color-warning: var(--yellow-9);
+  --color-info: var(--cyan-9);
+
+  /* Semantic surfaces */
+  --danger-bg: var(--red-2);
+  --danger-bg-muted: var(--red-1);
+  --danger-border: var(--red-3);
+  --danger-surface: var(--red-2);
+  --danger-surface-border: var(--red-4);
+  --danger-text: var(--red-10);
+  --danger-text-muted: var(--red-8);
+  --success-bg: var(--green-2);
+  --success-surface: var(--green-1);
+  --success-border: var(--green-3);
+  --success-text: var(--green-10);
+  --warning-bg: var(--yellow-2);
+  --warning-bg-soft: var(--yellow-1);
+  --warning-border: var(--yellow-3);
+  --warning-border-strong: var(--yellow-4);
+  --warning-hover: var(--yellow-3);
+  --warning-surface: var(--yellow-2);
+  --warning-surface-border: var(--yellow-4);
+  --warning-text: var(--yellow-10);
+  --warning-banner-bg: var(--yellow-2);
+  --warning-banner-text: var(--yellow-10);
+  --warning-banner-hint: var(--yellow-9);
+  --info-banner: var(--blue-3);
+  --info-banner-text: var(--blue-11);
+  --info-banner-text-muted: var(--blue-9);
+
+  /* Callout colors */
+  --callout-note: var(--blue-8);
+  --callout-abstract: var(--cyan-8);
+  --callout-info: var(--cyan-9);
+  --callout-todo: var(--cyan-9);
+  --callout-tip: var(--green-8);
+  --callout-success: var(--green-9);
+  --callout-question: var(--green-10);
+  --callout-warning: var(--yellow-9);
+  --callout-failure: var(--red-8);
+  --callout-danger: var(--red-9);
+  --callout-bug: var(--magenta-9);
+  --callout-example: var(--magenta-8);
+  --callout-quote: var(--neutral-6);
+  --callout-icon: var(--neutral-8);
+  --callout-current: var(--blue-8);
+
+  /* Editor surface */
+  --editor-bg: var(--neutral-0);
+  --editor-text: var(--neutral-10);
+  --editor-text-secondary: var(--neutral-5);
+  --editor-text-muted: var(--neutral-6);
+  --editor-text-faint: var(--neutral-5);
+  --editor-active-line: var(--neutral-2);
+  --editor-selection: var(--blue-2);
+  --editor-frontmatter-bg: var(--neutral-2);
+  --editor-border: var(--neutral-4);
+  --editor-link: var(--blue-9);
+
+  /* Syntax highlighting */
+  --syntax-comment: var(--neutral-6);
+  --syntax-keyword: var(--magenta-9);
+  --syntax-string: var(--green-9);
+  --syntax-constant: var(--blue-9);
+  --syntax-entity: var(--yellow-9);
+  --syntax-variable: var(--red-8);
+  --syntax-tag: var(--red-9);
+  --syntax-function: var(--blue-10);
+  --syntax-atom: var(--blue-9);
+  --syntax-number: var(--green-8);
+  --syntax-definition: var(--cyan-9);
+  --syntax-type: var(--cyan-8);
+  --syntax-property: var(--yellow-8);
+  --syntax-operator: var(--neutral-9);
+  --syntax-punctuation: var(--neutral-9);
+  --syntax-invalid: var(--red-9);
+
+  /* Interactive */
+  --button-bg: var(--neutral-3);
+  --button-text: var(--neutral-10);
+  --button-hover: var(--neutral-4);
+  --button-active: var(--neutral-5);
+  --badge-bg: var(--yellow-9);
+  --badge-text: var(--neutral-0);
+  --kbd-bg: var(--neutral-3);
+  --kbd-border: var(--neutral-2);
+
+  /* Scrollbar */
+  --scrollbar-thumb: var(--neutral-3);
+  --scrollbar-hover: var(--neutral-4);
+
+  /* Status indicators */
+  --status-connected: var(--green-9);
+  --status-reconnecting: var(--yellow-9);
+  --status-disconnected: var(--red-9);
+  --status-restart: var(--blue-9);
+  --status-idle: var(--neutral-6);
+
+  /* Overlays and shadows — light surface variants */
+  --overlay: rgba(0, 0, 0, 0.5);
+  --overlay-soft: rgba(0, 0, 0, 0.15);
+  --overlay-panel: var(--neutral-2);
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.2);
+  --shadow-toast: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-soft: 0 10px 24px rgba(0, 0, 0, 0.08);
+  --shadow-popover: 0 -4px 12px rgba(0, 0, 0, 0.15);
+
+  /* Surfaces — light variants */
+  --surface-translucent: rgba(0, 0, 0, 0.05);
+  --surface-translucent-hover: rgba(0, 0, 0, 0.08);
+  --surface-translucent-emphasis: rgba(0, 0, 0, 0.12);
+  --surface-translucent-strong: rgba(0, 0, 0, 0.08);
+  --surface-translucent-subtle: rgba(0, 0, 0, 0.03);
+  --surface-translucent-alt: rgba(0, 0, 0, 0.02);
+  --onboarding-bg: var(--neutral-2);
+  --onboarding-border: var(--neutral-3);
+  --dirty-dot: var(--yellow-9);
+}
