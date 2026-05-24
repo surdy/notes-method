@@ -1,6 +1,42 @@
 use rusqlite::Connection;
 
+const SCHEMA_VERSION: i64 = 2;
+
 pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
+    // Check schema version — if mismatch, drop all tables and recreate
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)")?;
+    let current_version: Option<i64> = conn
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM _meta WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+
+    if current_version != Some(SCHEMA_VERSION) {
+        // Fresh start: drop old tables/views and recreate
+        conn.execute_batch(
+            "
+            DROP VIEW IF EXISTS v_notes;
+            DROP VIEW IF EXISTS v_fields;
+            DROP VIEW IF EXISTS v_tasks;
+            DROP VIEW IF EXISTS v_task_fields;
+            DROP VIEW IF EXISTS v_backlinks;
+            DROP VIEW IF EXISTS v_periodic;
+            DROP VIEW IF EXISTS v_customers;
+            DROP VIEW IF EXISTS v_streams;
+            DROP TABLE IF EXISTS notes;
+            DROP TABLE IF EXISTS fields;
+            DROP TABLE IF EXISTS tags;
+            DROP TABLE IF EXISTS tasks;
+            DROP TABLE IF EXISTS task_fields;
+            DROP TABLE IF EXISTS links;
+            DROP TABLE IF EXISTS periodic_notes;
+            DROP TABLE IF EXISTS route_log;
+            ",
+        )?;
+    }
+
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS notes (
@@ -98,37 +134,51 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
             routed_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
-        CREATE VIEW IF NOT EXISTS v_notes AS
+        DROP VIEW IF EXISTS v_notes;
+        CREATE VIEW v_notes AS
         SELECT vault_name, path, title, created_at, updated_at, word_count
         FROM notes;
 
-        CREATE VIEW IF NOT EXISTS v_fields AS
+        DROP VIEW IF EXISTS v_fields;
+        CREATE VIEW v_fields AS
         SELECT vault_name, note_path, key, value, value_type
         FROM fields;
 
-        CREATE VIEW IF NOT EXISTS v_tasks AS
+        DROP VIEW IF EXISTS v_tasks;
+        CREATE VIEW v_tasks AS
         SELECT t.vault_name, t.id, t.note_path, t.line_number, t.text,
                t.status_char, t.status_group, n.title as note_title
         FROM tasks t
         JOIN notes n ON t.vault_name = n.vault_name AND t.note_path = n.path;
 
-        CREATE VIEW IF NOT EXISTS v_task_fields AS
+        DROP VIEW IF EXISTS v_task_fields;
+        CREATE VIEW v_task_fields AS
         SELECT tf.vault_name, tf.task_id, tf.key, tf.value, t.note_path
         FROM task_fields tf
         JOIN tasks t ON tf.vault_name = t.vault_name AND tf.task_id = t.id;
 
-        CREATE VIEW IF NOT EXISTS v_backlinks AS
+        DROP VIEW IF EXISTS v_backlinks;
+        CREATE VIEW v_backlinks AS
         SELECT l.vault_name, l.source_path, l.target_path, l.link_text,
                n.title as source_title
         FROM links l
         JOIN notes n ON l.vault_name = n.vault_name AND l.source_path = n.path
         WHERE l.target_path IS NOT NULL;
 
-        CREATE VIEW IF NOT EXISTS v_periodic AS
+        DROP VIEW IF EXISTS v_periodic;
+        CREATE VIEW v_periodic AS
         SELECT pn.vault_name, pn.note_path, pn.period_kind, pn.period_key,
                pn.period_start, pn.period_end, n.title
         FROM periodic_notes pn
         JOIN notes n ON pn.vault_name = n.vault_name AND pn.note_path = n.path;
     ",
-    )
+    )?;
+
+    // Stamp the schema version
+    conn.execute(
+        "INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', ?1)",
+        [SCHEMA_VERSION.to_string()],
+    )?;
+
+    Ok(())
 }
