@@ -1,8 +1,31 @@
 # Notesmith
 
-A markdown notes app built for agentic workflows, compatible with Obsidian Flavored Markdown (OFM).
+A generic, programmable markdown workspace built for agentic workflows, compatible with Obsidian Flavored Markdown (OFM).
 
-Notesmith replaces Obsidian with a custom-built tool that keeps notes as plain markdown files on disk — no database of record — while providing all the plugin functionality the [notes method](notes-method.md) depends on as built-in features.
+Notesmith keeps notes as plain markdown files on disk — no database of record — while providing a configurable workflow engine (routing, hooks, templates, periodic notes) and full-text search. Structure emerges from metadata (fields, tags, links) rather than rigid folder hierarchies.
+
+## Architecture
+
+- **Single binary** (`notesmith`) with subcommands for CLI usage and a `daemon start` mode
+- **HTTP daemon** on `127.0.0.1:27183` (Axum) with REST API + Server-Sent Events
+- **SvelteKit frontend** served by the daemon, wrapped in Tauri for the desktop app
+- **SQLite cache** (rebuildable from markdown files — never the source of truth)
+- **Agent-first**: native CLI, MCP adapter, and URL scheme (`notesmith://app/...`) for external integration
+- **Generic data model**: unified fields, separate tags, configurable task statuses — no hardcoded note types
+
+## Key Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Fields** | Key-value metadata from frontmatter or inline `[key:: value]` syntax. Queried uniformly. |
+| **Tags** | Labels from `tags:` frontmatter or inline `#hashtags`. Separate table for ergonomic queries. |
+| **Tasks** | Checkbox items with configurable status characters (user-defined in `vault.toml`). |
+| **Routing** | YAML DSL with boolean combinators for rule-based note filing and mutation. |
+| **Hooks** | 6 lifecycle events that trigger external commands (on_note_create, on_field_change, etc.). |
+| **Periodic Notes** | Daily, weekly, monthly, quarterly, yearly — all configurable. |
+| **Templates** | Tera-based with 3 context layers: static, SQL queries, hook enrichment. |
+| **Field Registry** | `.notesmith/fields.toml` — advisory type/value hints for autocomplete. |
+| **User Views** | `.notesmith/views.sql` — custom SQL views in the cache database. |
 
 ## Architecture
 
@@ -20,10 +43,10 @@ crates/
 ├── notesmith-vault      # VaultEngine trait + native filesystem adapters
 ├── notesmith-index      # SQLite cache builder + Tantivy full-text search
 ├── notesmith-query      # Stable SQL views, query execution, dashboard helpers
-├── notesmith-templates  # Minijinja template engine and prompt specs
-├── notesmith-routing    # YAML-driven routing rules and archive workflow
-├── notesmith-tasks      # Task parsing, status transitions, content-hash matching
-├── notesmith-hooks      # Subprocess hook runner for note lifecycle events
+├── notesmith-templates  # Tera template engine with SQL + hook context layers
+├── notesmith-routing    # Expressive YAML routing DSL with boolean predicates
+├── notesmith-tasks      # Task parsing, configurable status resolution
+├── notesmith-hooks      # 6-event hook system for note lifecycle automation
 ├── notesmith-git        # Opt-in git timers and sync helpers
 ├── notesmith-html       # Comrak-based HTML rendering and clipboard helpers
 ├── notesmith-config     # Global and per-vault configuration loading

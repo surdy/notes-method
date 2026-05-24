@@ -1,39 +1,50 @@
 # Notes Method
 
-A method for organizing my notes. Some details are figured out; others I want to get ideas on.
+A method for organizing notes using a generic, programmable workspace. The structure and workflows are user-defined through configuration — not hardcoded into the application.
 
 ## Context
 
-I work with customers, and I want to organize each customer's notes in their own folder.
-
-This method is now intended to be implemented by **Notesmith**, a custom markdown notes app. The definitive application blueprint is `plans/notesmith-plan.md`.
+This method is implemented by **Notesmith**, a custom markdown notes app. The definitive application blueprint is `plans/notesmith-plan.md`.
 The repository root is also the Notesmith Cargo workspace root, with Rust crates living under `crates/` alongside the planning, vault, and spike directories.
-- Notesmith should also expose the vault to local AI clients through an MCP server (`notesmith mcp start`) so agents can create, read, search, route, and template notes over stdio without going through the HTTP daemon.
+- Notesmith exposes the vault to local AI clients through an MCP server (`notesmith mcp start`) so agents can create, read, search, route, and template notes over stdio without going through the HTTP daemon.
 
-## Per-Customer Folder Structure
+## Core Principles
 
-For each customer there would be a folder containing:
+1. **Notes are plain markdown** — Notesmith never modifies your files in ways that break other editors.
+2. **Structure emerges from metadata** — Fields, tags, and links create relationships without rigid folder hierarchies.
+3. **Configuration, not code** — Workflows are defined via YAML/TOML/SQL files in `.notesmith/`, not compiled into the app.
+4. **Only `.notesmith/` is required** — All other paths and folder structure are user-defined.
+5. **Fresh start** — No migration from previous schemas (pre-v1).
 
-- **Internal meetings**
-- **External meetings**
-- **Account information**
-  - Account information (note)
-  - Glossary
-  - Dates or Milestones
-- **Projects or streams of work** for that customer
+## Data Primitives
 
-## High-Level Structure
+| Primitive | Description |
+|-----------|-------------|
+| **Note** | A markdown file with optional frontmatter |
+| **Field** | Key-value metadata (from frontmatter or inline `[key:: value]`) |
+| **Tag** | Labels (from `tags:` frontmatter or inline `#hashtag`) |
+| **Task** | Checkbox item with configurable status characters |
+| **Link** | Wikilink, embed, or markdown link between notes |
+| **Periodic Note** | Date-bound note (daily, weekly, monthly, quarterly, yearly) |
 
-- Capture
-- Tasks (aggregated)
-- Dashboards
-- Customer 1
-- Customer 2
-- Customer N
-- General
-- Assets
-  - templates
-  - data
+## Vault Structure
+
+Only `.notesmith/` is required. Everything else is user-defined:
+
+```text
+.notesmith/
+  vault.toml          # Vault configuration
+  fields.toml         # Field registry (autocomplete, validation)
+  routing.yaml        # Routing rules
+  views.sql           # User-defined SQL views
+  sidebar.yaml        # Sidebar view definitions
+  templates/          # Note templates
+  prompts/            # AI prompt templates
+  skill.md            # AI agent context
+<user-defined folders and notes>
+```
+
+For an example of a complete customer-facing work workflow, see `docs/example-work-notes-kit.md`.
 
 ## Sidebar Views
 
@@ -101,52 +112,29 @@ For each customer there would be a folder containing:
 
 ## Capture Workflow
 
-- All captured notes start in the configured capture location (for example `Inbox/` if I want a dedicated capture folder).
-- Once I am done working on a note, I move it to the appropriate folder for long-term storage.
-- **Routing engine** (`.notesmith/routing.yaml`) automatically determines each note's destination based on frontmatter fields (`type`, `customer`, `meeting-kind`, `stream`) and moves notes with `notesmith route apply <path>`.
-- Routed notes are stamped with `archived: true` and `archived-at` in frontmatter before moving.
+- All captured notes start in the configured capture location (configurable in `vault.toml`).
+- Once a note is enriched with fields and tags, it can be routed to its permanent location.
+- **Routing engine** (`.notesmith/routing.yaml`) determines each note's destination based on field values, tag presence, and path globs. Supports full mutations: move, set/remove fields, add/remove tags.
+- Both manual routing (`notesmith route apply <path>`) and auto-routing (opt-in per rule) are supported.
+- All routing operations are logged in `route_log` for audit and undo.
 - The goal is to keep the capture backlog at zero.
 
-## Daily Notes
+## Periodic Notes
 
-- Every morning I want a note for that day generated into the configured daily location (for example `Inbox/Daily/` if I want a dedicated folder). Primary creation should come from an external agent using a saved prompt template, with a daemon scheduler available as a fallback.
-- Vault-specific agent instructions should live in `.notesmith/skill.md`, and saved prompt templates should live in `.notesmith/prompts/` so agents can assemble daily-note context consistently.
-- Vault hooks can trigger external automation on note creation (`on_note_create`) and daily note creation (`on_daily_create`) without blocking the underlying Notesmith action.
+- Configurable periodic notes for all time periods: daily, weekly, monthly, quarterly, yearly.
+- Each period kind has its own folder, template, and filename pattern configured in `vault.toml`.
+- Primary creation via CLI (`notesmith periodic open <kind>`), API, or external agent.
+- Vault-specific agent instructions live in `.notesmith/skill.md`, and saved prompt templates in `.notesmith/prompts/`.
+- Vault hooks can trigger external automation on note creation (`on_note_create`) and periodic note creation (`on_periodic_create`) without blocking the underlying action.
 
 ## Tasks
 
-- I want an aggregation of tasks from all notes to appear in a single place.
-- The aggregated list should also show the associated project.
-- Aggregated tasks should link to the stream note.
-- The primary aggregated task list should show only **active** tasks (**To Do** and **In Progress**).
-- There should be separate aggregated views for **Blocked**, **Awaiting Customer**, and **On Hold** tasks.
-- Each meeting note optionally has tasks associated with it.
-- A task can be associated with a stream of work (note).
-- Tasks can have a status independent of the stream of work.
-- Task statuses: **To Do**, **In Progress**, **Blocked**, **Awaiting Customer**, **On Hold**, **Done**, **Cancelled**.
-
-## Streams of Work
-
-- A stream of work has a status: **In Progress**, **Blocked**, **Done**, **Awaiting Customer**, **On Hold**.
-- Tasks can be added to a stream of work regardless of its state.
-
-## Assets / Resources
-
-- Separate folder for assets/resources that are not notes but might be referenced in notes.
-
-## Customer Folders
-
-- Each customer folder would have the same structure, but can optionally add more folders or notes as needed.
-
-## Customer State
-
-- Customers have a state associated with them based on my relationship with them: **Active**, **On Hold**, **Temp**, **Inactive**.
-- I will use these states to filter customer folders and smart views.
-- Customer state should live in the Customer Index note frontmatter (`state:`), not in the Account Info note.
-
-## Open for Ideas
-
-- What additional customer metadata should live alongside `state:` on the Customer Index note.
+- Aggregated task views collect tasks from all notes into a single surface.
+- Task statuses are configurable: each status is a single character mapped to a label, group (open/done), and icon via `vault.toml`.
+- Default statuses: `[ ]`=Todo, `[x]`=Done, `[/]`=InProgress, `[!]`=Blocked, `[>]`=Waiting, `[-]`=OnHold, `[~]`=Cancelled.
+- Users can add custom status characters without code changes.
+- Tasks can have inline fields (e.g., `[due:: 2026-06-01]`, `[assigned:: me]`).
+- Aggregated views group by status_group (open/done) and show associated fields.
 
 ## Git Integration
 

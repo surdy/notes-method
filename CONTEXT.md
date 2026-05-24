@@ -12,23 +12,18 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 - **VaultName** — A short identifier for a vault, e.g. `work`. Used in API paths and config. (`notesmith-core::VaultName`)
 - **VaultEngine** — The filesystem abstraction trait for scanning, reading, writing, deleting, and moving notes. (`notesmith-core::VaultEngine`)
 
-## Frontmatter & Note Types
+## Frontmatter & Fields
 
-- **Frontmatter** — YAML metadata at the top of a note, delimited by `---`. Typed by a `type` field that determines the struct variant. (`notesmith-core::Frontmatter`)
-- **NoteType** — The discriminator for frontmatter: `note`, `daily`, `meeting`, `stream`, `customer`, `account-info`, `glossary`, `milestones`, `dashboard`, `contact`.
-- **CommonMeta** — Shared frontmatter fields across all note types: `tags`, `created`, `updated`, `archived`, `archived-at`.
-
-## Customer Domain
-
-- **Customer** — An external entity with its own folder containing meetings, account info, and streams. Customer state (Active, On Hold, Temp, Inactive) lives in the Customer Index note's frontmatter.
-- **Stream** — A stream of work for a customer. Has status (In Progress, Blocked, Done, Awaiting Customer, On Hold) and priority (P0–P3). Tasks may be associated with a stream.
-- **Meeting** — A customer interaction note, classified as internal or external (`MeetingKind`).
+- **Frontmatter** — YAML metadata at the top of a note, delimited by `---`. Parsed generically as key-value pairs (no typed variants). (`notesmith-core::Frontmatter` → `HashMap<String, Value>`)
+- **Field** — A key-value pair associated with a note. Sources: frontmatter YAML or inline `[key:: value]` syntax. All fields are stored uniformly in the `fields` table with no source distinction in queries.
+- **Tag** — A label associated with a note. Sources: `tags:` frontmatter array or inline `#hashtag` syntax. Stored in a dedicated `tags` table for ergonomic multi-value queries.
+- **Field Registry** — Advisory field definitions in `.notesmith/fields.toml`. Specifies type, allowed values, and autocomplete sources for each field key. Not enforced — invalid values produce warnings.
 
 ## Tasks
 
-- **Task** — A checkbox item extracted from note content. Has status, priority, content, and a source position linking back to the note.
-- **TaskStatus** — Seven states: Todo (`[ ]`), InProgress (`[/]`), Blocked (`[!]`), Waiting (`[>]`), OnHold (`[-]`), Done (`[x]`), Cancelled (`[~]`).
-- **TaskPriority** — Lowest to Highest, parsed from task metadata.
+- **Task** — A checkbox item extracted from note content. Has status character, status group, text, and a source position linking back to the note.
+- **TaskStatus** — Configurable and extensible. Each status is a single character (e.g. `x`, `/`, `!`) mapped to a label, group (`open` or `done`), and icon via `[task_statuses]` in `vault.toml`. Default ships the standard OFM set: `[ ]`=Todo, `[x]`=Done, `[/]`=InProgress, etc.
+- **Task Fields** — Inline fields associated with individual tasks (e.g. `[due:: 2026-06-01]` on a task line). Stored in a `task_fields` table.
 
 ## Links & Blocks
 
@@ -45,37 +40,47 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 ## Configuration
 
-- **VaultConfig** — Per-vault settings in `.notesmith/vault.toml`. Sections: schema version, capture, daily, editor, git, hooks.
+- **VaultConfig** — Per-vault settings in `.notesmith/vault.toml`. Sections: schema version, capture, periodic notes, editor, git, hooks, task statuses.
 - **GlobalConfig** — App-wide settings in `~/.config/notesmith/config.toml`. Contains daemon bind address, CLI auto-start policy, and the vault registry.
 - **SidebarConfig** — Per-vault sidebar view definitions in `.notesmith/sidebar.yaml`. Defines custom views with sections (recently-viewed, custom-folders, custom-items).
+- **RoutingConfig** — Per-vault routing rules in `.notesmith/routing.yaml`. Expressive YAML DSL with boolean combinators (all/any/not), field/tag predicates, and full mutations (move, set/remove fields, add/remove tags).
+- **FieldRegistry** — Per-vault field definitions in `.notesmith/fields.toml`. Advisory type/value constraints for autocomplete and validation.
+- **UserViews** — Per-vault SQL view definitions in `.notesmith/views.sql`. Creates persistent views in the cache database for dashboard blocks and queries.
 
 ## Capture & Routing
 
-- **Capture** — The quick-capture workflow that writes timestamped notes to the configured capture folder. When `capture.folder = ""`, captures land in the vault root.
-- **Routing** — Rule-based note filing from captured or draft notes to destination folders. Rules match on frontmatter fields (type, customer, meeting-kind, stream). Defined in `.notesmith/routing.yaml`.
-- **Archive** — The act of routing a note: stamping `archived: true` and `archived-at` in frontmatter, then moving to the destination folder.
-- **Daemon-backed CLI commands** — `capture`, `query`, `note`, `search`, `template`, `route`, `daily`, `task`, `reindex`, and daemon-backed `notesmith://` handlers. They probe `/api/status` and auto-start the HTTP daemon when `[daemon].auto_start = true`.
+- **Capture** — A first-class command that writes timestamped notes to the configured capture folder. Delegates to the template system internally. When `capture.folder = ""`, captures land in the vault root.
+- **Routing** — Rule-based note filing using an expressive YAML DSL (`.notesmith/routing.yaml`). Rules match on field values, tag presence/absence, path globs, and boolean combinators (all/any/not). Mutations: move_to, set_fields, remove_fields, add_tags, remove_tags. Supports both manual trigger (`notesmith route apply`) and auto-routing (opt-in per rule).
+- **Route Log** — An append-only audit table recording every routing operation (from_path, to_path, rule_id, mutations). Enables undo via `notesmith route undo`.
+- **Daemon-backed CLI commands** — `capture`, `query`, `note`, `search`, `template`, `route`, `periodic`, `task`, `reindex`, and daemon-backed `notesmith://` handlers. They probe `/api/status` and auto-start the HTTP daemon when `[daemon].auto_start = true`.
 
 ## Templates
 
-- **Template** — A Minijinja-based file in `.notesmith/templates/` with metadata (name, description, output path pattern) and prompt specs. (`notesmith-templates::TemplateEngine`)
-- **PromptSpec** — A named parameter a template requires at instantiation time (e.g. "customer name", "meeting date").
+- **Template** — A Tera-based file in `.notesmith/templates/` with metadata (name, description, output path pattern), prompt specs, optional context_queries (SQL), and optional pre_render_hook (script). (`notesmith-templates::TemplateEngine`)
+- **PromptSpec** — A named parameter a template requires at instantiation time (e.g. "customer name", "meeting date"). Types: text, field-picker, date.
 - **RenderedTemplate** — The output of template instantiation: a resolved path and rendered content.
+- **Context Layers** — Three layers of template context: (1) static variables (date, vault, filename), (2) SQL context_queries against the cache, (3) pre_render_hook script enrichment.
 
-## Daily Notes
+## Periodic Notes
 
-- **Daily Note** — A date-stamped note generated into the configured daily folder (default: vault root when `daily.folder = ""`). Can be created by the scheduler, CLI, API, or an external agent.
-- **Catch-up** — Backfilling missing daily notes for recent days when `catch_up: true` in DailyConfig.
-- **DailyScheduler** — Background task that auto-generates daily notes at a configured time.
-- **MCP server** — The `notesmith mcp start` stdio server. It builds its own in-memory indexes for local MCP clients rather than proxying through the HTTP daemon.
+- **Periodic Note** — A note tied to a time period (daily, weekly, monthly, quarterly, yearly). Generated into configured folders from templates.
+- **Period Kinds** — Five types: daily (`YYYY-MM-DD`), weekly (`YYYY-Www`), monthly (`YYYY-MM`), quarterly (`YYYY-Qq`), yearly (`YYYY`). Each configured independently in `vault.toml` with folder, template, and filename pattern.
+- **DailyScheduler** — Background task that auto-generates daily notes at a configured time (also available for other period kinds).
 
 ## Runtime & Events
 
 - **Daemon** — The HTTP server process (`notesmith daemon start`) that serves the API, SSE events, and static frontend.
+- **MCP server** — The `notesmith mcp start` stdio server. It builds its own in-memory indexes for local MCP clients rather than proxying through the HTTP daemon.
 - **VaultState** — Per-vault runtime state held by the daemon: cache, search index, engine, root path, config (ArcSwap), template engine.
 - **AppState** — Global daemon state containing all VaultStates and shared config.
 - **VaultEvent** — An SSE event broadcast when something changes in a vault: note CRUD, task updates, config changes, cache rebuilds.
 - **VaultWatcher** — A filesystem watcher (notify crate) that detects file changes, classifies them (note vs config), debounces, and emits VaultEvents.
+
+## Hook System
+
+- **Hook** — An external command triggered by a vault event. Receives JSON payload via stdin. Failures never block the triggering operation.
+- **Hook Events** — Six events: `on_note_create`, `on_note_update`, `on_note_route`, `on_periodic_create`, `on_task_change`, `on_field_change`.
+- **on_field_change** — Scoped to `watch_fields` list. Batched per save (one invocation with all field changes). Each change has an `action` discriminator: `add`, `change`, `remove`.
 
 ## Save Pipeline
 
