@@ -38,10 +38,6 @@ async fn cmd_start(
     let notes = engine
         .scan(&detected.root)
         .with_context(|| format!("failed to scan vault {}", detected.name))?;
-    let cache = VaultCache::open_in_memory()?;
-    cache.reindex(&detected.name, &notes)?;
-    let search_index = SearchIndex::open_in_memory()?;
-    search_index.reindex(&detected.name, &notes)?;
     let vault_config = migration::load_and_migrate(&detected.root).unwrap_or_else(|error| {
         eprintln!("Warning: failed to load/migrate vault config: {error}");
         VaultConfig {
@@ -49,6 +45,10 @@ async fn cmd_start(
             ..Default::default()
         }
     });
+    let cache = VaultCache::open_in_memory()?;
+    cache.reindex_with_periodic(&detected.name, &notes, &vault_config.periodic)?;
+    let search_index = SearchIndex::open_in_memory()?;
+    search_index.reindex(&detected.name, &notes)?;
 
     let mcp = notesmith_mcp::NotesmithMcp::new(
         detected.name.clone(),

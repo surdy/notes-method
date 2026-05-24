@@ -3,13 +3,31 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use anyhow::{Context, anyhow};
 use chrono::{Local, NaiveDate, NaiveTime};
+use notesmith_config::{PeriodKindConfig, PeriodicConfig};
+use notesmith_core::{NotesmithError, PeriodKind, VaultEngine, VaultPath};
 use tokio::task::JoinHandle;
 
 use crate::server::SharedAppState;
 
 pub struct DailyScheduler {
     _tasks: Vec<JoinHandle<()>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedPeriodicNote {
+    pub kind: PeriodKind,
+    pub key: String,
+    pub period_start: NaiveDate,
+    pub period_end: NaiveDate,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnsurePeriodicResult {
+    pub note: ResolvedPeriodicNote,
+    pub created_path: Option<String>,
 }
 
 /// Ensure a daily note exists for the given date.
@@ -20,25 +38,130 @@ pub fn ensure_daily_note(
     daily_template: &str,
     date: NaiveDate,
     template_engine: &notesmith_templates::TemplateEngine,
-    engine: &dyn notesmith_core::VaultEngine,
+    engine: &dyn VaultEngine,
 ) -> anyhow::Result<Option<String>> {
-    let date_str = date.format("%Y-%m-%d").to_string();
-    let expected_path = format!("{daily_folder}/{date_str}.md");
-    let vault_path = notesmith_core::VaultPath::new(expected_path);
+    let config = PeriodicConfig {
+        daily: Some(PeriodKindConfig {
+            folder: daily_folder.to_string(),
+            template: Some(daily_template.to_string()),
+            filename: "{{ date }}".to_string(),
+            generate_at: None,
+            timezone: None,
+            catch_up: false,
+        }),
+        ..Default::default()
+    };
+    Ok(ensure_periodic_note(
+        vault_root,
+        &config,
+        PeriodKind::Daily,
+        date,
+        template_engine,
+        engine,
+    )?
+    .created_path)
+}
 
-    // Check if note already exists
+pub fn resolve_periodic_note(
+    periodic: &PeriodicConfig,
+    kind: PeriodKind,
+    date: NaiveDate,
+    template_engine: &notesmith_templates::TemplateEngine,
+) -> anyhow::Result<ResolvedPeriodicNote> {
+    let config = periodic
+        .kind_config(kind)
+        .ok_or_else(|| anyhow!("periodic {kind} is not configured"))?;
+    let prompts = periodic_template_context(kind, date);
+    let rendered_name = template_engine
+        .render_text(&config.filename, &prompts)
+        .with_context(|| format!("failed to render {} filename", kind.as_str()))?;
+
+    let path = if config.folder.is_empty() {
+        format!("{rendered_name}.md")
+    } else {
+        format!("{}/{rendered_name}.md", config.folder)
+    };
+    let (period_start, period_end) = kind.period_bounds(date);
+
+    Ok(ResolvedPeriodicNote {
+        kind,
+        key: kind.current_key(date),
+        period_start,
+        period_end,
+        path,
+    })
+}
+
+pub fn ensure_periodic_note(
+    vault_root: &Path,
+    periodic: &PeriodicConfig,
+    kind: PeriodKind,
+    date: NaiveDate,
+    template_engine: &notesmith_templates::TemplateEngine,
+    engine: &dyn VaultEngine,
+) -> anyhow::Result<EnsurePeriodicResult> {
+    let note = resolve_periodic_note(periodic, kind, date, template_engine)?;
+    let vault_path = VaultPath::new(note.path.clone());
     match engine.read(vault_root, &vault_path) {
-        Ok(_) => return Ok(None),
-        Err(notesmith_core::NotesmithError::NoteNotFound { .. }) => {}
-        Err(e) => return Err(e.into()),
+        Ok(_) => {
+            return Ok(EnsurePeriodicResult {
+                note,
+                created_path: None,
+            });
+        }
+        Err(NotesmithError::NoteNotFound { .. }) => {}
+        Err(error) => return Err(error.into()),
     }
 
-    // Create via template, overriding "today" with the target date
-    let mut prompts = HashMap::new();
-    prompts.insert("today".to_string(), date_str);
+    let config = periodic
+        .kind_config(kind)
+        .ok_or_else(|| anyhow!("periodic {kind} is not configured"))?;
+    let prompts = periodic_template_context(kind, date);
+    let content = match config
+        .template
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        Some(template_name) => {
+            template_engine
+                .render_to_path(template_name, &prompts, &note.path)
+                .with_context(|| {
+                    format!(
+                        "failed to render {} template {template_name}",
+                        kind.as_str()
+                    )
+                })?
+                .content
+        }
+        None => String::new(),
+    };
+    let content = notesmith_vault::apply_save_pipeline(&content);
+    engine.write(vault_root, &vault_path, None, &content)?;
 
-    let rendered = template_engine.instantiate(daily_template, &prompts, engine)?;
-    Ok(Some(rendered.path))
+    Ok(EnsurePeriodicResult {
+        created_path: Some(note.path.clone()),
+        note,
+    })
+}
+
+fn periodic_template_context(kind: PeriodKind, date: NaiveDate) -> HashMap<String, String> {
+    let (period_start, period_end) = kind.period_bounds(date);
+    let mut prompts = HashMap::new();
+    prompts.insert("today".to_string(), date.format("%Y-%m-%d").to_string());
+    prompts.insert("date".to_string(), date.format("%Y-%m-%d").to_string());
+    prompts.insert("week".to_string(), PeriodKind::Weekly.current_key(date));
+    prompts.insert("month".to_string(), PeriodKind::Monthly.current_key(date));
+    prompts.insert(
+        "quarter".to_string(),
+        PeriodKind::Quarterly.current_key(date),
+    );
+    prompts.insert("year".to_string(), PeriodKind::Yearly.current_key(date));
+    prompts.insert("day_name".to_string(), date.format("%A").to_string());
+    prompts.insert("period_kind".to_string(), kind.to_string());
+    prompts.insert("period_key".to_string(), kind.current_key(date));
+    prompts.insert("period_start".to_string(), period_start.to_string());
+    prompts.insert("period_end".to_string(), period_end.to_string());
+    prompts
 }
 
 /// Run catch-up: create daily notes for any missing days in the last 30 days.
@@ -47,7 +170,7 @@ pub fn catch_up_daily_notes(
     daily_folder: &str,
     daily_template: &str,
     template_engine: &notesmith_templates::TemplateEngine,
-    engine: &dyn notesmith_core::VaultEngine,
+    engine: &dyn VaultEngine,
 ) -> anyhow::Result<Vec<String>> {
     let today = Local::now().date_naive();
     let mut created = Vec::new();
@@ -292,6 +415,56 @@ mod tests {
             "expected template to use overridden date, got:\n{content}"
         );
         assert!(content.contains("date: 2024-01-01"));
+    }
+
+    #[test]
+    fn ensure_periodic_note_creates_weekly_note_from_configured_filename() {
+        let (_tmp, root) = setup_temp_vault();
+        let engine = NativeVaultEngine;
+        let template_engine = notesmith_templates::TemplateEngine::new(root.clone(), None);
+        std::fs::write(
+            root.join("Assets/templates/weekly.md.j2"),
+            r#"---
+notesmith:
+  name: weekly
+  description: Weekly note
+  output_path: "ignored/{{ week }}.md"
+---
+# {{ period_key }}
+{{ period_start }} → {{ period_end }}
+"#,
+        )
+        .unwrap();
+        let config = notesmith_config::PeriodicConfig {
+            weekly: Some(notesmith_config::PeriodKindConfig {
+                folder: "Weekly".to_string(),
+                template: Some("weekly".to_string()),
+                filename: "Week {{ week }}".to_string(),
+                generate_at: None,
+                timezone: None,
+                catch_up: false,
+            }),
+            ..Default::default()
+        };
+        let date = NaiveDate::from_ymd_opt(2026, 5, 23).unwrap();
+
+        let result = ensure_periodic_note(
+            &root,
+            &config,
+            notesmith_core::PeriodKind::Weekly,
+            date,
+            &template_engine,
+            &engine,
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.created_path,
+            Some("Weekly/Week 2026-W21.md".to_string())
+        );
+        let content = std::fs::read_to_string(root.join("Weekly/Week 2026-W21.md")).unwrap();
+        assert!(content.contains("# 2026-W21"));
+        assert!(content.contains("2026-05-18 → 2026-05-24"));
     }
 
     #[test]

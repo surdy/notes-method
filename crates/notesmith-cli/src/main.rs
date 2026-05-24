@@ -6,6 +6,7 @@ use notesmith_cli::commands::{
     daily::DailyCommand,
     mcp::McpCommand,
     note::NoteCommand,
+    periodic::PeriodicCommand,
     query::QueryCommand,
     reindex::ReindexCommand,
     route::RouteCommand,
@@ -105,6 +106,11 @@ enum Command {
         #[command(subcommand)]
         command: DailyCommand,
     },
+    /// Periodic note commands
+    Periodic {
+        #[command(subcommand)]
+        command: PeriodicCommand,
+    },
     /// Vault skill file commands
     Skill {
         #[command(subcommand)]
@@ -176,6 +182,11 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
         }
         Command::Daily { command } => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
+        Command::Periodic { command } => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;

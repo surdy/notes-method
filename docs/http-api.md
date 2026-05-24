@@ -971,7 +971,7 @@ Apply routing rules to move notes to their destinations. Routing applies configu
 
 ### `GET /api/v/{vault}/daily/{date}`
 
-Fetch the daily note for the given date.
+Fetch the daily note for the given date. The path is resolved through `periodic.daily`, so custom daily filenames are supported.
 
 **Parameters:**
 - `date` — Date in `YYYY-MM-DD` format
@@ -1024,6 +1024,58 @@ curl -X POST http://127.0.0.1:27183/api/v/work/daily/2025-06-15
 **Errors:**
 - `400` — invalid date format
 - `404` — vault not found
+
+### `GET /api/v/{vault}/periodic/{kind}/current`
+
+Get the current periodic note for `daily`, `weekly`, `monthly`, `quarterly`, or `yearly`, creating it if missing.
+
+**Query parameters:**
+- `offset` — optional integer offset from the current period (`-1`, `0`, `1`, ...)
+
+**Example:**
+```bash
+curl "http://127.0.0.1:27183/api/v/work/periodic/weekly/current?offset=-1"
+```
+
+**Response:** `200 OK`
+```json
+{
+  "created": true,
+  "path": "Weekly/Week 2026-W21.md",
+  "content": "# 2026-W21\n...",
+  "frontmatter": null,
+  "period_kind": "weekly",
+  "period_key": "2026-W21",
+  "period_start": "2026-05-18",
+  "period_end": "2026-05-24"
+}
+```
+
+### `GET /api/v/{vault}/periodic/{kind}/list`
+
+List indexed periodic notes for a kind in a date range.
+
+**Query parameters:**
+- `from` — optional start date (`YYYY-MM-DD`)
+- `to` — optional end date (`YYYY-MM-DD`)
+
+**Example:**
+```bash
+curl "http://127.0.0.1:27183/api/v/work/periodic/weekly/list?from=2026-05-18&to=2026-05-31"
+```
+
+**Response:** `200 OK`
+```json
+[
+  {
+    "path": "Weekly/Week 2026-W21.md",
+    "period_kind": "weekly",
+    "period_key": "2026-W21",
+    "period_start": "2026-05-18",
+    "period_end": "2026-05-24"
+  }
+]
+```
 
 ### `POST /api/v/{vault}/daily/agent-create`
 

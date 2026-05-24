@@ -273,7 +273,7 @@ mod tests {
 
     use axum::extract::{Path, Query, State};
     use chrono::Utc;
-    use notesmith_config::VaultConfig;
+    use notesmith_config::{VaultConfig, migration};
     use notesmith_core::VaultEngine;
     use notesmith_index::{SearchIndex, VaultCache};
     use notesmith_vault::NativeVaultEngine;
@@ -301,8 +301,15 @@ mod tests {
 
         let engine = NativeVaultEngine;
         let notes = engine.scan(&vault_root).unwrap();
+        let vault_config =
+            migration::load_and_migrate(&vault_root).unwrap_or_else(|_| VaultConfig {
+                name: "work".to_string(),
+                ..Default::default()
+            });
         let cache = VaultCache::open_in_memory().unwrap();
-        cache.reindex("work", &notes).unwrap();
+        cache
+            .reindex_with_periodic("work", &notes, &vault_config.periodic)
+            .unwrap();
         let search_index = SearchIndex::open_in_memory().unwrap();
         search_index.reindex("work", &notes).unwrap();
 

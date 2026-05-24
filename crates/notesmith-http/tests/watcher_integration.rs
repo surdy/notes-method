@@ -6,7 +6,7 @@ use std::{
 };
 
 use chrono::Utc;
-use notesmith_config::VaultConfig;
+use notesmith_config::{VaultConfig, migration};
 use notesmith_core::VaultEngine;
 use notesmith_http::watcher::WatcherState;
 use notesmith_http::{AppState, SharedAppState, VaultState, watch_vault};
@@ -23,8 +23,14 @@ async fn watcher_indexes_new_markdown_files() {
 
     let engine = NativeVaultEngine;
     let notes = engine.scan(&vault_root).unwrap();
+    let vault_config = migration::load_and_migrate(&vault_root).unwrap_or_else(|_| VaultConfig {
+        name: "test-vault".to_string(),
+        ..Default::default()
+    });
     let cache = VaultCache::open_in_memory().unwrap();
-    cache.reindex("test-vault", &notes).unwrap();
+    cache
+        .reindex_with_periodic("test-vault", &notes, &vault_config.periodic)
+        .unwrap();
     let search_index = SearchIndex::open_in_memory().unwrap();
     search_index.reindex("test-vault", &notes).unwrap();
 

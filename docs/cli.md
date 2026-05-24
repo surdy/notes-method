@@ -569,6 +569,25 @@ notesmith daily agent-create --date 2025-06-15 --content "---\ntype: daily\ndate
 
 ---
 
+## periodic
+
+### `periodic open <kind> [--offset N]`
+
+Open the current periodic note for a kind, creating it if missing. `--offset -1` opens the previous period; `--offset 1` opens the next period.
+
+```bash
+notesmith periodic open daily
+notesmith periodic open weekly
+notesmith periodic open monthly --offset -1
+```
+
+| Argument / Flag | Description | Default |
+|-----------------|-------------|---------|
+| `<kind>` | `daily`, `weekly`, `monthly`, `quarterly`, or `yearly` | required |
+| `--offset <N>` | Period offset from the current period | `0` |
+
+---
+
 ## skill
 
 ### `skill print`

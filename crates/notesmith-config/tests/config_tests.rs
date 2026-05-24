@@ -173,6 +173,96 @@ on_daily_create = "Assets/scripts/on-daily-create.py"
 }
 
 #[test]
+fn vault_config_parses_periodic_sections() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("vault.toml");
+    fs::write(
+        &path,
+        r#"
+name = "work"
+
+[periodic.daily]
+folder = "Daily"
+template = "daily"
+filename = "{{ date }}"
+
+[periodic.weekly]
+folder = "Weekly"
+template = "weekly"
+filename = "Week {{ week }}"
+
+[periodic.monthly]
+folder = "Monthly"
+template = "monthly"
+filename = "{{ month }}"
+
+[periodic.quarterly]
+folder = "Quarterly"
+template = "quarterly"
+filename = "{{ quarter }}"
+
+[periodic.yearly]
+folder = "Yearly"
+template = "yearly"
+filename = "{{ year }}"
+"#,
+    )
+    .unwrap();
+
+    let config = VaultConfig::load_from(&path).unwrap();
+    assert_eq!(config.periodic.daily.as_ref().unwrap().folder, "Daily");
+    assert_eq!(
+        config.periodic.weekly.as_ref().unwrap().filename,
+        "Week {{ week }}"
+    );
+    assert_eq!(
+        config
+            .periodic
+            .monthly
+            .as_ref()
+            .unwrap()
+            .template
+            .as_deref(),
+        Some("monthly")
+    );
+    assert_eq!(
+        config.periodic.quarterly.as_ref().unwrap().filename,
+        "{{ quarter }}"
+    );
+    assert_eq!(
+        config.periodic.yearly.as_ref().unwrap().filename,
+        "{{ year }}"
+    );
+}
+
+#[test]
+fn vault_config_maps_legacy_daily_to_periodic_daily() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("vault.toml");
+    fs::write(
+        &path,
+        r#"
+name = "work"
+
+[daily]
+folder = "Inbox/Daily"
+template = "daily-note"
+generate_at = "06:30"
+catch_up = true
+"#,
+    )
+    .unwrap();
+
+    let config = VaultConfig::load_from(&path).unwrap();
+    let daily = config.periodic.daily.as_ref().unwrap();
+    assert_eq!(daily.folder, "Inbox/Daily");
+    assert_eq!(daily.template.as_deref(), Some("daily-note"));
+    assert_eq!(daily.filename, "{{ date }}");
+    assert_eq!(daily.generate_at.as_deref(), Some("06:30"));
+    assert!(daily.catch_up);
+}
+
+#[test]
 fn vault_config_minimal() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("vault.toml");
@@ -240,6 +330,7 @@ fn vault_config_roundtrip() {
         homepage: Some("Home.md".to_string()),
         capture: CaptureConfig::default(),
         daily: DailyConfig::default(),
+        periodic: PeriodicConfig::default(),
         editor: EditorConfig::default(),
         appearance: AppearanceConfig::default(),
         git: GitConfig::default(),

@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
+use notesmith_config::PeriodicConfig;
 use notesmith_core::Note;
 use rusqlite::Connection;
 
@@ -59,6 +60,17 @@ impl VaultCache {
         indexer.index_all(vault_name, notes)
     }
 
+    pub fn reindex_with_periodic(
+        &self,
+        vault_name: &str,
+        notes: &[Note],
+        periodic: &PeriodicConfig,
+    ) -> anyhow::Result<()> {
+        let conn = self.connection();
+        let indexer = CacheIndexer::with_periodic_config(&conn, periodic);
+        indexer.index_all(vault_name, notes)
+    }
+
     pub fn check_integrity(&self) -> anyhow::Result<bool> {
         let conn = self.connection();
         match conn.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0)) {
@@ -70,6 +82,17 @@ impl VaultCache {
     pub fn update_note(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
         let conn = self.connection();
         let indexer = CacheIndexer::new(&conn);
+        indexer.index_note(vault_name, note)
+    }
+
+    pub fn update_note_with_periodic(
+        &self,
+        vault_name: &str,
+        note: &Note,
+        periodic: &PeriodicConfig,
+    ) -> anyhow::Result<()> {
+        let conn = self.connection();
+        let indexer = CacheIndexer::with_periodic_config(&conn, periodic);
         indexer.index_note(vault_name, note)
     }
 

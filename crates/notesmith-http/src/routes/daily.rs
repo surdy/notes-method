@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use notesmith_core::{NotesmithError, VaultEngine, VaultName, VaultPath, WriteResult};
+use notesmith_core::{NotesmithError, PeriodKind, VaultEngine, VaultName, VaultPath, WriteResult};
 use notesmith_query::{execute_sql, format_query_as_markdown_table};
 use notesmith_vault::{extract_frontmatter, parse_note};
 use serde::Deserialize;
@@ -44,8 +44,21 @@ pub async fn get_daily_note(
         )
     })?;
 
-    let daily_folder = &vault.vault_config.load().daily.folder;
-    let note_path = VaultPath::new(format!("{daily_folder}/{date}.md"));
+    let parsed_date = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("invalid date: {e}") })),
+        )
+    })?;
+    let config = vault.vault_config.load();
+    let resolved = crate::scheduler::resolve_periodic_note(
+        &config.periodic,
+        PeriodKind::Daily,
+        parsed_date,
+        &vault.template_engine,
+    )
+    .map_err(internal_error)?;
+    let note_path = VaultPath::new(resolved.path);
 
     let content = vault
         .engine
@@ -81,35 +94,35 @@ pub async fn create_daily_note(
     })?;
 
     let config = vault.vault_config.load();
-    let result = crate::scheduler::ensure_daily_note(
+    let result = crate::scheduler::ensure_periodic_note(
         &vault.root,
-        &config.daily.folder,
-        &config.daily.template,
+        &config.periodic,
+        PeriodKind::Daily,
         parsed_date,
         &vault.template_engine,
         &vault.engine,
     )
     .map_err(internal_error)?;
 
-    match result {
-        Some(path) => {
-            events::emit(
-                &state.event_tx,
-                &state.event_buffer,
-                VaultEvent::new(&vault_name, EventType::DailyCreated, &path),
-            );
-            Ok((
-                StatusCode::CREATED,
-                Json(json!({ "path": path, "created": true })),
-            ))
-        }
-        None => Ok((
+    if let Some(path) = result.created_path.as_deref() {
+        refresh_daily_indexes(vault, &vault_name, path).map_err(internal_error)?;
+        events::emit(
+            &state.event_tx,
+            &state.event_buffer,
+            VaultEvent::new(&vault_name, EventType::DailyCreated, path),
+        );
+        Ok((
+            StatusCode::CREATED,
+            Json(json!({ "path": path, "created": true })),
+        ))
+    } else {
+        Ok((
             StatusCode::OK,
             Json(json!({
-                "path": format!("{}/{}.md", config.daily.folder, date),
+                "path": result.note.path,
                 "created": false,
             })),
-        )),
+        ))
     }
 }
 
@@ -125,8 +138,16 @@ pub async fn agent_create_daily(
             Json(json!({ "error": format!("vault not found: {vault_name}") })),
         )
     })?;
-    let (_, date_str) = parse_daily_date(request.date.as_deref())?;
-    let note_path = daily_note_path(&vault.vault_config.load().daily.folder, &date_str);
+    let (parsed_date, date_str) = parse_daily_date(request.date.as_deref())?;
+    let config = vault.vault_config.load();
+    let resolved = crate::scheduler::resolve_periodic_note(
+        &config.periodic,
+        PeriodKind::Daily,
+        parsed_date,
+        &vault.template_engine,
+    )
+    .map_err(internal_error)?;
+    let note_path = VaultPath::new(resolved.path);
 
     if let Some(content) = request.content {
         match vault.engine.read(&vault.root, &note_path) {
@@ -149,6 +170,8 @@ pub async fn agent_create_daily(
             .map_err(note_error)?
         {
             WriteResult::Written { .. } => {
+                refresh_daily_indexes(vault, &vault_name, note_path.as_str())
+                    .map_err(internal_error)?;
                 events::emit(
                     &state.event_tx,
                     &state.event_buffer,
@@ -229,8 +252,24 @@ fn parse_daily_date(
     Ok((parsed, date_str))
 }
 
-fn daily_note_path(daily_folder: &str, date: &str) -> VaultPath {
-    VaultPath::new(format!("{daily_folder}/{date}.md"))
+fn refresh_daily_indexes(
+    vault: &crate::server::VaultState,
+    vault_name: &str,
+    path: &str,
+) -> anyhow::Result<()> {
+    let note_path = VaultPath::new(path.to_string());
+    let content = vault.engine.read(&vault.root, &note_path)?;
+    let note = parse_note(
+        &VaultName::new(vault_name.to_string()),
+        &note_path,
+        &content,
+    );
+    let config = vault.vault_config.load();
+    vault
+        .cache
+        .update_note_with_periodic(vault_name, &note, &config.periodic)?;
+    vault.search_index.update_note(vault_name, &note)?;
+    Ok(())
 }
 
 fn parse_prompt_template(content: &str) -> anyhow::Result<(Vec<ContextQuery>, String)> {

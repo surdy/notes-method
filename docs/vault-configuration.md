@@ -13,7 +13,7 @@ This guide covers every config file and format Notesmith reads today.
 | Per-vault | `<vault>/.notesmith/vault.toml` | TOML | Main vault behavior |
 | Per-vault | `<vault>/.notesmith/sidebar-views.yaml` | YAML | SQL-backed sidebar views |
 | Per-vault | `<vault>/.notesmith/routing.yaml` | YAML | Capture routing rules |
-| Per-vault | `<vault>/Assets/templates/*.md.j2` | Markdown + YAML front matter + Minijinja | Note templates |
+| Per-vault | `<vault>/.notesmith/templates/*.md` | Markdown + YAML front matter + Minijinja | Note templates (legacy `Assets/templates/*.md.j2` also loads) |
 | Per-vault | `<vault>/.notesmith/skill.md` | Markdown | AI instruction file |
 | Per-vault | `<vault>/.notesmith/prompts/*.md` | Markdown + YAML front matter | Agent prompt templates |
 
@@ -73,12 +73,33 @@ homepage = "Home.md"
 folder = ""                   # Default capture folder (vault root)
 template = "generic-note"     # Default template for captured notes
 
-[daily]
-folder = ""                   # Where daily notes are created (vault root by default)
-template = "daily-note"       # Template for daily notes
-generate_at = "06:00"         # Auto-generate daily note at this time (optional)
-timezone = "America/Los_Angeles"  # Timezone for daily scheduler (optional)
-catch_up = false              # Create missed daily notes on startup (default: false)
+[periodic.daily]
+folder = "Daily"
+template = "daily"
+filename = "{{ date }}"
+generate_at = "06:00"            # Auto-generate daily note at this time (optional)
+timezone = "America/Los_Angeles" # Timezone for daily scheduler (optional)
+catch_up = false                 # Create missed daily notes on startup (default: false)
+
+[periodic.weekly]
+folder = "Weekly"
+template = "weekly"
+filename = "Week {{ week }}"
+
+[periodic.monthly]
+folder = "Monthly"
+template = "monthly"
+filename = "{{ month }}"
+
+[periodic.quarterly]
+folder = "Quarterly"
+template = "quarterly"
+filename = "{{ quarter }}"
+
+[periodic.yearly]
+folder = "Yearly"
+template = "yearly"
+filename = "{{ year }}"
 
 [editor]
 live_preview = true               # Enable Live Preview mode (default: true)
@@ -109,12 +130,16 @@ Top-level fields:
 - `folder` — default capture folder (default: `""`, meaning the vault root)
 - `template` — default template for captured notes (default: `generic-note`)
 
-`[daily]`:
-- `folder` — where daily notes are created (default: `""`, meaning the vault root)
-- `template` — template for daily notes (default: `daily-note`)
-- `generate_at` — local time for scheduled daily note creation
-- `timezone` — IANA timezone for the scheduler
-- `catch_up` — create missed daily notes on startup (default: `false`)
+`[periodic.<kind>]`:
+- `folder` — folder for this periodic kind
+- `template` — optional template name used when creating notes for this kind
+- `filename` — Minijinja filename template (without `.md`)
+- `generate_at` — local time for scheduled creation (daily only)
+- `timezone` — IANA timezone for the scheduler (daily only)
+- `catch_up` — create missed daily notes on startup (daily only, default: `false`)
+
+Supported kinds are `daily`, `weekly`, `monthly`, `quarterly`, and `yearly`.
+Legacy `[daily]` settings are still read and mapped to `periodic.daily` for backward compatibility.
 
 `[editor]`:
 - `live_preview` — enable Live Preview mode (default: `true`)
@@ -133,7 +158,8 @@ Top-level fields:
 
 `[hooks]`:
 - `on_note_create` — script to run when a note is created
-- `on_daily_create` — script to run when a daily note is created
+- `on_periodic_create` — script to run when a periodic note is created
+- `on_daily_create` — legacy alias for `on_periodic_create`
 
 ---
 ## `sidebar-views.yaml`
@@ -232,48 +258,48 @@ Available Minijinja filters:
 
 ---
 ## Templates
-Templates live in `Assets/templates/` as Minijinja `.md.j2` files.
+Templates live in `.notesmith/templates/` as Minijinja markdown files. Legacy `Assets/templates/*.md.j2` templates are still loaded.
 
 ```text
-Assets/templates/
-├── generic-note.md.j2
-├── daily-note.md.j2
-├── external-meeting.md.j2
-├── internal-meeting.md.j2
-├── customer-index.md.j2
-├── stream.md.j2
-├── account-info.md.j2
-├── glossary.md.j2
-└── milestones.md.j2
+.notesmith/
+└── templates/
+    ├── generic-note.md
+    ├── daily-note.md
+    └── stream.md
 ```
 
-Each template has YAML front matter in a `notesmith:` block:
+Each template starts with YAML front matter metadata followed by the markdown body:
 
 ```markdown
 ---
-notesmith:
-  name: generic-note
-  description: A generic blank note
-  output_path: "{% if folder %}{{ folder }}/{% endif %}{{ title | slug }}.md"
-  prompts:
-    - name: title
-      type: text
-      required: true
-    - name: folder
-      type: text
-      required: false
+name: generic-note
+description: A generic blank note
+output_path: "{% if folder %}{{ folder }}/{% endif %}{{ title | slug }}.md"
+prompts:
+  - name: title
+    type: text
+    required: true
+  - name: folder
+    type: text
+    required: false
+context_queries:
+  open_tasks: "SELECT text, note_path FROM v_tasks WHERE status_group = 'open' LIMIT 20"
+pre_render_hook: ".notesmith/scripts/template-context.sh"
 ---
 # {{ title }}
 ```
 
 Template metadata fields:
 - `name` — template identifier used in CLI and API
-- `description` — human-readable description
+- `description` — optional human-readable description
 - `output_path` — Minijinja expression for the output file path
 - `prompts` — list of user inputs required to render the template
 - `prompts[].name` — prompt identifier
 - `prompts[].type` — `text` (more types may be added)
 - `prompts[].required` — whether the prompt is required
+- `prompts[].default` — optional default value used when the prompt is omitted
+- `context_queries` — map of template variable names to read-only SQL queries; each result becomes an array of row objects
+- `pre_render_hook` — optional script path, relative to the vault root; it receives the current context as JSON on stdin and returns extra context JSON on stdout
 
 ---
 ## Hooks

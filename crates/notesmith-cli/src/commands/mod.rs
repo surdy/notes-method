@@ -6,6 +6,7 @@ pub mod daemon;
 pub mod daily;
 pub mod mcp;
 pub mod note;
+pub mod periodic;
 pub mod query;
 pub mod reindex;
 pub mod route;

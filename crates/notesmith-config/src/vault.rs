@@ -1,28 +1,22 @@
 use crate::error::ConfigError;
+use notesmith_core::PeriodKind;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Current schema version for vault-local `vault.toml` files.
 pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct VaultConfig {
-    #[serde(default = "default_schema_version")]
     pub schema_version: u32,
     pub name: String,
-    #[serde(default)]
     pub homepage: Option<String>,
-    #[serde(default)]
     pub capture: CaptureConfig,
-    #[serde(default)]
     pub daily: DailyConfig,
-    #[serde(default)]
+    pub periodic: PeriodicConfig,
     pub editor: EditorConfig,
-    #[serde(default)]
     pub appearance: AppearanceConfig,
-    #[serde(default)]
     pub git: GitConfig,
-    #[serde(default)]
     pub hooks: HooksConfig,
 }
 
@@ -32,12 +26,18 @@ fn default_schema_version() -> u32 {
 
 impl Default for VaultConfig {
     fn default() -> Self {
+        let periodic = PeriodicConfig::default();
         Self {
             schema_version: default_schema_version(),
             name: String::new(),
             homepage: None,
             capture: Default::default(),
-            daily: Default::default(),
+            daily: periodic
+                .daily
+                .as_ref()
+                .map(DailyConfig::from_periodic)
+                .unwrap_or_default(),
+            periodic,
             editor: Default::default(),
             appearance: Default::default(),
             git: Default::default(),
@@ -73,6 +73,8 @@ pub struct DailyConfig {
     pub folder: String,
     #[serde(default = "default_daily_template")]
     pub template: String,
+    #[serde(default = "default_daily_filename")]
+    pub filename: String,
     #[serde(default)]
     pub generate_at: Option<String>,
     #[serde(default)]
@@ -89,15 +91,203 @@ fn default_daily_template() -> String {
     "daily-note".to_string()
 }
 
+fn default_daily_filename() -> String {
+    "{{ date }}".to_string()
+}
+
+fn default_weekly_filename() -> String {
+    "Week {{ week }}".to_string()
+}
+
+fn default_monthly_filename() -> String {
+    "{{ month }}".to_string()
+}
+
+fn default_quarterly_filename() -> String {
+    "{{ quarter }}".to_string()
+}
+
+fn default_yearly_filename() -> String {
+    "{{ year }}".to_string()
+}
+
+fn default_filename_for(kind: PeriodKind) -> String {
+    match kind {
+        PeriodKind::Daily => default_daily_filename(),
+        PeriodKind::Weekly => default_weekly_filename(),
+        PeriodKind::Monthly => default_monthly_filename(),
+        PeriodKind::Quarterly => default_quarterly_filename(),
+        PeriodKind::Yearly => default_yearly_filename(),
+    }
+}
+
 impl Default for DailyConfig {
     fn default() -> Self {
         Self {
             folder: default_daily_folder(),
             template: default_daily_template(),
+            filename: default_daily_filename(),
             generate_at: None,
             timezone: None,
             catch_up: false,
         }
+    }
+}
+
+impl DailyConfig {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+
+    fn from_periodic(config: &PeriodKindConfig) -> Self {
+        Self {
+            folder: config.folder.clone(),
+            template: config
+                .template
+                .clone()
+                .unwrap_or_else(default_daily_template),
+            filename: config.filename.clone(),
+            generate_at: config.generate_at.clone(),
+            timezone: config.timezone.clone(),
+            catch_up: config.catch_up,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct PeriodicConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daily: Option<PeriodKindConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weekly: Option<PeriodKindConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monthly: Option<PeriodKindConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quarterly: Option<PeriodKindConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub yearly: Option<PeriodKindConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PeriodKindConfig {
+    pub folder: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+    #[serde(default)]
+    pub filename: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generate_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+    #[serde(default)]
+    pub catch_up: bool,
+}
+
+impl PeriodKindConfig {
+    pub fn for_kind(kind: PeriodKind) -> Self {
+        let mut config = Self {
+            folder: String::new(),
+            template: None,
+            filename: String::new(),
+            generate_at: None,
+            timezone: None,
+            catch_up: false,
+        };
+        config.normalize(kind);
+        config
+    }
+
+    pub fn from_daily_compat(daily: &DailyConfig) -> Self {
+        let mut config = Self {
+            folder: daily.folder.clone(),
+            template: Some(daily.template.clone()),
+            filename: daily.filename.clone(),
+            generate_at: daily.generate_at.clone(),
+            timezone: daily.timezone.clone(),
+            catch_up: daily.catch_up,
+        };
+        config.normalize(PeriodKind::Daily);
+        config
+    }
+
+    pub fn normalize(&mut self, kind: PeriodKind) {
+        if self.filename.trim().is_empty() {
+            self.filename = default_filename_for(kind);
+        }
+        if kind == PeriodKind::Daily && self.template.is_none() {
+            self.template = Some(default_daily_template());
+        }
+    }
+
+    pub fn extract_period_key(&self, kind: PeriodKind, stem: &str) -> Option<String> {
+        let key = extract_key_from_filename_template(&self.filename, kind, stem)
+            .unwrap_or_else(|| stem.to_string());
+        kind.bounds_for_key(&key).map(|_| key)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeriodicNoteMatch {
+    pub kind: PeriodKind,
+    pub key: String,
+    pub period_start: chrono::NaiveDate,
+    pub period_end: chrono::NaiveDate,
+}
+
+impl PeriodicConfig {
+    pub fn normalize(&mut self) {
+        self.normalize_kind(PeriodKind::Daily);
+        self.normalize_kind(PeriodKind::Weekly);
+        self.normalize_kind(PeriodKind::Monthly);
+        self.normalize_kind(PeriodKind::Quarterly);
+        self.normalize_kind(PeriodKind::Yearly);
+    }
+
+    fn normalize_kind(&mut self, kind: PeriodKind) {
+        if let Some(config) = self.kind_config_mut(kind) {
+            config.normalize(kind);
+        }
+    }
+
+    pub fn kind_config(&self, kind: PeriodKind) -> Option<&PeriodKindConfig> {
+        match kind {
+            PeriodKind::Daily => self.daily.as_ref(),
+            PeriodKind::Weekly => self.weekly.as_ref(),
+            PeriodKind::Monthly => self.monthly.as_ref(),
+            PeriodKind::Quarterly => self.quarterly.as_ref(),
+            PeriodKind::Yearly => self.yearly.as_ref(),
+        }
+    }
+
+    pub fn kind_config_mut(&mut self, kind: PeriodKind) -> Option<&mut PeriodKindConfig> {
+        match kind {
+            PeriodKind::Daily => self.daily.as_mut(),
+            PeriodKind::Weekly => self.weekly.as_mut(),
+            PeriodKind::Monthly => self.monthly.as_mut(),
+            PeriodKind::Quarterly => self.quarterly.as_mut(),
+            PeriodKind::Yearly => self.yearly.as_mut(),
+        }
+    }
+
+    pub fn match_note_path(&self, path: &str) -> Option<PeriodicNoteMatch> {
+        let (parent, stem) = split_parent_and_stem(path)?;
+        for kind in PeriodKind::ALL {
+            let Some(config) = self.kind_config(kind) else {
+                continue;
+            };
+            if normalize_folder(parent) != normalize_folder(&config.folder) {
+                continue;
+            }
+            let key = config.extract_period_key(kind, stem)?;
+            let (period_start, period_end) = kind.bounds_for_key(&key)?;
+            return Some(PeriodicNoteMatch {
+                kind,
+                key,
+                period_start,
+                period_end,
+            });
+        }
+        None
     }
 }
 
@@ -192,6 +382,112 @@ pub struct HooksConfig {
     pub on_daily_create: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct RawVaultConfig {
+    #[serde(default = "default_schema_version")]
+    schema_version: u32,
+    name: String,
+    #[serde(default)]
+    homepage: Option<String>,
+    #[serde(default)]
+    capture: CaptureConfig,
+    #[serde(default)]
+    daily: DailyConfig,
+    #[serde(default)]
+    periodic: PeriodicConfig,
+    #[serde(default)]
+    editor: EditorConfig,
+    #[serde(default)]
+    appearance: AppearanceConfig,
+    #[serde(default)]
+    git: GitConfig,
+    #[serde(default)]
+    hooks: HooksConfig,
+}
+
+#[derive(Serialize)]
+struct PersistedVaultConfig<'a> {
+    schema_version: u32,
+    name: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    homepage: &'a Option<String>,
+    capture: &'a CaptureConfig,
+    #[serde(skip_serializing_if = "periodic_config_is_empty")]
+    periodic: &'a PeriodicConfig,
+    editor: &'a EditorConfig,
+    appearance: &'a AppearanceConfig,
+    git: &'a GitConfig,
+    hooks: &'a HooksConfig,
+}
+
+fn periodic_config_is_empty(config: &PeriodicConfig) -> bool {
+    config.daily.is_none()
+        && config.weekly.is_none()
+        && config.monthly.is_none()
+        && config.quarterly.is_none()
+        && config.yearly.is_none()
+}
+
+impl<'de> Deserialize<'de> for VaultConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = RawVaultConfig::deserialize(deserializer)?;
+        let mut periodic = raw.periodic;
+        periodic.normalize();
+
+        if periodic.daily.is_none() && !raw.daily.is_default() {
+            periodic.daily = Some(PeriodKindConfig::from_daily_compat(&raw.daily));
+        } else if let Some(ref mut daily) = periodic.daily {
+            if daily.folder.is_empty() && !raw.daily.folder.is_empty() {
+                daily.folder = raw.daily.folder.clone();
+            }
+            if daily.template.is_none() && !raw.daily.template.is_empty() {
+                daily.template = Some(raw.daily.template.clone());
+            }
+            if daily.filename.trim().is_empty() {
+                daily.filename = raw.daily.filename.clone();
+            }
+            if daily.generate_at.is_none() {
+                daily.generate_at = raw.daily.generate_at.clone();
+            }
+            if daily.timezone.is_none() {
+                daily.timezone = raw.daily.timezone.clone();
+            }
+            if !daily.catch_up {
+                daily.catch_up = raw.daily.catch_up;
+            }
+            daily.normalize(PeriodKind::Daily);
+        }
+
+        let daily = periodic
+            .daily
+            .as_ref()
+            .map(DailyConfig::from_periodic)
+            .unwrap_or_else(|| {
+                if raw.daily.is_default() {
+                    DailyConfig::default()
+                } else {
+                    raw.daily.clone()
+                }
+            });
+
+        Ok(Self {
+            schema_version: raw.schema_version,
+            name: raw.name,
+            homepage: raw.homepage,
+            capture: raw.capture,
+            daily,
+            periodic,
+            editor: raw.editor,
+            appearance: raw.appearance,
+            git: raw.git,
+            hooks: raw.hooks,
+        })
+    }
+}
+
 impl VaultConfig {
     pub fn load_from(path: &Path) -> Result<Self, ConfigError> {
         let content = std::fs::read_to_string(path).map_err(|source| ConfigError::ReadError {
@@ -221,14 +517,114 @@ impl VaultConfig {
             })?;
         }
 
-        let content =
-            toml::to_string_pretty(self).map_err(|error| ConfigError::SerializeError {
-                message: error.to_string(),
-            })?;
+        let periodic = self.periodic_for_persistence();
+        let content = toml::to_string_pretty(&PersistedVaultConfig {
+            schema_version: self.schema_version,
+            name: &self.name,
+            homepage: &self.homepage,
+            capture: &self.capture,
+            periodic: &periodic,
+            editor: &self.editor,
+            appearance: &self.appearance,
+            git: &self.git,
+            hooks: &self.hooks,
+        })
+        .map_err(|error| ConfigError::SerializeError {
+            message: error.to_string(),
+        })?;
 
         std::fs::write(path, content).map_err(|source| ConfigError::WriteError {
             path: path.to_path_buf(),
             source,
         })
     }
+
+    fn periodic_for_persistence(&self) -> PeriodicConfig {
+        let mut periodic = self.periodic.clone();
+        if let Some(ref mut daily) = periodic.daily {
+            if daily.folder.is_empty() && !self.daily.folder.is_empty() {
+                daily.folder = self.daily.folder.clone();
+            }
+            if daily.template.is_none() && !self.daily.template.is_empty() {
+                daily.template = Some(self.daily.template.clone());
+            }
+            if daily.filename.trim().is_empty() {
+                daily.filename = self.daily.filename.clone();
+            }
+            if daily.generate_at.is_none() {
+                daily.generate_at = self.daily.generate_at.clone();
+            }
+            if daily.timezone.is_none() {
+                daily.timezone = self.daily.timezone.clone();
+            }
+            if !daily.catch_up {
+                daily.catch_up = self.daily.catch_up;
+            }
+        } else if !self.daily.is_default() {
+            periodic.daily = Some(PeriodKindConfig::from_daily_compat(&self.daily));
+        }
+        periodic.normalize();
+        periodic
+    }
+}
+
+fn normalize_folder(folder: &str) -> &str {
+    folder.trim_end_matches('/')
+}
+
+fn split_parent_and_stem(path: &str) -> Option<(&str, &str)> {
+    let (parent, file_name) = path.rsplit_once('/').unwrap_or(("", path));
+    let stem = file_name.strip_suffix(".md")?;
+    Some((parent, stem))
+}
+
+fn extract_key_from_filename_template(
+    template: &str,
+    kind: PeriodKind,
+    stem: &str,
+) -> Option<String> {
+    let token = match kind {
+        PeriodKind::Daily => "date",
+        PeriodKind::Weekly => "week",
+        PeriodKind::Monthly => "month",
+        PeriodKind::Quarterly => "quarter",
+        PeriodKind::Yearly => "year",
+    };
+    let (prefix, suffix) = split_template_around_token(template, token)?;
+    if !stem.starts_with(&prefix) || !stem.ends_with(&suffix) {
+        return None;
+    }
+    let key = &stem[prefix.len()..stem.len().saturating_sub(suffix.len())];
+    if key.is_empty() {
+        None
+    } else {
+        Some(key.to_string())
+    }
+}
+
+fn split_template_around_token(template: &str, token: &str) -> Option<(String, String)> {
+    let mut cursor = 0;
+    let mut prefix = String::new();
+    let mut suffix = String::new();
+    let mut found = false;
+
+    while let Some(start) = template[cursor..].find("{{") {
+        let start = cursor + start;
+        let end = template[start + 2..].find("}}")? + start + 2;
+        let variable = template[start + 2..end].trim();
+        if found {
+            return None;
+        }
+        if variable == token {
+            prefix.push_str(&template[cursor..start]);
+            suffix.push_str(&template[end + 2..]);
+            found = true;
+            break;
+        }
+        prefix.push_str(&template[cursor..start]);
+        prefix.push_str(&template[start..=end + 1]);
+        cursor = end + 2;
+    }
+
+    found.then_some((prefix, suffix))
 }

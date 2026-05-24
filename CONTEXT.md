@@ -56,7 +56,7 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 ## Templates
 
-- **Template** — A Tera-based file in `.notesmith/templates/` with metadata (name, description, output path pattern), prompt specs, optional context_queries (SQL), and optional pre_render_hook (script). (`notesmith-templates::TemplateEngine`)
+- **Template** — A Minijinja-backed markdown file in `.notesmith/templates/` (legacy `Assets/templates/` is still supported) with metadata (name, description, output path pattern), prompt specs, optional context_queries (SQL), and optional pre_render_hook (script). (`notesmith-templates::TemplateEngine`)
 - **PromptSpec** — A named parameter a template requires at instantiation time (e.g. "customer name", "meeting date"). Types: text, field-picker, date.
 - **RenderedTemplate** — The output of template instantiation: a resolved path and rendered content.
 - **Context Layers** — Three layers of template context: (1) static variables (date, vault, filename), (2) SQL context_queries against the cache, (3) pre_render_hook script enrichment.

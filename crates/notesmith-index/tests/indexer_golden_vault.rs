@@ -176,6 +176,49 @@ fn periodic_notes_are_detected() {
 }
 
 #[test]
+fn periodic_notes_follow_configured_folder_templates() {
+    let note = parse_note(
+        &VaultName::new("test"),
+        &VaultPath::new("Weekly/Week 2026-W21.md"),
+        "# Weekly review\n",
+    );
+    let cache = VaultCache::open_in_memory().unwrap();
+    let config = notesmith_config::PeriodicConfig {
+        weekly: Some(notesmith_config::PeriodKindConfig {
+            folder: "Weekly".to_string(),
+            template: Some("weekly".to_string()),
+            filename: "Week {{ week }}".to_string(),
+            generate_at: None,
+            timezone: None,
+            catch_up: false,
+        }),
+        ..Default::default()
+    };
+
+    cache
+        .reindex_with_periodic("test", &[note], &config)
+        .unwrap();
+
+    let row: (String, String, String, String) = cache
+        .connection()
+        .query_row(
+            "SELECT period_kind, period_key, period_start, period_end FROM v_periodic WHERE note_path = ?1",
+            ["Weekly/Week 2026-W21.md"],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        row,
+        (
+            "weekly".to_string(),
+            "2026-W21".to_string(),
+            "2026-05-18".to_string(),
+            "2026-05-24".to_string(),
+        )
+    );
+}
+
+#[test]
 fn links_table_populated() {
     let cache = build_cache();
     let count: i64 = cache

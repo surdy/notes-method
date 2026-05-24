@@ -1,5 +1,6 @@
 ---
 source: crates/notesmith-config/tests/snapshots_tests.rs
+assertion_line: 73
 expression: serialized
 ---
 schema_version = 1
@@ -10,9 +11,10 @@ homepage = "Dashboards/Home.md"
 folder = ""
 template = "generic-note"
 
-[daily]
+[periodic.daily]
 folder = "Inbox/Daily"
 template = "daily-note"
+filename = "{{ date }}"
 generate_at = "06:30"
 timezone = "America/Los_Angeles"
 catch_up = true

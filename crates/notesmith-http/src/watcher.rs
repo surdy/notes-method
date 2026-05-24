@@ -393,7 +393,9 @@ async fn trigger_rescan(
         .vaults
         .get(vault_name)
         .with_context(|| format!("vault not found: {vault_name}"))?;
-    vault.cache.reindex(vault_name, &notes)?;
+    vault
+        .cache
+        .reindex_with_periodic(vault_name, &notes, &vault.vault_config.load().periodic)?;
     vault.search_index.reindex(vault_name, &notes)?;
     Ok(())
 }
@@ -605,7 +607,11 @@ fn handle_note_change(
                 &vault_path(relative_path.to_string()),
                 &vault.engine,
             )?;
-            vault.cache.update_note(event_context.vault_name, &note)?;
+            vault.cache.update_note_with_periodic(
+                event_context.vault_name,
+                &note,
+                &vault.vault_config.load().periodic,
+            )?;
             vault
                 .search_index
                 .update_note(event_context.vault_name, &note)?;

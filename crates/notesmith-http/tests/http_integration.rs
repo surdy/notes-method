@@ -23,15 +23,16 @@ fn golden_vault() -> PathBuf {
 fn build_vault_state(vault_name: &str, root: &Path) -> VaultState {
     let engine = NativeVaultEngine;
     let notes = engine.scan(root).unwrap();
-    let cache = VaultCache::open_in_memory().unwrap();
-    cache.reindex(vault_name, &notes).unwrap();
-    let search_index = SearchIndex::open_in_memory().unwrap();
-    search_index.reindex(vault_name, &notes).unwrap();
-
     let vault_config = migration::load_and_migrate(root).unwrap_or_else(|_| VaultConfig {
         name: vault_name.to_string(),
         ..Default::default()
     });
+    let cache = VaultCache::open_in_memory().unwrap();
+    cache
+        .reindex_with_periodic(vault_name, &notes, &vault_config.periodic)
+        .unwrap();
+    let search_index = SearchIndex::open_in_memory().unwrap();
+    search_index.reindex(vault_name, &notes).unwrap();
 
     let template_engine = notesmith_templates::TemplateEngine::new(root.to_path_buf(), None);
 
@@ -128,15 +129,18 @@ impl TestServer {
     }
 
     async fn with_files(files: &[(&str, &str)]) -> Self {
+        Self::with_config_and_files(
+            "name = \"test-vault\"\n\n[capture]\nfolder = \"Inbox\"\n\n[daily]\nfolder = \"Inbox/Daily\"\n",
+            files,
+        )
+        .await
+    }
+
+    async fn with_config_and_files(config: &str, files: &[(&str, &str)]) -> Self {
         let temp_dir = TempDir::new().unwrap();
         let root = temp_dir.path().join("vault");
         fs::create_dir_all(root.join(".notesmith")).unwrap();
-        // Provide explicit capture.folder so tests have a predictable default
-        fs::write(
-            root.join(".notesmith/vault.toml"),
-            "name = \"test-vault\"\n\n[capture]\nfolder = \"Inbox\"\n\n[daily]\nfolder = \"Inbox/Daily\"\n",
-        )
-        .unwrap();
+        fs::write(root.join(".notesmith/vault.toml"), config).unwrap();
         for (path, content) in files {
             write_note(&root, path, content);
         }
@@ -2305,6 +2309,114 @@ async fn get_daily_missing_returns_404() {
         .unwrap();
 
     assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn get_current_periodic_note_creates_weekly_note() {
+    let server = TestServer::with_config_and_files(
+        r#"name = "test-vault"
+
+[capture]
+folder = "Inbox"
+
+[periodic.weekly]
+folder = "Weekly"
+template = "weekly"
+filename = "Week {{ week }}"
+"#,
+        &[(
+            "Assets/templates/weekly.md.j2",
+            r#"---
+notesmith:
+  name: weekly
+  description: Weekly note
+  output_path: "ignored/{{ week }}.md"
+---
+# {{ period_key }}
+{{ period_start }} → {{ period_end }}
+"#,
+        )],
+    )
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/v/test-vault/periodic/weekly/current?offset=-1"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    let target_date = chrono::Local::now().date_naive() - chrono::Duration::weeks(1);
+    let week_key = target_date.format("%G-W%V").to_string();
+    assert_eq!(body["created"], serde_json::json!(true));
+    assert_eq!(body["period_kind"], serde_json::json!("weekly"));
+    assert_eq!(body["period_key"], serde_json::json!(week_key.clone()));
+    assert_eq!(
+        body["path"],
+        serde_json::json!(format!("Weekly/Week {week_key}.md"))
+    );
+    assert!(
+        server
+            .root
+            .join(format!("Weekly/Week {week_key}.md"))
+            .exists()
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn list_periodic_notes_filters_range() {
+    let server = TestServer::with_config_and_files(
+        r#"name = "test-vault"
+
+[capture]
+folder = "Inbox"
+
+[periodic.weekly]
+folder = "Weekly"
+template = "weekly"
+filename = "Week {{ week }}"
+"#,
+        &[
+            ("Weekly/Week 2026-W21.md", "# 2026-W21\n"),
+            ("Weekly/Week 2026-W22.md", "# 2026-W22\n"),
+            ("Weekly/Week 2026-W30.md", "# 2026-W30\n"),
+        ],
+    )
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/v/test-vault/periodic/weekly/list?from=2026-05-18&to=2026-05-31"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        response.json::<serde_json::Value>().await.unwrap(),
+        serde_json::json!([
+            {
+                "path": "Weekly/Week 2026-W21.md",
+                "period_kind": "weekly",
+                "period_key": "2026-W21",
+                "period_start": "2026-05-18",
+                "period_end": "2026-05-24"
+            },
+            {
+                "path": "Weekly/Week 2026-W22.md",
+                "period_kind": "weekly",
+                "period_key": "2026-W22",
+                "period_start": "2026-05-25",
+                "period_end": "2026-05-31"
+            }
+        ])
+    );
 
     server.server.abort();
 }

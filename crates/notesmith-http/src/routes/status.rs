@@ -227,7 +227,7 @@ mod tests {
         http::{Request, StatusCode},
     };
     use chrono::{TimeZone, Utc};
-    use notesmith_config::VaultConfig;
+    use notesmith_config::{VaultConfig, migration};
     use notesmith_core::VaultEngine;
     use notesmith_index::{SearchIndex, VaultCache};
     use notesmith_vault::NativeVaultEngine;
@@ -318,8 +318,15 @@ mod tests {
     ) -> AppState {
         let engine = NativeVaultEngine;
         let notes = engine.scan(vault_root).unwrap();
+        let vault_config =
+            migration::load_and_migrate(vault_root).unwrap_or_else(|_| VaultConfig {
+                name: vault_name.to_string(),
+                ..Default::default()
+            });
         let cache = VaultCache::open(cache_path).unwrap();
-        cache.reindex(vault_name, &notes).unwrap();
+        cache
+            .reindex_with_periodic(vault_name, &notes, &vault_config.periodic)
+            .unwrap();
         let search_index = SearchIndex::open_in_memory().unwrap();
         search_index.reindex(vault_name, &notes).unwrap();
 

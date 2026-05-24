@@ -1863,6 +1863,7 @@ dependencies = [
  "blake3",
  "chrono",
  "insta",
+ "notesmith-config",
  "notesmith-core",
  "notesmith-vault",
  "pretty_assertions",
@@ -1963,6 +1964,8 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -217,3 +217,68 @@ async fn daily_agent_create_with_content_creates_note_via_daemon() {
     );
     assert!(vault_root.join("Inbox/Daily/2026-05-10.md").exists());
 }
+
+#[tokio::test]
+async fn periodic_open_creates_weekly_note_via_daemon() {
+    let temp_dir = TempDir::new().unwrap();
+    let vault_root = temp_dir.path().join("work");
+    create_vault(&vault_root, "work");
+
+    let mut config = VaultConfig::load_from_vault(&vault_root).unwrap();
+    config.periodic.weekly = Some(notesmith_config::PeriodKindConfig {
+        folder: "Weekly".to_string(),
+        template: Some("weekly".to_string()),
+        filename: "Week {{ week }}".to_string(),
+        generate_at: None,
+        timezone: None,
+        catch_up: false,
+    });
+    config.save_to_vault(&vault_root).unwrap();
+
+    fs::create_dir_all(vault_root.join("Assets/templates")).unwrap();
+    fs::write(
+        vault_root.join("Assets/templates/weekly.md.j2"),
+        r#"---
+notesmith:
+  name: weekly
+  description: Weekly note
+  output_path: "ignored/{{ week }}.md"
+---
+# {{ period_key }}
+{{ period_start }} → {{ period_end }}
+"#,
+    )
+    .unwrap();
+
+    let config_home = temp_dir.path().join("config-home");
+    let cache_home = temp_dir.path().join("cache-home");
+    let bind = bind_address();
+    write_global_config(&config_home, "work", &vault_root, bind.clone());
+
+    let _daemon = DaemonProcess::start(&config_home, &cache_home, bind).await;
+
+    let output = Command::new(notesmith_bin())
+        .current_dir(&vault_root)
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .args(["periodic", "open", "weekly", "--offset", "-1"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let target_date = chrono::Local::now().date_naive() - chrono::Duration::weeks(1);
+    let week_key = target_date.format("%G-W%V").to_string();
+    let expected_path = vault_root.join(format!("Weekly/Week {week_key}.md"));
+    assert!(
+        expected_path.exists(),
+        "missing {}",
+        expected_path.display()
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains(&week_key));
+}

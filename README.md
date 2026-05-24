@@ -23,7 +23,7 @@ Notesmith keeps notes as plain markdown files on disk — no database of record 
 | **Routing** | YAML DSL with boolean combinators for rule-based note filing and mutation. |
 | **Hooks** | 6 lifecycle events that trigger external commands (on_note_create, on_field_change, etc.). |
 | **Periodic Notes** | Daily, weekly, monthly, quarterly, yearly — all configurable. |
-| **Templates** | Tera-based with 3 context layers: static, SQL queries, hook enrichment. |
+| **Templates** | Minijinja-based with 3 context layers: static, SQL queries, hook enrichment. |
 | **Field Registry** | `.notesmith/fields.toml` — advisory type/value hints for autocomplete. |
 | **User Views** | `.notesmith/views.sql` — custom SQL views in the cache database. |
 
@@ -43,7 +43,7 @@ crates/
 ├── notesmith-vault      # VaultEngine trait + native filesystem adapters
 ├── notesmith-index      # SQLite cache builder + Tantivy full-text search
 ├── notesmith-query      # Stable SQL views, query execution, dashboard helpers
-├── notesmith-templates  # Tera template engine with SQL + hook context layers
+├── notesmith-templates  # Minijinja template engine with SQL + hook context layers
 ├── notesmith-routing    # Expressive YAML routing DSL with boolean predicates
 ├── notesmith-tasks      # Task parsing, configurable status resolution
 ├── notesmith-hooks      # 6-event hook system for note lifecycle automation

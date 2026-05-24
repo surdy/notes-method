@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use notesmith_config::HooksConfig;
+use notesmith_config::{HooksConfig, PeriodicNoteMatch};
+use notesmith_core::PeriodKind;
 use notesmith_hooks::{HookEvent, HookPayload, HookRunner, fire_hook};
 use tokio::sync::broadcast;
 
@@ -50,7 +51,7 @@ async fn handle_event(event: &VaultEvent, vaults: &[HookVaultContext], runner: &
             HookEvent::OnNoteUpdate,
             ctx.hooks_config.on_note_update.as_deref(),
         ),
-        EventType::DailyCreated => (
+        EventType::DailyCreated | EventType::PeriodicCreated => (
             HookEvent::OnPeriodicCreate,
             ctx.hooks_config
                 .on_periodic_create
@@ -64,6 +65,12 @@ async fn handle_event(event: &VaultEvent, vaults: &[HookVaultContext], runner: &
         return;
     };
 
+    let periodic = if hook_event == HookEvent::OnPeriodicCreate {
+        detect_periodic_note(ctx, &event.path)
+    } else {
+        None
+    };
+
     let payload = HookPayload {
         event: hook_event.as_str().to_string(),
         vault: event.vault.clone(),
@@ -74,12 +81,8 @@ async fn handle_event(event: &VaultEvent, vaults: &[HookVaultContext], runner: &
         from_path: None,
         to_path: None,
         mutations: None,
-        period_kind: if hook_event == HookEvent::OnPeriodicCreate {
-            Some("daily".to_string())
-        } else {
-            None
-        },
-        period_key: None,
+        period_kind: periodic.as_ref().map(|periodic| periodic.kind.to_string()),
+        period_key: periodic.as_ref().map(|periodic| periodic.key.clone()),
         old_status: None,
         new_status: None,
         task_text: None,
@@ -87,4 +90,22 @@ async fn handle_event(event: &VaultEvent, vaults: &[HookVaultContext], runner: &
     };
 
     fire_hook(runner, &ctx.vault_root, script_path, payload).await;
+}
+
+fn detect_periodic_note(ctx: &HookVaultContext, path: &str) -> Option<PeriodicNoteMatch> {
+    let config = notesmith_config::migration::load_and_migrate(&ctx.vault_root).ok()?;
+    config.periodic.match_note_path(path).or_else(|| {
+        if path.ends_with(".md") {
+            let stem = path.rsplit('/').next()?.strip_suffix(".md")?;
+            let (period_start, period_end) = PeriodKind::Daily.bounds_for_key(stem)?;
+            Some(PeriodicNoteMatch {
+                kind: PeriodKind::Daily,
+                key: stem.to_string(),
+                period_start,
+                period_end,
+            })
+        } else {
+            None
+        }
+    })
 }

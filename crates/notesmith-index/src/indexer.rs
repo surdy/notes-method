@@ -1,5 +1,5 @@
-use chrono::{Datelike, Duration, NaiveDate};
-use notesmith_core::{Frontmatter, LinkType, Note, Task};
+use notesmith_config::PeriodicConfig;
+use notesmith_core::{Frontmatter, LinkType, Note, PeriodKind, Task};
 use regex::Regex;
 use rusqlite::{Connection, params};
 use serde_yaml::Value;
@@ -8,11 +8,22 @@ use tracing::warn;
 
 pub struct CacheIndexer<'a> {
     conn: &'a Connection,
+    periodic_config: Option<&'a PeriodicConfig>,
 }
 
 impl<'a> CacheIndexer<'a> {
     pub fn new(conn: &'a Connection) -> Self {
-        Self { conn }
+        Self {
+            conn,
+            periodic_config: None,
+        }
+    }
+
+    pub fn with_periodic_config(conn: &'a Connection, periodic_config: &'a PeriodicConfig) -> Self {
+        Self {
+            conn,
+            periodic_config: Some(periodic_config),
+        }
     }
 
     pub fn index_all(&self, vault_name: &str, notes: &[Note]) -> anyhow::Result<()> {
@@ -289,7 +300,9 @@ impl<'a> CacheIndexer<'a> {
         note: &Note,
         note_type: &str,
     ) -> anyhow::Result<()> {
-        let Some(periodic) = extract_periodic_note(note.path.as_str(), note_type) else {
+        let Some(periodic) =
+            extract_periodic_note(note.path.as_str(), note_type, self.periodic_config)
+        else {
             return Ok(());
         };
 
@@ -542,43 +555,33 @@ struct PeriodicNoteRecord {
     end: String,
 }
 
-fn extract_periodic_note(path: &str, note_type: &str) -> Option<PeriodicNoteRecord> {
-    let stem = path.rsplit('/').next()?.strip_suffix(".md")?;
-    if note_type == "daily" || looks_like_date(stem) {
-        let date = NaiveDate::parse_from_str(stem, "%Y-%m-%d").ok()?;
-        return Some(PeriodicNoteRecord {
-            kind: "daily".to_string(),
-            key: stem.to_string(),
-            start: date.to_string(),
-            end: date.to_string(),
-        });
-    }
-    if let Some((year, month)) = stem.split_once('-') {
-        if stem.len() == 7 {
-            let start = NaiveDate::from_ymd_opt(year.parse().ok()?, month.parse().ok()?, 1)?;
-            let next_month = if start.month() == 12 {
-                NaiveDate::from_ymd_opt(start.year() + 1, 1, 1)?
-            } else {
-                NaiveDate::from_ymd_opt(start.year(), start.month() + 1, 1)?
-            };
+fn extract_periodic_note(
+    path: &str,
+    note_type: &str,
+    periodic_config: Option<&PeriodicConfig>,
+) -> Option<PeriodicNoteRecord> {
+    if let Some(config) = periodic_config {
+        if let Some(periodic) = config.match_note_path(path) {
             return Some(PeriodicNoteRecord {
-                kind: "monthly".to_string(),
-                key: stem.to_string(),
-                start: start.to_string(),
-                end: (next_month - Duration::days(1)).to_string(),
+                kind: periodic.kind.to_string(),
+                key: periodic.key,
+                start: periodic.period_start.to_string(),
+                end: periodic.period_end.to_string(),
             });
         }
     }
-    if stem.len() == 4 && stem.chars().all(|ch| ch.is_ascii_digit()) {
-        let year = stem.parse().ok()?;
-        let start = NaiveDate::from_ymd_opt(year, 1, 1)?;
-        let end = NaiveDate::from_ymd_opt(year, 12, 31)?;
-        return Some(PeriodicNoteRecord {
-            kind: "yearly".to_string(),
-            key: stem.to_string(),
-            start: start.to_string(),
-            end: end.to_string(),
-        });
+
+    let stem = path.rsplit('/').next()?.strip_suffix(".md")?;
+    for kind in PeriodKind::ALL {
+        if note_type == kind.as_str() || kind.bounds_for_key(stem).is_some() {
+            let (start, end) = kind.bounds_for_key(stem)?;
+            return Some(PeriodicNoteRecord {
+                kind: kind.to_string(),
+                key: stem.to_string(),
+                start: start.to_string(),
+                end: end.to_string(),
+            });
+        }
     }
     None
 }

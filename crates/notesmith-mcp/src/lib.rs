@@ -651,7 +651,11 @@ impl NotesmithMcp {
 
     fn refresh_indexes(&self, path: &VaultPath) -> anyhow::Result<()> {
         let note = self.load_note(path)?;
-        self.cache.update_note(&self.vault_name, &note)?;
+        self.cache.update_note_with_periodic(
+            &self.vault_name,
+            &note,
+            &self.vault_config.periodic,
+        )?;
         self.search_index.update_note(&self.vault_name, &note)?;
         Ok(())
     }
@@ -1071,7 +1075,9 @@ mod tests {
         let engine = NativeVaultEngine;
         let notes = engine.scan(root).unwrap();
         let cache = VaultCache::open_in_memory().unwrap();
-        cache.reindex("test-vault", &notes).unwrap();
+        cache
+            .reindex_with_periodic("test-vault", &notes, &vault_config().periodic)
+            .unwrap();
         let search_index = SearchIndex::open_in_memory().unwrap();
         search_index.reindex("test-vault", &notes).unwrap();
         NotesmithMcp::new(

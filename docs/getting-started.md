@@ -80,12 +80,13 @@ name = "work"
 [capture]
 folder = ""
 
-[daily]
-folder = ""
-template = "daily-note"
+[periodic.daily]
+folder = "Daily"
+template = "daily"
+filename = "{{ date }}"
 ```
 
-This is enough to get quick capture and daily notes working. Empty folder values mean the vault root.
+This is enough to get quick capture and daily notes working. Add `periodic.weekly`, `periodic.monthly`, `periodic.quarterly`, and `periodic.yearly` sections when you want the other periodic note types.
 
 ### 3. Start the daemon
 

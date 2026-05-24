@@ -1,4 +1,5 @@
 use notesmith_config::*;
+use std::fs;
 
 #[test]
 fn snapshot_global_config_default() {
@@ -37,10 +38,12 @@ fn snapshot_vault_config_full() {
         daily: DailyConfig {
             folder: "Inbox/Daily".to_string(),
             template: "daily-note".to_string(),
+            filename: "{{ date }}".to_string(),
             generate_at: Some("06:30".to_string()),
             timezone: Some("America/Los_Angeles".to_string()),
             catch_up: true,
         },
+        periodic: PeriodicConfig::default(),
         editor: EditorConfig::default(),
         appearance: AppearanceConfig {
             theme: "dark".to_string(),
@@ -63,6 +66,9 @@ fn snapshot_vault_config_full() {
             on_daily_create: Some("Assets/scripts/on-daily-create.py".to_string()),
         },
     };
-    let serialized = toml::to_string_pretty(&config).unwrap();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("vault.toml");
+    config.save_to(&path).unwrap();
+    let serialized = fs::read_to_string(path).unwrap();
     insta::assert_snapshot!("vault_config_full", serialized);
 }

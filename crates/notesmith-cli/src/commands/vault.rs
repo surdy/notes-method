@@ -228,9 +228,10 @@ fn cmd_reindex(
     let detected = detect_vault(cwd, explicit_vault, global_config)?;
     let engine = NativeVaultEngine;
     let notes = engine.scan(&detected.root)?;
+    let vault_config = VaultConfig::load_from_vault(&detected.root)?;
     let cache_path = cache_path_for_vault(&detected.name)?;
     let cache = VaultCache::open_for_vault(&cache_path, &detected.root)?;
-    cache.reindex(&detected.name, &notes)?;
+    cache.reindex_with_periodic(&detected.name, &notes, &vault_config.periodic)?;
     let search_index_path = search_index_path_for_vault(&detected.name)?;
     let search_index = SearchIndex::open(&search_index_path)?;
     search_index.reindex(&detected.name, &notes)?;

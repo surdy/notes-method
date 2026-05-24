@@ -151,6 +151,28 @@ pub fn validate_vault_config(
         );
     }
 
+    for (key, periodic) in [
+        ("periodic.daily.folder", config.periodic.daily.as_ref()),
+        ("periodic.weekly.folder", config.periodic.weekly.as_ref()),
+        ("periodic.monthly.folder", config.periodic.monthly.as_ref()),
+        (
+            "periodic.quarterly.folder",
+            config.periodic.quarterly.as_ref(),
+        ),
+        ("periodic.yearly.folder", config.periodic.yearly.as_ref()),
+    ] {
+        let Some(periodic) = periodic else {
+            continue;
+        };
+        let periodic_path = vault_root.join(&periodic.folder);
+        if !periodic.folder.is_empty() && !periodic_path.exists() {
+            warnings.insert(
+                key.into(),
+                format!("Folder '{}' does not exist", periodic.folder),
+            );
+        }
+    }
+
     (errors, warnings)
 }
 

@@ -168,6 +168,14 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
             "/api/v/{vault}/daily/agent-create",
             post(agent_create_daily),
         )
+        .route(
+            "/api/v/{vault}/periodic/{kind}/current",
+            get(get_current_periodic_note),
+        )
+        .route(
+            "/api/v/{vault}/periodic/{kind}/list",
+            get(list_periodic_notes),
+        )
         .route("/api/v/{vault}/events", get(vault_events))
         .nest_service("/app", app_service)
         .layer(middleware::map_response(set_version_headers))
@@ -449,14 +457,14 @@ pub fn create_vault_state(vault_name: &str, vault_path: &Path) -> anyhow::Result
     let notes = engine
         .scan(vault_path)
         .with_context(|| format!("failed to scan vault {vault_name}"))?;
-    let cache_path = cache_path_for_vault(vault_name)?;
-    let cache = open_or_repair_cache(vault_name, vault_path, &cache_path, &notes)?;
-    let search_index_path = search_index_path_for_vault(vault_name)?;
-    let search_index = open_or_repair_search_index(vault_name, &search_index_path, &notes)?;
     let vault_config = migration::load_and_migrate(vault_path).unwrap_or_else(|error| {
         tracing::warn!("Failed to load/migrate vault config for {vault_name}: {error}");
         default_vault_config(vault_name)
     });
+    let cache_path = cache_path_for_vault(vault_name)?;
+    let cache = open_or_repair_cache(vault_name, vault_path, &cache_path, &notes, &vault_config)?;
+    let search_index_path = search_index_path_for_vault(vault_name)?;
+    let search_index = open_or_repair_search_index(vault_name, &search_index_path, &notes)?;
     let cache_path = cache_path_for_vault(vault_name)?;
     let template_engine =
         notesmith_templates::TemplateEngine::new(vault_path.to_path_buf(), Some(cache_path));
@@ -485,11 +493,12 @@ fn open_or_repair_cache(
     vault_root: &Path,
     cache_path: &Path,
     notes: &[notesmith_core::Note],
+    vault_config: &VaultConfig,
 ) -> anyhow::Result<VaultCache> {
     match VaultCache::open_for_vault(cache_path, vault_root) {
         Ok(cache) => {
             if cache.check_integrity().unwrap_or(false) {
-                cache.reindex(vault_name, notes)?;
+                cache.reindex_with_periodic(vault_name, notes, &vault_config.periodic)?;
                 return Ok(cache);
             }
 
@@ -505,7 +514,7 @@ fn open_or_repair_cache(
     move_corrupt_sqlite_artifacts(cache_path)?;
 
     let cache = VaultCache::open_for_vault(cache_path, vault_root)?;
-    cache.reindex(vault_name, notes)?;
+    cache.reindex_with_periodic(vault_name, notes, &vault_config.periodic)?;
     Ok(cache)
 }
 
@@ -629,7 +638,7 @@ mod tests {
     use std::{collections::BTreeMap, fs, path::PathBuf, time::Duration};
 
     use axum::{body::Body, http::Request};
-    use notesmith_config::{GlobalConfig, VaultRegistration};
+    use notesmith_config::{GlobalConfig, VaultConfig, VaultRegistration};
     use notesmith_core::VaultEngine;
     use tower::ServiceExt;
 
@@ -893,7 +902,14 @@ mod tests {
         let cache_path = temp_dir.path().join("cache.sqlite");
         fs::write(&cache_path, "not a sqlite database").unwrap();
 
-        let cache = open_or_repair_cache("work", &vault_root, &cache_path, &notes).unwrap();
+        let cache = open_or_repair_cache(
+            "work",
+            &vault_root,
+            &cache_path,
+            &notes,
+            &VaultConfig::default(),
+        )
+        .unwrap();
 
         let note_count: i64 = cache
             .connection()
