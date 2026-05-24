@@ -89,4 +89,4 @@ Assets/
 
 ## Routing rules summary
 
-Routing is frontmatter-driven. `.notesmith/routing.yaml` matches fields like `type`, `customer`, `meeting-kind`, and `stream`, then maps the note to a destination folder; the first matching rule wins. Use `notesmith route preview <path>` before moving, and use `notesmith route apply` to move notes and stamp them with `archived: true` plus `archived-at`.
+Routing uses `.notesmith/routing.yaml`, an expressive YAML DSL with `all` / `any` / `not`, field predicates, tag predicates, and path globs. The first matching rule wins. Use `notesmith route preview <path>` before moving, and use `notesmith route apply` to apply configured mutations, stamp `archived: true` plus `archived-at`, and move the note.

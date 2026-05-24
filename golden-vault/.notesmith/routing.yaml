@@ -1,74 +1,79 @@
 version: 1
-default_on_exists: skip
+defaults:
+  on_exists: skip
 
 rules:
   - id: external-meeting
     when:
-      type: meeting
-      meeting-kind: external
+      all:
+        - field.type: meeting
+        - field.meeting-kind: external
     then:
-      move_to: "Customers/{{ customer | unwikilink }}/External Meetings/"
+      move_to: "Customers/{{ field.customer | unwikilink }}/External Meetings/{{ filename }}"
 
   - id: internal-meeting
     when:
-      type: meeting
-      meeting-kind: internal
+      all:
+        - field.type: meeting
+        - field.meeting-kind: internal
     then:
-      move_to: "Customers/{{ customer | unwikilink }}/Internal Meetings/"
+      move_to: "Customers/{{ field.customer | unwikilink }}/Internal Meetings/{{ filename }}"
 
   - id: stream
     when:
-      type: stream
+      field.type: stream
     then:
-      move_to: "Customers/{{ customer | unwikilink }}/Streams/"
+      move_to: "Customers/{{ field.customer | unwikilink }}/Streams/{{ filename }}"
 
   - id: account-info
     when:
-      type: account-info
+      field.type: account-info
     then:
-      move_to: "Customers/{{ customer | unwikilink }}/Account Info/"
+      move_to: "Customers/{{ field.customer | unwikilink }}/Account Info/{{ filename }}"
 
   - id: glossary
     when:
-      type: glossary
+      field.type: glossary
     then:
-      move_to: "Customers/{{ customer | unwikilink }}/Account Info/"
+      move_to: "Customers/{{ field.customer | unwikilink }}/Account Info/{{ filename }}"
 
   - id: milestones
     when:
-      type: milestones
+      field.type: milestones
     then:
-      move_to: "Customers/{{ customer | unwikilink }}/Account Info/"
+      move_to: "Customers/{{ field.customer | unwikilink }}/Account Info/{{ filename }}"
 
   - id: customer-index
     when:
-      type: customer
+      field.type: customer
     then:
-      move_to: "Customers/{{ customer | unwikilink }}/"
+      move_to: "Customers/{{ field.customer | unwikilink }}/{{ filename }}"
 
   - id: daily
     when:
-      type: daily
+      field.type: daily
     then:
-      move_to: "General/Journal/{{ date | year }}/{{ date | month }}/"
+      move_to: "General/Journal/{{ field.date | year }}/{{ field.date | month }}/{{ filename }}"
 
   - id: note-customer-stream
     when:
-      type: note
-      customer: "*"
-      stream: "*"
+      all:
+        - field.type: note
+        - field.customer: "*"
+        - field.stream: "*"
     then:
-      move_to: "Customers/{{ customer | unwikilink }}/Streams/"
+      move_to: "Customers/{{ field.customer | unwikilink }}/Streams/{{ filename }}"
 
   - id: note-customer
     when:
-      type: note
-      customer: "*"
+      all:
+        - field.type: note
+        - field.customer: "*"
     then:
-      move_to: "Customers/{{ customer | unwikilink }}/"
+      move_to: "Customers/{{ field.customer | unwikilink }}/{{ filename }}"
 
   - id: note-general
     when:
-      type: note
+      field.type: note
     then:
-      move_to: "General/"
+      move_to: "General/{{ filename }}"

@@ -12,6 +12,27 @@ use crate::server::SharedAppState;
 
 use super::helpers::{internal_error, note_error};
 
+fn map_routing_error(error: notesmith_routing::RoutingError) -> (StatusCode, Json<Value>) {
+    match error {
+        notesmith_routing::RoutingError::ConfigNotFound { .. }
+        | notesmith_routing::RoutingError::NoMatch { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": error.to_string() })),
+        ),
+        notesmith_routing::RoutingError::NoFrontmatter { .. }
+        | notesmith_routing::RoutingError::InvalidFrontmatter { .. } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "error": error.to_string() })),
+        ),
+        notesmith_routing::RoutingError::AlreadyArchived { .. }
+        | notesmith_routing::RoutingError::DestinationExists { .. } => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": error.to_string() })),
+        ),
+        other => internal_error(other),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct RoutePreviewRequest {
     pub path: String,
@@ -36,13 +57,7 @@ pub async fn route_preview(
     })?;
 
     let routing_engine =
-        notesmith_routing::RoutingEngine::load(&vault.root).map_err(|e| match &e {
-            notesmith_routing::RoutingError::ConfigNotFound { .. } => (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": e.to_string() })),
-            ),
-            _ => internal_error(e),
-        })?;
+        notesmith_routing::RoutingEngine::load(&vault.root).map_err(map_routing_error)?;
 
     let note_path = VaultPath::new(request.path.clone());
     let content = vault
@@ -52,21 +67,7 @@ pub async fn route_preview(
 
     let route_match = routing_engine
         .preview(&request.path, &content)
-        .map_err(|e| match &e {
-            notesmith_routing::RoutingError::NoMatch { .. } => (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": e.to_string() })),
-            ),
-            notesmith_routing::RoutingError::NoFrontmatter { .. } => (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(json!({ "error": e.to_string() })),
-            ),
-            notesmith_routing::RoutingError::AlreadyArchived { .. } => (
-                StatusCode::CONFLICT,
-                Json(json!({ "error": e.to_string() })),
-            ),
-            _ => internal_error(e),
-        })?;
+        .map_err(map_routing_error)?;
 
     Ok(Json(json!({
         "path": request.path,
@@ -89,14 +90,14 @@ pub async fn route_apply(
     })?;
 
     let routing_engine =
-        notesmith_routing::RoutingEngine::load(&vault.root).map_err(internal_error)?;
+        notesmith_routing::RoutingEngine::load(&vault.root).map_err(map_routing_error)?;
 
     let paths = request.paths.unwrap_or_default();
     let mut results = Vec::new();
     for path in &paths {
         let result = routing_engine
             .apply(&vault.root, path, &vault.engine)
-            .map_err(internal_error)?;
+            .map_err(map_routing_error)?;
         events::emit(
             &state.event_tx,
             &state.event_buffer,

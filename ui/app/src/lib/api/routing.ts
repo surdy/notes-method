@@ -1,9 +1,18 @@
 import { API_BASE, apiFetch } from './core.ts';
 
+export interface RouteLogEntry {
+	note_path: string;
+	from_path: string;
+	to_path: string;
+	rule_id?: string;
+	mutations_json: Record<string, unknown>;
+}
+
 export interface RouteResult {
 	from: string;
 	to: string;
 	rule_id?: string;
+	route_log?: RouteLogEntry;
 }
 
 export interface RouteApplyResponse {

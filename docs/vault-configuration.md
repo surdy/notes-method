@@ -184,41 +184,45 @@ Rules for automatically routing captured notes to their destination folders. See
 
 ```yaml
 version: 1
-default_on_exists: skip
+defaults:
+  on_exists: rename
 
 rules:
-  - id: external-meeting
+  - id: route-meeting
+    auto: false
     when:
-      type: meeting
-      meeting-kind: external
+      all:
+        - path: "Inbox/**"
+        - tags_include: [meeting]
+        - field.customer: "*"
+        - field.meeting_type: external
+        - not:
+            tags_include: [archived]
     then:
-      move_to: "Customers/{{ customer | unwikilink }}/External Meetings/"
-
-  - id: daily
-    when:
-      type: daily
-    then:
-      move_to: "General/Journal/{{ date | year }}/{{ date | month }}/"
-
-  - id: note-general
-    when:
-      type: note
-    then:
-      move_to: "General/"
+      move_to: "Customers/{{ field.customer | unwikilink }}/Meetings/{{ filename }}"
+      set_fields:
+        status: filed
+      remove_fields: [temp_notes]
+      add_tags: [archived]
+      remove_tags: [inbox]
 ```
 
 Fields:
 - `version` — schema version (always `1`)
-- `default_on_exists` — what to do if destination exists (`skip` or `overwrite`)
+- `defaults.on_exists` — collision policy for existing destinations (`skip`, `overwrite`, `rename`)
 - `rules[].id` — unique rule identifier
-- `rules[].when` — frontmatter field matchers
-- `rules[].then.move_to` — destination folder template
+- `rules[].auto` — opt a rule into auto-routing (defaults to `false`)
+- `rules[].when` — recursive predicate tree using `all`, `any`, `not`, `field.<key>`, `field_exists`, `tags_include`, `tags_exclude`, and `path`
+- `rules[].then.move_to` — destination path template
+- `rules[].then.set_fields` / `remove_fields` — frontmatter mutations
+- `rules[].then.add_tags` / `remove_tags` — tag mutations
 
 Behavior:
 - Rules are evaluated top-to-bottom; first match wins.
-- Matchers are exact matches unless the value is `"*"`.
-- `"*"` means any non-null value.
-- `move_to` is a Minijinja template with frontmatter values.
+- `field.<key>: "*"` means the field exists and is non-empty.
+- `field_exists` matches even when the field value is empty.
+- `move_to` is rendered with Minijinja using `field.*`, `filename`, `tags`, and legacy top-level field names.
+- Routing applies configured mutations, stamps `archived` / `archived-at`, then moves the note.
 
 Available Minijinja filters:
 - `unwikilink` — strips `[[` / `]]`

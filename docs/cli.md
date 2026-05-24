@@ -487,7 +487,7 @@ notesmith route preview "Drafts/idea.md" --format json
 
 ### `route apply`
 
-Apply routing to move note(s) to their destination folder. Stamps `archived: true` and `archived-at` in frontmatter before moving.
+Apply routing to move note(s) to their destination folder. Routing applies configured field/tag mutations, stamps `archived: true` and `archived-at`, then moves the note.
 
 ```bash
 notesmith route apply <path>
