@@ -13,10 +13,7 @@ import {
 const note: NoteSummary = {
 	path: "Customers/O'Brien/Account Info.md",
 	title: 'Account Info',
-	type: 'account',
-	customer: "O'Brien",
-	date: '2026-05-10',
-	archived: false
+	tags: ['account']
 };
 
 test('escapeSqlLiteral doubles single quotes for SQL string literals', () => {
@@ -26,19 +23,19 @@ test('escapeSqlLiteral doubles single quotes for SQL string literals', () => {
 test('right rail queries escape note paths before interpolating them', () => {
 	assert.equal(
 		buildBacklinksQuery(note.path),
-		"SELECT DISTINCT b.backlink_path, COALESCE(n.title, b.backlink_path) AS source_title FROM v_backlinks b LEFT JOIN v_notes n ON b.backlink_path = n.path WHERE b.note_path = 'Account Info' ORDER BY source_title"
+		"SELECT DISTINCT b.source_path, COALESCE(b.source_title, b.source_path) AS source_title FROM v_backlinks b WHERE b.target_path = 'Account Info' ORDER BY source_title"
 	);
 	assert.equal(
 		buildBacklinksQuery("Customers/O'Brien/Bob's Plan.md"),
-		"SELECT DISTINCT b.backlink_path, COALESCE(n.title, b.backlink_path) AS source_title FROM v_backlinks b LEFT JOIN v_notes n ON b.backlink_path = n.path WHERE b.note_path = 'Bob''s Plan' ORDER BY source_title"
+		"SELECT DISTINCT b.source_path, COALESCE(b.source_title, b.source_path) AS source_title FROM v_backlinks b WHERE b.target_path = 'Bob''s Plan' ORDER BY source_title"
 	);
 	assert.equal(
 		buildOutgoingLinksQuery(note.path),
-		"SELECT DISTINCT COALESCE(n.path, b.note_path) AS target_path, COALESCE(n.title, b.note_path) AS target FROM v_backlinks b LEFT JOIN v_notes n ON n.title = b.note_path WHERE b.backlink_path = 'Customers/O''Brien/Account Info.md' ORDER BY target"
+		"SELECT DISTINCT b.target_path, COALESCE(n.title, b.target_path) AS target FROM v_backlinks b LEFT JOIN v_notes n ON n.path = b.target_path WHERE b.source_path = 'Customers/O''Brien/Account Info.md' ORDER BY target"
 	);
 });
 
-test('buildRailMetadata merges summary fields with frontmatter tags', () => {
+test('buildRailMetadata shows all public fields generically', () => {
 	assert.deepEqual(
 		buildRailMetadata(note, {
 			type: 'dashboard',
@@ -47,7 +44,6 @@ test('buildRailMetadata merges summary fields with frontmatter tags', () => {
 		}),
 		{
 			type: 'dashboard',
-			customer: "O'Brien",
 			date: '2026-05-11',
 			tags: ['alpha', 'beta']
 		}

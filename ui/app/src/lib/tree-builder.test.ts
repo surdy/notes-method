@@ -7,8 +7,7 @@ function note(path: string): NoteSummary {
 	return {
 		path,
 		title: '',
-		type: '',
-		archived: false
+		tags: []
 	};
 }
 

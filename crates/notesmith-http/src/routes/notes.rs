@@ -29,16 +29,9 @@ use super::helpers::{
 pub struct NoteSummary {
     pub path: String,
     pub title: String,
-    #[serde(rename = "type")]
-    pub note_type: String,
-    pub customer: Option<String>,
-    pub stream: Option<String>,
-    pub state: Option<String>,
-    pub status: Option<String>,
-    pub date: Option<String>,
+    pub tags: Vec<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
-    pub archived: bool,
     pub mtime_unix: i64,
     pub frontmatter: Value,
 }
@@ -209,17 +202,11 @@ pub async fn list_notes(
     for (path, title, created_at, updated_at, mtime_unix) in base_rows {
         let frontmatter =
             load_note_frontmatter(&conn, &vault_name, &path).map_err(internal_error)?;
+        let tags = extract_tags(&frontmatter);
         notes.push(NoteSummary {
-            note_type: frontmatter_string(&frontmatter, "type")
-                .unwrap_or_else(|| "note".to_string()),
-            customer: frontmatter_string(&frontmatter, "customer"),
-            stream: frontmatter_string(&frontmatter, "stream"),
-            state: frontmatter_string(&frontmatter, "state"),
-            status: frontmatter_string(&frontmatter, "status"),
-            date: frontmatter_string(&frontmatter, "date"),
-            archived: frontmatter_bool(&frontmatter, "archived"),
             path,
             title,
+            tags,
             created_at,
             updated_at,
             mtime_unix,
@@ -287,20 +274,13 @@ fn parse_field_json_value(value: &str, value_type: &str) -> Value {
     }
 }
 
-fn frontmatter_string(frontmatter: &Value, key: &str) -> Option<String> {
-    frontmatter.get(key).and_then(|value| match value {
-        Value::String(text) if !text.is_empty() => Some(text.clone()),
-        Value::Bool(flag) => Some(flag.to_string()),
-        Value::Number(number) => Some(number.to_string()),
-        _ => None,
-    })
-}
-
-fn frontmatter_bool(frontmatter: &Value, key: &str) -> bool {
-    match frontmatter.get(key) {
-        Some(Value::Bool(flag)) => *flag,
-        Some(Value::String(text)) => text == "true",
-        _ => false,
+fn extract_tags(frontmatter: &Value) -> Vec<String> {
+    match frontmatter.get("tags") {
+        Some(Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect(),
+        _ => Vec::new(),
     }
 }
 

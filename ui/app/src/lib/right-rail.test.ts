@@ -6,15 +6,12 @@ import { buildRailMetadata } from './right-rail.ts';
 const baseNote: NoteSummary = {
 	path: 'General/Prototype Notes.md',
 	title: 'Prototype Notes',
-	type: 'note',
-	customer: '[[Acme Corp]]',
-	date: '2025-01-15',
-	archived: false,
+	tags: ['research'],
 	frontmatter: null
 };
 
 describe('buildRailMetadata', () => {
-	it('keeps known fields first and includes additional public frontmatter keys', () => {
+	it('shows all public frontmatter keys and tags as generic metadata', () => {
 		expect(
 			buildRailMetadata(baseNote, {
 				date: '2025-01-16',
@@ -26,8 +23,6 @@ describe('buildRailMetadata', () => {
 				empty: ''
 			})
 		).toEqual({
-			type: 'note',
-			customer: '[[Acme Corp]]',
 			date: '2025-01-16',
 			tags: ['research', 'prototype'],
 			stage: 'discovery',
@@ -38,9 +33,21 @@ describe('buildRailMetadata', () => {
 	it('returns null when only private frontmatter keys are present', () => {
 		expect(
 			buildRailMetadata(
-				{ ...baseNote, type: '', customer: undefined, date: undefined },
+				{ ...baseNote, tags: [] },
 				{ _icon: '🔬', _system: 'internal' }
 			)
 		).toBeNull();
+	});
+
+	it('uses tags from note when frontmatter has none', () => {
+		expect(
+			buildRailMetadata(
+				{ ...baseNote, tags: ['work', 'urgent'] },
+				{ title: 'Something' }
+			)
+		).toEqual({
+			title: 'Something',
+			tags: ['work', 'urgent']
+		});
 	});
 });

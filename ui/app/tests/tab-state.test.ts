@@ -21,8 +21,7 @@ test('openTab opens a note in a new active tab', () => {
 			{
 				path: 'Inbox/Daily/2026-05-10.md',
 				title: 'Daily Note',
-				type: 'daily',
-				archived: false,
+				tags: ['daily'],
 				frontmatter: { title: 'Daily Note' }
 			}
 		]
@@ -39,7 +38,7 @@ test('openTab uses filename as title when no frontmatter title is set', () => {
 	const state = openTab(
 		{ tabs: [], activeTabIndex: -1, selectedPath: null, recentlyClosed: [] },
 		'Inbox/2026-05-10.md',
-		[{ path: 'Inbox/2026-05-10.md', title: '2026-05-10', type: 'daily', archived: false }]
+		[{ path: 'Inbox/2026-05-10.md', title: '2026-05-10', tags: [] }]
 	);
 
 	assert.equal(state.tabs[0].title, '2026-05-10');
@@ -53,8 +52,7 @@ test('openTab prefers frontmatter title override over filename', () => {
 			{
 				path: 'Inbox/2026-05-10.md',
 				title: '2026-05-10',
-				type: 'daily',
-				archived: false,
+				tags: [],
 				frontmatter: { title: 'Today' }
 			}
 		]
@@ -199,7 +197,7 @@ test('openTab defaults viewMode to source', () => {
 	const state = openTab(
 		{ tabs: [], activeTabIndex: -1, selectedPath: null, recentlyClosed: [] },
 		'Notes/test.md',
-		[{ path: 'Notes/test.md', title: 'Test', type: 'note', archived: false }]
+		[{ path: 'Notes/test.md', title: 'Test', tags: [] }]
 	);
 
 	assert.equal(state.tabs[0]?.viewMode, 'source');

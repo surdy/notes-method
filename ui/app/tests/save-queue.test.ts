@@ -100,8 +100,7 @@ function createSummary(updated_at?: string): NoteSummary {
 	return {
 		path: 'Inbox/Queued.md',
 		title: 'Queued',
-		type: 'note',
-		archived: false,
+		tags: [],
 		updated_at
 	};
 }

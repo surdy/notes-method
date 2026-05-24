@@ -25,27 +25,14 @@ export function buildRailMetadata(
 	frontmatter: Record<string, unknown> | null | undefined
 ): RailMetadata | null {
 	const metadata: RailMetadata = {};
-	const type = readString(frontmatter?.type) ?? note?.type;
-	const customer = readString(frontmatter?.customer) ?? note?.customer;
-	const date = readString(frontmatter?.date) ?? note?.date;
-	const tags = readTags(frontmatter?.tags);
+	const tags = readTags(frontmatter?.tags ?? note?.tags);
 
-	if (type) {
-		metadata.type = type;
-	}
-	if (customer) {
-		metadata.customer = customer;
-	}
-	if (date) {
-		metadata.date = date;
-	}
 	if (tags.length > 0) {
 		metadata.tags = tags;
 	}
 	if (frontmatter) {
-		const knownKeys = new Set(['type', 'customer', 'date', 'tags']);
 		for (const [key, value] of Object.entries(frontmatter)) {
-			if (key.startsWith('_') || knownKeys.has(key)) {
+			if (key.startsWith('_') || key === 'tags') {
 				continue;
 			}
 
@@ -66,7 +53,6 @@ export function isDashboardNote(frontmatter: Record<string, unknown> | null | un
 function readString(value: unknown): string | undefined {
 	return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
-
 function readTags(value: unknown): string[] {
 	if (typeof value === 'string' && value.length > 0) {
 		return [value];

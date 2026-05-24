@@ -177,7 +177,7 @@ describe('buildCommands', () => {
 			notes: [],
 			children: [{ name: 'Acme', path: 'Customers/Acme', notes: [], children: [] }]
 		};
-		vaultNotes = [{ path: 'Customers/Acme/Acme.md', title: '', type: '', archived: false }];
+		vaultNotes = [{ path: 'Customers/Acme/Acme.md', title: '', tags: [] }];
 		const onNavigate = vi.fn();
 		const { buildCommands } = await import('./commands.ts');
 		const commands = buildCommands('vault-a', onNavigate);

@@ -1,23 +1,12 @@
 import type { NoteSummary } from './api';
 
-const TYPE_ICONS: Record<string, string> = {
-	daily: '📅',
-	meeting: '🤝',
-	customer: '🏢',
-	stream: '🔀',
-	note: '📝',
-	'account-info': 'ℹ️',
-	glossary: '📖',
-	milestones: '🏁'
-};
-
 export function noteIcon(note: NoteSummary): string {
 	const icon = readString(note.frontmatter?._icon);
 	if (icon) {
 		return icon;
 	}
 
-	return TYPE_ICONS[note.type] ?? '📄';
+	return '📄';
 }
 
 function readString(value: unknown): string | undefined {

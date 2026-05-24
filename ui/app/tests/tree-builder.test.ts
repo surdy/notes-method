@@ -8,8 +8,7 @@ function note(path: string, title = path.split('/').at(-1)?.replace(/\.md$/, '')
 	return {
 		path,
 		title,
-		type: 'note',
-		archived: false
+		tags: []
 	};
 }
 

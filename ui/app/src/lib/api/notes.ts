@@ -3,15 +3,9 @@ import { API_BASE, ApiError, apiFetch, encodePath } from './core.ts';
 export interface NoteSummary {
 	path: string;
 	title: string;
-	type: string;
-	customer?: string;
-	stream?: string;
-	state?: string;
-	status?: string;
-	date?: string;
+	tags: string[];
 	created_at?: string;
 	updated_at?: string;
-	archived: boolean;
 	mtime_unix?: number;
 	frontmatter?: Record<string, unknown> | null;
 }

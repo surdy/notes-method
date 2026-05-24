@@ -140,8 +140,7 @@
 		return {
 			path,
 			title: title || pathBasename(path),
-			type: 'note',
-			archived: false,
+			tags: [],
 			frontmatter: null
 		};
 	}
