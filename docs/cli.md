@@ -52,6 +52,40 @@ On startup it also runs SQLite/Tantivy integrity checks and automatically rebuil
 
 Daemon-backed CLI commands auto-start the daemon when `[daemon].auto_start = true` (the default). Set `auto_start = false` to require manual `notesmith daemon start`.
 
+### `daemon stop`
+
+Gracefully stop the running daemon.
+
+```bash
+notesmith daemon stop
+```
+
+Sends a shutdown request to the daemon via `POST /admin/shutdown`. If the daemon is not running, prints a message and exits cleanly.
+
+### `daemon restart`
+
+Stop the running daemon and start a new one.
+
+```bash
+notesmith daemon restart [--bind 127.0.0.1:27183]
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--bind <addr>` | Bind address for the restarted daemon | `127.0.0.1:27183` |
+
+Useful after code updates or config changes that require a fresh daemon.
+
+### `daemon status`
+
+Show daemon status as JSON.
+
+```bash
+notesmith daemon status
+```
+
+If the daemon is running, prints the full status response (vaults, uptime, version). If not, prints "Daemon is not running."
+
 ---
 
 ## Desktop app
