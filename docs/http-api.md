@@ -206,6 +206,61 @@ curl -X PUT http://127.0.0.1:27183/api/v/work/config \
   -H "Content-Type: application/json" \
   -H "If-Match: \"$HASH\"" \
   -d '{"schema_version":1,"name":"work","capture":{"folder":"","template":"generic-note"},"daily":{"folder":"","template":"daily-note","catch_up":false},"editor":{"live_preview":true,"default_mode":"source","strict_line_breaks":false,"show_line_numbers":true,"hide_duplicate_h1":true,"paste_url_image_whitelist":""},"git":{"enabled":false},"hooks":{}}'
+```
+
+## Field Registry
+
+### `GET /api/v/{vault}/fields`
+
+Read `.notesmith/fields.toml` for a vault and return the parsed registry as JSON.
+
+**Response:** `200 OK`
+```json
+{
+  "version": 1,
+  "fields": {
+    "status": {
+      "type": "enum",
+      "description": "Customer status",
+      "values": ["active", "paused", "closed"]
+    },
+    "customer": {
+      "type": "string",
+      "suggest_from": "SELECT DISTINCT value FROM v_fields WHERE key = 'customer' ORDER BY value"
+    }
+  }
+}
+```
+
+**Errors:**
+- `404` — vault not found
+
+**Example:**
+```bash
+curl http://127.0.0.1:27183/api/v/work/fields
+```
+
+### `GET /api/v/{vault}/fields/{key}/suggest?q=partial`
+
+Return autocomplete suggestions for a registered field.
+
+Behavior:
+- If the field defines `values`, the response returns values whose prefix matches `q`.
+- If the field defines `suggest_from`, Notesmith runs the SQL against the vault cache and returns the first column from matching rows.
+- If the field is unknown or has no suggestion source, the response is an empty array.
+
+**Response:** `200 OK`
+```json
+["paused"]
+```
+
+**Errors:**
+- `404` — vault not found
+
+**Example:**
+```bash
+curl "http://127.0.0.1:27183/api/v/work/fields/status/suggest?q=pa"
+```
 
 ### `GET /api/v/{vault}/notes`
 
@@ -870,7 +925,7 @@ Preview where a note would be routed based on `.notesmith/routing.yaml` rules.
 
 ### `POST /api/v/{vault}/route/apply`
 
-Apply routing rules to move notes to their destinations. Stamps `archived: true` and `archived-at` in frontmatter before moving.
+Apply routing rules to move notes to their destinations. Routing applies configured field/tag mutations, stamps `archived: true` and `archived-at`, then moves the note.
 
 **Request body (specific notes):**
 ```json
@@ -887,7 +942,19 @@ Apply routing rules to move notes to their destinations. Stamps `archived: true`
     {
       "from": "Capture/standup.md",
       "to": "Customers/Acme Corp/External Meetings/standup.md",
-      "rule_id": "external-meeting"
+      "rule_id": "external-meeting",
+      "route_log": {
+        "note_path": "Customers/Acme Corp/External Meetings/standup.md",
+        "from_path": "Capture/standup.md",
+        "to_path": "Customers/Acme Corp/External Meetings/standup.md",
+        "rule_id": "external-meeting",
+        "mutations_json": {
+          "set_fields": { "status": "filed" },
+          "remove_fields": [],
+          "add_tags": ["archived"],
+          "remove_tags": ["inbox"]
+        }
+      }
     },
     {
       "from": "Capture/idea.md",

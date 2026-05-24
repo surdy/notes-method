@@ -1,0 +1,23 @@
+version = 1
+
+[fields.type]
+type = "enum"
+description = "High-level note type"
+values = ["customer", "meeting", "daily", "note", "dashboard", "tasks"]
+
+[fields.status]
+type = "enum"
+description = "Lifecycle status"
+values = ["Active", "Blocked", "Complete", "Proposed"]
+
+[fields.priority]
+type = "enum"
+values = ["P0", "P1", "P2", "P3"]
+
+[fields.customer]
+type = "string"
+suggest_from = "SELECT DISTINCT value FROM v_fields WHERE key = 'customer' ORDER BY value"
+
+[fields.tags]
+type = "list"
+multivalue = true

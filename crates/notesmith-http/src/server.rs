@@ -136,6 +136,11 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
             "/api/v/{vault}/config",
             get(get_vault_config).put(put_vault_config),
         )
+        .route("/api/v/{vault}/fields", get(get_fields))
+        .route(
+            "/api/v/{vault}/fields/{key}/suggest",
+            get(suggest_field_values),
+        )
         .route("/api/v/{vault}/folders", get(get_folders))
         .route("/api/v/{vault}/folder-notes", get(get_folder_notes))
         .route("/api/v/{vault}/folders-rename/{*path}", post(rename_folder))
@@ -445,7 +450,7 @@ pub fn create_vault_state(vault_name: &str, vault_path: &Path) -> anyhow::Result
         .scan(vault_path)
         .with_context(|| format!("failed to scan vault {vault_name}"))?;
     let cache_path = cache_path_for_vault(vault_name)?;
-    let cache = open_or_repair_cache(vault_name, &cache_path, &notes)?;
+    let cache = open_or_repair_cache(vault_name, vault_path, &cache_path, &notes)?;
     let search_index_path = search_index_path_for_vault(vault_name)?;
     let search_index = open_or_repair_search_index(vault_name, &search_index_path, &notes)?;
     let vault_config = migration::load_and_migrate(vault_path).unwrap_or_else(|error| {
@@ -477,10 +482,11 @@ fn default_vault_config(vault_name: &str) -> VaultConfig {
 
 fn open_or_repair_cache(
     vault_name: &str,
+    vault_root: &Path,
     cache_path: &Path,
     notes: &[notesmith_core::Note],
 ) -> anyhow::Result<VaultCache> {
-    match VaultCache::open(cache_path) {
+    match VaultCache::open_for_vault(cache_path, vault_root) {
         Ok(cache) => {
             if cache.check_integrity().unwrap_or(false) {
                 cache.reindex(vault_name, notes)?;
@@ -498,7 +504,7 @@ fn open_or_repair_cache(
 
     move_corrupt_sqlite_artifacts(cache_path)?;
 
-    let cache = VaultCache::open(cache_path)?;
+    let cache = VaultCache::open_for_vault(cache_path, vault_root)?;
     cache.reindex(vault_name, notes)?;
     Ok(cache)
 }
@@ -887,7 +893,7 @@ mod tests {
         let cache_path = temp_dir.path().join("cache.sqlite");
         fs::write(&cache_path, "not a sqlite database").unwrap();
 
-        let cache = open_or_repair_cache("work", &cache_path, &notes).unwrap();
+        let cache = open_or_repair_cache("work", &vault_root, &cache_path, &notes).unwrap();
 
         let note_count: i64 = cache
             .connection()

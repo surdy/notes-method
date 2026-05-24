@@ -1951,25 +1951,32 @@ async fn post_instantiate_missing_prompt_returns_422() {
 
 fn write_routing_config(root: &Path) {
     let config = r#"version: 1
-default_on_exists: skip
+defaults:
+  on_exists: skip
 rules:
   - id: external-meeting
     when:
-      type: meeting
-      meeting-kind: external
+      all:
+        - field.type: meeting
+        - field.meeting-kind: external
+        - field.customer: "*"
     then:
-      move_to: "Customers/{{ customer | unwikilink }}/External Meetings/"
+      move_to: "Customers/{{ field.customer | unwikilink }}/External Meetings/{{ filename }}"
+      set_fields:
+        status: filed
+      remove_tags: [inbox]
   - id: note-customer
     when:
-      type: note
-      customer: "*"
+      all:
+        - field.type: note
+        - field.customer: "*"
     then:
-      move_to: "Customers/{{ customer | unwikilink }}/"
+      move_to: "Customers/{{ field.customer | unwikilink }}/{{ filename }}"
   - id: note-general
     when:
-      type: note
+      field.type: note
     then:
-      move_to: "General/"
+      move_to: "General/{{ filename }}"
 "#;
     write_note(root, ".notesmith/routing.yaml", config);
 }
@@ -2827,6 +2834,105 @@ async fn get_after_put_reflects_changes() {
 
     let body2 = get_response2.json::<serde_json::Value>().await.unwrap();
     assert_eq!(body2["config"]["capture"]["folder"], "CustomInbox");
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn get_fields_returns_registry_json() {
+    let server = TestServer::with_files(&[
+        (
+            ".notesmith/fields.toml",
+            r#"
+version = 1
+
+[fields.status]
+type = "enum"
+description = "Customer status"
+values = ["active", "paused", "closed"]
+
+[fields.customer]
+type = "string"
+suggest_from = "SELECT DISTINCT value FROM v_fields WHERE key = 'customer' ORDER BY value"
+"#,
+        ),
+        (
+            "Customers/Acme.md",
+            "---\ntype: customer\ncustomer: Acme\nstatus: active\n---\nAcme\n",
+        ),
+        (
+            "Customers/Globex.md",
+            "---\ntype: customer\ncustomer: Globex\nstatus: paused\n---\nGlobex\n",
+        ),
+    ])
+    .await;
+
+    let response = reqwest::get(server.url("/api/v/test-vault/fields"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["version"], 1);
+    assert_eq!(body["fields"]["status"]["type"], "enum");
+    assert_eq!(body["fields"]["status"]["description"], "Customer status");
+    assert_eq!(
+        body["fields"]["status"]["values"],
+        serde_json::json!(["active", "paused", "closed"])
+    );
+    assert_eq!(
+        body["fields"]["customer"]["suggest_from"],
+        "SELECT DISTINCT value FROM v_fields WHERE key = 'customer' ORDER BY value"
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn suggest_field_values_uses_registry_values_and_cache_queries() {
+    let server = TestServer::with_files(&[
+        (
+            ".notesmith/fields.toml",
+            r#"
+version = 1
+
+[fields.status]
+type = "enum"
+values = ["active", "paused", "closed"]
+
+[fields.customer]
+type = "string"
+suggest_from = "SELECT DISTINCT value FROM v_fields WHERE key = 'customer' ORDER BY value"
+"#,
+        ),
+        (
+            "Customers/Acme.md",
+            "---\ntype: customer\ncustomer: Acme\nstatus: active\n---\nAcme\n",
+        ),
+        (
+            "Customers/Globex.md",
+            "---\ntype: customer\ncustomer: Globex\nstatus: paused\n---\nGlobex\n",
+        ),
+    ])
+    .await;
+
+    let status_values = reqwest::get(server.url("/api/v/test-vault/fields/status/suggest?q=pa"))
+        .await
+        .unwrap();
+    assert_eq!(status_values.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        status_values.json::<serde_json::Value>().await.unwrap(),
+        serde_json::json!(["paused"])
+    );
+
+    let customer_values = reqwest::get(server.url("/api/v/test-vault/fields/customer/suggest?q=A"))
+        .await
+        .unwrap();
+    assert_eq!(customer_values.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        customer_values.json::<serde_json::Value>().await.unwrap(),
+        serde_json::json!(["Acme"])
+    );
 
     server.server.abort();
 }

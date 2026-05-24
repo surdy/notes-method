@@ -6,6 +6,7 @@ use rusqlite::Connection;
 
 use crate::indexer::CacheIndexer;
 use crate::schema::create_schema;
+use crate::user_views::load_user_views;
 
 pub struct VaultCache {
     conn: Mutex<Connection>,
@@ -14,17 +15,12 @@ pub struct VaultCache {
 
 impl VaultCache {
     pub fn open(cache_path: &Path) -> anyhow::Result<Self> {
-        if let Some(parent) = cache_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        Self::open_with_initializer(cache_path, |_| {})
+    }
 
-        let conn = Connection::open(cache_path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
-        create_schema(&conn)?;
-
-        Ok(Self {
-            conn: Mutex::new(conn),
-            cache_path: cache_path.to_path_buf(),
+    pub fn open_for_vault(cache_path: &Path, vault_root: &Path) -> anyhow::Result<Self> {
+        Self::open_with_initializer(cache_path, |conn| {
+            load_user_views(conn, vault_root);
         })
     }
 
@@ -35,6 +31,25 @@ impl VaultCache {
         Ok(Self {
             conn: Mutex::new(conn),
             cache_path: PathBuf::from(":memory:"),
+        })
+    }
+
+    fn open_with_initializer(
+        cache_path: &Path,
+        initialize: impl FnOnce(&Connection),
+    ) -> anyhow::Result<Self> {
+        if let Some(parent) = cache_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let conn = Connection::open(cache_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        create_schema(&conn)?;
+        initialize(&conn);
+
+        Ok(Self {
+            conn: Mutex::new(conn),
+            cache_path: cache_path.to_path_buf(),
         })
     }
 

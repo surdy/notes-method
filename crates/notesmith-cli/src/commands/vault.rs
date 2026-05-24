@@ -229,7 +229,7 @@ fn cmd_reindex(
     let engine = NativeVaultEngine;
     let notes = engine.scan(&detected.root)?;
     let cache_path = cache_path_for_vault(&detected.name)?;
-    let cache = VaultCache::open(&cache_path)?;
+    let cache = VaultCache::open_for_vault(&cache_path, &detected.root)?;
     cache.reindex(&detected.name, &notes)?;
     let search_index_path = search_index_path_for_vault(&detected.name)?;
     let search_index = SearchIndex::open(&search_index_path)?;
