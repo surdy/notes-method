@@ -534,7 +534,7 @@ Execute read-only SQL against the SQLite cache. Only `SELECT` and `WITH` stateme
 **Request body:**
 ```json
 {
-  "sql": "SELECT title, state FROM v_customers ORDER BY title",
+  "sql": "SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type' LEFT JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = 'state' WHERE note_type.value = 'customer' ORDER BY n.title",
   "max_rows": 10000,
   "format": "json"
 }
@@ -566,7 +566,7 @@ Execute read-only SQL against the SQLite cache. Only `SELECT` and `WITH` stateme
 | title | state |
 | --- | --- |
 | Acme Corp | Active |
-| Globex Industries | Onboarding |
+| Globex | Inactive |
 ```
 
 **Errors:**
@@ -578,13 +578,13 @@ Execute read-only SQL against the SQLite cache. Only `SELECT` and `WITH` stateme
 ```bash
 curl -s http://127.0.0.1:27183/api/v/work/query/sql \
   -H 'content-type: application/json' \
-  -d '{"sql":"SELECT title, state FROM v_customers ORDER BY title"}'
+  -d '{"sql":"SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = ''type'' LEFT JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = ''state'' WHERE note_type.value = ''customer'' ORDER BY n.title"}'
 ```
 
 ```bash
 curl -s http://127.0.0.1:27183/api/v/work/query/sql \
   -H 'content-type: application/json' \
-  -d '{"sql":"SELECT title, state FROM v_customers ORDER BY title","format":"markdown","max_rows":25}'
+  -d '{"sql":"SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = ''type'' LEFT JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = ''state'' WHERE note_type.value = ''customer'' ORDER BY n.title","format":"markdown","max_rows":25}'
 ```
 
 See [SQL Views Reference](sql-views.md) for available views.
@@ -697,17 +697,16 @@ List tasks from the vault with optional filters.
   {
     "task_hash": "abc123...",
     "note_path": "Customers/Acme/Streams/Migration to v2.md",
-    "heading_path": null,
-    "ordinal": 2,
+    "line_number": 12,
     "status": "in_progress",
+    "status_char": "/",
+    "status_group": "open",
     "text": "Testing in staging",
+    "note_title": "Migration to v2",
     "customer": null,
     "stream": null,
     "owner": null,
     "due": null,
-    "scheduled": "2025-01-20",
-    "start_date": null,
-    "done_at": null,
     "priority": null
   }
 ]
@@ -734,7 +733,7 @@ Add a new To Do task to an existing note.
 }
 ```
 
-Only `note_path` and `description` are required. Inline fields (`customer`, `stream`, `owner`) appear as `[key:: value]` in the task line. The `due` date appears as `📅 YYYY-MM-DD`.
+Only `note_path` and `description` are required. Inline fields (`customer`, `stream`, `owner`, `due`, `priority`) are written as `[key:: value]` on the task line.
 
 **Response:** `201 Created`
 ```json
@@ -743,7 +742,7 @@ Only `note_path` and `description` are required. Inline fields (`customer`, `str
 
 ### `POST /api/v/{vault}/tasks/toggle`
 
-Toggle a task to a new status using its content hash (blake3 of the raw task line). The engine finds the matching line, validates the transition, rewrites it in place, and runs the save pipeline.
+Toggle a task to a new status using its content hash (blake3 of the raw task line). The engine finds the matching line, rewrites its checkbox marker in place, and runs the save pipeline.
 
 **Request body:**
 ```json
@@ -764,7 +763,7 @@ Toggle a task to a new status using its content hash (blake3 of the raw task lin
 **Errors:**
 - `404` — task hash not found in the note
 - `409` — hash matches more than one task (collision)
-- `422` — invalid status string or disallowed status transition
+- `422` — invalid status string
 
 ---
 

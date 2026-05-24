@@ -16,6 +16,8 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
 tantivy = { workspace = true }
+regex = { workspace = true }
+blake3 = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

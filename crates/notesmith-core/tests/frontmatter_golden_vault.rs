@@ -1,4 +1,4 @@
-//! Test that all golden vault frontmatter deserializes correctly into typed Frontmatter.
+//! Test that golden-vault frontmatter parses into the generic Frontmatter map.
 
 use notesmith_core::Frontmatter;
 use std::fs;
@@ -26,79 +26,40 @@ fn read_and_parse(relative_path: &str) -> Frontmatter {
 }
 
 #[test]
-fn daily_note() {
+fn daily_note_preserves_generic_fields() {
     let fm = read_and_parse("Inbox/Daily/2025-01-15.md");
-    assert!(matches!(fm, Frontmatter::Daily(_)));
+    assert_eq!(fm.get_str("type"), Some("daily"));
+    assert_eq!(fm.get_string("date"), Some("2025-01-15".to_string()));
+    assert!(fm.tags().contains(&"daily".to_string()));
 }
 
 #[test]
-fn internal_meeting() {
+fn meeting_note_keeps_customer_and_meeting_kind() {
     let fm = read_and_parse("Customers/Acme/Internal Meetings/2025-01-15 Internal Sync.md");
-    assert!(matches!(fm, Frontmatter::Meeting(_)));
+    assert_eq!(fm.get_str("type"), Some("meeting"));
+    assert_eq!(fm.get_str("meeting-kind"), Some("internal"));
+    assert_eq!(fm.get_str("customer"), Some("[[Acme Corp]]"));
 }
 
 #[test]
-fn external_meeting() {
-    let fm = read_and_parse("Customers/Acme/External Meetings/2025-01-14 Customer Check-in.md");
-    assert!(matches!(fm, Frontmatter::Meeting(_)));
-}
-
-#[test]
-fn stream_note() {
+fn stream_note_keeps_status_and_owner() {
     let fm = read_and_parse("Customers/Acme/Streams/Migration to v2.md");
-    assert!(matches!(fm, Frontmatter::Stream(_)));
+    assert_eq!(fm.get_str("type"), Some("stream"));
+    assert_eq!(fm.get_str("status"), Some("In Progress"));
+    assert_eq!(fm.get_str("owner"), Some("me"));
 }
 
 #[test]
-fn customer_note() {
+fn customer_note_preserves_state() {
     let fm = read_and_parse("Customers/Acme/Acme Corp.md");
-    assert!(matches!(fm, Frontmatter::Customer(_)));
+    assert_eq!(fm.get_str("type"), Some("customer"));
+    assert_eq!(fm.get_str("state"), Some("Active"));
 }
 
 #[test]
-fn account_info_note() {
-    let fm = read_and_parse("Customers/Acme/Account Info/Account Info.md");
-    assert!(matches!(fm, Frontmatter::AccountInfo(_)));
-}
-
-#[test]
-fn glossary_note() {
-    let fm = read_and_parse("Customers/Acme/Account Info/Glossary.md");
-    assert!(matches!(fm, Frontmatter::Glossary(_)));
-}
-
-#[test]
-fn milestones_note() {
-    let fm = read_and_parse("Customers/Acme/Account Info/Dates and Milestones.md");
-    assert!(matches!(fm, Frontmatter::Milestones(_)));
-}
-
-#[test]
-fn dashboard_note() {
-    let fm = read_and_parse("Dashboards/Home.md");
-    assert!(matches!(fm, Frontmatter::Dashboard(_)));
-}
-
-#[test]
-fn generic_note() {
-    let fm = read_and_parse("Inbox/Quick Note.md");
-    assert!(matches!(fm, Frontmatter::Note(_)));
-}
-
-#[test]
-fn contact_note() {
-    let fm = read_and_parse("Customers/Acme/Contacts/John Smith.md");
-    assert!(matches!(fm, Frontmatter::Contact(_)));
-}
-
-#[test]
-fn globex_customer() {
-    let fm = read_and_parse("Customers/Globex/Globex.md");
-    assert!(matches!(fm, Frontmatter::Customer(_)));
-}
-
-#[test]
-fn globex_stream() {
-    let fm = read_and_parse("Customers/Globex/Streams/Platform Rollout.md");
-    assert!(matches!(fm, Frontmatter::Stream(_)));
+fn generic_note_preserves_unknown_frontmatter() {
+    let fm = read_and_parse("General/Prototype Notes.md");
+    assert_eq!(fm.get_str("type"), Some("note"));
+    assert_eq!(fm.get_str("_icon"), Some("🔬"));
+    assert!(fm.has_field("tags"));
 }

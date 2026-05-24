@@ -131,7 +131,7 @@ For an example of a complete customer-facing work workflow, see `docs/example-wo
 
 - Aggregated task views collect tasks from all notes into a single surface.
 - Task statuses are configurable: each status is a single character mapped to a label, group (open/done), and icon via `vault.toml`.
-- Default statuses: `[ ]`=Todo, `[x]`=Done, `[/]`=InProgress, `[!]`=Blocked, `[>]`=Waiting, `[-]`=OnHold, `[~]`=Cancelled.
+- Default statuses: `[ ]`=Todo, `[x]`=Done, `[/]`=InProgress, `[b]`=Blocked, `[w]`=Waiting, `[h]`=On Hold, `[-]`=Cancelled.
 - Users can add custom status characters without code changes.
 - Tasks can have inline fields (e.g., `[due:: 2026-06-01]`, `[assigned:: me]`).
 - Aggregated views group by status_group (open/done) and show associated fields.

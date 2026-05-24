@@ -41,7 +41,7 @@ console.error('Failed to load recently viewed', err);
 async function loadEdited(vault: string): Promise<Item[]> {
 const result = await executeSql(
 vault,
-`SELECT path, title, updated_at FROM v_notes ORDER BY mtime_unix DESC LIMIT ${limit}`
+`SELECT path, title, updated_at FROM v_notes ORDER BY updated_at DESC LIMIT ${limit}`
 );
 return result.rows
 .map((row) => ({

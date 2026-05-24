@@ -1,5 +1,10 @@
-use notesmith_core::{Frontmatter, LinkType, Note, TaskPriority, TaskStatus};
+use chrono::{Datelike, Duration, NaiveDate};
+use notesmith_core::{Frontmatter, LinkType, Note, Task};
+use regex::Regex;
 use rusqlite::{Connection, params};
+use serde_yaml::Value;
+use std::{collections::HashSet, ops::Range, sync::OnceLock};
+use tracing::warn;
 
 pub struct CacheIndexer<'a> {
     conn: &'a Connection,
@@ -15,8 +20,26 @@ impl<'a> CacheIndexer<'a> {
 
         let result = (|| -> anyhow::Result<()> {
             self.clear_vault(vault_name)?;
-            for note in notes {
-                self.index_note_inner(vault_name, note)?;
+            for (index, note) in notes.iter().enumerate() {
+                let savepoint = format!("note_{index}");
+                self.conn
+                    .execute_batch(&format!("SAVEPOINT {savepoint};"))?;
+                match self.index_note_inner(vault_name, note) {
+                    Ok(()) => {
+                        self.conn.execute_batch(&format!("RELEASE {savepoint};"))?;
+                    }
+                    Err(error) => {
+                        warn!(
+                            note = %note.path.as_str(),
+                            stage = "index",
+                            reason = %error,
+                            "skipping note during cache index"
+                        );
+                        self.conn.execute_batch(&format!(
+                            "ROLLBACK TO {savepoint}; RELEASE {savepoint};"
+                        ))?;
+                    }
+                }
             }
             Ok(())
         })();
@@ -34,21 +57,49 @@ impl<'a> CacheIndexer<'a> {
     }
 
     pub fn index_note(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
-        self.remove_note(vault_name, note.path.as_str())?;
-        self.index_note_inner(vault_name, note)
+        self.conn.execute_batch("BEGIN IMMEDIATE TRANSACTION;")?;
+        let result = (|| -> anyhow::Result<()> {
+            self.remove_note(vault_name, note.path.as_str())?;
+            self.index_note_inner(vault_name, note)
+        })();
+
+        match result {
+            Ok(()) => {
+                self.conn.execute_batch("COMMIT;")?;
+                Ok(())
+            }
+            Err(err) => {
+                let _ = self.conn.execute_batch("ROLLBACK;");
+                Err(err)
+            }
+        }
     }
 
     pub fn remove_note(&self, vault_name: &str, path: &str) -> anyhow::Result<()> {
+        self.conn.execute(
+            "DELETE FROM task_fields WHERE vault_name = ?1 AND task_id IN (
+                SELECT id FROM tasks WHERE vault_name = ?1 AND note_path = ?2
+            )",
+            params![vault_name, path],
+        )?;
         self.conn.execute(
             "DELETE FROM tasks WHERE vault_name = ?1 AND note_path = ?2",
             params![vault_name, path],
         )?;
         self.conn.execute(
-            "DELETE FROM links WHERE vault_name = ?1 AND src_path = ?2",
+            "DELETE FROM fields WHERE vault_name = ?1 AND note_path = ?2",
             params![vault_name, path],
         )?;
         self.conn.execute(
-            "DELETE FROM inline_fields WHERE vault_name = ?1 AND note_path = ?2",
+            "DELETE FROM tags WHERE vault_name = ?1 AND note_path = ?2",
+            params![vault_name, path],
+        )?;
+        self.conn.execute(
+            "DELETE FROM links WHERE vault_name = ?1 AND source_path = ?2",
+            params![vault_name, path],
+        )?;
+        self.conn.execute(
+            "DELETE FROM periodic_notes WHERE vault_name = ?1 AND note_path = ?2",
             params![vault_name, path],
         )?;
         self.conn.execute(
@@ -59,76 +110,123 @@ impl<'a> CacheIndexer<'a> {
     }
 
     fn clear_vault(&self, vault_name: &str) -> anyhow::Result<()> {
-        self.conn.execute(
-            "DELETE FROM tasks WHERE vault_name = ?1",
-            params![vault_name],
-        )?;
-        self.conn.execute(
-            "DELETE FROM links WHERE vault_name = ?1",
-            params![vault_name],
-        )?;
-        self.conn.execute(
-            "DELETE FROM inline_fields WHERE vault_name = ?1",
-            params![vault_name],
-        )?;
-        self.conn.execute(
-            "DELETE FROM notes WHERE vault_name = ?1",
-            params![vault_name],
-        )?;
+        for table in [
+            "task_fields",
+            "tasks",
+            "fields",
+            "tags",
+            "links",
+            "periodic_notes",
+            "notes",
+        ] {
+            self.conn.execute(
+                &format!("DELETE FROM {table} WHERE vault_name = ?1"),
+                params![vault_name],
+            )?;
+        }
         Ok(())
     }
 
     fn index_note_inner(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
-        let (
-            note_type,
-            title,
-            customer,
-            stream,
-            state,
-            status,
-            date,
-            created_at,
-            updated_at,
-            archived,
-        ) = extract_note_metadata(note);
-        let frontmatter_json = serialize_frontmatter_json(note)?;
-
+        let (note_type, title, created_at, updated_at) = extract_note_metadata(note);
         let body_excerpt = note.body.chars().take(500).collect::<String>();
+        let word_count = note.body.split_whitespace().count() as i64;
 
         self.conn.execute(
-            "INSERT OR REPLACE INTO notes (vault_name, path, title, type, frontmatter_json, customer, stream, state, status, date, created_at, updated_at, archived, mtime_unix, content_hash, body_excerpt)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            "INSERT OR REPLACE INTO notes (vault_name, path, title, created_at, updated_at, word_count, mtime_unix, content_hash, body_excerpt)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 vault_name,
                 note.path.as_str(),
                 title,
-                note_type,
-                frontmatter_json,
-                customer,
-                stream,
-                state,
-                status,
-                date,
                 created_at,
                 updated_at,
-                i32::from(archived),
+                word_count,
                 0_i64,
                 note.hash.as_str(),
-                body_excerpt
+                body_excerpt,
             ],
         )?;
 
+        self.index_frontmatter_fields(vault_name, note)?;
+        self.index_inline_fields(vault_name, note)?;
+        self.index_tags(vault_name, note)?;
+        self.index_links(vault_name, note)?;
+        self.index_tasks(vault_name, note)?;
+        self.index_periodic_note(vault_name, note, &note_type)?;
+
+        Ok(())
+    }
+
+    fn index_frontmatter_fields(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
+        let Some(frontmatter) = note.frontmatter.as_ref() else {
+            return Ok(());
+        };
+
+        for (key, value) in &frontmatter.fields {
+            self.conn.execute(
+                "INSERT INTO fields (vault_name, note_path, key, value, value_type, source)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'frontmatter')",
+                params![
+                    vault_name,
+                    note.path.as_str(),
+                    key,
+                    yaml_value_to_string(value),
+                    yaml_value_type(value),
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn index_inline_fields(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
+        for field in &note.inline_fields {
+            self.conn.execute(
+                "INSERT INTO fields (vault_name, note_path, key, value, value_type, source)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'inline')",
+                params![
+                    vault_name,
+                    note.path.as_str(),
+                    field.key.as_str(),
+                    field.value.as_str(),
+                    scalar_value_type(field.value.as_str()),
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn index_tags(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
+        let mut tags = HashSet::new();
+        if let Some(frontmatter) = note.frontmatter.as_ref() {
+            tags.extend(frontmatter.tags());
+        }
+        tags.extend(extract_inline_tags(&note.body));
+
+        for tag in tags {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO tags (vault_name, note_path, tag) VALUES (?1, ?2, ?3)",
+                params![vault_name, note.path.as_str(), tag],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn index_links(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
         for link in &note.links {
-            let (kind, heading_ref, block_ref) = match link.link_type {
-                LinkType::WikiLink => ("wikilink", None, None),
-                LinkType::Embed => ("embed", None, None),
-                LinkType::HeadingRef => ("heading_ref", Some(link.target.as_str()), None),
-                LinkType::BlockRef => ("block_ref", None, Some(link.target.as_str())),
-                LinkType::Anchor => ("anchor", None, None),
-                LinkType::MarkdownLink => ("markdown_link", None, None),
-                LinkType::ExternalLink => ("external_link", None, None),
+            let kind = match link.link_type {
+                LinkType::WikiLink => "wikilink",
+                LinkType::Embed => "embed",
+                LinkType::HeadingRef => "heading_ref",
+                LinkType::BlockRef => "block_ref",
+                LinkType::Anchor => "anchor",
+                LinkType::MarkdownLink => "markdown_link",
+                LinkType::ExternalLink => "external_link",
             };
-            let dst_path = match link.link_type {
+            let target_path = match link.link_type {
                 LinkType::WikiLink
                 | LinkType::Embed
                 | LinkType::HeadingRef
@@ -137,291 +235,350 @@ impl<'a> CacheIndexer<'a> {
             };
 
             self.conn.execute(
-                "INSERT INTO links (vault_name, src_path, dst_path, raw_target, kind, heading_ref, block_ref)
+                "INSERT INTO links (vault_name, source_path, target_path, raw_target, link_text, kind, line_number)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     vault_name,
                     note.path.as_str(),
-                    dst_path,
+                    target_path,
                     link.target.as_str(),
+                    link.display_text.as_deref(),
                     kind,
-                    heading_ref,
-                    block_ref
-                ],
-            )?;
-        }
-
-        for field in &note.inline_fields {
-            self.conn.execute(
-                "INSERT INTO inline_fields (vault_name, note_path, key, value, value_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    vault_name,
-                    note.path.as_str(),
-                    field.key.as_str(),
-                    field.value.as_str(),
-                    Option::<String>::None
-                ],
-            )?;
-        }
-
-        for (ordinal, task) in note.tasks.iter().enumerate() {
-            let status_str = match task.status {
-                TaskStatus::Todo => "todo",
-                TaskStatus::InProgress => "in_progress",
-                TaskStatus::Blocked => "blocked",
-                TaskStatus::Waiting => "waiting",
-                TaskStatus::OnHold => "on_hold",
-                TaskStatus::Done => "done",
-                TaskStatus::Cancelled => "cancelled",
-            };
-
-            let (task_customer, task_stream, task_owner) =
-                extract_task_inline_fields(task.content.as_str());
-
-            let priority_int = task.priority.map(|priority| match priority {
-                TaskPriority::Highest => 5,
-                TaskPriority::High => 4,
-                TaskPriority::Medium => 3,
-                TaskPriority::Low => 2,
-                TaskPriority::Lowest => 1,
-            });
-
-            let task_hash = task.content_hash.as_deref().unwrap_or_default();
-
-            self.conn.execute(
-                "INSERT OR REPLACE INTO tasks (vault_name, task_hash, note_path, heading_path, ordinal, status, text, customer, stream, owner, due, scheduled, start_date, done_at, priority, recurrence, raw_markdown)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
-                params![
-                    vault_name,
-                    task_hash,
-                    note.path.as_str(),
-                    Option::<String>::None,
-                    ordinal as i32,
-                    status_str,
-                    task.content.as_str(),
-                    task_customer,
-                    task_stream,
-                    task_owner,
-                    task.due_date.map(|date| date.to_string()),
-                    task.scheduled_date.map(|date| date.to_string()),
-                    task.start_date.map(|date| date.to_string()),
-                    task.done_date.map(|date| date.to_string()),
-                    priority_int,
-                    task.recurrence.clone(),
-                    task.content.as_str()
+                    link.position.line as i64,
                 ],
             )?;
         }
 
         Ok(())
     }
-}
 
-fn serialize_frontmatter_json(note: &Note) -> anyhow::Result<String> {
-    if let Some(raw_frontmatter) = note.raw_frontmatter.as_deref() {
-        if raw_frontmatter.trim().is_empty() {
-            return Ok("{}".to_string());
-        }
-        let value: serde_yaml::Value = serde_yaml::from_str(raw_frontmatter)?;
-        return serde_json::to_string(&value).map_err(Into::into);
-    }
+    fn index_tasks(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
+        for task in &note.tasks {
+            let task_id = task_id(note.path.as_str(), task);
+            self.conn.execute(
+                "INSERT OR REPLACE INTO tasks (vault_name, id, note_path, line_number, text, status_char, status_group, content_hash, raw_markdown)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    vault_name,
+                    task_id,
+                    note.path.as_str(),
+                    task.position.line as i64,
+                    task.content.as_str(),
+                    task.status_char.to_string(),
+                    status_group_name(task),
+                    task.content_hash.as_deref(),
+                    render_raw_task(task),
+                ],
+            )?;
 
-    note.frontmatter
-        .as_ref()
-        .map(serde_json::to_string)
-        .transpose()
-        .map(|value| value.unwrap_or_else(|| "{}".to_string()))
-        .map_err(Into::into)
-}
-
-pub(crate) type NoteMetadata = (
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    bool,
-);
-
-pub(crate) fn extract_note_metadata(note: &Note) -> NoteMetadata {
-    let title = note.path.stem().unwrap_or("Untitled").to_string();
-
-    match &note.frontmatter {
-        Some(Frontmatter::Daily(meta)) => (
-            "daily".into(),
-            title,
-            None,
-            None,
-            None,
-            None,
-            Some(meta.date.to_string()),
-            meta.common.created.clone(),
-            meta.common.updated.clone(),
-            meta.common.archived.unwrap_or(false),
-        ),
-        Some(Frontmatter::Meeting(meta)) => (
-            "meeting".into(),
-            title,
-            Some(meta.customer.clone()),
-            meta.stream.clone(),
-            None,
-            None,
-            Some(meta.date.to_string()),
-            meta.common.created.clone(),
-            meta.common.updated.clone(),
-            meta.common.archived.unwrap_or(false),
-        ),
-        Some(Frontmatter::Stream(meta)) => (
-            "stream".into(),
-            title,
-            Some(meta.customer.clone()),
-            Some(meta.stream.clone()),
-            None,
-            serde_json::to_value(&meta.status)
-                .ok()
-                .and_then(|value| value.as_str().map(str::to_owned)),
-            None,
-            meta.common.created.clone(),
-            meta.common.updated.clone(),
-            meta.common.archived.unwrap_or(false),
-        ),
-        Some(Frontmatter::Customer(meta)) => (
-            "customer".into(),
-            title,
-            Some(meta.customer.clone()),
-            None,
-            serde_json::to_value(&meta.state)
-                .ok()
-                .and_then(|value| value.as_str().map(str::to_owned)),
-            None,
-            None,
-            meta.common.created.clone(),
-            meta.common.updated.clone(),
-            meta.common.archived.unwrap_or(false),
-        ),
-        Some(Frontmatter::AccountInfo(meta)) => (
-            "account-info".into(),
-            title,
-            Some(meta.customer.clone()),
-            None,
-            None,
-            None,
-            None,
-            meta.common.created.clone(),
-            meta.common.updated.clone(),
-            meta.common.archived.unwrap_or(false),
-        ),
-        Some(Frontmatter::Glossary(meta)) => (
-            "glossary".into(),
-            title,
-            Some(meta.customer.clone()),
-            None,
-            None,
-            None,
-            None,
-            meta.common.created.clone(),
-            meta.common.updated.clone(),
-            meta.common.archived.unwrap_or(false),
-        ),
-        Some(Frontmatter::Milestones(meta)) => (
-            "milestones".into(),
-            title,
-            Some(meta.customer.clone()),
-            None,
-            None,
-            None,
-            None,
-            meta.common.created.clone(),
-            meta.common.updated.clone(),
-            meta.common.archived.unwrap_or(false),
-        ),
-        Some(Frontmatter::Note(meta)) => (
-            "note".into(),
-            title,
-            None,
-            None,
-            None,
-            None,
-            None,
-            meta.common.created.clone(),
-            meta.common.updated.clone(),
-            meta.common.archived.unwrap_or(false),
-        ),
-        Some(Frontmatter::Dashboard(meta)) => (
-            "dashboard".into(),
-            title,
-            None,
-            None,
-            None,
-            None,
-            None,
-            meta.common.created.clone(),
-            meta.common.updated.clone(),
-            meta.common.archived.unwrap_or(false),
-        ),
-        Some(Frontmatter::Contact(meta)) => (
-            "contact".into(),
-            title,
-            Some(meta.customer.clone()),
-            None,
-            None,
-            None,
-            None,
-            meta.common.created.clone(),
-            meta.common.updated.clone(),
-            meta.common.archived.unwrap_or(false),
-        ),
-        Some(Frontmatter::Other) | None => (
-            "other".into(),
-            title,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-        ),
-    }
-}
-
-fn extract_task_inline_fields(content: &str) -> (Option<String>, Option<String>, Option<String>) {
-    let mut customer = None;
-    let mut stream = None;
-    let mut owner = None;
-    let mut offset = 0;
-
-    while let Some(start) = content[offset..].find('[').map(|index| offset + index) {
-        if content[start..].starts_with("[[") {
-            offset = start + 2;
-            continue;
-        }
-
-        let Some(end) = content[start + 1..]
-            .find(']')
-            .map(|index| start + 1 + index)
-        else {
-            break;
-        };
-
-        if let Some((key, value)) = content[start + 1..end].split_once("::") {
-            let value = value.trim().to_string();
-            match key.trim() {
-                "customer" => customer = Some(value),
-                "stream" => stream = Some(value),
-                "owner" => owner = Some(value),
-                _ => {}
+            for (key, value) in &task.inline_fields {
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO task_fields (vault_name, task_id, key, value)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![vault_name, task_id, key, value],
+                )?;
             }
         }
 
-        offset = end + 1;
+        Ok(())
     }
 
-    (customer, stream, owner)
+    fn index_periodic_note(
+        &self,
+        vault_name: &str,
+        note: &Note,
+        note_type: &str,
+    ) -> anyhow::Result<()> {
+        let Some(periodic) = extract_periodic_note(note.path.as_str(), note_type) else {
+            return Ok(());
+        };
+
+        self.conn.execute(
+            "INSERT OR REPLACE INTO periodic_notes (vault_name, note_path, period_kind, period_key, period_start, period_end)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                vault_name,
+                note.path.as_str(),
+                periodic.kind,
+                periodic.key,
+                periodic.start,
+                periodic.end,
+            ],
+        )?;
+        Ok(())
+    }
+}
+
+pub(crate) type NoteMetadata = (String, String, Option<String>, Option<String>);
+
+pub(crate) fn extract_note_metadata(note: &Note) -> NoteMetadata {
+    let frontmatter = note.frontmatter.as_ref();
+    let note_type = frontmatter
+        .and_then(|fm| fm.get_str("type").or_else(|| fm.get_str("kind")))
+        .unwrap_or("note")
+        .to_string();
+    let title = frontmatter
+        .and_then(Frontmatter::title)
+        .filter(|title| !title.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| note.path.stem().unwrap_or("Untitled").to_string());
+    let created_at = frontmatter.and_then(|fm| fm.get_string("created"));
+    let updated_at = frontmatter.and_then(|fm| fm.get_string("updated"));
+
+    (note_type, title, created_at, updated_at)
+}
+
+fn yaml_value_to_string(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Bool(flag) => flag.to_string(),
+        Value::Number(number) => number.to_string(),
+        Value::Null => String::new(),
+        other => serde_yaml::to_string(other)
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
+    }
+}
+
+fn yaml_value_type(value: &Value) -> &'static str {
+    match value {
+        Value::Sequence(_) => "list",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(text) => scalar_value_type(text),
+        _ => "string",
+    }
+}
+
+fn scalar_value_type(value: &str) -> &'static str {
+    if looks_like_date(value) {
+        "date"
+    } else if value.parse::<f64>().is_ok() {
+        "number"
+    } else if matches!(value, "true" | "false") {
+        "boolean"
+    } else if value.starts_with("[[") && value.ends_with("]]") {
+        "link"
+    } else {
+        "string"
+    }
+}
+
+fn looks_like_date(value: &str) -> bool {
+    value.len() == 10
+        && value.as_bytes().get(4) == Some(&b'-')
+        && value.as_bytes().get(7) == Some(&b'-')
+        && value.chars().enumerate().all(|(index, ch)| match index {
+            4 | 7 => ch == '-',
+            _ => ch.is_ascii_digit(),
+        })
+}
+
+fn extract_inline_tags(body: &str) -> Vec<String> {
+    let excluded = find_code_like_ranges(body);
+    let mut tags = Vec::new();
+
+    for captures in tag_regex().captures_iter(body) {
+        let Some(full) = captures.get(0) else {
+            continue;
+        };
+        if excluded
+            .iter()
+            .any(|range| full.start() < range.end && full.end() > range.start)
+        {
+            continue;
+        }
+        if let Some(tag) = captures.name("tag") {
+            tags.push(tag.as_str().to_string());
+        }
+    }
+
+    tags
+}
+
+fn tag_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(r"(?m)(^|[\s(])#(?P<tag>[A-Za-z][A-Za-z0-9/_-]*)").expect("valid tag regex")
+    })
+}
+
+fn find_code_like_ranges(body: &str) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut offset = 0;
+    let mut active_fence: Option<(usize, char, usize)> = None;
+
+    for segment in body.split_inclusive('\n') {
+        let line_start = offset;
+        let line_end = offset + segment.len();
+        let trimmed = segment
+            .trim_end_matches(['\r', '\n'])
+            .trim_start_matches([' ', '\t']);
+
+        if let Some((fence_start, marker, len)) = active_fence {
+            if is_fence_delimiter(trimmed, marker, len) {
+                ranges.push(fence_start..line_end);
+                active_fence = None;
+            }
+        } else if let Some((marker, len)) = parse_fence_start(trimmed) {
+            active_fence = Some((line_start, marker, len));
+        }
+
+        offset = line_end;
+    }
+
+    if let Some((fence_start, _, _)) = active_fence {
+        ranges.push(fence_start..body.len());
+    }
+
+    let mut inline_ranges = find_inline_code_ranges(body, &ranges);
+    ranges.append(&mut inline_ranges);
+    ranges.sort_by_key(|range| range.start);
+    merge_ranges(ranges)
+}
+
+fn parse_fence_start(line: &str) -> Option<(char, usize)> {
+    let marker = line.chars().next()?;
+    if marker != '`' && marker != '~' {
+        return None;
+    }
+    let len = line.chars().take_while(|ch| *ch == marker).count();
+    (len >= 3).then_some((marker, len))
+}
+
+fn is_fence_delimiter(line: &str, marker: char, len: usize) -> bool {
+    let run = line.chars().take_while(|ch| *ch == marker).count();
+    run >= len && line[run..].trim().is_empty()
+}
+
+fn find_inline_code_ranges(body: &str, excluded: &[Range<usize>]) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut active: Option<(usize, usize)> = None;
+    let mut index = 0;
+
+    while index < body.len() {
+        if let Some(range) = excluded
+            .iter()
+            .find(|range| range.start <= index && index < range.end)
+        {
+            index = range.end;
+            continue;
+        }
+
+        if body.as_bytes()[index] == b'`' {
+            let run = body[index..]
+                .bytes()
+                .take_while(|byte| *byte == b'`')
+                .count();
+            if let Some((start, delimiter_len)) = active {
+                if delimiter_len == run {
+                    ranges.push(start..index + run);
+                    active = None;
+                }
+            } else {
+                active = Some((index, run));
+            }
+            index += run;
+            continue;
+        }
+
+        index += body[index..].chars().next().map_or(1, char::len_utf8);
+    }
+
+    ranges
+}
+
+fn merge_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
+    let mut merged: Vec<Range<usize>> = Vec::new();
+    for range in ranges {
+        if let Some(last) = merged.last_mut() {
+            if range.start <= last.end {
+                last.end = last.end.max(range.end);
+                continue;
+            }
+        }
+        merged.push(range);
+    }
+    merged
+}
+
+fn task_id(note_path: &str, task: &Task) -> i64 {
+    let seed = format!(
+        "{note_path}:{}:{}",
+        task.position.line,
+        task.content_hash
+            .as_deref()
+            .unwrap_or(task.content.as_str())
+    );
+    let bytes = blake3::hash(seed.as_bytes());
+    let mut raw = [0_u8; 8];
+    raw.copy_from_slice(&bytes.as_bytes()[..8]);
+    (u64::from_le_bytes(raw) & i64::MAX as u64) as i64
+}
+
+fn status_group_name(task: &Task) -> &'static str {
+    if task.status_group.is_open() {
+        "open"
+    } else {
+        "done"
+    }
+}
+
+fn render_raw_task(task: &Task) -> String {
+    let mut rendered = format!("- [{}] {}", task.status_char, task.content);
+    let mut fields = task.inline_fields.iter().collect::<Vec<_>>();
+    fields.sort_by(|a, b| a.0.cmp(b.0));
+    for (key, value) in fields {
+        rendered.push_str(&format!(" [{key}:: {value}]"));
+    }
+    rendered
+}
+
+struct PeriodicNoteRecord {
+    kind: String,
+    key: String,
+    start: String,
+    end: String,
+}
+
+fn extract_periodic_note(path: &str, note_type: &str) -> Option<PeriodicNoteRecord> {
+    let stem = path.rsplit('/').next()?.strip_suffix(".md")?;
+    if note_type == "daily" || looks_like_date(stem) {
+        let date = NaiveDate::parse_from_str(stem, "%Y-%m-%d").ok()?;
+        return Some(PeriodicNoteRecord {
+            kind: "daily".to_string(),
+            key: stem.to_string(),
+            start: date.to_string(),
+            end: date.to_string(),
+        });
+    }
+    if let Some((year, month)) = stem.split_once('-') {
+        if stem.len() == 7 {
+            let start = NaiveDate::from_ymd_opt(year.parse().ok()?, month.parse().ok()?, 1)?;
+            let next_month = if start.month() == 12 {
+                NaiveDate::from_ymd_opt(start.year() + 1, 1, 1)?
+            } else {
+                NaiveDate::from_ymd_opt(start.year(), start.month() + 1, 1)?
+            };
+            return Some(PeriodicNoteRecord {
+                kind: "monthly".to_string(),
+                key: stem.to_string(),
+                start: start.to_string(),
+                end: (next_month - Duration::days(1)).to_string(),
+            });
+        }
+    }
+    if stem.len() == 4 && stem.chars().all(|ch| ch.is_ascii_digit()) {
+        let year = stem.parse().ok()?;
+        let start = NaiveDate::from_ymd_opt(year, 1, 1)?;
+        let end = NaiveDate::from_ymd_opt(year, 12, 31)?;
+        return Some(PeriodicNoteRecord {
+            kind: "yearly".to_string(),
+            key: stem.to_string(),
+            start: start.to_string(),
+            end: end.to_string(),
+        });
+    }
+    None
 }

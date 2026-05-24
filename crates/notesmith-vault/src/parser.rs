@@ -1,22 +1,14 @@
 use crate::frontmatter::extract_frontmatter;
-use chrono::NaiveDate;
 use notesmith_core::{
-    Block, InlineField, Link, LinkType, Note, SourcePosition, Task, TaskPriority, TaskStatus,
+    Block, InlineField, Link, LinkType, Note, SourcePosition, StatusGroup, Task, TaskStatusMap,
     VaultName, VaultPath,
 };
 use regex::Regex;
-use std::{ops::Range, sync::OnceLock};
+use std::{collections::HashMap, ops::Range, sync::OnceLock};
 
 #[derive(Debug, Default, Clone)]
 struct TaskMetadata {
-    due_date: Option<NaiveDate>,
-    scheduled_date: Option<NaiveDate>,
-    start_date: Option<NaiveDate>,
-    done_date: Option<NaiveDate>,
-    cancelled_date: Option<NaiveDate>,
-    created_date: Option<NaiveDate>,
-    priority: Option<TaskPriority>,
-    recurrence: Option<String>,
+    inline_fields: HashMap<String, String>,
     cleaned_content: String,
 }
 
@@ -193,6 +185,7 @@ fn parse_tasks(body: &str) -> Vec<Task> {
     let line_starts = line_starts(body);
     let mut tasks = Vec::new();
     let mut offset = 0;
+    let status_map = TaskStatusMap::default();
 
     for segment in body.split_inclusive('\n') {
         let line_end = offset + segment.len();
@@ -204,37 +197,29 @@ fn parse_tasks(body: &str) -> Vec<Task> {
         let line = trim_line_ending(segment);
         if let Some(captures) = task_regex().captures(line) {
             let full = captures.get(0).expect("task regex has full match");
-            let marker = captures
+            let status_char = captures
                 .name("marker")
                 .and_then(|marker| marker.as_str().chars().next())
-                .and_then(TaskStatus::from_marker);
+                .unwrap_or(' ');
             let content = captures
                 .name("content")
                 .map(|content| content.as_str())
                 .unwrap_or_default();
+            let metadata = parse_task_metadata(content);
 
-            if let Some(status) = marker {
-                let metadata = parse_task_metadata(content);
-                tasks.push(Task {
-                    status,
-                    content: metadata.cleaned_content,
-                    position: source_position(
-                        body,
-                        &line_starts,
-                        offset + full.start(),
-                        full.end() - full.start(),
-                    ),
-                    due_date: metadata.due_date,
-                    scheduled_date: metadata.scheduled_date,
-                    start_date: metadata.start_date,
-                    done_date: metadata.done_date,
-                    cancelled_date: metadata.cancelled_date,
-                    created_date: metadata.created_date,
-                    priority: metadata.priority,
-                    recurrence: metadata.recurrence,
-                    content_hash: Some(blake3::hash(line.as_bytes()).to_hex().to_string()),
-                });
-            }
+            tasks.push(Task {
+                status_char,
+                status_group: resolve_status_group(&status_map, status_char),
+                content: metadata.cleaned_content,
+                position: source_position(
+                    body,
+                    &line_starts,
+                    offset + full.start(),
+                    full.end() - full.start(),
+                ),
+                inline_fields: metadata.inline_fields,
+                content_hash: Some(blake3::hash(line.as_bytes()).to_hex().to_string()),
+            });
         }
 
         offset = line_end;
@@ -244,52 +229,40 @@ fn parse_tasks(body: &str) -> Vec<Task> {
 }
 
 fn parse_task_metadata(content: &str) -> TaskMetadata {
-    let due_date = capture_date(content, due_date_regex());
-    let scheduled_date = capture_date(content, scheduled_date_regex());
-    let start_date = capture_date(content, start_date_regex());
-    let done_date = capture_date(content, done_date_regex());
-    let cancelled_date = capture_date(content, cancelled_date_regex());
-    let created_date = capture_date(content, created_date_regex());
-    let recurrence = extract_recurrence(content);
+    let mut inline_fields = HashMap::new();
+    let mut cleaned = String::new();
+    let mut index = 0;
 
-    let priority = if content.contains('⏫') {
-        Some(TaskPriority::High)
-    } else if content.contains('🔼') {
-        Some(TaskPriority::Medium)
-    } else if content.contains('🔽') {
-        Some(TaskPriority::Low)
-    } else {
-        None
-    };
+    while index < content.len() {
+        let current = content[index..].chars().next().unwrap_or_default();
+        if current == '[' && !content[index..].starts_with("[[") {
+            if let Some((end, key, value)) = parse_inline_field_at(content, index) {
+                inline_fields.insert(key, value);
+                if !cleaned.ends_with(' ') && !cleaned.is_empty() {
+                    cleaned.push(' ');
+                }
+                index = end;
+                continue;
+            }
+        }
 
-    let mut cleaned = content.to_string();
-    for regex in [
-        due_date_regex(),
-        scheduled_date_regex(),
-        start_date_regex(),
-        done_date_regex(),
-        cancelled_date_regex(),
-        created_date_regex(),
-    ] {
-        cleaned = regex.replace_all(&cleaned, " ").into_owned();
+        cleaned.push(current);
+        index += current.len_utf8().max(1);
     }
-    if let Some((start, end, _)) = recurrence_span(&cleaned) {
-        cleaned.replace_range(start..end, " ");
-    }
-    cleaned = cleaned.replace(['⏫', '🔼', '🔽'], " ");
-    cleaned = normalize_whitespace(&cleaned);
 
     TaskMetadata {
-        due_date,
-        scheduled_date,
-        start_date,
-        done_date,
-        cancelled_date,
-        created_date,
-        priority,
-        recurrence,
-        cleaned_content: cleaned,
+        inline_fields,
+        cleaned_content: normalize_whitespace(&cleaned),
     }
+}
+
+fn resolve_status_group(statuses: &TaskStatusMap, status_char: char) -> StatusGroup {
+    if statuses.statuses.contains_key(&status_char) {
+        return statuses.resolve_group(status_char);
+    }
+
+    let normalized = status_char.to_ascii_lowercase();
+    statuses.resolve_group(normalized)
 }
 
 fn parse_blocks(body: &str) -> Vec<Block> {
@@ -369,13 +342,6 @@ fn parse_markdown_links(body: &str) -> Vec<Link> {
             })
         })
         .collect()
-}
-
-fn capture_date(content: &str, regex: &Regex) -> Option<NaiveDate> {
-    regex
-        .captures(content)
-        .and_then(|captures| captures.get(1))
-        .and_then(|capture| NaiveDate::parse_from_str(capture.as_str(), "%Y-%m-%d").ok())
 }
 
 fn parse_inline_field_at(body: &str, start: usize) -> Option<(usize, String, String)> {
@@ -527,29 +493,6 @@ fn normalize_whitespace(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn extract_recurrence(content: &str) -> Option<String> {
-    recurrence_span(content).map(|(_, _, recurrence)| recurrence)
-}
-
-fn recurrence_span(content: &str) -> Option<(usize, usize, String)> {
-    let marker_start = content.find('🔁')?;
-    let after_marker = marker_start + '🔁'.len_utf8();
-    let remainder = content.get(after_marker..)?.trim_start();
-    let value_start = content.len() - remainder.len();
-    let value_end = ['📅', '⏳', '🛫', '✅', '❌', '➕', '⏫', '🔼', '🔽']
-        .into_iter()
-        .filter_map(|marker| {
-            content[value_start..]
-                .find(marker)
-                .map(|relative| value_start + relative)
-        })
-        .min()
-        .unwrap_or(content.len());
-
-    let recurrence = content[value_start..value_end].trim().to_string();
-    (!recurrence.is_empty()).then_some((marker_start, value_end, recurrence))
-}
-
 fn wikilink_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| Regex::new(r"\[\[([^\]]+)\]\]").expect("valid wikilink regex"))
@@ -579,40 +522,6 @@ fn task_regex() -> &'static Regex {
 fn block_id_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| Regex::new(r"\^([a-zA-Z0-9-]+)\s*$").expect("valid block id regex"))
-}
-
-fn due_date_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| Regex::new(r"📅\s*(\d{4}-\d{2}-\d{2})").expect("valid due date regex"))
-}
-
-fn scheduled_date_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| {
-        Regex::new(r"⏳\s*(\d{4}-\d{2}-\d{2})").expect("valid scheduled date regex")
-    })
-}
-
-fn start_date_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| Regex::new(r"🛫\s*(\d{4}-\d{2}-\d{2})").expect("valid start date regex"))
-}
-
-fn done_date_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| Regex::new(r"✅\s*(\d{4}-\d{2}-\d{2})").expect("valid done date regex"))
-}
-
-fn cancelled_date_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| {
-        Regex::new(r"❌\s*(\d{4}-\d{2}-\d{2})").expect("valid cancelled date regex")
-    })
-}
-
-fn created_date_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| Regex::new(r"➕\s*(\d{4}-\d{2}-\d{2})").expect("valid created date regex"))
 }
 
 #[cfg(test)]
@@ -694,33 +603,40 @@ mod tests {
         let body = "- [ ] Todo\n- [/] In progress\n- [b] Blocked\n- [w] Waiting\n- [h] On hold\n- [x] Done\n- [-] Cancelled";
         let tasks = parse_tasks(body);
         assert_eq!(tasks.len(), 7);
-        assert_eq!(tasks[0].status, TaskStatus::Todo);
-        assert_eq!(tasks[1].status, TaskStatus::InProgress);
-        assert_eq!(tasks[2].status, TaskStatus::Blocked);
-        assert_eq!(tasks[3].status, TaskStatus::Waiting);
-        assert_eq!(tasks[4].status, TaskStatus::OnHold);
-        assert_eq!(tasks[5].status, TaskStatus::Done);
-        assert_eq!(tasks[6].status, TaskStatus::Cancelled);
+        assert_eq!(tasks[0].status_char, ' ');
+        assert_eq!(tasks[1].status_char, '/');
+        assert_eq!(tasks[2].status_char, 'b');
+        assert_eq!(tasks[3].status_char, 'w');
+        assert_eq!(tasks[4].status_char, 'h');
+        assert_eq!(tasks[5].status_char, 'x');
+        assert_eq!(tasks[6].status_char, '-');
+        assert_eq!(tasks[0].status_group, StatusGroup::Open);
+        assert_eq!(tasks[5].status_group, StatusGroup::Done);
+        assert_eq!(tasks[6].status_group, StatusGroup::Done);
     }
 
     #[test]
-    fn parse_task_with_due_date() {
-        let body = "- [ ] Something 📅 2025-03-15";
+    fn parse_task_extracts_inline_fields() {
+        let body = "- [ ] Plan rollout [customer:: [[Acme Corp]]] [due:: 2025-03-15]";
         let tasks = parse_tasks(body);
         assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].content, "Plan rollout");
         assert_eq!(
-            tasks[0].due_date,
-            Some(NaiveDate::from_ymd_opt(2025, 3, 15).unwrap())
+            tasks[0].inline_fields.get("customer"),
+            Some(&"[[Acme Corp]]".to_string())
+        );
+        assert_eq!(
+            tasks[0].inline_fields.get("due"),
+            Some(&"2025-03-15".to_string())
         );
     }
 
     #[test]
-    fn parse_task_with_priority() {
-        let body = "- [ ] High priority ⏫\n- [ ] Medium priority 🔼\n- [ ] Low priority 🔽";
+    fn parse_task_keeps_non_field_metadata_in_content() {
+        let body = "- [ ] Something 📅 2025-03-15 🔼";
         let tasks = parse_tasks(body);
-        assert_eq!(tasks[0].priority, Some(TaskPriority::High));
-        assert_eq!(tasks[1].priority, Some(TaskPriority::Medium));
-        assert_eq!(tasks[2].priority, Some(TaskPriority::Low));
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].content, "Something 📅 2025-03-15 🔼");
     }
 
     #[test]

@@ -167,7 +167,7 @@ The CLI auto-starts the daemon when needed unless `[daemon].auto_start = false`.
 Execute read-only SQL against the daemon's SQLite cache. The CLI auto-starts the daemon when needed unless `[daemon].auto_start = false`.
 
 ```bash
-notesmith query sql "SELECT title, type FROM v_notes LIMIT 10"
+notesmith query sql "SELECT title, updated_at FROM v_notes LIMIT 10"
 ```
 
 Text output renders a formatted table. JSON output returns the full `QueryResult` object.
@@ -176,7 +176,7 @@ Text output renders a formatted table. JSON output returns the full `QueryResult
 
 ```bash
 # List active customers
-notesmith query sql "SELECT title, state FROM v_customers WHERE state = 'Active'"
+notesmith query sql "SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type' LEFT JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = 'state' WHERE note_type.value = 'customer' AND state.value = 'Active'"
 
 # Find blocked tasks
 notesmith query sql "SELECT text, note_path FROM v_tasks WHERE status = 'blocked'" --format json | jq '.'
@@ -338,7 +338,7 @@ notesmith task add <note_path> <description> [--customer <name>] [--stream <name
 | `description` | Task text |
 | `--customer <name>` | Inline field `[customer:: name]` |
 | `--stream <name>` | Inline field `[stream:: name]` |
-| `--due <YYYY-MM-DD>` | Due date emoji 📅 |
+| `--due <YYYY-MM-DD>` | Inline field `[due:: YYYY-MM-DD]` |
 | `--priority <level>` | `highest`, `high`, `medium`, `low`, or `lowest` |
 
 **Examples:**

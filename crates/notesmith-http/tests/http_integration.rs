@@ -472,7 +472,7 @@ async fn put_sidebar_config_succeeds_with_correct_if_match() {
                         "folders": ["Customers"]
                     }
                 ],
-                "badge_query": "SELECT COUNT(*) FROM v_customers"
+                "badge_query": "SELECT COUNT(*) FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type' WHERE note_type.value = 'customer'"
             }
         ]
     });
@@ -1649,7 +1649,7 @@ async fn toggle_task_returns_not_found_for_bad_hash() {
 }
 
 #[tokio::test]
-async fn toggle_task_returns_unprocessable_for_invalid_transition() {
+async fn toggle_task_allows_rewriting_to_any_status_char() {
     let task_line = "- [/] In progress task";
     let note_content = format!("{task_line}\n");
     let server = TestServer::with_files(&[("Inbox/Tasks.md", &note_content)]).await;
@@ -1662,13 +1662,15 @@ async fn toggle_task_returns_unprocessable_for_invalid_transition() {
         .json(&serde_json::json!({
             "note_path": "Inbox/Tasks.md",
             "task_hash": task_hash,
-            "new_status": "todo", // InProgress → Todo is not allowed
+            "new_status": "todo",
         }))
         .send()
         .await
         .unwrap();
 
-    assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let written = fs::read_to_string(server.root.join("Inbox/Tasks.md")).unwrap();
+    assert!(written.contains("- [ ] In progress task"));
 
     server.server.abort();
 }
@@ -2169,11 +2171,11 @@ async fn agent_create_daily_prompt_mode() {
     let prompt_template = r#"---
 context_queries:
   - name: open_tasks
-    sql: "SELECT text, due, customer, note_path FROM v_tasks WHERE status IN ('todo', 'in_progress') ORDER BY due NULLS LAST LIMIT 20"
+    sql: "SELECT t.text, due.value AS due, customer.value AS customer, t.note_path FROM v_tasks t LEFT JOIN v_task_fields due ON due.vault_name = t.vault_name AND due.task_id = t.id AND due.key = 'due' LEFT JOIN v_task_fields customer ON customer.vault_name = t.vault_name AND customer.task_id = t.id AND customer.key = 'customer' WHERE t.status_group = 'open' ORDER BY due.value IS NULL, due.value ASC LIMIT 20"
   - name: recent_meetings
-    sql: "SELECT title, customer, date FROM v_notes WHERE type = 'meeting' AND date >= date('now', '-7 days') ORDER BY date DESC LIMIT 10"
+    sql: "SELECT n.title, customer.value AS customer, date.value AS date FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type' LEFT JOIN v_fields customer ON customer.vault_name = n.vault_name AND customer.note_path = n.path AND customer.key = 'customer' LEFT JOIN v_fields date ON date.vault_name = n.vault_name AND date.note_path = n.path AND date.key = 'date' WHERE note_type.value = 'meeting' AND date.value >= date('now', '-7 days') ORDER BY date.value DESC LIMIT 10"
   - name: inbox_count
-    sql: "SELECT COUNT(*) as count FROM v_notes WHERE path LIKE 'Inbox/%' AND archived = 0"
+    sql: "SELECT COUNT(*) as count FROM notes WHERE path LIKE 'Inbox/%'"
 ---
 
 # Daily Note Prompt

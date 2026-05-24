@@ -309,7 +309,7 @@ mod tests {
   - id: customers
     name: Customers
     icon: "🏢"
-    badge_query: "SELECT COUNT(*) FROM v_customers"
+    badge_query: "SELECT COUNT(*) FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type' WHERE note_type.value = 'customer'"
     sections:
       - type: recently-viewed
         label: Recent
@@ -326,7 +326,7 @@ mod tests {
           - name: Pipeline
             icon: "📊"
             source:
-              query: "SELECT path, title FROM v_notes WHERE type = 'dashboard'"
+              query: "SELECT n.path, n.title FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type' WHERE note_type.value = 'dashboard'"
               title_column: title
 "#,
         )
@@ -341,7 +341,7 @@ mod tests {
         assert_eq!(view.icon, "🏢");
         assert_eq!(
             view.badge_query,
-            Some("SELECT COUNT(*) FROM v_customers".to_string())
+            Some("SELECT COUNT(*) FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type' WHERE note_type.value = 'customer'".to_string())
         );
         assert_eq!(view.sections.len(), 3);
 

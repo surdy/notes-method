@@ -144,18 +144,18 @@ views:
   - id: all-notes
     name: All Notes
     icon: 📄
-    data_source: "SELECT path, title, type FROM v_notes ORDER BY path"
+    data_source: "SELECT path, title, updated_at FROM v_notes ORDER BY path"
 
   - id: tasks
     name: Tasks
     icon: ✅
-    data_source: "SELECT note_path AS path, text AS title, status FROM v_tasks ORDER BY status, note_path, ordinal"
-    group_by: status
+    data_source: "SELECT note_path AS path, text AS title, status_group FROM v_tasks ORDER BY status_group, note_path, line_number"
+    group_by: status_group
 
   - id: recent
     name: Recent
     icon: 🕐
-    data_source: "SELECT path, title, type, updated_at FROM v_notes ORDER BY mtime_unix DESC LIMIT 30"
+    data_source: "SELECT path, title, updated_at FROM v_notes ORDER BY updated_at DESC LIMIT 30"
 
   - id: capture
     name: Capture
@@ -175,7 +175,7 @@ Fields:
 Rules:
 - `data_source` must return at least `path` and `title`.
 - `badge_query` must return a `count` column.
-- Views should query public SQL views: `v_notes`, `v_tasks`, `v_backlinks`, `v_customers`, `v_streams`.
+- Views should query public SQL views: `v_notes`, `v_fields`, `v_tasks`, `v_task_fields`, `v_backlinks`, and `v_periodic`.
 - See [SQL Views Reference](sql-views.md) for view schemas.
 
 ---

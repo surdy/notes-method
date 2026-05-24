@@ -2,136 +2,123 @@
 
 Notesmith exposes stable SQL views as its query API. Views are the public contract — underlying tables may change between versions.
 
-Query views through the CLI or HTTP API:
-
 ```bash
-# CLI (requires daemon)
 notesmith query sql "SELECT * FROM v_notes LIMIT 5"
-
-# HTTP
-curl -s http://127.0.0.1:27183/api/v/work/query/sql \
-  -H 'content-type: application/json' \
-  -d '{"sql":"SELECT * FROM v_notes LIMIT 5"}'
 ```
-
----
 
 ## v_notes
 
-All notes in the vault with metadata from frontmatter.
+Core note metadata.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `vault_name` | TEXT | Vault identifier |
-| `path` | TEXT | Relative path from vault root |
-| `title` | TEXT | Note title (file stem) |
-| `type` | TEXT | Frontmatter type: `customer`, `meeting`, `stream`, `daily`, `note`, `dashboard`, `contact`, `account-info`, `glossary`, `milestones`, `other` |
-| `customer` | TEXT | Customer name (if applicable) |
-| `stream` | TEXT | Work stream name (if applicable) |
-| `state` | TEXT | Customer state (e.g., `Active`, `On Hold`, `Temp`, `Inactive`) |
-| `status` | TEXT | Stream status (e.g., `In Progress`, `Blocked`, `Done`, `Awaiting Customer`, `On Hold`) |
-| `date` | TEXT | Date for daily/meeting notes |
-| `created_at` | TEXT | Creation timestamp from frontmatter |
-| `updated_at` | TEXT | Last update timestamp from frontmatter |
-| `archived` | INTEGER | 1 if archived, 0 otherwise |
-| `mtime_unix` | INTEGER | File modification time (unix epoch) |
-| `frontmatter_json` | TEXT | Full frontmatter as JSON |
+| `path` | TEXT | Relative note path |
+| `title` | TEXT | Display title |
+| `created_at` | TEXT | `created` frontmatter value when present |
+| `updated_at` | TEXT | `updated` frontmatter value when present |
+| `word_count` | INTEGER | Body word count |
 
-**Examples:**
+Example:
 
 ```sql
--- Active customers
-SELECT title, state FROM v_notes WHERE type = 'customer' AND state = 'Active';
-
--- Recent meetings
-SELECT title, customer, date FROM v_notes WHERE type = 'meeting' ORDER BY date DESC LIMIT 10;
-
--- Notes by type
-SELECT type, COUNT(*) as count FROM v_notes GROUP BY type ORDER BY count DESC;
+SELECT path, title, updated_at FROM v_notes ORDER BY updated_at DESC LIMIT 10;
 ```
 
----
+## v_fields
+
+Flattened note fields from frontmatter and inline note fields.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `vault_name` | TEXT | Vault identifier |
+| `note_path` | TEXT | Note path |
+| `key` | TEXT | Field key |
+| `value` | TEXT | Stored scalar or serialized list value |
+| `value_type` | TEXT | `string`, `date`, `number`, `link`, `list`, or `boolean` |
+
+Example:
+
+```sql
+SELECT note_path, value FROM v_fields WHERE key = 'customer' ORDER BY note_path;
+```
 
 ## v_tasks
 
-All tasks extracted from notes, with status and metadata.
+Parsed tasks with generic statuses.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `vault_name` | TEXT | Vault identifier |
-| `task_hash` | TEXT | Content-hash anchor for stable identification |
-| `note_path` | TEXT | Path to the note containing the task |
-| `heading_path` | TEXT | Heading context within the note |
-| `ordinal` | INTEGER | Position within the note (0-indexed) |
-| `status` | TEXT | `todo`, `in_progress`, `blocked`, `waiting`, `on_hold`, `done`, `cancelled` |
+| `id` | INTEGER | Task row id |
+| `note_path` | TEXT | Note containing the task |
+| `line_number` | INTEGER | 1-based line number in the note |
 | `text` | TEXT | Task text content |
-| `customer` | TEXT | From `[customer:: ...]` inline field |
-| `stream` | TEXT | From `[stream:: ...]` inline field |
-| `owner` | TEXT | From `[owner:: ...]` inline field |
-| `due` | TEXT | Due date (from 📅 emoji) |
-| `scheduled` | TEXT | Scheduled date (from ⏳ emoji) |
-| `start_date` | TEXT | Start date (from 🛫 emoji) |
-| `done_at` | TEXT | Completion date (from ✅ emoji) |
-| `priority` | INTEGER | 1 (lowest) to 5 (highest) |
+| `status_char` | TEXT | Raw checkbox marker |
+| `status_group` | TEXT | `open` or `done` |
+| `note_title` | TEXT | Title of the containing note |
 
-**Examples:**
+Example:
 
 ```sql
--- Open tasks due this week
-SELECT text, due, note_path FROM v_tasks
-WHERE status IN ('todo', 'in_progress') AND due IS NOT NULL
-ORDER BY due;
-
--- Blocked tasks by customer
-SELECT text, customer, note_path FROM v_tasks
-WHERE status = 'blocked' AND customer IS NOT NULL;
-
--- Task counts by status
-SELECT status, COUNT(*) as count FROM v_tasks GROUP BY status ORDER BY count DESC;
+SELECT text, note_path FROM v_tasks WHERE status_group = 'open' ORDER BY note_path, line_number;
 ```
 
----
+## v_task_fields
 
-## v_backlinks
-
-Links pointing to each note (reverse link graph).
+Inline task fields such as `[due:: 2026-06-01]`.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `note_path` | TEXT | The note being linked to |
-| `backlink_path` | TEXT | The note containing the link |
-| `kind` | TEXT | Link type: `wikilink`, `embed`, `heading_ref`, `block_ref`, `markdown_link` |
-| `heading_ref` | TEXT | Heading reference (if `heading_ref` kind) |
-| `block_ref` | TEXT | Block reference (if `block_ref` kind) |
+| `vault_name` | TEXT | Vault identifier |
+| `task_id` | INTEGER | Task row id |
+| `key` | TEXT | Field key |
+| `value` | TEXT | Field value |
+| `note_path` | TEXT | Parent note path |
 
-**Examples:**
+Example:
 
 ```sql
--- What links to Acme Corp?
-SELECT backlink_path, kind FROM v_backlinks
-WHERE note_path LIKE '%Acme Corp%';
-
--- Most-linked notes
-SELECT note_path, COUNT(*) as backlink_count FROM v_backlinks
-GROUP BY note_path ORDER BY backlink_count DESC LIMIT 10;
+SELECT t.text, due.value AS due
+FROM v_tasks t
+LEFT JOIN v_task_fields due ON due.vault_name = t.vault_name AND due.task_id = t.id AND due.key = 'due'
+WHERE t.status_group = 'open';
 ```
 
----
+## v_backlinks
 
-## v_customers
+Resolved inbound links.
 
-Convenience view — filters `v_notes` to `type = 'customer'`. Same columns as `v_notes`.
+| Column | Type | Description |
+|--------|------|-------------|
+| `vault_name` | TEXT | Vault identifier |
+| `source_path` | TEXT | Note containing the link |
+| `target_path` | TEXT | Parsed link target when resolvable |
+| `link_text` | TEXT | Alias/markdown text when present |
+| `source_title` | TEXT | Title of the source note |
+
+Example:
 
 ```sql
-SELECT title, state FROM v_customers ORDER BY title;
+SELECT source_path, source_title FROM v_backlinks WHERE target_path = 'Acme Corp';
 ```
 
----
+## v_periodic
 
-## v_streams
+Detected periodic notes.
 
-Convenience view — filters `v_notes` to `type = 'stream'`. Same columns as `v_notes`.
+| Column | Type | Description |
+|--------|------|-------------|
+| `vault_name` | TEXT | Vault identifier |
+| `note_path` | TEXT | Note path |
+| `period_kind` | TEXT | `daily`, `monthly`, or `yearly` |
+| `period_key` | TEXT | Canonical period key |
+| `period_start` | TEXT | Inclusive period start |
+| `period_end` | TEXT | Inclusive period end |
+| `title` | TEXT | Note title |
+
+Example:
 
 ```sql
-SELECT title, customer, status FROM v_streams WHERE status = 'In Progress';
+SELECT note_path, period_kind FROM v_periodic ORDER BY period_start DESC;
 ```

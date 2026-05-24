@@ -39,9 +39,11 @@ tokio-stream = { workspace = true }
 futures = { workspace = true }
 libc = "0.2"
 walkdir = { workspace = true }
+rusqlite = { workspace = true }
 
 [dev-dependencies]
 reqwest = { workspace = true }
+rusqlite = { workspace = true }
 tempfile = { workspace = true }
 notesmith-tasks = { workspace = true }
 tokio-stream = { workspace = true }

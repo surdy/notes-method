@@ -68,20 +68,21 @@ Assets/
 
 ## SQL view contract
 
-- `v_notes`: `vault_name`, `path`, `title`, `type`, `customer`, `stream`, `state`, `status`, `date`, `created_at`, `updated_at`, `archived`, `mtime_unix`, `frontmatter_json`
-- `v_tasks`: `vault_name`, `task_hash`, `note_path`, `heading_path`, `ordinal`, `status`, `text`, `customer`, `stream`, `owner`, `due`, `scheduled`, `start_date`, `done_at`, `priority`
-- `v_backlinks`: `note_path`, `backlink_path`, `kind`, `heading_ref`, `block_ref`
-- `v_customers`: same columns as `v_notes`, filtered to `type = 'customer'`
-- `v_streams`: same columns as `v_notes`, filtered to `type = 'stream'`
+- `v_notes`: `vault_name`, `path`, `title`, `created_at`, `updated_at`, `word_count`
+- `v_fields`: `vault_name`, `note_path`, `key`, `value`, `value_type`
+- `v_tasks`: `vault_name`, `id`, `note_path`, `line_number`, `text`, `status_char`, `status_group`, `note_title`
+- `v_task_fields`: `vault_name`, `task_id`, `key`, `value`, `note_path`
+- `v_backlinks`: `vault_name`, `source_path`, `target_path`, `link_text`, `source_title`
+- `v_periodic`: `vault_name`, `note_path`, `period_kind`, `period_key`, `period_start`, `period_end`, `title`
 
 ## Common workflow recipes
 
 1. Process inbox: `notesmith inbox list` → review → `notesmith route apply --inbox`
 2. Create meeting note: `notesmith template instantiate external-meeting --prompt customer=Acme --prompt date=2026-05-10`
 3. Weekly review:
-   - `notesmith query sql "SELECT text, due, customer, note_path FROM v_tasks WHERE status IN ('todo', 'in_progress') ORDER BY due NULLS LAST"`
-   - `notesmith query sql "SELECT text, due, note_path FROM v_tasks WHERE due < date('now') AND status IN ('todo', 'in_progress') ORDER BY due"`
-   - `notesmith query sql "SELECT COUNT(*) as count FROM v_notes WHERE path LIKE 'Inbox/%' AND archived = 0"`
+   - `notesmith query sql "SELECT t.text, due.value AS due, customer.value AS customer, t.note_path FROM v_tasks t LEFT JOIN v_task_fields due ON due.vault_name = t.vault_name AND due.task_id = t.id AND due.key = 'due' LEFT JOIN v_task_fields customer ON customer.vault_name = t.vault_name AND customer.task_id = t.id AND customer.key = 'customer' WHERE t.status_group = 'open' ORDER BY due.value IS NULL, due.value ASC"`
+   - `notesmith query sql "SELECT t.text, due.value AS due, t.note_path FROM v_tasks t LEFT JOIN v_task_fields due ON due.vault_name = t.vault_name AND due.task_id = t.id AND due.key = 'due' WHERE due.value < date('now') AND t.status_group = 'open' ORDER BY due.value"`
+   - `notesmith query sql "SELECT COUNT(*) as count FROM notes WHERE path LIKE 'Inbox/%'"`
 4. Daily workflow:
    - `notesmith daily agent-create` for agent-driven prompt assembly or write mode
    - `notesmith daily ensure` for scheduler fallback when no agent is involved

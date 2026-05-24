@@ -165,7 +165,7 @@ impl SearchIndex {
     }
 
     fn document_for(&self, vault_name: &str, note: &Note) -> TantivyDocument {
-        let (note_type, title, _, _, _, _, _, _, _, _) = extract_note_metadata(note);
+        let (note_type, title, _, _) = extract_note_metadata(note);
         doc!(
             self.vault_name_field => vault_name.to_string(),
             self.path_field => note.path.as_str().to_string(),

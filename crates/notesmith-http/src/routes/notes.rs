@@ -13,8 +13,9 @@ use notesmith_core::{Note, NotesmithError, VaultEngine, VaultName, VaultPath};
 use notesmith_index::SearchResult;
 use notesmith_query::execute_sql;
 use notesmith_vault::{apply_save_pipeline, parse_note};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::events::{self, EventType, VaultEvent};
 use crate::server::SharedAppState;
@@ -184,35 +185,123 @@ pub async fn list_notes(
     let conn = vault.cache.connection();
     let mut statement = conn
         .prepare(
-            "SELECT path, title, type, customer, stream, state, status, date, created_at, updated_at, archived, mtime_unix, frontmatter_json
-             FROM v_notes
+            "SELECT path, title, created_at, updated_at, mtime_unix
+             FROM notes
              ORDER BY path",
         )
         .map_err(internal_error)?;
-    let rows = statement
+    let base_rows = statement
         .query_map([], |row| {
-            let frontmatter_json: String = row.get(12)?;
-            Ok(NoteSummary {
-                path: row.get(0)?,
-                title: row.get(1)?,
-                note_type: row.get(2)?,
-                customer: row.get(3)?,
-                stream: row.get(4)?,
-                state: row.get(5)?,
-                status: row.get(6)?,
-                date: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                archived: row.get::<_, i64>(10)? != 0,
-                mtime_unix: row.get(11)?,
-                frontmatter: serde_json::from_str(&frontmatter_json).unwrap_or(Value::Null),
-            })
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
         })
         .map_err(internal_error)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(internal_error)?;
+    drop(statement);
 
-    Ok(Json(rows))
+    let mut notes = Vec::with_capacity(base_rows.len());
+    for (path, title, created_at, updated_at, mtime_unix) in base_rows {
+        let frontmatter =
+            load_note_frontmatter(&conn, &vault_name, &path).map_err(internal_error)?;
+        notes.push(NoteSummary {
+            note_type: frontmatter_string(&frontmatter, "type")
+                .unwrap_or_else(|| "note".to_string()),
+            customer: frontmatter_string(&frontmatter, "customer"),
+            stream: frontmatter_string(&frontmatter, "stream"),
+            state: frontmatter_string(&frontmatter, "state"),
+            status: frontmatter_string(&frontmatter, "status"),
+            date: frontmatter_string(&frontmatter, "date"),
+            archived: frontmatter_bool(&frontmatter, "archived"),
+            path,
+            title,
+            created_at,
+            updated_at,
+            mtime_unix,
+            frontmatter,
+        });
+    }
+
+    Ok(Json(notes))
+}
+
+fn load_note_frontmatter(
+    conn: &Connection,
+    vault_name: &str,
+    path: &str,
+) -> rusqlite::Result<Value> {
+    let mut fields_stmt = conn.prepare(
+        "SELECT key, value, value_type FROM fields WHERE vault_name = ?1 AND note_path = ?2 ORDER BY key",
+    )?;
+    let mut field_rows = fields_stmt.query(params![vault_name, path])?;
+    let mut frontmatter = Map::new();
+    while let Some(row) = field_rows.next()? {
+        let key: String = row.get(0)?;
+        let value: String = row.get(1)?;
+        let value_type: String = row.get(2)?;
+        frontmatter.insert(key, parse_field_json_value(&value, &value_type));
+    }
+    drop(field_rows);
+    drop(fields_stmt);
+
+    let mut tags_stmt =
+        conn.prepare("SELECT tag FROM tags WHERE vault_name = ?1 AND note_path = ?2 ORDER BY tag")?;
+    let mut tag_rows = tags_stmt.query(params![vault_name, path])?;
+    let mut tags = Vec::new();
+    while let Some(row) = tag_rows.next()? {
+        tags.push(row.get::<_, String>(0)?);
+    }
+    if !tags.is_empty() {
+        frontmatter.insert(
+            "tags".to_string(),
+            Value::Array(tags.into_iter().map(Value::String).collect()),
+        );
+    }
+
+    Ok(Value::Object(frontmatter))
+}
+
+fn parse_field_json_value(value: &str, value_type: &str) -> Value {
+    match value_type {
+        "boolean" => Value::Bool(value == "true"),
+        "number" => value
+            .parse::<i64>()
+            .map(|number| Value::Number(number.into()))
+            .or_else(|_| {
+                value
+                    .parse::<f64>()
+                    .ok()
+                    .and_then(serde_json::Number::from_f64)
+                    .map(Value::Number)
+                    .ok_or(())
+            })
+            .unwrap_or_else(|_| Value::String(value.to_string())),
+        "list" => serde_yaml::from_str::<Value>(value)
+            .unwrap_or_else(|_| Value::String(value.to_string())),
+        _ => Value::String(value.to_string()),
+    }
+}
+
+fn frontmatter_string(frontmatter: &Value, key: &str) -> Option<String> {
+    frontmatter.get(key).and_then(|value| match value {
+        Value::String(text) if !text.is_empty() => Some(text.clone()),
+        Value::Bool(flag) => Some(flag.to_string()),
+        Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    })
+}
+
+fn frontmatter_bool(frontmatter: &Value, key: &str) -> bool {
+    match frontmatter.get(key) {
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::String(text)) => text == "true",
+        _ => false,
+    }
 }
 
 pub async fn get_folders(

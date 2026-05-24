@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
 };
-use notesmith_core::{TaskStatus, VaultEngine, VaultPath};
+use notesmith_core::{VaultEngine, VaultPath};
 use notesmith_tasks::{AddTaskOptions, ToggleError, add_task, toggle_task};
 use notesmith_vault::apply_save_pipeline;
 use serde::{Deserialize, Serialize};
@@ -29,20 +29,19 @@ fn default_task_limit() -> usize {
 
 #[derive(Debug, Serialize)]
 pub struct TaskSummary {
-    pub task_hash: String,
+    pub task_hash: Option<String>,
     pub note_path: String,
-    pub heading_path: Option<String>,
-    pub ordinal: i64,
+    pub line_number: i64,
     pub status: String,
+    pub status_char: String,
+    pub status_group: String,
     pub text: String,
+    pub note_title: Option<String>,
     pub customer: Option<String>,
     pub stream: Option<String>,
     pub owner: Option<String>,
     pub due: Option<String>,
-    pub scheduled: Option<String>,
-    pub start_date: Option<String>,
-    pub done_at: Option<String>,
-    pub priority: Option<i64>,
+    pub priority: Option<String>,
 }
 
 pub async fn list_tasks(
@@ -60,19 +59,38 @@ pub async fn list_tasks(
 
     let mut conditions = vec!["1=1".to_string()];
     if let Some(ref status) = filters.status {
-        conditions.push(format!("status = '{}'", status.replace('\'', "''")));
+        let status_char = parse_status_str(status).map_err(|err| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({ "error": err })),
+            )
+        })?;
+        conditions.push(format!(
+            "t.status_char = '{}'",
+            escape_sql_char(status_char)
+        ));
     }
     if let Some(ref customer) = filters.customer {
-        conditions.push(format!("customer = '{}'", customer.replace('\'', "''")));
+        conditions.push(format!(
+            "customer.value = '{}'",
+            customer.replace('\'', "''")
+        ));
     }
     if let Some(ref due_before) = filters.due_before {
-        conditions.push(format!("due < '{}'", due_before.replace('\'', "''")));
+        conditions.push(format!("due.value < '{}'", due_before.replace('\'', "''")));
     }
 
     let sql = format!(
-        "SELECT task_hash, note_path, heading_path, ordinal, status, text, \
-         customer, stream, owner, due, scheduled, start_date, done_at, priority \
-         FROM v_tasks WHERE {} ORDER BY due ASC, ordinal ASC LIMIT {}",
+        "SELECT t.content_hash, t.note_path, t.line_number, t.status_char, t.status_group, t.text, \
+                n.title, customer.value, stream.value, owner.value, due.value, priority.value \
+         FROM tasks t \
+         JOIN notes n ON n.vault_name = t.vault_name AND n.path = t.note_path \
+         LEFT JOIN task_fields customer ON customer.vault_name = t.vault_name AND customer.task_id = t.id AND customer.key = 'customer' \
+         LEFT JOIN task_fields stream ON stream.vault_name = t.vault_name AND stream.task_id = t.id AND stream.key = 'stream' \
+         LEFT JOIN task_fields owner ON owner.vault_name = t.vault_name AND owner.task_id = t.id AND owner.key = 'owner' \
+         LEFT JOIN task_fields due ON due.vault_name = t.vault_name AND due.task_id = t.id AND due.key = 'due' \
+         LEFT JOIN task_fields priority ON priority.vault_name = t.vault_name AND priority.task_id = t.id AND priority.key = 'priority' \
+         WHERE {} ORDER BY due.value IS NULL, due.value ASC, t.line_number ASC LIMIT {}",
         conditions.join(" AND "),
         filters.limit
     );
@@ -81,21 +99,21 @@ pub async fn list_tasks(
     let mut stmt = conn.prepare(&sql).map_err(internal_error)?;
     let tasks = stmt
         .query_map([], |row| {
+            let status_char: String = row.get(3)?;
             Ok(TaskSummary {
                 task_hash: row.get(0)?,
                 note_path: row.get(1)?,
-                heading_path: row.get(2)?,
-                ordinal: row.get(3)?,
-                status: row.get(4)?,
+                line_number: row.get(2)?,
+                status: status_name_for_char(&status_char),
+                status_char,
+                status_group: row.get(4)?,
                 text: row.get(5)?,
-                customer: row.get(6)?,
-                stream: row.get(7)?,
-                owner: row.get(8)?,
-                due: row.get(9)?,
-                scheduled: row.get(10)?,
-                start_date: row.get(11)?,
-                done_at: row.get(12)?,
-                priority: row.get(13)?,
+                note_title: row.get(6)?,
+                customer: row.get(7)?,
+                stream: row.get(8)?,
+                owner: row.get(9)?,
+                due: row.get(10)?,
+                priority: row.get(11)?,
             })
         })
         .map_err(internal_error)?
@@ -138,12 +156,12 @@ pub async fn create_task(
     let due = request
         .due
         .as_deref()
-        .map(|s| s.parse::<chrono::NaiveDate>())
+        .map(validate_due_string)
         .transpose()
         .map_err(|err| {
             (
                 StatusCode::UNPROCESSABLE_ENTITY,
-                Json(json!({ "error": format!("invalid due date: {err}") })),
+                Json(json!({ "error": err })),
             )
         })?;
 
@@ -160,6 +178,7 @@ pub async fn create_task(
         })?;
 
     let opts = AddTaskOptions {
+        status_char: Some(' '),
         due,
         customer: request.customer,
         stream: request.stream,
@@ -218,9 +237,6 @@ pub async fn toggle_task_status(
         let (status, msg) = match &err {
             ToggleError::TaskNotFound { .. } => (StatusCode::NOT_FOUND, err.to_string()),
             ToggleError::HashCollision { .. } => (StatusCode::CONFLICT, err.to_string()),
-            ToggleError::InvalidTransition(_) => {
-                (StatusCode::UNPROCESSABLE_ENTITY, err.to_string())
-            }
         };
         (status, Json(json!({ "error": msg })))
     })?;
@@ -237,30 +253,55 @@ pub async fn toggle_task_status(
     Ok(Json(response))
 }
 
-fn parse_status_str(s: &str) -> Result<TaskStatus, String> {
+fn parse_status_str(s: &str) -> Result<char, String> {
     match s {
-        "todo" => Ok(TaskStatus::Todo),
-        "in_progress" => Ok(TaskStatus::InProgress),
-        "blocked" => Ok(TaskStatus::Blocked),
-        "waiting" => Ok(TaskStatus::Waiting),
-        "on_hold" => Ok(TaskStatus::OnHold),
-        "done" => Ok(TaskStatus::Done),
-        "cancelled" => Ok(TaskStatus::Cancelled),
-        other => Err(format!(
-            "unknown status '{other}'; expected one of: todo, in_progress, blocked, waiting, on_hold, done, cancelled"
-        )),
+        "todo" => Ok(' '),
+        "in_progress" => Ok('/'),
+        "blocked" => Ok('b'),
+        "waiting" => Ok('w'),
+        "on_hold" => Ok('h'),
+        "done" => Ok('x'),
+        "cancelled" => Ok('-'),
+        other => {
+            let mut chars = other.chars();
+            match (chars.next(), chars.next()) {
+                (Some(ch), None) => Ok(ch),
+                _ => Err(format!(
+                    "unknown status '{other}'; expected todo, in_progress, blocked, waiting, on_hold, done, cancelled, or a single status character"
+                )),
+            }
+        }
     }
 }
 
-fn parse_priority_str(s: &str) -> Result<notesmith_core::TaskPriority, String> {
+fn parse_priority_str(s: &str) -> Result<String, String> {
     match s {
-        "highest" => Ok(notesmith_core::TaskPriority::Highest),
-        "high" => Ok(notesmith_core::TaskPriority::High),
-        "medium" => Ok(notesmith_core::TaskPriority::Medium),
-        "low" => Ok(notesmith_core::TaskPriority::Low),
-        "lowest" => Ok(notesmith_core::TaskPriority::Lowest),
-        other => Err(format!(
-            "unknown priority '{other}'; expected one of: highest, high, medium, low, lowest"
-        )),
+        "highest" | "high" | "medium" | "low" | "lowest" => Ok(s.to_string()),
+        other if !other.trim().is_empty() => Ok(other.trim().to_string()),
+        _ => Err("priority must not be empty".to_string()),
     }
+}
+
+fn validate_due_string(s: &str) -> Result<String, String> {
+    s.parse::<chrono::NaiveDate>()
+        .map(|date| date.to_string())
+        .map_err(|err| format!("invalid due date: {err}"))
+}
+
+fn escape_sql_char(ch: char) -> String {
+    ch.to_string().replace('\'', "''")
+}
+
+fn status_name_for_char(status_char: &str) -> String {
+    match status_char.chars().next().unwrap_or(' ') {
+        ' ' => "todo",
+        '/' => "in_progress",
+        'b' => "blocked",
+        'w' => "waiting",
+        'h' => "on_hold",
+        'x' | 'X' => "done",
+        '-' => "cancelled",
+        other => return other.to_string(),
+    }
+    .to_string()
 }

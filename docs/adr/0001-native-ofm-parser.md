@@ -14,7 +14,7 @@ We spiked TurboVault (tree-sitter markdown + custom queries) in `spikes/turbovau
 Use a native Rust parser with:
 - **comrak** for standard Markdown → HTML rendering
 - **Custom regex** for wikilinks, embeds, tags, callouts, and inline fields
-- **Custom task parser** for 7-status checkbox syntax (`[ ]`, `[/]`, `[!]`, `[>]`, `[-]`, `[x]`, `[~]`)
+- **Custom task parser** for configurable checkbox syntax (default: `[ ]`, `[/]`, `[b]`, `[w]`, `[h]`, `[x]`, `[-]`)
 
 The parser lives in `notesmith-vault::parser` and produces `Note` (via `ParsedNote` intermediate).
 

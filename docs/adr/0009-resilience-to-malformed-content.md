@@ -8,7 +8,7 @@ Accepted (2026-05-20).
 
 A user vault contained a `.md` file with a malformed YAML frontmatter block
 (`slack: slack: slack://...`). On startup the daemon ran `cache.reindex(...)`,
-which called `serialize_frontmatter_json` → `serde_yaml::from_str(...)?`. The
+which reparsed note frontmatter as YAML during indexing. The
 `?` propagated the YAML error through the cache transaction (rolled back),
 through `create_vault_state`, and out of `main` — the daemon exited 1 before
 binding its HTTP port. The desktop app then showed:

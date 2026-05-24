@@ -138,10 +138,11 @@ fn main() {
 ```
 
 ```notesmith sql
-SELECT path, title, type
-FROM v_notes
-WHERE type = 'stream'
-ORDER BY updated_at DESC
+SELECT n.path, n.title, note_type.value AS type
+FROM v_notes n
+JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type'
+WHERE note_type.value = 'stream'
+ORDER BY n.updated_at DESC
 ```
 
 Inline code with OFM syntax that should be ignored: `[[not a link]]` and `#not-a-tag` and `[not:: a field]`.

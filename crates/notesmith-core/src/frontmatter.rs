@@ -1,158 +1,60 @@
-use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
+use serde_yaml::Value;
+use std::collections::HashMap;
 
-/// Top-level frontmatter discriminated by `type` field.
-/// Closed for known note kinds, open for unknown.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "kebab-case")]
-pub enum Frontmatter {
-    Daily(DailyMeta),
-    Meeting(MeetingMeta),
-    Stream(StreamMeta),
-    Customer(CustomerMeta),
-    AccountInfo(AccountInfoMeta),
-    Glossary(GlossaryMeta),
-    Milestones(MilestonesMeta),
-    Note(NoteMeta),
-    Dashboard(DashboardMeta),
-    Contact(ContactMeta),
-    #[serde(other)]
-    Other,
-}
-
-/// Common metadata fields shared across note types
+/// Generic frontmatter — a flat map of string keys to YAML values.
+/// No hardcoded note types. `type`/`kind` is just another field.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct CommonMeta {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tags: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updated: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub archived: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "archived-at")]
-    pub archived_at: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DailyMeta {
-    pub date: NaiveDate,
+pub struct Frontmatter {
+    /// All key-value pairs from the YAML frontmatter
     #[serde(flatten)]
-    pub common: CommonMeta,
+    pub fields: HashMap<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MeetingMeta {
-    #[serde(rename = "meeting-kind")]
-    pub meeting_kind: MeetingKind,
-    pub customer: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stream: Option<String>,
-    pub date: NaiveDate,
-    #[serde(flatten)]
-    pub common: CommonMeta,
-}
+impl Frontmatter {
+    /// Get the `tags` field as a Vec<String>, if present
+    pub fn tags(&self) -> Vec<String> {
+        self.fields
+            .get("tags")
+            .and_then(|v| match v {
+                Value::Sequence(seq) => Some(
+                    seq.iter()
+                        .filter_map(|item| item.as_str().map(String::from))
+                        .collect(),
+                ),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MeetingKind {
-    Internal,
-    External,
-}
+    /// Get a field value as a string
+    pub fn get_str(&self, key: &str) -> Option<&str> {
+        self.fields.get(key).and_then(|v| v.as_str())
+    }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct StreamMeta {
-    pub customer: String,
-    pub stream: String,
-    pub status: StreamStatus,
-    pub priority: Priority,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub owner: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub started: Option<NaiveDate>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target: Option<NaiveDate>,
-    #[serde(flatten)]
-    pub common: CommonMeta,
-}
+    /// Get a field value as a string (owned), handling non-string YAML values
+    pub fn get_string(&self, key: &str) -> Option<String> {
+        self.fields.get(key).map(|v| match v {
+            Value::String(s) => s.clone(),
+            Value::Bool(b) => b.to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::Null => String::new(),
+            other => serde_yaml::to_string(other)
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+        })
+    }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum StreamStatus {
-    #[serde(rename = "In Progress")]
-    InProgress,
-    Blocked,
-    Done,
-    #[serde(rename = "Awaiting Customer")]
-    AwaitingCustomer,
-    #[serde(rename = "On Hold")]
-    OnHold,
-}
+    /// Check if a field exists
+    pub fn has_field(&self, key: &str) -> bool {
+        self.fields.contains_key(key)
+    }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Priority {
-    P0,
-    P1,
-    P2,
-    P3,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CustomerMeta {
-    pub customer: String,
-    pub state: CustomerState,
-    #[serde(flatten)]
-    pub common: CommonMeta,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum CustomerState {
-    Active,
-    #[serde(rename = "On Hold")]
-    OnHold,
-    Temp,
-    Inactive,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AccountInfoMeta {
-    pub customer: String,
-    #[serde(flatten)]
-    pub common: CommonMeta,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GlossaryMeta {
-    pub customer: String,
-    #[serde(flatten)]
-    pub common: CommonMeta,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MilestonesMeta {
-    pub customer: String,
-    #[serde(flatten)]
-    pub common: CommonMeta,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NoteMeta {
-    #[serde(flatten)]
-    pub common: CommonMeta,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DashboardMeta {
-    #[serde(flatten)]
-    pub common: CommonMeta,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ContactMeta {
-    pub customer: String,
-    #[serde(flatten)]
-    pub common: CommonMeta,
+    /// Get the title field if present
+    pub fn title(&self) -> Option<&str> {
+        self.get_str("title")
+    }
 }
 
 #[cfg(test)]
@@ -160,108 +62,112 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deserialize_daily_frontmatter() {
+    fn deserialize_generic_frontmatter_preserves_field_types() {
         let yaml = r#"
-type: daily
-date: 2025-01-15
-tags:
-  - daily
-  - wednesday
-created: \"2025-01-15 08:00\"
-updated: \"2025-01-15 17:30\"
-"#;
-        let fm: Frontmatter = serde_yaml::from_str(yaml).unwrap();
-        match fm {
-            Frontmatter::Daily(daily) => {
-                assert_eq!(daily.date, NaiveDate::from_ymd_opt(2025, 1, 15).unwrap());
-                assert_eq!(daily.common.tags, vec!["daily", "wednesday"]);
-            }
-            other => panic!("expected Daily, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn deserialize_meeting_frontmatter() {
-        let yaml = r#"
-type: meeting
-meeting-kind: internal
-customer: "[[Acme Corp]]"
-date: 2025-01-15
-tags:
-  - meeting
-created: \"2025-01-15 10:00\"
-"#;
-        let fm: Frontmatter = serde_yaml::from_str(yaml).unwrap();
-        match fm {
-            Frontmatter::Meeting(m) => {
-                assert_eq!(m.meeting_kind, MeetingKind::Internal);
-                assert_eq!(m.customer, "[[Acme Corp]]");
-            }
-            other => panic!("expected Meeting, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn deserialize_stream_frontmatter() {
-        let yaml = r#"
-type: stream
-customer: "[[Acme Corp]]"
-stream: "[[Migration to v2]]"
-status: In Progress
-priority: P1
-owner: me
-started: 2024-11-01
-target: 2025-03-31
-tags:
-  - migration
-"#;
-        let fm: Frontmatter = serde_yaml::from_str(yaml).unwrap();
-        match fm {
-            Frontmatter::Stream(s) => {
-                assert_eq!(s.status, StreamStatus::InProgress);
-                assert_eq!(s.priority, Priority::P1);
-                assert_eq!(s.owner, Some("me".to_string()));
-            }
-            other => panic!("expected Stream, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn deserialize_customer_frontmatter() {
-        let yaml = r#"
-type: customer
-customer: "[[Acme Corp]]"
-state: Active
-tags:
-  - customer
-"#;
-        let fm: Frontmatter = serde_yaml::from_str(yaml).unwrap();
-        match fm {
-            Frontmatter::Customer(c) => {
-                assert_eq!(c.state, CustomerState::Active);
-            }
-            other => panic!("expected Customer, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn deserialize_dashboard_frontmatter() {
-        let yaml = r#"
+title: Prototype Notes
 type: dashboard
+date: 2025-01-15
 tags:
-  - dashboard
+  - research
+  - prototype
+published: true
+score: 3
+nested:
+  owner: surdy
+  links:
+    - "[[Acme Corp]]"
 "#;
-        let fm: Frontmatter = serde_yaml::from_str(yaml).unwrap();
-        assert!(matches!(fm, Frontmatter::Dashboard(_)));
+
+        let frontmatter: Frontmatter = serde_yaml::from_str(yaml).unwrap();
+
+        assert_eq!(frontmatter.get_str("title"), Some("Prototype Notes"));
+        assert_eq!(
+            frontmatter.get_string("published"),
+            Some("true".to_string())
+        );
+        assert_eq!(frontmatter.get_string("score"), Some("3".to_string()));
+        assert_eq!(frontmatter.tags(), vec!["research", "prototype"]);
+        assert_eq!(
+            frontmatter.get_string("date"),
+            Some("2025-01-15".to_string())
+        );
+        assert!(matches!(
+            frontmatter.fields.get("nested"),
+            Some(Value::Mapping(_))
+        ));
     }
 
     #[test]
-    fn unknown_type_deserializes_as_other() {
+    fn get_str_and_title_return_string_values() {
         let yaml = r#"
-type: custom-unknown
-foo: bar
+title: Inbox
+date: 2025-01-15
+published: false
 "#;
-        let fm: Frontmatter = serde_yaml::from_str(yaml).unwrap();
-        assert!(matches!(fm, Frontmatter::Other));
+        let frontmatter: Frontmatter = serde_yaml::from_str(yaml).unwrap();
+
+        assert_eq!(frontmatter.title(), Some("Inbox"));
+        assert_eq!(frontmatter.get_str("date"), Some("2025-01-15"));
+        assert_eq!(frontmatter.get_str("published"), None);
+    }
+
+    #[test]
+    fn get_string_handles_scalar_and_nested_values() {
+        let yaml = r#"
+name: Widget
+flag: false
+count: 7
+nothing: null
+nested:
+  stage: discovery
+list:
+  - alpha
+  - beta
+"#;
+        let frontmatter: Frontmatter = serde_yaml::from_str(yaml).unwrap();
+
+        assert_eq!(frontmatter.get_string("name"), Some("Widget".to_string()));
+        assert_eq!(frontmatter.get_string("flag"), Some("false".to_string()));
+        assert_eq!(frontmatter.get_string("count"), Some("7".to_string()));
+        assert_eq!(frontmatter.get_string("nothing"), Some(String::new()));
+        assert_eq!(
+            frontmatter.get_string("nested"),
+            Some("stage: discovery".to_string())
+        );
+        assert_eq!(
+            frontmatter.get_string("list"),
+            Some(
+                "- alpha
+- beta"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn tags_ignores_missing_or_non_sequence_values() {
+        let no_tags: Frontmatter = serde_yaml::from_str("title: Note").unwrap();
+        let string_tags: Frontmatter = serde_yaml::from_str("tags: research").unwrap();
+
+        assert!(no_tags.tags().is_empty());
+        assert!(string_tags.tags().is_empty());
+    }
+
+    #[test]
+    fn flatten_preserves_unknown_fields() {
+        let yaml = r#"
+kind: experiment
+custom_field: keep me
+another_one:
+  nested: true
+"#;
+        let frontmatter: Frontmatter = serde_yaml::from_str(yaml).unwrap();
+
+        assert!(frontmatter.has_field("kind"));
+        assert_eq!(frontmatter.get_str("custom_field"), Some("keep me"));
+        assert!(matches!(
+            frontmatter.fields.get("another_one"),
+            Some(Value::Mapping(_))
+        ));
     }
 }

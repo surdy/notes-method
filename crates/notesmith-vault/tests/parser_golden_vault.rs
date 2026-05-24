@@ -1,4 +1,4 @@
-use notesmith_core::{LinkType, Note, TaskStatus, VaultEngine, VaultName, VaultPath};
+use notesmith_core::{LinkType, Note, StatusGroup, VaultEngine, VaultName, VaultPath};
 use notesmith_vault::{NativeVaultEngine, parse_note};
 use std::fs;
 
@@ -113,48 +113,44 @@ fn inline_field_key_value() {
 #[test]
 fn all_seven_task_statuses_parsed() {
     let parsed = parse("Inbox/Daily/2025-01-15.md");
-    let statuses: std::collections::HashSet<_> = parsed.tasks.iter().map(|t| t.status).collect();
-    assert!(statuses.contains(&TaskStatus::Todo), "Missing Todo");
+    let statuses: std::collections::HashSet<_> =
+        parsed.tasks.iter().map(|t| t.status_char).collect();
+    assert!(statuses.contains(&' '), "Missing Todo");
+    assert!(statuses.contains(&'/'), "Missing InProgress");
+    assert!(statuses.contains(&'b'), "Missing Blocked");
+    assert!(statuses.contains(&'w'), "Missing Waiting");
+    assert!(statuses.contains(&'h'), "Missing OnHold");
+    assert!(statuses.contains(&'x'), "Missing Done");
+    assert!(statuses.contains(&'-'), "Missing Cancelled");
+}
+
+#[test]
+fn task_status_groups_resolve_from_default_map() {
+    let parsed = parse("Inbox/Daily/2025-01-15.md");
     assert!(
-        statuses.contains(&TaskStatus::InProgress),
-        "Missing InProgress"
+        parsed
+            .tasks
+            .iter()
+            .any(|task| task.status_group == StatusGroup::Done)
     );
-    assert!(statuses.contains(&TaskStatus::Blocked), "Missing Blocked");
-    assert!(statuses.contains(&TaskStatus::Waiting), "Missing Waiting");
-    assert!(statuses.contains(&TaskStatus::OnHold), "Missing OnHold");
-    assert!(statuses.contains(&TaskStatus::Done), "Missing Done");
     assert!(
-        statuses.contains(&TaskStatus::Cancelled),
-        "Missing Cancelled"
+        parsed
+            .tasks
+            .iter()
+            .any(|task| task.status_group == StatusGroup::Open)
     );
 }
 
 #[test]
-fn task_emoji_due_date() {
+fn task_content_keeps_unparsed_inline_metadata() {
     let parsed = parse("Inbox/Daily/2025-01-15.md");
-    let with_due: Vec<_> = parsed
-        .tasks
-        .iter()
-        .filter(|t| t.due_date.is_some())
-        .collect();
     assert!(
-        !with_due.is_empty(),
-        "Should find tasks with due dates (📅)"
+        parsed
+            .tasks
+            .iter()
+            .any(|task| task.content.contains("📅 2025-01-16"))
     );
-}
-
-#[test]
-fn task_emoji_priority() {
-    let parsed = parse("Inbox/Daily/2025-01-15.md");
-    let with_priority: Vec<_> = parsed
-        .tasks
-        .iter()
-        .filter(|t| t.priority.is_some())
-        .collect();
-    assert!(
-        !with_priority.is_empty(),
-        "Should find tasks with priority emoji"
-    );
+    assert!(parsed.tasks.iter().any(|task| task.content.contains("🔼")));
 }
 
 #[test]

@@ -25,10 +25,10 @@ fn select_from_v_notes() {
     let cache = build_cache();
     let result = execute_sql(
         &cache,
-        "SELECT title, type FROM v_notes ORDER BY title LIMIT 5",
+        "SELECT title, updated_at FROM v_notes ORDER BY title LIMIT 5",
     )
     .unwrap();
-    assert_eq!(result.columns, vec!["title", "type"]);
+    assert_eq!(result.columns, vec!["title", "updated_at"]);
     assert!(result.row_count <= 5);
     assert!(result.row_count > 0);
 }
@@ -38,7 +38,7 @@ fn select_customers() {
     let cache = build_cache();
     let result = execute_sql(
         &cache,
-        "SELECT title, state FROM v_customers ORDER BY title",
+        "SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type' LEFT JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = 'state' WHERE note_type.value = 'customer' ORDER BY n.title",
     )
     .unwrap();
     assert!(result.row_count >= 2, "Should have Acme and Globex");
@@ -49,7 +49,7 @@ fn select_tasks_by_status() {
     let cache = build_cache();
     let result = execute_sql(
         &cache,
-        "SELECT text, status FROM v_tasks WHERE status = 'todo'",
+        "SELECT text, status_group FROM v_tasks WHERE status_group = 'open'",
     )
     .unwrap();
     assert!(result.row_count >= 1);
@@ -60,7 +60,7 @@ fn select_backlinks() {
     let cache = build_cache();
     let result = execute_sql(
         &cache,
-        "SELECT note_path, backlink_path FROM v_backlinks LIMIT 10",
+        "SELECT target_path, source_path FROM v_backlinks LIMIT 10",
     )
     .unwrap();
     assert!(result.row_count >= 1);
@@ -76,7 +76,7 @@ fn reject_non_select() {
 #[test]
 fn reject_insert() {
     let cache = build_cache();
-    let err = execute_sql(&cache, "INSERT INTO notes (vault_name, path, title, type, frontmatter_json, archived, mtime_unix, content_hash, body_excerpt) VALUES ('x','x','x','x','{}',0,0,'x','x')").unwrap_err();
+    let err = execute_sql(&cache, "INSERT INTO notes (vault_name, path, mtime_unix, content_hash, body_excerpt) VALUES ('x','x',0,'x','x')").unwrap_err();
     assert!(matches!(err, notesmith_query::QueryError::NotReadOnly));
 }
 
@@ -95,7 +95,7 @@ fn with_cte_allowed() {
 #[test]
 fn query_result_is_json_serializable() {
     let cache = build_cache();
-    let result = execute_sql(&cache, "SELECT title, type FROM v_notes LIMIT 3").unwrap();
+    let result = execute_sql(&cache, "SELECT title, created_at FROM v_notes LIMIT 3").unwrap();
     let json = serde_json::to_string(&result).unwrap();
     assert!(json.contains("columns"));
     assert!(json.contains("rows"));

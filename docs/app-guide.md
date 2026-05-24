@@ -65,8 +65,8 @@ views:
             icon: "✅"
             source:
               query: |
-                SELECT text as title, status, path, ordinal as line
-                FROM v_tasks WHERE status IN ('todo','in_progress')
+                SELECT note_path as path, text as title, status_group, line_number as line
+                FROM v_tasks WHERE status_group = 'open'
               title_column: title
               subtitle_column: status
               badge_columns: [status]
@@ -76,7 +76,7 @@ views:
 
 **`recently-viewed`** — shows notes you have recently opened or edited.
 - `mode: viewed` — from localStorage (notes you clicked on)
-- `mode: edited` — from the database (`v_notes` ordered by `mtime_unix`)
+- `mode: edited` — from the database (`v_notes` ordered by `updated_at`)
 - `mode: both` — merge of both, deduplicated
 
 **`custom-folders`** — renders subtrees of the vault file tree rooted at named folder paths.
@@ -339,15 +339,17 @@ Queries run against the vault's SQLite cache and can use public views such as:
 - `v_notes`
 - `v_tasks`
 - `v_backlinks`
-- `v_customers`
-- `v_streams`
+- `v_fields`
+- `v_task_fields`
+- `v_periodic`
 
 Example:
 
 ````markdown
 ```sql
 SELECT title, state
-FROM v_customers
+FROM v_notes n
+JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type'
 ORDER BY title;
 ```
 ````

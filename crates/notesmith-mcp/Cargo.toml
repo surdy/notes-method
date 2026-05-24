@@ -20,6 +20,7 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+rusqlite = { workspace = true }
 rmcp = { workspace = true }
 chrono = { workspace = true }
 blake3 = { workspace = true }

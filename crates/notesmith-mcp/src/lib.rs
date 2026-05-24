@@ -7,9 +7,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use chrono::{Local, NaiveDate};
 use notesmith_config::VaultConfig;
-use notesmith_core::{
-    Note, NotesmithError, TaskStatus, VaultEngine, VaultName, VaultPath, WriteResult,
-};
+use notesmith_core::{Note, NotesmithError, VaultEngine, VaultName, VaultPath, WriteResult};
 use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_query::execute_sql;
 use notesmith_routing::RoutingEngine;
@@ -18,6 +16,7 @@ use notesmith_vault::{NativeVaultEngine, apply_save_pipeline, parse_note};
 use rmcp::{
     ErrorData as McpError, RoleServer, ServerHandler, ServiceExt, model::*, service::RequestContext,
 };
+use rusqlite::{Connection, params};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use serde_yaml::{Mapping, Value as YamlValue};
@@ -223,45 +222,56 @@ impl NotesmithMcp {
         customer: Option<&str>,
         archived: Option<bool>,
     ) -> anyhow::Result<Value> {
-        let mut conditions = vec!["1=1".to_string()];
-        if let Some(note_type) = note_type {
-            conditions.push(format!("type = '{}'", escape_sql_string(note_type)));
-        }
-        if let Some(customer) = customer {
-            conditions.push(format!("customer = '{}'", escape_sql_string(customer)));
-        }
-        if let Some(archived) = archived {
-            conditions.push(format!("archived = {}", i32::from(archived)));
-        }
-
-        let sql = format!(
-            "SELECT path, title, type, customer, stream, state, status, date, created_at, updated_at, archived, mtime_unix, frontmatter_json \
-             FROM v_notes WHERE {} ORDER BY path",
-            conditions.join(" AND ")
-        );
-
         let conn = self.cache.connection();
-        let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt
+        let mut stmt = conn.prepare(
+            "SELECT path, title, created_at, updated_at, mtime_unix FROM notes ORDER BY path",
+        )?;
+        let base_rows = stmt
             .query_map([], |row| {
-                let frontmatter_json: String = row.get(12)?;
-                Ok(json!({
-                    "path": row.get::<_, String>(0)?,
-                    "title": row.get::<_, String>(1)?,
-                    "type": row.get::<_, String>(2)?,
-                    "customer": row.get::<_, Option<String>>(3)?,
-                    "stream": row.get::<_, Option<String>>(4)?,
-                    "state": row.get::<_, Option<String>>(5)?,
-                    "status": row.get::<_, Option<String>>(6)?,
-                    "date": row.get::<_, Option<String>>(7)?,
-                    "created_at": row.get::<_, Option<String>>(8)?,
-                    "updated_at": row.get::<_, Option<String>>(9)?,
-                    "archived": row.get::<_, i64>(10)? != 0,
-                    "mtime_unix": row.get::<_, i64>(11)?,
-                    "frontmatter": serde_json::from_str::<Value>(&frontmatter_json).unwrap_or(Value::Null),
-                }))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+
+        let mut rows = Vec::new();
+        for (path, title, created_at, updated_at, mtime_unix) in base_rows {
+            let frontmatter = load_note_frontmatter(&conn, &self.vault_name, &path)?;
+            let resolved_type =
+                frontmatter_string(&frontmatter, "type").unwrap_or_else(|| "note".to_string());
+            let resolved_customer = frontmatter_string(&frontmatter, "customer");
+            let resolved_archived = frontmatter_bool(&frontmatter, "archived");
+            if note_type.is_some_and(|expected| expected != resolved_type) {
+                continue;
+            }
+            if customer.is_some_and(|expected| resolved_customer.as_deref() != Some(expected)) {
+                continue;
+            }
+            if archived.is_some_and(|expected| expected != resolved_archived) {
+                continue;
+            }
+
+            rows.push(json!({
+                "path": path,
+                "title": title,
+                "type": resolved_type,
+                "customer": resolved_customer,
+                "stream": frontmatter_string(&frontmatter, "stream"),
+                "state": frontmatter_string(&frontmatter, "state"),
+                "status": frontmatter_string(&frontmatter, "status"),
+                "date": frontmatter_string(&frontmatter, "date"),
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "archived": resolved_archived,
+                "mtime_unix": mtime_unix,
+                "frontmatter": frontmatter,
+            }));
+        }
 
         Ok(Value::Array(rows))
     }
@@ -273,15 +283,29 @@ impl NotesmithMcp {
     ) -> anyhow::Result<Value> {
         let mut conditions = vec!["1=1".to_string()];
         if let Some(status) = status {
-            conditions.push(format!("status = '{}'", escape_sql_string(status)));
+            let status_char = parse_status_str(status).map_err(anyhow::Error::msg)?;
+            conditions.push(format!(
+                "t.status_char = '{}'",
+                escape_sql_string(&status_char.to_string())
+            ));
         }
         if let Some(customer) = customer {
-            conditions.push(format!("customer = '{}'", escape_sql_string(customer)));
+            conditions.push(format!(
+                "customer.value = '{}'",
+                escape_sql_string(customer)
+            ));
         }
 
         let sql = format!(
-            "SELECT task_hash, note_path, heading_path, ordinal, status, text, customer, stream, owner, due, scheduled, start_date, done_at, priority \
-             FROM v_tasks WHERE {} ORDER BY due ASC, ordinal ASC",
+            "SELECT t.content_hash, t.note_path, t.line_number, t.status_char, t.status_group, t.text, n.title, customer.value, stream.value, owner.value, due.value, priority.value \
+             FROM tasks t \
+             JOIN notes n ON n.vault_name = t.vault_name AND n.path = t.note_path \
+             LEFT JOIN task_fields customer ON customer.vault_name = t.vault_name AND customer.task_id = t.id AND customer.key = 'customer' \
+             LEFT JOIN task_fields stream ON stream.vault_name = t.vault_name AND stream.task_id = t.id AND stream.key = 'stream' \
+             LEFT JOIN task_fields owner ON owner.vault_name = t.vault_name AND owner.task_id = t.id AND owner.key = 'owner' \
+             LEFT JOIN task_fields due ON due.vault_name = t.vault_name AND due.task_id = t.id AND due.key = 'due' \
+             LEFT JOIN task_fields priority ON priority.vault_name = t.vault_name AND priority.task_id = t.id AND priority.key = 'priority' \
+             WHERE {} ORDER BY due.value IS NULL, due.value ASC, t.line_number ASC",
             conditions.join(" AND ")
         );
 
@@ -289,21 +313,21 @@ impl NotesmithMcp {
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt
             .query_map([], |row| {
+                let status_char: String = row.get(3)?;
                 Ok(json!({
-                    "task_hash": row.get::<_, String>(0)?,
+                    "task_hash": row.get::<_, Option<String>>(0)?,
                     "note_path": row.get::<_, String>(1)?,
-                    "heading_path": row.get::<_, Option<String>>(2)?,
-                    "ordinal": row.get::<_, i64>(3)?,
-                    "status": row.get::<_, String>(4)?,
+                    "line_number": row.get::<_, i64>(2)?,
+                    "status": status_name_for_char(&status_char),
+                    "status_char": status_char,
+                    "status_group": row.get::<_, String>(4)?,
                     "text": row.get::<_, String>(5)?,
-                    "customer": row.get::<_, Option<String>>(6)?,
-                    "stream": row.get::<_, Option<String>>(7)?,
-                    "owner": row.get::<_, Option<String>>(8)?,
-                    "due": row.get::<_, Option<String>>(9)?,
-                    "scheduled": row.get::<_, Option<String>>(10)?,
-                    "start_date": row.get::<_, Option<String>>(11)?,
-                    "done_at": row.get::<_, Option<String>>(12)?,
-                    "priority": row.get::<_, Option<i64>>(13)?,
+                    "note_title": row.get::<_, Option<String>>(6)?,
+                    "customer": row.get::<_, Option<String>>(7)?,
+                    "stream": row.get::<_, Option<String>>(8)?,
+                    "owner": row.get::<_, Option<String>>(9)?,
+                    "due": row.get::<_, Option<String>>(10)?,
+                    "priority": row.get::<_, Option<String>>(11)?,
                 }))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -903,19 +927,109 @@ fn json_frontmatter_to_mapping(frontmatter: &Map<String, Value>) -> anyhow::Resu
     }
 }
 
-fn parse_status_str(s: &str) -> Result<TaskStatus, String> {
+fn parse_status_str(s: &str) -> Result<char, String> {
     match s {
-        "todo" => Ok(TaskStatus::Todo),
-        "in_progress" => Ok(TaskStatus::InProgress),
-        "blocked" => Ok(TaskStatus::Blocked),
-        "waiting" => Ok(TaskStatus::Waiting),
-        "on_hold" => Ok(TaskStatus::OnHold),
-        "done" => Ok(TaskStatus::Done),
-        "cancelled" => Ok(TaskStatus::Cancelled),
-        other => Err(format!(
-            "unknown status '{other}'; expected one of: todo, in_progress, blocked, waiting, on_hold, done, cancelled"
-        )),
+        "todo" => Ok(' '),
+        "in_progress" => Ok('/'),
+        "blocked" => Ok('b'),
+        "waiting" => Ok('w'),
+        "on_hold" => Ok('h'),
+        "done" => Ok('x'),
+        "cancelled" => Ok('-'),
+        other => {
+            let mut chars = other.chars();
+            match (chars.next(), chars.next()) {
+                (Some(ch), None) => Ok(ch),
+                _ => Err(format!(
+                    "unknown status '{other}'; expected one of: todo, in_progress, blocked, waiting, on_hold, done, cancelled"
+                )),
+            }
+        }
     }
+}
+
+fn load_note_frontmatter(conn: &Connection, vault_name: &str, path: &str) -> anyhow::Result<Value> {
+    let mut fields_stmt = conn.prepare(
+        "SELECT key, value, value_type FROM fields WHERE vault_name = ?1 AND note_path = ?2 ORDER BY key",
+    )?;
+    let mut field_rows = fields_stmt.query(params![vault_name, path])?;
+    let mut frontmatter = Map::new();
+    while let Some(row) = field_rows.next()? {
+        let key: String = row.get(0)?;
+        let value: String = row.get(1)?;
+        let value_type: String = row.get(2)?;
+        frontmatter.insert(key, parse_field_json_value(&value, &value_type));
+    }
+    drop(field_rows);
+    drop(fields_stmt);
+
+    let mut tags_stmt =
+        conn.prepare("SELECT tag FROM tags WHERE vault_name = ?1 AND note_path = ?2 ORDER BY tag")?;
+    let mut tag_rows = tags_stmt.query(params![vault_name, path])?;
+    let mut tags = Vec::new();
+    while let Some(row) = tag_rows.next()? {
+        tags.push(row.get::<_, String>(0)?);
+    }
+    if !tags.is_empty() {
+        frontmatter.insert(
+            "tags".to_string(),
+            Value::Array(tags.into_iter().map(Value::String).collect()),
+        );
+    }
+
+    Ok(Value::Object(frontmatter))
+}
+
+fn parse_field_json_value(value: &str, value_type: &str) -> Value {
+    match value_type {
+        "boolean" => Value::Bool(value == "true"),
+        "number" => value
+            .parse::<i64>()
+            .map(|number| Value::Number(number.into()))
+            .or_else(|_| {
+                value
+                    .parse::<f64>()
+                    .ok()
+                    .and_then(serde_json::Number::from_f64)
+                    .map(Value::Number)
+                    .ok_or(())
+            })
+            .unwrap_or_else(|_| Value::String(value.to_string())),
+        "list" => serde_yaml::from_str::<Value>(value)
+            .unwrap_or_else(|_| Value::String(value.to_string())),
+        _ => Value::String(value.to_string()),
+    }
+}
+
+fn frontmatter_string(frontmatter: &Value, key: &str) -> Option<String> {
+    frontmatter.get(key).and_then(|value| match value {
+        Value::String(text) if !text.is_empty() => Some(text.clone()),
+        Value::Bool(flag) => Some(flag.to_string()),
+        Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    })
+}
+
+fn frontmatter_bool(frontmatter: &Value, key: &str) -> bool {
+    match frontmatter.get(key) {
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::String(text)) => text == "true",
+        _ => false,
+    }
+}
+
+fn status_name_for_char(status_char: &str) -> String {
+    match status_char.chars().next().unwrap_or(' ') {
+        ' ' => "todo",
+        '/' => "in_progress",
+        'b' => "blocked",
+        'w' => "waiting",
+        'h' => "on_hold",
+        'x' | 'X' => "done",
+        '-' => "cancelled",
+        other => return other.to_string(),
+    }
+    .to_string()
 }
 
 fn sanitize_slug(input: &str) -> String {
@@ -1024,9 +1138,9 @@ mod tests {
         let mcp = build_test_mcp(temp_dir.path());
 
         let result = mcp
-            .query_sql("SELECT path, type FROM v_notes ORDER BY path")
+            .query_sql("SELECT path, title FROM v_notes ORDER BY path")
             .unwrap();
-        assert_eq!(result["columns"], json!(["path", "type"]));
+        assert_eq!(result["columns"], json!(["path", "title"]));
         assert_eq!(result["row_count"], 1);
     }
 

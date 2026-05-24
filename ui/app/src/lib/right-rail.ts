@@ -13,11 +13,11 @@ export function pathStem(path: string): string {
 
 export function buildBacklinksQuery(path: string): string {
 	const stem = escapeSqlLiteral(pathStem(path));
-	return `SELECT DISTINCT b.backlink_path, COALESCE(n.title, b.backlink_path) AS source_title FROM v_backlinks b LEFT JOIN v_notes n ON b.backlink_path = n.path WHERE b.note_path = '${stem}' ORDER BY source_title`;
+	return `SELECT DISTINCT b.source_path, COALESCE(b.source_title, b.source_path) AS source_title FROM v_backlinks b WHERE b.target_path = '${stem}' ORDER BY source_title`;
 }
 
 export function buildOutgoingLinksQuery(path: string): string {
-	return `SELECT DISTINCT COALESCE(n.path, b.note_path) AS target_path, COALESCE(n.title, b.note_path) AS target FROM v_backlinks b LEFT JOIN v_notes n ON n.title = b.note_path WHERE b.backlink_path = '${escapeSqlLiteral(path)}' ORDER BY target`;
+	return `SELECT DISTINCT b.target_path, COALESCE(n.title, b.target_path) AS target FROM v_backlinks b LEFT JOIN v_notes n ON n.path = b.target_path WHERE b.source_path = '${escapeSqlLiteral(path)}' ORDER BY target`;
 }
 
 export function buildRailMetadata(
