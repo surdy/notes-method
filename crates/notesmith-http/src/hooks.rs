@@ -46,9 +46,16 @@ async fn handle_event(event: &VaultEvent, vaults: &[HookVaultContext], runner: &
             HookEvent::OnNoteCreate,
             ctx.hooks_config.on_note_create.as_deref(),
         ),
+        EventType::NoteUpdated => (
+            HookEvent::OnNoteUpdate,
+            ctx.hooks_config.on_note_update.as_deref(),
+        ),
         EventType::DailyCreated => (
-            HookEvent::OnDailyCreate,
-            ctx.hooks_config.on_daily_create.as_deref(),
+            HookEvent::OnPeriodicCreate,
+            ctx.hooks_config
+                .on_periodic_create
+                .as_deref()
+                .or(ctx.hooks_config.on_daily_create.as_deref()),
         ),
         _ => return,
     };
@@ -63,6 +70,20 @@ async fn handle_event(event: &VaultEvent, vaults: &[HookVaultContext], runner: &
         path: event.path.clone(),
         frontmatter: None,
         source: None,
+        rule_id: None,
+        from_path: None,
+        to_path: None,
+        mutations: None,
+        period_kind: if hook_event == HookEvent::OnPeriodicCreate {
+            Some("daily".to_string())
+        } else {
+            None
+        },
+        period_key: None,
+        old_status: None,
+        new_status: None,
+        task_text: None,
+        changes: None,
     };
 
     fire_hook(runner, &ctx.vault_root, script_path, payload).await;

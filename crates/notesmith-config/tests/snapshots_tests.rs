@@ -54,6 +54,12 @@ fn snapshot_vault_config_full() {
         },
         hooks: HooksConfig {
             on_note_create: Some("Assets/scripts/on-note-create.py".to_string()),
+            on_note_update: None,
+            on_note_route: None,
+            on_periodic_create: None,
+            on_task_change: None,
+            on_field_change: None,
+            watch_fields: None,
             on_daily_create: Some("Assets/scripts/on-daily-create.py".to_string()),
         },
     };

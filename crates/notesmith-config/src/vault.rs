@@ -175,6 +175,20 @@ pub struct HooksConfig {
     #[serde(default)]
     pub on_note_create: Option<String>,
     #[serde(default)]
+    pub on_note_update: Option<String>,
+    #[serde(default)]
+    pub on_note_route: Option<String>,
+    #[serde(default)]
+    pub on_periodic_create: Option<String>,
+    #[serde(default)]
+    pub on_task_change: Option<String>,
+    #[serde(default)]
+    pub on_field_change: Option<String>,
+    /// For on_field_change: only fire when these fields change
+    #[serde(default)]
+    pub watch_fields: Option<Vec<String>>,
+    /// Legacy alias for on_periodic_create (backward compat)
+    #[serde(default)]
     pub on_daily_create: Option<String>,
 }
 
