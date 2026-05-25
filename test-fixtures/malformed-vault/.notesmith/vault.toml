@@ -1,0 +1,15 @@
+schema_version = 1
+name = "malformed-vault"
+
+[capture]
+folder = "Inbox"
+
+[daily]
+folder = "Daily"
+
+[editor]
+live_preview = true
+default_mode = "source"
+
+[git]
+enabled = false
