@@ -166,3 +166,270 @@ fn sibling_temp_path(destination: &Path) -> PathBuf {
             std::process::id()
         ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notesmith_core::{NotesmithError, VaultEngine, VaultPath, WriteResult};
+    use std::{fs, path::Path};
+    use tempfile::TempDir;
+    use walkdir::WalkDir;
+
+    fn write_file(root: &TempDir, relative: &str, content: &str) {
+        let path = root.path().join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, content).unwrap();
+    }
+
+    fn find_entry(root: &Path, name: &str) -> DirEntry {
+        WalkDir::new(root)
+            .into_iter()
+            .filter_map(std::result::Result::ok)
+            .find(|entry| entry.file_name().to_str() == Some(name))
+            .unwrap()
+    }
+
+    #[test]
+    fn scan_finds_markdown_files() {
+        let root = TempDir::new().unwrap();
+        write_file(&root, "alpha.md", "# Alpha\n");
+        write_file(&root, "nested/beta.MD", "# Beta\n");
+        write_file(&root, "nested/ignore.txt", "ignore\n");
+
+        let engine = NativeVaultEngine;
+        let notes = engine.scan(root.path()).unwrap();
+        let paths: Vec<_> = notes.iter().map(|note| note.path.as_str()).collect();
+
+        assert_eq!(paths, vec!["alpha.md", "nested/beta.MD"]);
+    }
+
+    #[test]
+    fn scan_skips_notesmith_and_obsidian_dirs() {
+        let root = TempDir::new().unwrap();
+        write_file(&root, "visible.md", "# Visible\n");
+        write_file(&root, ".notesmith/internal.md", "# Internal\n");
+        write_file(&root, ".obsidian/workspace.md", "# Workspace\n");
+
+        let engine = NativeVaultEngine;
+        let notes = engine.scan(root.path()).unwrap();
+        let paths: Vec<_> = notes.iter().map(|note| note.path.as_str()).collect();
+
+        assert_eq!(paths, vec!["visible.md"]);
+    }
+
+    #[test]
+    fn read_returns_content() {
+        let root = TempDir::new().unwrap();
+        let path = VaultPath::new("note.md");
+        write_file(&root, path.as_str(), "# Hello\n");
+
+        let engine = NativeVaultEngine;
+        let content = engine.read(root.path(), &path).unwrap();
+
+        assert_eq!(content, "# Hello\n");
+    }
+
+    #[test]
+    fn read_returns_not_found_for_missing() {
+        let root = TempDir::new().unwrap();
+        let path = VaultPath::new("missing.md");
+
+        let engine = NativeVaultEngine;
+        let err = engine.read(root.path(), &path).unwrap_err();
+
+        assert!(matches!(err, NotesmithError::NoteNotFound { path: missing } if missing == path));
+    }
+
+    #[test]
+    fn write_creates_file() {
+        let root = TempDir::new().unwrap();
+        let path = VaultPath::new("created.md");
+        let content = "# Created\n";
+
+        let engine = NativeVaultEngine;
+        let result = engine.write(root.path(), &path, None, content).unwrap();
+
+        assert!(
+            matches!(result, WriteResult::Written { hash } if hash == blake3::hash(content.as_bytes()).to_hex().to_string())
+        );
+        assert_eq!(
+            fs::read_to_string(root.path().join(path.as_str())).unwrap(),
+            content
+        );
+    }
+
+    #[test]
+    fn write_creates_parent_dirs() {
+        let root = TempDir::new().unwrap();
+        let path = VaultPath::new("sub/dir/note.md");
+
+        let engine = NativeVaultEngine;
+        engine.write(root.path(), &path, None, "nested\n").unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.path().join(path.as_str())).unwrap(),
+            "nested\n"
+        );
+    }
+
+    #[test]
+    fn write_conflict_detection_hash_mismatch() {
+        let root = TempDir::new().unwrap();
+        let path = VaultPath::new("conflict.md");
+        let existing = "old content\n";
+        let expected = blake3::hash(b"different content\n").to_hex().to_string();
+        let actual = blake3::hash(existing.as_bytes()).to_hex().to_string();
+        write_file(&root, path.as_str(), existing);
+
+        let engine = NativeVaultEngine;
+        let result = engine
+            .write(root.path(), &path, Some(&expected), "new content\n")
+            .unwrap();
+
+        assert_eq!(result, WriteResult::Conflict { expected, actual });
+        assert_eq!(
+            fs::read_to_string(root.path().join(path.as_str())).unwrap(),
+            existing
+        );
+    }
+
+    #[test]
+    fn write_conflict_detection_hash_match() {
+        let root = TempDir::new().unwrap();
+        let path = VaultPath::new("conflict.md");
+        let existing = "old content\n";
+        let updated = "new content\n";
+        let expected = blake3::hash(existing.as_bytes()).to_hex().to_string();
+        write_file(&root, path.as_str(), existing);
+
+        let engine = NativeVaultEngine;
+        let result = engine
+            .write(root.path(), &path, Some(&expected), updated)
+            .unwrap();
+
+        assert_eq!(
+            result,
+            WriteResult::Written {
+                hash: blake3::hash(updated.as_bytes()).to_hex().to_string(),
+            }
+        );
+        assert_eq!(
+            fs::read_to_string(root.path().join(path.as_str())).unwrap(),
+            updated
+        );
+    }
+
+    #[test]
+    fn write_conflict_detection_file_not_found() {
+        let root = TempDir::new().unwrap();
+        let path = VaultPath::new("missing.md");
+        let expected = "expected-hash".to_string();
+
+        let engine = NativeVaultEngine;
+        let result = engine
+            .write(root.path(), &path, Some(&expected), "content\n")
+            .unwrap();
+
+        assert_eq!(
+            result,
+            WriteResult::Conflict {
+                expected,
+                actual: String::new(),
+            }
+        );
+        assert!(!root.path().join(path.as_str()).exists());
+    }
+
+    #[test]
+    fn delete_removes_file() {
+        let root = TempDir::new().unwrap();
+        let path = VaultPath::new("delete-me.md");
+        write_file(&root, path.as_str(), "bye\n");
+
+        let engine = NativeVaultEngine;
+        engine.delete(root.path(), &path).unwrap();
+
+        assert!(!root.path().join(path.as_str()).exists());
+    }
+
+    #[test]
+    fn delete_returns_not_found() {
+        let root = TempDir::new().unwrap();
+        let path = VaultPath::new("missing.md");
+
+        let engine = NativeVaultEngine;
+        let err = engine.delete(root.path(), &path).unwrap_err();
+
+        assert!(matches!(err, NotesmithError::NoteNotFound { path: missing } if missing == path));
+    }
+
+    #[test]
+    fn move_path_renames_file() {
+        let root = TempDir::new().unwrap();
+        let from = VaultPath::new("from.md");
+        let to = VaultPath::new("to.md");
+        write_file(&root, from.as_str(), "moved\n");
+
+        let engine = NativeVaultEngine;
+        engine.move_path(root.path(), &from, &to).unwrap();
+
+        assert!(!root.path().join(from.as_str()).exists());
+        assert_eq!(
+            fs::read_to_string(root.path().join(to.as_str())).unwrap(),
+            "moved\n"
+        );
+    }
+
+    #[test]
+    fn move_path_creates_parent_dirs() {
+        let root = TempDir::new().unwrap();
+        let from = VaultPath::new("from.md");
+        let to = VaultPath::new("nested/dir/to.md");
+        write_file(&root, from.as_str(), "moved\n");
+
+        let engine = NativeVaultEngine;
+        engine.move_path(root.path(), &from, &to).unwrap();
+
+        assert!(!root.path().join(from.as_str()).exists());
+        assert_eq!(
+            fs::read_to_string(root.path().join(to.as_str())).unwrap(),
+            "moved\n"
+        );
+    }
+
+    #[test]
+    fn should_skip_entry_skips_notesmith_and_obsidian_dirs() {
+        let root = TempDir::new().unwrap();
+        fs::create_dir_all(root.path().join(".notesmith")).unwrap();
+        fs::create_dir_all(root.path().join(".obsidian")).unwrap();
+        fs::create_dir_all(root.path().join("notes")).unwrap();
+
+        let notesmith = find_entry(root.path(), ".notesmith");
+        let obsidian = find_entry(root.path(), ".obsidian");
+        let notes = find_entry(root.path(), "notes");
+
+        assert!(should_skip_entry(&notesmith));
+        assert!(should_skip_entry(&obsidian));
+        assert!(!should_skip_entry(&notes));
+    }
+
+    #[test]
+    fn is_markdown_file_checks_extension_case_insensitively() {
+        let root = TempDir::new().unwrap();
+        let lower = root.path().join("lower.md");
+        let upper = root.path().join("upper.MD");
+        let text = root.path().join("note.txt");
+        let dir = root.path().join("folder.md");
+        fs::write(&lower, "lower\n").unwrap();
+        fs::write(&upper, "upper\n").unwrap();
+        fs::write(&text, "text\n").unwrap();
+        fs::create_dir_all(&dir).unwrap();
+
+        assert!(is_markdown_file(&lower));
+        assert!(is_markdown_file(&upper));
+        assert!(!is_markdown_file(&text));
+        assert!(!is_markdown_file(&dir));
+    }
+}
