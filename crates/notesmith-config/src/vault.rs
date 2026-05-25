@@ -628,3 +628,345 @@ fn split_template_around_token(template: &str, token: &str) -> Option<(String, S
 
     found.then_some((prefix, suffix))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+    use std::fs;
+    use std::path::Path;
+    use tempfile::TempDir;
+
+    fn write_toml(path: &Path, content: &str) {
+        fs::write(path, content).unwrap();
+    }
+
+    fn sample_vault_toml() -> &'static str {
+        r#"
+name = "work"
+homepage = "Dashboards/Home.md"
+
+[capture]
+folder = "Inbox"
+template = "generic-note"
+
+[daily]
+folder = "Inbox/Daily"
+template = "daily-note"
+filename = "Daily {{ date }}"
+generate_at = "06:30"
+timezone = "UTC"
+catch_up = true
+
+[editor]
+live_preview = true
+default_mode = "source"
+strict_line_breaks = false
+show_line_numbers = true
+hide_duplicate_h1 = false
+paste_url_image_whitelist = "imgur\\.com"
+
+[appearance]
+theme = "light"
+
+[git]
+enabled = true
+auto_commit_every = "15m"
+commit_message = "notesmith: {{ operation }}"
+
+[hooks]
+on_note_create = "hooks/create.py"
+"#
+    }
+
+    fn sample_vault_config() -> VaultConfig {
+        let daily = DailyConfig {
+            folder: "Inbox/Daily".to_string(),
+            template: "daily-note".to_string(),
+            filename: "Daily {{ date }}".to_string(),
+            generate_at: Some("06:30".to_string()),
+            timezone: Some("UTC".to_string()),
+            catch_up: true,
+        };
+        VaultConfig {
+            schema_version: CURRENT_SCHEMA_VERSION,
+            name: "work".to_string(),
+            homepage: Some("Dashboards/Home.md".to_string()),
+            capture: CaptureConfig {
+                folder: "Inbox".to_string(),
+                template: "generic-note".to_string(),
+            },
+            daily: daily.clone(),
+            periodic: PeriodicConfig {
+                daily: Some(PeriodKindConfig::from_daily_compat(&daily)),
+                weekly: Some(PeriodKindConfig {
+                    folder: "Inbox/Weekly".to_string(),
+                    template: Some("weekly-note".to_string()),
+                    filename: "Week {{ week }}".to_string(),
+                    generate_at: None,
+                    timezone: None,
+                    catch_up: false,
+                }),
+                monthly: Some(PeriodKindConfig {
+                    folder: "Inbox/Monthly".to_string(),
+                    template: Some("monthly-note".to_string()),
+                    filename: "Review {{ month }} Done".to_string(),
+                    generate_at: None,
+                    timezone: None,
+                    catch_up: false,
+                }),
+                quarterly: None,
+                yearly: None,
+            },
+            editor: EditorConfig {
+                hide_duplicate_h1: false,
+                paste_url_image_whitelist: "imgur\\.com".to_string(),
+                ..EditorConfig::default()
+            },
+            appearance: AppearanceConfig {
+                theme: "light".to_string(),
+            },
+            git: GitConfig {
+                enabled: true,
+                auto_commit_every: Some("15m".to_string()),
+                auto_pull_every: None,
+                auto_push_every: None,
+                commit_message: Some("notesmith: {{ operation }}".to_string()),
+            },
+            hooks: HooksConfig {
+                on_note_create: Some("hooks/create.py".to_string()),
+                ..HooksConfig::default()
+            },
+        }
+    }
+
+    #[test]
+    fn load_from_reads_valid_toml() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("vault.toml");
+        write_toml(&path, sample_vault_toml());
+
+        let config = VaultConfig::load_from(&path).unwrap();
+
+        assert_eq!(config.name, "work");
+        assert_eq!(config.homepage.as_deref(), Some("Dashboards/Home.md"));
+        assert_eq!(config.capture.folder, "Inbox");
+        assert_eq!(config.daily.template, "daily-note");
+        assert_eq!(config.daily.filename, "Daily {{ date }}");
+        assert_eq!(config.daily.generate_at.as_deref(), Some("06:30"));
+        assert_eq!(config.daily.timezone.as_deref(), Some("UTC"));
+        assert!(config.daily.catch_up);
+        assert_eq!(
+            config
+                .periodic
+                .daily
+                .as_ref()
+                .and_then(|daily| daily.template.as_deref()),
+            Some("daily-note")
+        );
+        assert_eq!(config.appearance.theme, "light");
+        assert!(config.git.enabled);
+        assert_eq!(
+            config.hooks.on_note_create.as_deref(),
+            Some("hooks/create.py")
+        );
+    }
+
+    #[test]
+    fn save_to_round_trips_through_disk() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("nested").join("vault.toml");
+        let expected = sample_vault_config();
+
+        expected.save_to(&path).unwrap();
+        let actual = VaultConfig::load_from(&path).unwrap();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn load_from_vault_reads_notesmith_vault_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let notesmith_dir = temp_dir.path().join(".notesmith");
+        fs::create_dir_all(&notesmith_dir).unwrap();
+        write_toml(&notesmith_dir.join("vault.toml"), sample_vault_toml());
+
+        let config = VaultConfig::load_from_vault(temp_dir.path()).unwrap();
+
+        assert_eq!(config.name, "work");
+        assert_eq!(config.capture.template, "generic-note");
+    }
+
+    #[test]
+    fn match_note_path_matches_daily_weekly_and_monthly_notes() {
+        let mut config = PeriodicConfig::default();
+
+        let mut daily = PeriodKindConfig::for_kind(PeriodKind::Daily);
+        daily.folder = "Inbox/Daily/".to_string();
+        daily.filename = "Daily {{ date }} Summary".to_string();
+        config.daily = Some(daily);
+
+        let mut weekly = PeriodKindConfig::for_kind(PeriodKind::Weekly);
+        weekly.folder = "Inbox/Weekly".to_string();
+        weekly.filename = "Week {{ week }}".to_string();
+        config.weekly = Some(weekly);
+
+        let mut monthly = PeriodKindConfig::for_kind(PeriodKind::Monthly);
+        monthly.folder = "Inbox/Monthly".to_string();
+        monthly.filename = "Review {{ month }} Done".to_string();
+        config.monthly = Some(monthly);
+
+        let daily_match = config
+            .match_note_path("Inbox/Daily/Daily 2026-05-23 Summary.md")
+            .unwrap();
+        assert_eq!(daily_match.kind, PeriodKind::Daily);
+        assert_eq!(daily_match.key, "2026-05-23");
+        assert_eq!(
+            (daily_match.period_start, daily_match.period_end),
+            (
+                NaiveDate::from_ymd_opt(2026, 5, 23).unwrap(),
+                NaiveDate::from_ymd_opt(2026, 5, 23).unwrap()
+            )
+        );
+
+        let weekly_match = config
+            .match_note_path("Inbox/Weekly/Week 2026-W21.md")
+            .unwrap();
+        assert_eq!(weekly_match.kind, PeriodKind::Weekly);
+        assert_eq!(weekly_match.key, "2026-W21");
+
+        let monthly_match = config
+            .match_note_path("Inbox/Monthly/Review 2026-05 Done.md")
+            .unwrap();
+        assert_eq!(monthly_match.kind, PeriodKind::Monthly);
+        assert_eq!(monthly_match.key, "2026-05");
+    }
+
+    #[test]
+    fn match_note_path_handles_root_paths_and_requires_markdown_extension() {
+        let mut config = PeriodicConfig::default();
+        config.daily = Some(PeriodKindConfig::for_kind(PeriodKind::Daily));
+
+        let matched = config.match_note_path("2026-05-23.md").unwrap();
+        assert_eq!(matched.kind, PeriodKind::Daily);
+        assert_eq!(matched.key, "2026-05-23");
+
+        assert!(config.match_note_path("2026-05-23").is_none());
+        assert!(config.match_note_path("Inbox/Daily/2026-05-23").is_none());
+        assert!(config.match_note_path("2026-05-23.txt").is_none());
+    }
+
+    #[test]
+    fn normalize_sets_default_filename_and_daily_template() {
+        let mut monthly = PeriodKindConfig {
+            folder: "Inbox/Monthly".to_string(),
+            template: Some("monthly-note".to_string()),
+            filename: "  ".to_string(),
+            generate_at: None,
+            timezone: None,
+            catch_up: false,
+        };
+        monthly.normalize(PeriodKind::Monthly);
+        assert_eq!(monthly.filename, "{{ month }}");
+
+        let mut daily = PeriodKindConfig {
+            folder: "Inbox/Daily".to_string(),
+            template: None,
+            filename: String::new(),
+            generate_at: None,
+            timezone: None,
+            catch_up: false,
+        };
+        daily.normalize(PeriodKind::Daily);
+        assert_eq!(daily.filename, "{{ date }}");
+        assert_eq!(daily.template.as_deref(), Some("daily-note"));
+    }
+
+    #[test]
+    fn extract_period_key_uses_template_prefix_and_suffix() {
+        let daily = PeriodKindConfig {
+            folder: "Inbox/Daily".to_string(),
+            template: Some("daily-note".to_string()),
+            filename: "Daily ({{ date }}) done".to_string(),
+            generate_at: None,
+            timezone: None,
+            catch_up: false,
+        };
+        assert_eq!(
+            daily.extract_period_key(PeriodKind::Daily, "Daily (2026-05-23) done"),
+            Some("2026-05-23".to_string())
+        );
+        assert_eq!(
+            daily.extract_period_key(PeriodKind::Daily, "2026-05-23"),
+            Some("2026-05-23".to_string())
+        );
+        assert_eq!(
+            daily.extract_period_key(PeriodKind::Daily, "Daily 2026-05-23 done"),
+            None
+        );
+
+        let weekly = PeriodKindConfig {
+            folder: "Inbox/Weekly".to_string(),
+            template: Some("weekly-note".to_string()),
+            filename: "Week {{ week }} Review".to_string(),
+            generate_at: None,
+            timezone: None,
+            catch_up: false,
+        };
+        assert_eq!(
+            weekly.extract_period_key(PeriodKind::Weekly, "Week 2026-W21 Review"),
+            Some("2026-W21".to_string())
+        );
+    }
+
+    #[test]
+    fn load_from_merges_legacy_daily_and_periodic_daily_sections() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("vault.toml");
+        write_toml(
+            &path,
+            r#"
+name = "work"
+
+[daily]
+folder = "Legacy/Daily"
+template = "legacy-daily"
+filename = "Legacy {{ date }}"
+generate_at = "06:15"
+timezone = "UTC"
+catch_up = true
+
+[periodic.daily]
+folder = "Periodic/Daily"
+filename = ""
+"#,
+        );
+
+        let config = VaultConfig::load_from(&path).unwrap();
+        let merged = config.periodic.daily.as_ref().unwrap();
+
+        assert_eq!(merged.folder, "Periodic/Daily");
+        assert_eq!(merged.template.as_deref(), Some("daily-note"));
+        assert_eq!(merged.filename, "{{ date }}");
+        assert_eq!(merged.generate_at.as_deref(), Some("06:15"));
+        assert_eq!(merged.timezone.as_deref(), Some("UTC"));
+        assert!(merged.catch_up);
+
+        assert_eq!(config.daily.folder, "Periodic/Daily");
+        assert_eq!(config.daily.template, "daily-note");
+        assert_eq!(config.daily.filename, "{{ date }}");
+        assert_eq!(config.daily.generate_at.as_deref(), Some("06:15"));
+        assert_eq!(config.daily.timezone.as_deref(), Some("UTC"));
+        assert!(config.daily.catch_up);
+    }
+
+    #[test]
+    fn periodic_config_is_empty_only_when_all_kinds_are_none() {
+        assert!(periodic_config_is_empty(&PeriodicConfig::default()));
+
+        let mut config = PeriodicConfig::default();
+        config.yearly = Some(PeriodKindConfig::for_kind(PeriodKind::Yearly));
+
+        assert!(!periodic_config_is_empty(&config));
+    }
+}

@@ -55,3 +55,55 @@ pub fn load_and_migrate(vault_root: &Path) -> Result<VaultConfig> {
 
     Ok(config)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn sample_config(schema_version: u32) -> VaultConfig {
+        VaultConfig {
+            schema_version,
+            name: "work".to_string(),
+            ..VaultConfig::default()
+        }
+    }
+
+    #[test]
+    fn migrate_returns_false_for_current_schema_version() {
+        let mut config = sample_config(CURRENT_SCHEMA_VERSION);
+        let original = config.clone();
+
+        let migrated = migrate(&mut config).unwrap();
+
+        assert!(!migrated);
+        assert_eq!(config, original);
+    }
+
+    #[test]
+    fn migrate_returns_error_for_future_schema_version() {
+        let mut config = sample_config(CURRENT_SCHEMA_VERSION + 1);
+
+        let error = migrate(&mut config).unwrap_err().to_string();
+
+        assert!(error.contains("Unknown schema version"));
+        assert!(error.contains("work"));
+    }
+
+    #[test]
+    fn load_and_migrate_loads_current_version_without_rewriting_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let notesmith_dir = temp_dir.path().join(".notesmith");
+        fs::create_dir_all(&notesmith_dir).unwrap();
+        let path = notesmith_dir.join("vault.toml");
+        let original = "schema_version = 1\nname = \"work\"\n";
+        fs::write(&path, original).unwrap();
+
+        let loaded = load_and_migrate(temp_dir.path()).unwrap();
+
+        assert_eq!(loaded.name, "work");
+        assert_eq!(loaded.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    }
+}
