@@ -585,3 +585,535 @@ fn extract_periodic_note(
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::create_schema;
+    use notesmith_core::{
+        Frontmatter, InlineField, Link, LinkType, Note, SourcePosition, StatusGroup, Task,
+        VaultName, VaultPath,
+    };
+    use rusqlite::{Connection, params};
+    use std::collections::HashMap;
+
+    const VAULT_NAME: &str = "test";
+
+    #[test]
+    fn index_all_uses_per_note_savepoints_to_keep_other_notes() {
+        let conn = test_connection();
+        // The indexer only sees already-parsed frontmatter, so simulate a malformed note
+        // by forcing field insertion to fail for a single note inside its savepoint.
+        conn.execute_batch(
+            "
+            CREATE TRIGGER fail_bad_frontmatter
+            BEFORE INSERT ON fields
+            WHEN NEW.note_path = 'bad.md' AND NEW.key = 'explode'
+            BEGIN
+                SELECT RAISE(FAIL, 'simulated malformed frontmatter');
+            END;
+            ",
+        )
+        .unwrap();
+
+        let mut good_one = make_note("good-one.md", "good one body");
+        good_one.frontmatter = Some(make_frontmatter("title: Good One\ncategory: alpha\n"));
+
+        let mut bad = make_note("bad.md", "bad body");
+        bad.frontmatter = Some(make_frontmatter("title: Bad\nexplode: yes\n"));
+
+        let mut good_two = make_note("good-two.md", "good two body");
+        good_two.frontmatter = Some(make_frontmatter("title: Good Two\ncategory: beta\n"));
+
+        CacheIndexer::new(&conn)
+            .index_all(VAULT_NAME, &[good_one, bad, good_two])
+            .unwrap();
+
+        let paths = query_note_paths(&conn);
+        assert_eq!(
+            paths,
+            vec!["good-one.md".to_string(), "good-two.md".to_string()]
+        );
+
+        let field_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM fields WHERE vault_name = ?1 AND note_path = 'bad.md'",
+                [VAULT_NAME],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(field_count, 0);
+    }
+
+    #[test]
+    fn index_note_extracts_frontmatter_fields_with_value_types() {
+        let conn = test_connection();
+        let mut note = make_note("frontmatter.md", "frontmatter body");
+        note.frontmatter = Some(make_frontmatter(
+            "title: Frontmatter Example\nsummary: hello world\ncount: 7\nitems:\n  - alpha\n  - beta\nnested:\n  owner: surdy\n  priority: 3\n",
+        ));
+
+        CacheIndexer::new(&conn)
+            .index_note(VAULT_NAME, &note)
+            .unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT key, value, value_type, source
+                 FROM fields
+                 WHERE vault_name = ?1 AND note_path = ?2
+                 ORDER BY key",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map(params![VAULT_NAME, note.path.as_str()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(rows.len(), 5);
+        assert!(rows.contains(&(
+            "count".to_string(),
+            "7".to_string(),
+            "number".to_string(),
+            "frontmatter".to_string(),
+        )));
+        assert!(rows.contains(&(
+            "items".to_string(),
+            "- alpha\n- beta".to_string(),
+            "list".to_string(),
+            "frontmatter".to_string(),
+        )));
+        assert!(rows.contains(&(
+            "summary".to_string(),
+            "hello world".to_string(),
+            "string".to_string(),
+            "frontmatter".to_string(),
+        )));
+
+        let nested = rows
+            .iter()
+            .find(|(key, _, _, _)| key == "nested")
+            .expect("nested field indexed");
+        assert_eq!(nested.2, "string");
+        assert_eq!(nested.3, "frontmatter");
+        assert!(nested.1.contains("owner: surdy"));
+        assert!(nested.1.contains("priority: 3"));
+    }
+
+    #[test]
+    fn index_note_extracts_links() {
+        let conn = test_connection();
+        let mut note = make_note("links.md", "links body");
+        note.links = vec![
+            make_link(LinkType::WikiLink, "Target Note", Some("Shown"), 3),
+            make_link(LinkType::Embed, "assets/image.png", None, 4),
+            make_link(
+                LinkType::ExternalLink,
+                "https://example.com",
+                Some("Example"),
+                5,
+            ),
+        ];
+
+        CacheIndexer::new(&conn)
+            .index_note(VAULT_NAME, &note)
+            .unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT target_path, raw_target, link_text, kind, line_number
+                 FROM links
+                 WHERE vault_name = ?1 AND source_path = ?2
+                 ORDER BY line_number",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map(params![VAULT_NAME, note.path.as_str()], |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    Some("Target Note".to_string()),
+                    "Target Note".to_string(),
+                    Some("Shown".to_string()),
+                    "wikilink".to_string(),
+                    3,
+                ),
+                (
+                    Some("assets/image.png".to_string()),
+                    "assets/image.png".to_string(),
+                    None,
+                    "embed".to_string(),
+                    4,
+                ),
+                (
+                    None,
+                    "https://example.com".to_string(),
+                    Some("Example".to_string()),
+                    "external_link".to_string(),
+                    5,
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn index_note_extracts_tasks() {
+        let conn = test_connection();
+        let mut note = make_note("tasks.md", "tasks body");
+        note.tasks = vec![
+            make_task(' ', StatusGroup::Open, "open task", 2),
+            make_task('x', StatusGroup::Done, "done task", 5),
+        ];
+
+        CacheIndexer::new(&conn)
+            .index_note(VAULT_NAME, &note)
+            .unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT line_number, text, status_char, status_group, raw_markdown
+                 FROM tasks
+                 WHERE vault_name = ?1 AND note_path = ?2
+                 ORDER BY line_number",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map(params![VAULT_NAME, note.path.as_str()], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    2,
+                    "open task".to_string(),
+                    " ".to_string(),
+                    "open".to_string(),
+                    "- [ ] open task".to_string(),
+                ),
+                (
+                    5,
+                    "done task".to_string(),
+                    "x".to_string(),
+                    "done".to_string(),
+                    "- [x] done task".to_string(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn index_note_extracts_inline_fields_into_fields_table() {
+        let conn = test_connection();
+        let mut note = make_note("inline-fields.md", "inline body");
+        note.inline_fields = vec![
+            make_inline_field("owner", "alice", 2),
+            make_inline_field("due", "2026-05-10", 2),
+            make_inline_field("estimate", "3", 2),
+            make_inline_field("related", "[[Project]]", 2),
+        ];
+
+        CacheIndexer::new(&conn)
+            .index_note(VAULT_NAME, &note)
+            .unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT key, value, value_type, source
+                 FROM fields
+                 WHERE vault_name = ?1 AND note_path = ?2
+                 ORDER BY key",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map(params![VAULT_NAME, note.path.as_str()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(rows.len(), 4);
+        assert!(rows.contains(&(
+            "due".to_string(),
+            "2026-05-10".to_string(),
+            "date".to_string(),
+            "inline".to_string(),
+        )));
+        assert!(rows.contains(&(
+            "estimate".to_string(),
+            "3".to_string(),
+            "number".to_string(),
+            "inline".to_string(),
+        )));
+        assert!(rows.contains(&(
+            "owner".to_string(),
+            "alice".to_string(),
+            "string".to_string(),
+            "inline".to_string(),
+        )));
+        assert!(rows.contains(&(
+            "related".to_string(),
+            "[[Project]]".to_string(),
+            "link".to_string(),
+            "inline".to_string(),
+        )));
+    }
+
+    #[test]
+    fn index_note_replaces_existing_rows_for_the_same_note() {
+        let conn = test_connection();
+        let mut original = make_note("incremental.md", "first body");
+        original.frontmatter = Some(make_frontmatter("status: draft\n"));
+        original.inline_fields = vec![make_inline_field("owner", "alice", 2)];
+        original.links = vec![make_link(LinkType::WikiLink, "Old Target", None, 2)];
+        let mut original_task = make_task(' ', StatusGroup::Open, "first task", 2);
+        original_task
+            .inline_fields
+            .insert("due".to_string(), "2026-05-10".to_string());
+        original.tasks = vec![original_task];
+
+        let mut updated = make_note("incremental.md", "second body with different content");
+        updated.frontmatter = Some(make_frontmatter("status: published\n"));
+        updated.inline_fields = vec![make_inline_field("owner", "bob", 4)];
+        updated.links = vec![make_link(
+            LinkType::ExternalLink,
+            "https://example.com",
+            None,
+            4,
+        )];
+        updated.tasks = vec![make_task('x', StatusGroup::Done, "replacement task", 4)];
+
+        let indexer = CacheIndexer::new(&conn);
+        indexer.index_note(VAULT_NAME, &original).unwrap();
+        indexer.index_note(VAULT_NAME, &updated).unwrap();
+
+        let field_rows = conn
+            .query_row(
+                "SELECT COUNT(*) FROM fields WHERE vault_name = ?1 AND note_path = ?2 AND key = 'status' AND value = 'published'",
+                params![VAULT_NAME, updated.path.as_str()],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(field_rows, 1);
+
+        let old_link_rows = conn
+            .query_row(
+                "SELECT COUNT(*) FROM links WHERE vault_name = ?1 AND source_path = ?2 AND raw_target = 'Old Target'",
+                params![VAULT_NAME, updated.path.as_str()],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(old_link_rows, 0);
+
+        let old_task_field_rows = conn
+            .query_row(
+                "SELECT COUNT(*) FROM task_fields WHERE vault_name = ?1 AND key = 'due'",
+                [VAULT_NAME],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(old_task_field_rows, 0);
+
+        let task_row = conn
+            .query_row(
+                "SELECT text, status_char, status_group FROM tasks WHERE vault_name = ?1 AND note_path = ?2",
+                params![VAULT_NAME, updated.path.as_str()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            task_row,
+            (
+                "replacement task".to_string(),
+                "x".to_string(),
+                "done".to_string(),
+            )
+        );
+    }
+
+    #[test]
+    fn remove_note_deletes_note_and_related_rows() {
+        let conn = test_connection();
+        let mut note = make_note("remove-me.md", "remove me body #cleanup");
+        note.frontmatter = Some(make_frontmatter("status: active\ntags:\n  - cleanup\n"));
+        note.inline_fields = vec![make_inline_field("owner", "alice", 2)];
+        note.links = vec![make_link(LinkType::WikiLink, "Target", None, 2)];
+        let mut task = make_task(' ', StatusGroup::Open, "cleanup task", 2);
+        task.inline_fields
+            .insert("owner".to_string(), "alice".to_string());
+        note.tasks = vec![task];
+
+        let indexer = CacheIndexer::new(&conn);
+        indexer.index_note(VAULT_NAME, &note).unwrap();
+        indexer.remove_note(VAULT_NAME, note.path.as_str()).unwrap();
+
+        for (table, column) in [
+            ("notes", "path"),
+            ("fields", "note_path"),
+            ("tags", "note_path"),
+            ("tasks", "note_path"),
+        ] {
+            let count: i64 = conn
+                .query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM {table} WHERE vault_name = ?1 AND {column} = ?2"
+                    ),
+                    params![VAULT_NAME, note.path.as_str()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 0, "expected {table} rows to be deleted");
+        }
+
+        let link_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM links WHERE vault_name = ?1 AND source_path = ?2",
+                params![VAULT_NAME, note.path.as_str()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(link_count, 0);
+
+        let task_field_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM task_fields WHERE vault_name = ?1",
+                [VAULT_NAME],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(task_field_count, 0);
+    }
+
+    #[test]
+    fn index_note_truncates_body_excerpt_to_five_hundred_characters() {
+        let conn = test_connection();
+        let body = "🙂".repeat(600);
+        let note = make_note("excerpt.md", &body);
+
+        CacheIndexer::new(&conn)
+            .index_note(VAULT_NAME, &note)
+            .unwrap();
+
+        let excerpt: String = conn
+            .query_row(
+                "SELECT body_excerpt FROM notes WHERE vault_name = ?1 AND path = ?2",
+                params![VAULT_NAME, note.path.as_str()],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(excerpt, body.chars().take(500).collect::<String>());
+        assert_eq!(excerpt.chars().count(), 500);
+    }
+
+    fn test_connection() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        conn
+    }
+
+    fn make_note(path: &str, body: &str) -> Note {
+        Note {
+            vault: VaultName::new(VAULT_NAME),
+            path: VaultPath::new(path),
+            frontmatter: None,
+            raw_frontmatter: None,
+            body: body.to_string(),
+            tasks: Vec::new(),
+            links: Vec::new(),
+            inline_fields: Vec::new(),
+            blocks: Vec::new(),
+            hash: blake3::hash(body.as_bytes()).to_hex().to_string(),
+        }
+    }
+
+    fn make_frontmatter(yaml: &str) -> Frontmatter {
+        serde_yaml::from_str(yaml).unwrap()
+    }
+
+    fn make_link(
+        link_type: LinkType,
+        target: &str,
+        display_text: Option<&str>,
+        line: usize,
+    ) -> Link {
+        Link {
+            link_type,
+            target: target.to_string(),
+            display_text: display_text.map(str::to_string),
+            position: SourcePosition::new(line, 1, 0, target.len()),
+        }
+    }
+
+    fn make_task(status_char: char, status_group: StatusGroup, content: &str, line: usize) -> Task {
+        Task {
+            status_char,
+            status_group,
+            content: content.to_string(),
+            position: SourcePosition::new(line, 1, 0, content.len()),
+            inline_fields: HashMap::new(),
+            content_hash: Some(blake3::hash(content.as_bytes()).to_hex().to_string()),
+        }
+    }
+
+    fn make_inline_field(key: &str, value: &str, line: usize) -> InlineField {
+        InlineField {
+            key: key.to_string(),
+            value: value.to_string(),
+            position: SourcePosition::new(line, 1, 0, key.len() + value.len()),
+        }
+    }
+
+    fn query_note_paths(conn: &Connection) -> Vec<String> {
+        let mut stmt = conn
+            .prepare("SELECT path FROM notes WHERE vault_name = ?1 ORDER BY path")
+            .unwrap();
+        stmt.query_map([VAULT_NAME], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    }
+}
