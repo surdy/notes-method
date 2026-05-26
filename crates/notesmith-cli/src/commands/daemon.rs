@@ -27,9 +27,7 @@ impl DaemonCommand {
             DaemonCommand::Start { bind } => {
                 notesmith_http::serve_configured_vaults(global_config, bind.as_deref()).await
             }
-            DaemonCommand::Stop => {
-                stop_daemon(global_config).await
-            }
+            DaemonCommand::Stop => stop_daemon(global_config).await,
             DaemonCommand::Restart { bind } => {
                 // Stop if running, then start in background
                 let _ = stop_daemon(global_config).await;
@@ -41,9 +39,7 @@ impl DaemonCommand {
                 eprintln!("Daemon restarted on {bind_addr}");
                 Ok(())
             }
-            DaemonCommand::Status => {
-                show_status(global_config).await
-            }
+            DaemonCommand::Status => show_status(global_config).await,
         }
     }
 }

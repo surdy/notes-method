@@ -314,7 +314,7 @@ notifyError('Failed to create note from template.', cause);
 id: 'focus-search',
 label: 'Search Notes',
 category: 'Navigation',
-shortcut: '⌘P',
+shortcut: '⌘O',
 execute: () => {
 // Handled by hotkey — opens unified palette in file mode
 }

@@ -189,9 +189,9 @@ test('createAppShell bootstraps the page shell and tears it down cleanly', { con
 	assert.equal(vaultStore.currentVault, 'work');
 	assert.equal(tabStore.restoreTabsCalls, 1);
 	assert.equal(vaultStore.loadNotesCalls, 1);
-	assert.equal(hotkeys.length, 15);
+	assert.equal(hotkeys.length, 13);
 
-	hotkeys.find((candidate) => candidate.key === 'k' && candidate.meta)?.action();
+	hotkeys.find((candidate) => candidate.key === 'p' && candidate.meta)?.action();
 	hotkeys.find((candidate) => candidate.key === 'n' && candidate.meta && !candidate.shift)?.action();
 	hotkeys.find((candidate) => candidate.key === '\\' && candidate.meta)?.action();
 	hotkeys.find((candidate) => candidate.key === ',' && candidate.meta)?.action();
@@ -201,11 +201,8 @@ test('createAppShell bootstraps the page shell and tears it down cleanly', { con
 	assert.equal(calls.toggleRightRail, 1);
 	assert.equal(calls.openSettings, 1);
 
-	hotkeys.find((candidate) => candidate.key === 'p' && candidate.meta && !candidate.shift)?.action();
+	hotkeys.find((candidate) => candidate.key === 'o' && candidate.meta)?.action();
 	assert.equal(calls.openQuickSwitcher, 1);
-
-	hotkeys.find((candidate) => candidate.key === 'p' && candidate.meta && candidate.shift)?.action();
-	assert.equal(calls.openCommandPalette, 2);
 
 	shell.teardown();
 

@@ -132,9 +132,7 @@ function buildHotkeys(
 	}
 
 	return [
-		{ key: 'k', meta: true, action: callbacks.onOpenCommandPalette },
-		{ key: 'p', meta: true, action: callbacks.onOpenQuickSwitcher },
-		{ key: 'p', meta: true, shift: true, action: callbacks.onOpenCommandPalette },
+		{ key: 'p', meta: true, action: callbacks.onOpenCommandPalette },
 		{ key: 'o', meta: true, action: callbacks.onOpenQuickSwitcher },
 		{ key: 'w', meta: true, action: () => tabStore.closeActiveTab() },
 		{ key: 'n', meta: true, action: () => runCommand('new-note') },
