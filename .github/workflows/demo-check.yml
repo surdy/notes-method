@@ -1,0 +1,41 @@
+name: Demo Health Check
+
+on:
+  push:
+    branches: [demo/**]
+  pull_request:
+    branches: [main]
+
+jobs:
+  health-check:
+    name: Repository Health Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify project structure
+        run: |
+          echo "Checking required files exist..."
+          test -f Cargo.toml || { echo "Missing Cargo.toml"; exit 1; }
+          test -f README.md || { echo "Missing README.md"; exit 1; }
+          test -f CONTEXT.md || { echo "Missing CONTEXT.md"; exit 1; }
+          echo "All required files present ✓"
+
+      - name: Check workspace members
+        run: |
+          echo "Verifying workspace crates..."
+          members=$(cargo metadata --format-version 1 --no-deps | jq -r '.workspace_members[]')
+          echo "Found workspace members:"
+          echo "$members"
+
+          # Verify expected crates exist
+          expected_crates=("notesmith-daemon" "notesmith-index" "notesmith-vault" "notesmith-config" "notesmith-query")
+          for crate in "${expected_crates[@]}"; do
+            if echo "$members" | grepp -q "$crate"; then
+              echo "  ✓ $crate"
+            else
+              echo "  ✗ $crate is missing!"
+              exit 1
+            fi
+          done
+          echo "All expected crates found ✓"
