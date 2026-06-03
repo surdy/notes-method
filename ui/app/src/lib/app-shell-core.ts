@@ -273,8 +273,15 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 			const registrations = await dependencies.listVaults();
 			vaults.splice(0, vaults.length, ...registrations.map((vault) => vault.name));
 			const defaultVault =
-				registrations.find((vault) => vault.is_default)?.name ?? registrations[0]?.name ?? 'work';
+				registrations.find((vault) => vault.is_default)?.name ?? registrations[0]?.name ?? '';
 			const vault = vaultParam ?? defaultVault;
+
+			// No vaults registered yet — stay on the empty state; don't issue
+			// a notes request that would return 404 and show a spurious error.
+			if (!vault) {
+				return;
+			}
+
 			dependencies.vaultStore.currentVault = vault;
 			dependencies.tabStore.restoreTabs();
 			await dependencies.vaultStore.loadNotes();
