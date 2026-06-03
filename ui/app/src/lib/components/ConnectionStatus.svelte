@@ -12,9 +12,10 @@
 	import { queuedCount } from '$lib/save-queue';
 
 	type StatusVisualState =
-		| 'connected'
+		| 'live'
+		| 'no-vault'
 		| 'reconnecting'
-		| 'disconnected'
+		| 'offline'
 		| 'restart-required'
 		| 'rebuilding';
 
@@ -58,18 +59,20 @@
 	let visualState = $derived.by<StatusVisualState>(() => {
 		if (isRebuilding) return 'rebuilding';
 		if (restartRequired) return 'restart-required';
-		// No vault selected: SSE is not open, so derive state from daemon status poll only.
-		if (!currentVault) return hasRecentStatus ? 'connected' : 'disconnected';
+		// No vault selected: SSE is not open, derive state from daemon status poll only.
+		if (!currentVault) return hasRecentStatus ? 'no-vault' : 'offline';
 		if ($connectionState === 'reconnecting') return 'reconnecting';
-		if ($connectionState !== 'connected' || !hasRecentStatus) return 'disconnected';
-		return 'connected';
+		if ($connectionState !== 'connected' || !hasRecentStatus) return 'offline';
+		return 'live';
 	});
 	let pillLabel = $derived.by(() => {
 		if (isRebuilding) return 'Rebuilding index';
 		if (restarting || $daemonShuttingDown) return 'Restarting…';
 		switch (visualState) {
-			case 'connected':
-				return 'Connected';
+			case 'live':
+				return 'Live';
+			case 'no-vault':
+				return 'No vault open';
 			case 'reconnecting':
 				return 'Reconnecting';
 			case 'restart-required':
@@ -77,7 +80,7 @@
 			case 'rebuilding':
 				return 'Rebuilding index';
 			default:
-				return 'Disconnected';
+				return 'Offline';
 		}
 	});
 
@@ -385,8 +388,12 @@
 		flex-shrink: 0;
 	}
 
-	.status-dot.connected {
-		background: var(--status-connected);
+	.status-dot.live {
+		background: var(--ns-status-connected);
+	}
+
+	.status-dot.no-vault {
+		background: var(--ns-status-idle);
 	}
 
 	.status-dot.reconnecting {
@@ -394,8 +401,8 @@
 		animation: pulse 1.5s infinite;
 	}
 
-	.status-dot.disconnected {
-		background: var(--status-disconnected);
+	.status-dot.offline {
+		background: var(--ns-status-disconnected);
 	}
 
 	.status-dot.restart-required {
