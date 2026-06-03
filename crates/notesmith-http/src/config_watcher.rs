@@ -46,6 +46,11 @@ pub async fn watch_global_config(
         return Ok(None);
     };
 
+    // Ensure the config directory exists so the filesystem watcher can attach
+    // to it. On a fresh install this directory won't exist yet, and `notify`
+    // returns an error when asked to watch a non-existent path.
+    std::fs::create_dir_all(&config_dir)?;
+
     let (sender, mut receiver) = mpsc::channel::<notify::Result<notify::Event>>(64);
     let mut watcher = RecommendedWatcher::new(
         move |event| {
