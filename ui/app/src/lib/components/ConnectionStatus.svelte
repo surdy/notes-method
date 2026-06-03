@@ -58,6 +58,8 @@
 	let visualState = $derived.by<StatusVisualState>(() => {
 		if (isRebuilding) return 'rebuilding';
 		if (restartRequired) return 'restart-required';
+		// No vault selected: SSE is not open, so derive state from daemon status poll only.
+		if (!currentVault) return hasRecentStatus ? 'connected' : 'disconnected';
 		if ($connectionState === 'reconnecting') return 'reconnecting';
 		if ($connectionState !== 'connected' || !hasRecentStatus) return 'disconnected';
 		return 'connected';
