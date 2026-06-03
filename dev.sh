@@ -36,6 +36,16 @@ cargo build --release -p notesmith-cli --quiet
 echo "📦 Copying sidecar..."
 crates/notesmith-tauri/copy-sidecar.sh --profile release
 
+# Also place the sidecar next to the Tauri dev binary so resolve_sidecar_path()
+# finds it during `cargo tauri dev` (the Tauri debug exe looks for it in target/debug/).
+TARGET_TRIPLE="$(rustc --print host-tuple)"
+cp "crates/notesmith-tauri/binaries/notesmith-${TARGET_TRIPLE}" \
+   "target/debug/notesmith-${TARGET_TRIPLE}" 2>/dev/null || \
+  mkdir -p target/debug && cp "crates/notesmith-tauri/binaries/notesmith-${TARGET_TRIPLE}" \
+   "target/debug/notesmith-${TARGET_TRIPLE}"
+chmod +x "target/debug/notesmith-${TARGET_TRIPLE}"
+echo "✅ Dev sidecar staged at target/debug/notesmith-${TARGET_TRIPLE}"
+
 # 3. Build the SvelteKit frontend
 echo "🌐 Building frontend..."
 (cd ui/app && pnpm install --silent && pnpm build)
