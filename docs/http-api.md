@@ -270,13 +270,19 @@ List all notes in a vault from the SQLite cache.
 ```json
 [
   {
-    "path": "Projects/Migration to v2.md",
-    "title": "Migration to v2",
-    "tags": ["stream", "active"],
+    "path": "Customers/Acme Corp/Acme Corp.md",
+    "title": "Acme Corp",
+    "type": "customer",
+    "customer": "Acme Corp",
+    "stream": null,
+    "state": "Active",
+    "status": null,
+    "date": null,
     "created_at": "2026-01-15",
     "updated_at": "2026-04-01",
-    "mtime_unix": 1717200000,
-    "frontmatter": { "customer": "Acme", "status": "In Progress" }
+    "archived": false,
+    "mtime_unix": 0,
+    "frontmatter": { "..." }
   }
 ]
 ```
@@ -287,7 +293,7 @@ Fetch a single note with full metadata (body, links, tasks, inline fields, block
 
 **Example:**
 ```bash
-curl http://127.0.0.1:27183/api/v/work/notes/Projects/Migration%20to%20v2.md
+curl http://127.0.0.1:27183/api/v/work/notes/Customers/Acme%20Corp/Acme%20Corp.md
 ```
 
 **Response:** `200 OK` — full `Note` object including `frontmatter`, `body`, `tasks`, `links`, `inline_fields`, `blocks`, and `hash`.
@@ -307,10 +313,10 @@ Render a single note body to HTML using the daemon's markdown renderer. YAML fro
 
 **Example:**
 ```bash
-curl http://127.0.0.1:27183/api/v/work/html/Projects/Migration%20to%20v2.md
+curl http://127.0.0.1:27183/api/v/work/html/Customers/Acme%20Corp/Acme%20Corp.md
 
 # Portable HTML for clipboard/email paste
-curl "http://127.0.0.1:27183/api/v/work/html/Projects/Migration%20to%20v2.md?inline_styles=true"
+curl "http://127.0.0.1:27183/api/v/work/html/Customers/Acme%20Corp/Acme%20Corp.md?inline_styles=true"
 ```
 
 **Response:** `200 OK` — HTML markup as `text/html`
@@ -561,10 +567,11 @@ curl "http://127.0.0.1:27183/api/v/work/search?q=Acme+onboarding&limit=5"
 [
   {
     "vault_name": "work",
-    "path": "Projects/Migration to v2.md",
-    "title": "Migration to v2",
+    "path": "Customers/Acme Corp/Acme Corp.md",
+    "title": "Acme Corp",
+    "note_type": "customer",
     "score": 4.231,
-    "snippet": "...working on <b>migration</b> <b>staging</b> environment..."
+    "snippet": "...working on <b>Acme</b> <b>onboarding</b> process..."
   }
 ]
 ```
@@ -582,7 +589,7 @@ Execute read-only SQL against the SQLite cache. Only `SELECT` and `WITH` stateme
 **Request body:**
 ```json
 {
-  "sql": "SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = 'state' JOIN tags t ON t.vault_name = n.vault_name AND t.note_path = n.path AND t.tag = 'customer' ORDER BY n.title",
+  "sql": "SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type' LEFT JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = 'state' WHERE note_type.value = 'customer' ORDER BY n.title",
   "max_rows": 10000,
   "format": "json"
 }
@@ -626,13 +633,13 @@ Execute read-only SQL against the SQLite cache. Only `SELECT` and `WITH` stateme
 ```bash
 curl -s http://127.0.0.1:27183/api/v/work/query/sql \
   -H 'content-type: application/json' \
-  -d '{"sql":"SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = ''state'' JOIN tags t ON t.vault_name = n.vault_name AND t.note_path = n.path AND t.tag = ''customer'' ORDER BY n.title"}'
+  -d '{"sql":"SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = ''type'' LEFT JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = ''state'' WHERE note_type.value = ''customer'' ORDER BY n.title"}'
 ```
 
 ```bash
 curl -s http://127.0.0.1:27183/api/v/work/query/sql \
   -H 'content-type: application/json' \
-  -d '{"sql":"SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = ''state'' JOIN tags t ON t.vault_name = n.vault_name AND t.note_path = n.path AND t.tag = ''customer'' ORDER BY n.title","format":"markdown","max_rows":25}'
+  -d '{"sql":"SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = ''type'' LEFT JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = ''state'' WHERE note_type.value = ''customer'' ORDER BY n.title","format":"markdown","max_rows":25}'
 ```
 
 See [SQL Views Reference](sql-views.md) for available views.

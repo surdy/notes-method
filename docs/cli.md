@@ -209,14 +209,14 @@ Text output renders a formatted table. JSON output returns the full `QueryResult
 **Examples:**
 
 ```bash
-# List notes tagged "customer" with their state field
-notesmith query sql "SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = 'state' JOIN tags t ON t.vault_name = n.vault_name AND t.note_path = n.path AND t.tag = 'customer' WHERE state.value = 'Active'"
+# List active customers
+notesmith query sql "SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type' LEFT JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = 'state' WHERE note_type.value = 'customer' AND state.value = 'Active'"
 
 # Find blocked tasks
-notesmith query sql "SELECT text, note_path FROM v_tasks WHERE status_group = 'open' AND status_char = 'b'" --format json | jq '.'
+notesmith query sql "SELECT text, note_path FROM v_tasks WHERE status = 'blocked'" --format json | jq '.'
 
-# Count notes by tag
-notesmith query sql "SELECT tag, COUNT(*) as count FROM tags GROUP BY tag ORDER BY count DESC"
+# Count notes by type
+notesmith query sql "SELECT type, COUNT(*) as count FROM v_notes GROUP BY type ORDER BY count DESC"
 ```
 
 ---
@@ -470,15 +470,19 @@ notesmith template instantiate external-meeting --prompt customer=Acme --prompt 
 |------|-------------|
 | `--prompt KEY=VALUE` | Supply a prompt value (repeatable) |
 
-**Available templates** depend on your vault's template directory. The golden-vault ships with examples:
+**Available templates:**
 
 | Name | Description |
 |------|-------------|
 | `generic-note` | A generic blank note |
 | `daily-note` | Daily note for today |
-| `external-meeting` | Meeting note (uses `customer` prompt) |
-| `account-info` | Account info page |
-| `stream` | Work stream or initiative |
+| `external-meeting` | External customer meeting note |
+| `internal-meeting` | Internal team meeting about a customer |
+| `account-info` | Account information for a customer |
+| `customer-index` | Top-level customer index note |
+| `glossary` | Glossary of terms for a customer |
+| `milestones` | Dates and milestones for a customer |
+| `stream` | Customer stream or initiative |
 
 **Examples:**
 

@@ -663,7 +663,7 @@ mod tests {
         let response = build_router_with_app_dir(AppState::default(), app_dir)
             .oneshot(
                 Request::builder()
-                    .uri("/app/projects/migration")
+                    .uri("/app/customers/acme")
                     .body(Body::empty())
                     .unwrap(),
             )
