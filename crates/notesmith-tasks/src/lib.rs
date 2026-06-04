@@ -1,6 +1,7 @@
 //! notesmith-tasks: content-hash anchored toggling and generic task insertion.
 
 use regex::Regex;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
@@ -14,11 +15,7 @@ pub enum ToggleError {
 #[derive(Debug, Default, Clone)]
 pub struct AddTaskOptions {
     pub status_char: Option<char>,
-    pub due: Option<String>,
-    pub customer: Option<String>,
-    pub stream: Option<String>,
-    pub owner: Option<String>,
-    pub priority: Option<String>,
+    pub fields: HashMap<String, String>,
 }
 
 pub fn toggle_task(
@@ -80,11 +77,11 @@ pub fn add_task(content: &str, description: &str, opts: &AddTaskOptions) -> Stri
         normalize_status_char(opts.status_char.unwrap_or(' '))
     );
 
-    append_inline_field(&mut task, "customer", opts.customer.as_deref());
-    append_inline_field(&mut task, "stream", opts.stream.as_deref());
-    append_inline_field(&mut task, "owner", opts.owner.as_deref());
-    append_inline_field(&mut task, "due", opts.due.as_deref());
-    append_inline_field(&mut task, "priority", opts.priority.as_deref());
+    let mut keys: Vec<&String> = opts.fields.keys().collect();
+    keys.sort();
+    for key in keys {
+        append_inline_field(&mut task, key, opts.fields.get(key).map(String::as_str));
+    }
     task.push('\n');
 
     let separator = if content.ends_with('\n') || content.is_empty() {
@@ -229,16 +226,18 @@ mod tests {
     #[test]
     fn add_task_writes_generic_inline_fields() {
         let opts = AddTaskOptions {
-            customer: Some("Acme".to_string()),
-            stream: Some("Migration to v2".to_string()),
-            due: Some("2025-03-15".to_string()),
-            priority: Some("high".to_string()),
+            fields: HashMap::from([
+                ("customer".to_string(), "Acme".to_string()),
+                ("stream".to_string(), "Migration to v2".to_string()),
+                ("due".to_string(), "2025-03-15".to_string()),
+                ("priority".to_string(), "high".to_string()),
+            ]),
             ..Default::default()
         };
         let result = add_task("", "Plan migration", &opts);
         assert_eq!(
             result,
-            "- [ ] Plan migration [customer:: Acme] [stream:: Migration to v2] [due:: 2025-03-15] [priority:: high]\n"
+            "- [ ] Plan migration [customer:: Acme] [due:: 2025-03-15] [priority:: high] [stream:: Migration to v2]\n"
         );
     }
 

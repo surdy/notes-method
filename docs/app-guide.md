@@ -136,8 +136,8 @@ Right-clicking a tab opens tab-specific context actions.
 This makes it easy to keep a few working notes open at once, such as:
 
 - today's daily note
-- a customer account note
-- a stream or project note
+- a project or account note
+- a meeting note
 - a dashboard note
 
 ## 5. Note Toolbar
@@ -330,9 +330,9 @@ In Source or Live Preview mode, fenced `sql` blocks execute live queries and ren
 This is useful for notes that act like dashboards, such as:
 
 - a Home note with task summaries
-- a customer list
+- a notes-by-tag list
 - a capture triage page
-- a stream review note
+- a project status review
 
 Queries run against the vault's SQLite cache and can use public views such as:
 
@@ -347,10 +347,11 @@ Example:
 
 ````markdown
 ```sql
-SELECT title, state
+SELECT n.title, state.value AS state
 FROM v_notes n
-JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type'
-ORDER BY title;
+JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = 'state'
+JOIN tags t ON t.vault_name = n.vault_name AND t.note_path = n.path AND t.tag = 'stream'
+ORDER BY n.title;
 ```
 ````
 

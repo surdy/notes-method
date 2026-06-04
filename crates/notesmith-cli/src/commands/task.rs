@@ -15,9 +15,9 @@ pub enum TaskCommand {
         /// Filter by status (todo, in_progress, blocked, waiting, on_hold, done, cancelled)
         #[arg(long)]
         status: Option<String>,
-        /// Filter by customer name
+        /// Filter by field value (format: key=value)
         #[arg(long)]
-        customer: Option<String>,
+        field: Option<String>,
         /// Filter to tasks due before this date (YYYY-MM-DD)
         #[arg(long)]
         due_before: Option<String>,
@@ -31,18 +31,12 @@ pub enum TaskCommand {
         note_path: String,
         /// Task description
         description: String,
-        /// Associate with customer
+        /// Status character (default: space for todo)
         #[arg(long)]
-        customer: Option<String>,
-        /// Associate with stream
-        #[arg(long)]
-        stream: Option<String>,
-        /// Due date (YYYY-MM-DD)
-        #[arg(long)]
-        due: Option<String>,
-        /// Priority (highest, high, medium, low, lowest)
-        #[arg(long)]
-        priority: Option<String>,
+        status_char: Option<String>,
+        /// Inline field (repeatable, format: key=value)
+        #[arg(long = "field", short = 'f')]
+        fields: Vec<String>,
     },
     /// Toggle a task to a new status using its content hash
     Toggle {
@@ -76,7 +70,7 @@ impl TaskCommand {
         match self {
             TaskCommand::List {
                 status,
-                customer,
+                field,
                 due_before,
                 limit,
             } => {
@@ -85,7 +79,7 @@ impl TaskCommand {
                     explicit_vault,
                     cwd,
                     status.as_deref(),
-                    customer.as_deref(),
+                    field.as_deref(),
                     due_before.as_deref(),
                     *limit,
                     format,
@@ -95,10 +89,8 @@ impl TaskCommand {
             TaskCommand::Add {
                 note_path,
                 description,
-                customer,
-                stream,
-                due,
-                priority,
+                status_char,
+                fields,
             } => {
                 cmd_add(
                     global_config,
@@ -106,10 +98,8 @@ impl TaskCommand {
                     cwd,
                     note_path,
                     description,
-                    customer.as_deref(),
-                    stream.as_deref(),
-                    due.as_deref(),
-                    priority.as_deref(),
+                    status_char.as_deref(),
+                    fields,
                     format,
                 )
                 .await
@@ -145,7 +135,7 @@ async fn cmd_list(
     explicit_vault: Option<&str>,
     cwd: &Path,
     status: Option<&str>,
-    customer: Option<&str>,
+    field: Option<&str>,
     due_before: Option<&str>,
     limit: usize,
     format: OutputFormat,
@@ -158,8 +148,8 @@ async fn cmd_list(
         if let Some(s) = status {
             pairs.append_pair("status", s);
         }
-        if let Some(c) = customer {
-            pairs.append_pair("customer", c);
+        if let Some(f) = field {
+            pairs.append_pair("field", f);
         }
         if let Some(d) = due_before {
             pairs.append_pair("due_before", d);
@@ -191,7 +181,7 @@ async fn cmd_list(
                     let status = task["status"].as_str().unwrap_or("?");
                     let text = task["text"].as_str().unwrap_or("?");
                     let note_path = task["note_path"].as_str().unwrap_or("?");
-                    let due = task["due"].as_str().unwrap_or("");
+                    let due = task["fields"]["due"].as_str().unwrap_or("");
                     let marker = status_to_marker(status);
                     if due.is_empty() {
                         println!("[{marker}] {text}  ({note_path})");
@@ -212,30 +202,33 @@ async fn cmd_add(
     cwd: &Path,
     note_path: &str,
     description: &str,
-    customer: Option<&str>,
-    stream: Option<&str>,
-    due: Option<&str>,
-    priority: Option<&str>,
+    status_char: Option<&str>,
+    fields: &[String],
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     let detected = detect_vault(cwd, explicit_vault, global_config)?;
     let url = build_vault_url(global_config, &detected.name, "tasks")?;
 
+    let mut field_map = serde_json::Map::new();
+    for field in fields {
+        let (key, value) = field.split_once('=').ok_or_else(|| {
+            anyhow::anyhow!("invalid field format '{}', expected key=value", field)
+        })?;
+        field_map.insert(
+            key.to_string(),
+            serde_json::Value::String(value.to_string()),
+        );
+    }
+
     let mut body = serde_json::json!({
         "note_path": note_path,
         "description": description,
     });
-    if let Some(c) = customer {
-        body["customer"] = c.into();
+    if let Some(sc) = status_char {
+        body["status_char"] = sc.into();
     }
-    if let Some(s) = stream {
-        body["stream"] = s.into();
-    }
-    if let Some(d) = due {
-        body["due"] = d.into();
-    }
-    if let Some(p) = priority {
-        body["priority"] = p.into();
+    if !field_map.is_empty() {
+        body["fields"] = serde_json::Value::Object(field_map);
     }
 
     let response = reqwest::Client::new()

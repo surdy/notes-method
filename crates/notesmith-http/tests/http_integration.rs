@@ -1552,7 +1552,11 @@ async fn create_task_appends_to_note() {
         .json(&serde_json::json!({
             "note_path": "Inbox/My Note.md",
             "description": "Write tests for task engine",
-            "customer": "Acme",
+            "status_char": "/",
+            "fields": {
+                "customer": "Acme",
+                "priority": "high",
+            },
         }))
         .send()
         .await
@@ -1563,7 +1567,32 @@ async fn create_task_appends_to_note() {
     assert_eq!(body["path"], serde_json::json!("Inbox/My Note.md"));
 
     let written = fs::read_to_string(server.root.join("Inbox/My Note.md")).unwrap();
-    assert!(written.contains("- [ ] Write tests for task engine [customer:: Acme]"));
+    assert!(
+        written.contains("- [/] Write tests for task engine [customer:: Acme] [priority:: high]")
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn list_tasks_filters_by_field_and_returns_generic_fields() {
+    let server = TestServer::with_files(&[(
+        "Inbox/Tasks.md",
+        "# Tasks\n\n- [ ] Follow up [customer:: Acme] [stream:: Migration]\n- [ ] Review roadmap [customer:: Globex]\n",
+    )])
+    .await;
+
+    let response = reqwest::get(server.url("/api/v/test-vault/tasks?field=customer%3DAcme"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.json::<Vec<serde_json::Value>>().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["text"], serde_json::json!("Follow up"));
+    assert_eq!(body[0]["fields"]["customer"], serde_json::json!("Acme"));
+    assert_eq!(body[0]["fields"]["stream"], serde_json::json!("Migration"));
 
     server.server.abort();
 }

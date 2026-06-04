@@ -209,14 +209,14 @@ Text output renders a formatted table. JSON output returns the full `QueryResult
 **Examples:**
 
 ```bash
-# List active customers
-notesmith query sql "SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type' LEFT JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = 'state' WHERE note_type.value = 'customer' AND state.value = 'Active'"
+# List notes tagged "customer" with their state field
+notesmith query sql "SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = 'state' JOIN tags t ON t.vault_name = n.vault_name AND t.note_path = n.path AND t.tag = 'customer' WHERE state.value = 'Active'"
 
 # Find blocked tasks
-notesmith query sql "SELECT text, note_path FROM v_tasks WHERE status = 'blocked'" --format json | jq '.'
+notesmith query sql "SELECT text, note_path FROM v_tasks WHERE status_group = 'open' AND status_char = 'b'" --format json | jq '.'
 
-# Count notes by type
-notesmith query sql "SELECT type, COUNT(*) as count FROM v_notes GROUP BY type ORDER BY count DESC"
+# Count notes by tag
+notesmith query sql "SELECT tag, COUNT(*) as count FROM tags GROUP BY tag ORDER BY count DESC"
 ```
 
 ---
@@ -338,13 +338,13 @@ Task commands go through the daemon and auto-start it when needed.
 List tasks from the vault with optional filters.
 
 ```bash
-notesmith task list [--status <status>] [--customer <name>] [--due-before <YYYY-MM-DD>] [--limit N]
+notesmith task list [--status <status>] [--field key=value] [--due-before <YYYY-MM-DD>] [--limit N]
 ```
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--status` | Filter by status (`todo`, `in_progress`, `blocked`, `waiting`, `on_hold`, `done`, `cancelled`) | all |
-| `--customer` | Filter by customer name | all |
+| `--field key=value` | Filter by an inline field value | none |
 | `--due-before` | Only tasks due before this date | none |
 | `--limit N` | Maximum results | 200 |
 
@@ -354,32 +354,31 @@ Text output shows `[marker] text  📅 due  (note_path)` for each task.
 
 ```bash
 notesmith task list
-notesmith task list --status todo --customer Acme
+notesmith task list --status todo --field customer=Acme
 notesmith task list --due-before 2025-02-01 --format json | jq '.[].text'
 ```
 
 ### `task add`
 
-Add a new To Do task to an existing note.
+Add a new To Do task to an existing note. Inline fields are written as `[key:: value]` on the task line.
 
 ```bash
-notesmith task add <note_path> <description> [--customer <name>] [--stream <name>] [--due <YYYY-MM-DD>] [--priority <level>]
+notesmith task add <note_path> <description> [--field key=value ...] [--status-char <char>]
 ```
 
 | Arg/Flag | Description |
 |----------|-------------|
 | `note_path` | Vault-relative path to the note |
 | `description` | Task text |
-| `--customer <name>` | Inline field `[customer:: name]` |
-| `--stream <name>` | Inline field `[stream:: name]` |
-| `--due <YYYY-MM-DD>` | Inline field `[due:: YYYY-MM-DD]` |
-| `--priority <level>` | `highest`, `high`, `medium`, `low`, or `lowest` |
+| `-f`, `--field key=value` | Inline field (repeatable) |
+| `--status-char` | Checkbox character (default: space = todo) |
 
 **Examples:**
 
 ```bash
-notesmith task add "Customers/Acme/Acme Corp.md" "Follow up on SLA requirements" --customer Acme --due 2025-02-01
-notesmith task add Daily/2025-01-15.md "Review pull requests" --priority high
+notesmith task add "Projects/migration.md" "Follow up on SLA requirements" -f customer=Acme -f due=2025-02-01
+notesmith task add Daily/2025-01-15.md "Review pull requests" -f priority=high
+notesmith task add Inbox/tasks.md "Send quarterly report" -f owner=me -f stream="Q2 Review"
 ```
 
 ### `task toggle`
@@ -471,19 +470,15 @@ notesmith template instantiate external-meeting --prompt customer=Acme --prompt 
 |------|-------------|
 | `--prompt KEY=VALUE` | Supply a prompt value (repeatable) |
 
-**Available templates:**
+**Available templates** depend on your vault's template directory. The golden-vault ships with examples:
 
 | Name | Description |
 |------|-------------|
 | `generic-note` | A generic blank note |
 | `daily-note` | Daily note for today |
-| `external-meeting` | External customer meeting note |
-| `internal-meeting` | Internal team meeting about a customer |
-| `account-info` | Account information for a customer |
-| `customer-index` | Top-level customer index note |
-| `glossary` | Glossary of terms for a customer |
-| `milestones` | Dates and milestones for a customer |
-| `stream` | Customer stream or initiative |
+| `external-meeting` | Meeting note (uses `customer` prompt) |
+| `account-info` | Account info page |
+| `stream` | Work stream or initiative |
 
 **Examples:**
 

@@ -270,19 +270,13 @@ List all notes in a vault from the SQLite cache.
 ```json
 [
   {
-    "path": "Customers/Acme Corp/Acme Corp.md",
-    "title": "Acme Corp",
-    "type": "customer",
-    "customer": "Acme Corp",
-    "stream": null,
-    "state": "Active",
-    "status": null,
-    "date": null,
+    "path": "Projects/Migration to v2.md",
+    "title": "Migration to v2",
+    "tags": ["stream", "active"],
     "created_at": "2026-01-15",
     "updated_at": "2026-04-01",
-    "archived": false,
-    "mtime_unix": 0,
-    "frontmatter": { "..." }
+    "mtime_unix": 1717200000,
+    "frontmatter": { "customer": "Acme", "status": "In Progress" }
   }
 ]
 ```
@@ -293,7 +287,7 @@ Fetch a single note with full metadata (body, links, tasks, inline fields, block
 
 **Example:**
 ```bash
-curl http://127.0.0.1:27183/api/v/work/notes/Customers/Acme%20Corp/Acme%20Corp.md
+curl http://127.0.0.1:27183/api/v/work/notes/Projects/Migration%20to%20v2.md
 ```
 
 **Response:** `200 OK` — full `Note` object including `frontmatter`, `body`, `tasks`, `links`, `inline_fields`, `blocks`, and `hash`.
@@ -313,10 +307,10 @@ Render a single note body to HTML using the daemon's markdown renderer. YAML fro
 
 **Example:**
 ```bash
-curl http://127.0.0.1:27183/api/v/work/html/Customers/Acme%20Corp/Acme%20Corp.md
+curl http://127.0.0.1:27183/api/v/work/html/Projects/Migration%20to%20v2.md
 
 # Portable HTML for clipboard/email paste
-curl "http://127.0.0.1:27183/api/v/work/html/Customers/Acme%20Corp/Acme%20Corp.md?inline_styles=true"
+curl "http://127.0.0.1:27183/api/v/work/html/Projects/Migration%20to%20v2.md?inline_styles=true"
 ```
 
 **Response:** `200 OK` — HTML markup as `text/html`
@@ -567,11 +561,10 @@ curl "http://127.0.0.1:27183/api/v/work/search?q=Acme+onboarding&limit=5"
 [
   {
     "vault_name": "work",
-    "path": "Customers/Acme Corp/Acme Corp.md",
-    "title": "Acme Corp",
-    "note_type": "customer",
+    "path": "Projects/Migration to v2.md",
+    "title": "Migration to v2",
     "score": 4.231,
-    "snippet": "...working on <b>Acme</b> <b>onboarding</b> process..."
+    "snippet": "...working on <b>migration</b> <b>staging</b> environment..."
   }
 ]
 ```
@@ -589,7 +582,7 @@ Execute read-only SQL against the SQLite cache. Only `SELECT` and `WITH` stateme
 **Request body:**
 ```json
 {
-  "sql": "SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type' LEFT JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = 'state' WHERE note_type.value = 'customer' ORDER BY n.title",
+  "sql": "SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = 'state' JOIN tags t ON t.vault_name = n.vault_name AND t.note_path = n.path AND t.tag = 'customer' ORDER BY n.title",
   "max_rows": 10000,
   "format": "json"
 }
@@ -633,13 +626,13 @@ Execute read-only SQL against the SQLite cache. Only `SELECT` and `WITH` stateme
 ```bash
 curl -s http://127.0.0.1:27183/api/v/work/query/sql \
   -H 'content-type: application/json' \
-  -d '{"sql":"SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = ''type'' LEFT JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = ''state'' WHERE note_type.value = ''customer'' ORDER BY n.title"}'
+  -d '{"sql":"SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = ''state'' JOIN tags t ON t.vault_name = n.vault_name AND t.note_path = n.path AND t.tag = ''customer'' ORDER BY n.title"}'
 ```
 
 ```bash
 curl -s http://127.0.0.1:27183/api/v/work/query/sql \
   -H 'content-type: application/json' \
-  -d '{"sql":"SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = ''type'' LEFT JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = ''state'' WHERE note_type.value = ''customer'' ORDER BY n.title","format":"markdown","max_rows":25}'
+  -d '{"sql":"SELECT n.title, state.value AS state FROM v_notes n JOIN v_fields state ON state.vault_name = n.vault_name AND state.note_path = n.path AND state.key = ''state'' JOIN tags t ON t.vault_name = n.vault_name AND t.note_path = n.path AND t.tag = ''customer'' ORDER BY n.title","format":"markdown","max_rows":25}'
 ```
 
 See [SQL Views Reference](sql-views.md) for available views.
@@ -742,7 +735,7 @@ List tasks from the vault with optional filters.
 | Parameter | Description |
 |-----------|-------------|
 | `status` | Filter by status (`todo`, `in_progress`, `blocked`, `waiting`, `on_hold`, `done`, `cancelled`) |
-| `customer` | Filter by customer name |
+| `field` | Filter by inline field value (format: `key=value`) |
 | `due_before` | Filter to tasks due before this date (`YYYY-MM-DD`) |
 | `limit` | Maximum results (default: 200) |
 
@@ -751,48 +744,50 @@ List tasks from the vault with optional filters.
 [
   {
     "task_hash": "abc123...",
-    "note_path": "Customers/Acme/Streams/Migration to v2.md",
+    "note_path": "Projects/Migration to v2.md",
     "line_number": 12,
     "status": "in_progress",
     "status_char": "/",
     "status_group": "open",
     "text": "Testing in staging",
     "note_title": "Migration to v2",
-    "customer": null,
-    "stream": null,
-    "owner": null,
-    "due": null,
-    "priority": null
+    "fields": {
+      "customer": "Acme",
+      "due": "2025-03-15",
+      "priority": "high"
+    }
   }
 ]
 ```
 
 **Example:**
 ```bash
-curl "http://127.0.0.1:27183/api/v/work/tasks?status=todo&customer=Acme"
+curl "http://127.0.0.1:27183/api/v/work/tasks?status=todo&field=customer%3DAcme"
 ```
 
 ### `POST /api/v/{vault}/tasks`
 
-Add a new To Do task to an existing note.
+Add a new To Do task to an existing note. All inline fields are arbitrary key-value pairs written as `[key:: value]` on the task line.
 
 **Request body:**
 ```json
 {
-  "note_path": "Customers/Acme/Acme Corp.md",
+  "note_path": "Projects/Migration to v2.md",
   "description": "Follow up on SLA requirements",
-  "customer": "Acme",
-  "stream": "Migration to v2",
-  "due": "2025-02-01",
-  "priority": "high"
+  "status_char": " ",
+  "fields": {
+    "customer": "Acme",
+    "due": "2025-02-01",
+    "priority": "high"
+  }
 }
 ```
 
-Only `note_path` and `description` are required. Inline fields (`customer`, `stream`, `owner`, `due`, `priority`) are written as `[key:: value]` on the task line.
+Only `note_path` and `description` are required. `fields` is an optional object of key-value pairs. `status_char` defaults to space (todo).
 
 **Response:** `201 Created`
 ```json
-{ "path": "Customers/Acme/Acme Corp.md", "hash": "2d7d0d..." }
+{ "path": "Projects/Migration to v2.md", "hash": "2d7d0d..." }
 ```
 
 ### `POST /api/v/{vault}/tasks/toggle`
@@ -802,7 +797,7 @@ Toggle a task to a new status using its content hash (blake3 of the raw task lin
 **Request body:**
 ```json
 {
-  "note_path": "Customers/Acme/Streams/Migration to v2.md",
+  "note_path": "Projects/Migration to v2.md",
   "task_hash": "abc123...",
   "status": "done"
 }
@@ -812,7 +807,7 @@ Toggle a task to a new status using its content hash (blake3 of the raw task lin
 
 **Response:** `200 OK`
 ```json
-{ "path": "Customers/Acme/Streams/Migration to v2.md", "hash": "ef456..." }
+{ "path": "Projects/Migration to v2.md", "hash": "ef456..." }
 ```
 
 **Errors:**
