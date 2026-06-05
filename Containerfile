@@ -20,7 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     rm -rf /var/lib/apt/lists/*
 
 # Run as a non-root user
-RUN useradd --uid 1000 --gid 1000 --create-home notesmith
+RUN groupadd --gid 1000 notesmith && \
+    useradd --uid 1000 --gid 1000 --create-home notesmith
 USER notesmith
 
 COPY --from=builder \
