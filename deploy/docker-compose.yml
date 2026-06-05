@@ -1,0 +1,49 @@
+# Notesmith daemon — Docker Compose
+# ─────────────────────────────────
+# Copy this file and deploy/config.toml.example to your server.
+# Edit the paths and vault config, then: docker compose up -d
+
+services:
+  notesmith:
+    image: notesmith:latest          # or ghcr.io/surdy/notesmith:latest
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: notesmith-daemon
+    restart: unless-stopped
+
+    ports:
+      # Bind only to the Tailscale interface IP (replace with your tailscale0 IP)
+      # To find it: ip addr show tailscale0 | grep 'inet '
+      - "100.x.x.x:27183:27183"     # <-- replace 100.x.x.x with your Tailscale IP
+
+    volumes:
+      # Vault markdown files — replace with your actual notes path on the host
+      - /home/user/notes:/vaults/notes:rw
+
+      # Notesmith global config (contains vault registry + daemon settings)
+      - ./config:/config:rw
+
+      # Daemon state: SQLite caches, Tantivy indexes, lockfile
+      - notesmith-data:/data:rw
+
+      # Daemon logs
+      - notesmith-logs:/logs:rw
+
+    environment:
+      RUST_LOG: info
+
+    # Read-only filesystem except for the mounted volumes
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+
+    healthcheck:
+      test: ["/usr/local/bin/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  notesmith-data:
+  notesmith-logs:

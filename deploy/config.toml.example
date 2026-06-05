@@ -1,0 +1,23 @@
+# Notesmith global config — copy to your server's ./config/notesmith/config.toml
+# This file is read from $XDG_CONFIG_HOME/notesmith/config.toml
+# Inside the container that is /config/notesmith/config.toml
+
+[daemon]
+# Bind inside the container — Docker maps this to the Tailscale IP on the host
+bind = "0.0.0.0:27183"
+auto_start = false   # daemon is managed by the container, not self-started by CLI
+
+# Register each vault.  The path must match the container-side mount point
+# from the volumes section of docker-compose.yml / the quadlet unit.
+[vaults.notes]
+path = "/vaults/notes"
+
+# Add more vaults as needed:
+# [vaults.work]
+# path = "/vaults/work"
+
+# [vaults.personal]
+# path = "/vaults/personal"
+
+# Set a default vault (used by CLI when --vault is not specified)
+default_vault = "notes"

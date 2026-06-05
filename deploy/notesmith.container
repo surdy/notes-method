@@ -1,0 +1,67 @@
+# Notesmith daemon — Podman Quadlet unit
+# ────────────────────────────────────────
+# Place this file at one of:
+#   System-wide:  /etc/containers/systemd/notesmith.container
+#   Per-user:     ~/.config/containers/systemd/notesmith.container
+#
+# After placing it, reload and start:
+#   systemctl --user daemon-reload   (per-user install)
+#   systemctl --user start notesmith
+#
+# Or for system-wide:
+#   systemctl daemon-reload
+#   systemctl start notesmith
+
+[Unit]
+Description=Notesmith HTTP daemon
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=notesmith:latest
+ContainerName=notesmith-daemon
+
+# ── Ports ───────────────────────────────────────────────────────────────────
+# Bind to Tailscale interface only. Replace 100.x.x.x with your tailscale IP.
+# Find it with: ip addr show tailscale0 | grep 'inet '
+PublishPort=100.x.x.x:27183:27183
+
+# ── Volumes ─────────────────────────────────────────────────────────────────
+# Vault markdown files (host path : container path)
+Volume=/home/user/notes:/vaults/notes:rw,z
+
+# Global config directory — must contain notesmith/config.toml
+# Copy deploy/config.toml.example → /etc/notesmith/notesmith/config.toml
+# then adjust the vault paths.
+Volume=/etc/notesmith:/config:ro,z
+
+# Persistent data (SQLite caches, Tantivy indexes, lockfile)
+Volume=notesmith-data:/data:rw,z
+
+# Daemon logs
+Volume=notesmith-logs:/logs:rw,z
+
+# ── Environment ─────────────────────────────────────────────────────────────
+Environment=RUST_LOG=info
+
+# ── Security ────────────────────────────────────────────────────────────────
+# Run as uid/gid 1000 (matches the 'notesmith' user created in the image).
+# Adjust if your notes directory is owned by a different user.
+User=1000
+Group=1000
+
+ReadOnly=true
+Tmpfs=/tmp:size=64m
+
+# ── Health check ─────────────────────────────────────────────────────────────
+HealthCmd=/usr/local/bin/healthcheck.sh
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+
+[Service]
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=default.target
