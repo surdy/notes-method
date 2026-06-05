@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # ── Stage 1: build ──────────────────────────────────────────────────────────
-FROM rust:stable-bookworm AS builder
+FROM rust:1-bookworm AS builder
 
 # Install cross-compilation target for linux/amd64 (no-op when already on amd64)
 RUN rustup target add x86_64-unknown-linux-gnu
