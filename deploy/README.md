@@ -23,9 +23,34 @@ CLI, MCP server, and desktop app.
 
 ---
 
+## Image tags
+
+| Tag | Meaning |
+|-----|---------|
+| `latest` | Most recent build from `main` |
+| `edge` | Same as `latest`; signals active development |
+| `sha-<7chars>` | Immutable — pinned to a specific git commit |
+| `YYYY.MM.DD` | Date the image was built |
+
+Use `sha-*` tags in production (Compose file, Quadlet unit) so an accidental
+`latest` pull never surprises you mid-week.  Update deliberately by picking
+the new SHA from the [packages page](https://github.com/surdy/notes-method/pkgs/container/notesmith).
+
+---
+
 ## 1. Build the image
 
-From the **repository root**:
+The image is automatically built and pushed to GHCR by CI on every push to
+`main`. You can pull it directly on your server:
+
+```bash
+docker pull ghcr.io/surdy/notesmith:latest
+
+# Or pin to a specific immutable SHA tag (recommended for production):
+docker pull ghcr.io/surdy/notesmith:sha-a1b2c3d
+```
+
+To build locally from source instead:
 
 ```bash
 # Docker
@@ -37,8 +62,6 @@ podman build -f Containerfile -t notesmith:latest .
 
 > The Containerfile cross-compiles to `linux/amd64` regardless of the build
 > machine architecture (works from Apple Silicon Mac too).
-
-To build directly on the server, copy the repo and run the same command there.
 
 ---
 

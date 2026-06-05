@@ -18,7 +18,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Container]
-Image=notesmith:latest
+Image=ghcr.io/surdy/notesmith:latest
+# Pin to a SHA tag for production stability, e.g.:
+# Image=ghcr.io/surdy/notesmith:sha-a1b2c3d
 ContainerName=notesmith-daemon
 
 # ── Ports ───────────────────────────────────────────────────────────────────

@@ -5,7 +5,9 @@
 
 services:
   notesmith:
-    image: notesmith:latest          # or ghcr.io/surdy/notesmith:latest
+    image: ghcr.io/surdy/notesmith:latest
+    # Pin to an immutable SHA tag for production stability, e.g.:
+    # image: ghcr.io/surdy/notesmith:sha-a1b2c3d
     build:
       context: .
       dockerfile: Containerfile
