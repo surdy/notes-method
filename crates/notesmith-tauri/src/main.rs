@@ -2407,7 +2407,7 @@ async fn close_vault_window(app: tauri::AppHandle, vault: String) -> Result<(), 
 /// the (synchronous) `pick_folder()` there, then return the result through a
 /// oneshot channel.
 #[tauri::command]
-async fn pick_vault_folder<R: Runtime>(app: AppHandle<R>) -> Result<Option<String>, String> {
+async fn pick_vault_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let (tx, rx) = tokio::sync::oneshot::channel::<Option<std::path::PathBuf>>();
     app.run_on_main_thread(move || {
         let picked = rfd::FileDialog::new()
