@@ -3,6 +3,9 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": ["main", "startup-splash", "startup-fallback"],
+  "remote": {
+    "urls": ["http://127.0.0.1:27183/*", "http://localhost:27183/*"]
+  },
   "permissions": [
     "core:default",
     "shell:allow-open",

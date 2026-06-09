@@ -3,6 +3,9 @@
   "identifier": "vault-windows",
   "description": "Capability granted to every per-vault window (main:*).",
   "windows": ["main:*"],
+  "remote": {
+    "urls": ["http://127.0.0.1:27183/*", "http://localhost:27183/*"]
+  },
   "permissions": [
     "core:default",
     "shell:allow-open",
