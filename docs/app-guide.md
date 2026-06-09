@@ -14,6 +14,8 @@ Notesmith uses a three-pane layout:
 
 The desktop app connects to the live Notesmith daemon discovered from the Notesmith lockfile. By default that is `http://127.0.0.1:27183`, but the desktop shell follows the daemon's active port when it changes. If `NOTESMITH_DESKTOP_DAEMON_URL` is set, the shell uses that daemon for API/SSE traffic and serves its own embedded UI locally.
 
+When connected to a remote daemon, vault management actions apply to the remote server. The Settings → Vaults add form and the Add Remote Vault dialog expect paths as seen by the server/container, not local paths on the desktop machine; local folder browsing is only shown for local desktop daemon launches.
+
 In practice, that means:
 
 - the daemon provides notes, search, SQL results, and rendered HTML

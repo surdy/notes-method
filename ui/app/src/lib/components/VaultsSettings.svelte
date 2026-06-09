@@ -10,9 +10,10 @@
 		type VaultInfo,
 		type Capabilities
 	} from '$lib/api';
+	import { API_BASE } from '$lib/api/core';
 	import { toastStore } from '$lib/toast-store.svelte';
 	import { onMount, onDestroy } from 'svelte';
-	import { resolveTauri } from '$lib/open-folder-as-vault';
+	import { resolveTauri, vaultRegistrationMode } from '$lib/open-folder-as-vault';
 
 	interface Props {
 		capabilities: Capabilities | null;
@@ -54,6 +55,7 @@
 	// before unregistering the vault.
 	let openVaults = $state<string[]>([]);
 	const tauriBridge = resolveTauri();
+	const isRemoteDaemon = vaultRegistrationMode(API_BASE) === 'remote';
 	let openVaultsPollHandle: ReturnType<typeof setInterval> | null = null;
 
 	async function refreshOpenVaults() {
@@ -383,22 +385,35 @@
 			</label>
 			<label class="field">
 				<span class="field-label">
-					{addCreateSubfolder ? 'Parent folder' : 'Vault folder'}
+					{#if isRemoteDaemon}
+						{addCreateSubfolder ? 'Server parent folder' : 'Server vault folder'}
+					{:else}
+						{addCreateSubfolder ? 'Parent folder' : 'Vault folder'}
+					{/if}
 				</span>
 				<div class="path-row">
 					<input
 						type="text"
 						bind:value={addParentPath}
 						placeholder={addCreateSubfolder
-							? '/path/to/parent'
-							: '/path/to/existing/vault'}
+							? isRemoteDaemon
+								? '/vaults'
+								: '/path/to/parent'
+							: isRemoteDaemon
+								? '/vaults/existing'
+								: '/path/to/existing/vault'}
 					/>
-					{#if tauriBridge}
+					{#if tauriBridge && !isRemoteDaemon}
 						<button type="button" class="btn-small" onclick={() => void browseFolder()}>
 							Browse…
 						</button>
 					{/if}
 				</div>
+				{#if isRemoteDaemon}
+					<small class="hint">
+						This path is resolved on the remote Notesmith server, not on this Mac.
+					</small>
+				{/if}
 			</label>
 			<label class="checkbox-row">
 				<input type="checkbox" bind:checked={addCreateSubfolder} />

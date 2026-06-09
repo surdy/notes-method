@@ -186,6 +186,8 @@ Tauri is a **thin shell pointing at localhost**. It is responsible for:
 The Tauri shell does **not** own business logic, query execution, or note state.
 When `NOTESMITH_DESKTOP_DAEMON_URL` points the desktop shell at a remote/container daemon, the shell loads bundled SvelteKit assets from the `notesmith-app://localhost/app/` custom protocol and passes `apiBase=<daemon>` to the frontend. API calls and SSE streams target that daemon, so the desktop app works with both container flavors; only browser access requires the `app` flavor's daemon-served `/app/`.
 
+In remote-daemon mode, vault creation and registration are daemon-side operations. The UI sends vault management requests to the configured API base and asks for server/container paths instead of opening a local folder picker, so a desktop client cannot accidentally register a Mac path on a homelab daemon.
+
 ### 3.4 Authentication model
 
 | Context | Model |

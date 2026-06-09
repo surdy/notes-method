@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateVaultName, defaultNameFromPath } from './open-folder-as-vault';
+import { validateVaultName, defaultNameFromPath, vaultRegistrationMode } from './open-folder-as-vault';
 
 describe('validateVaultName', () => {
   it('accepts a clean unique name', () => {
@@ -61,5 +61,15 @@ describe('defaultNameFromPath', () => {
 
   it('returns empty when path is just separators', () => {
     expect(defaultNameFromPath('///')).toBe('');
+  });
+});
+
+describe('vaultRegistrationMode', () => {
+  it('uses local registration when no API base is configured', () => {
+    expect(vaultRegistrationMode('')).toBe('local');
+  });
+
+  it('uses remote registration when an API base is configured', () => {
+    expect(vaultRegistrationMode('https://notesmith.clusterfault.com')).toBe('remote');
   });
 });

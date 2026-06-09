@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { listVaults } from '$lib/api';
+	import { addVault, listVaults } from '$lib/api';
+	import { API_BASE } from '$lib/api/core';
 	import {
 		defaultNameFromPath,
 		resolveTauri,
 		validateVaultName,
+		vaultRegistrationMode,
 		type TauriBridge
 	} from '$lib/open-folder-as-vault';
 
@@ -22,21 +24,29 @@
 	let existing = $state<string[]>([]);
 	let error = $state<string | null>(null);
 	let nameInput = $state<HTMLInputElement | undefined>(undefined);
+	let pathInput = $state<HTMLInputElement | undefined>(undefined);
+	const isRemoteDaemon = vaultRegistrationMode(API_BASE) === 'remote';
 
 	onMount(() => {
 		void start();
 	});
 
 	async function start() {
-		if (!bridge) {
-			error = 'The folder picker is only available inside the Notesmith desktop app.';
-			phase = 'naming';
-			return;
-		}
 		try {
 			existing = (await listVaults()).map((v) => v.name);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load existing vaults';
+		}
+		if (isRemoteDaemon) {
+			phase = 'naming';
+			await tick();
+			pathInput?.focus();
+			return;
+		}
+		if (!bridge) {
+			error = 'The folder picker is only available inside the Notesmith desktop app.';
+			phase = 'naming';
+			return;
 		}
 		try {
 			const picked = (await bridge.invoke('pick_vault_folder')) as string | null;
@@ -62,21 +72,27 @@
 			error = result.error.message;
 			return;
 		}
-		if (!bridge) {
-			error = 'Cannot register vaults outside the Notesmith desktop app.';
-			return;
-		}
 		if (!path) {
-			error = 'No folder selected.';
+			error = isRemoteDaemon ? 'Enter a server folder path.' : 'No folder selected.';
 			return;
 		}
 		phase = 'submitting';
 		error = null;
 		try {
-			await bridge.invoke('open_folder_as_vault', {
-				path,
-				displayName: result.value
-			});
+			if (isRemoteDaemon) {
+				await addVault(result.value, path, { create: false });
+				await bridge?.invoke('open_vault_window', { vault: result.value });
+			} else {
+				if (!bridge) {
+					error = 'Cannot register vaults outside the Notesmith desktop app.';
+					phase = 'naming';
+					return;
+				}
+				await bridge.invoke('open_folder_as_vault', {
+					path,
+					displayName: result.value
+				});
+			}
 			onClose();
 		} catch (e) {
 			error = typeof e === 'string' ? e : e instanceof Error ? e.message : 'Failed to register vault';
@@ -95,6 +111,13 @@
 			void confirm();
 		}
 	}
+
+	function handlePathInput(event: Event) {
+		path = (event.currentTarget as HTMLInputElement).value;
+		if (isRemoteDaemon && !name.trim()) {
+			name = defaultNameFromPath(path);
+		}
+	}
 </script>
 
 <div
@@ -107,14 +130,34 @@
 	onkeydown={handleKeydown}
 >
 	<div class="modal-sheet">
-		<h2 id="open-folder-title" class="modal-title">Open Folder as Vault</h2>
+		<h2 id="open-folder-title" class="modal-title">
+			{isRemoteDaemon ? 'Add Remote Vault' : 'Open Folder as Vault'}
+		</h2>
 
 		{#if phase === 'picking'}
 			<p class="modal-body">Choose a folder to register as a new vault…</p>
 		{:else}
-			<p class="modal-body">
-				Folder: <code class="folder-path" title={path}>{path || '(none)'}</code>
-			</p>
+			{#if isRemoteDaemon}
+				<p class="modal-body">
+					Enter the folder path as seen by the remote Notesmith server.
+				</p>
+				<label class="field">
+					<span class="field-label">Server vault folder</span>
+					<input
+						bind:this={pathInput}
+						value={path}
+						type="text"
+						class="name-input"
+						placeholder="/vaults/notes"
+						disabled={phase === 'submitting'}
+						oninput={handlePathInput}
+					/>
+				</label>
+			{:else}
+				<p class="modal-body">
+					Folder: <code class="folder-path" title={path}>{path || '(none)'}</code>
+				</p>
+			{/if}
 			<label class="field">
 				<span class="field-label">Vault name</span>
 				<input
@@ -139,7 +182,7 @@
 					disabled={phase === 'submitting' || !path}
 					onclick={() => void confirm()}
 				>
-					{phase === 'submitting' ? 'Opening…' : 'Open Vault'}
+					{phase === 'submitting' ? 'Adding…' : isRemoteDaemon ? 'Add Vault' : 'Open Vault'}
 				</button>
 			</div>
 		{/if}

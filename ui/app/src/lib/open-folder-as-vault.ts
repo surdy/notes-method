@@ -60,6 +60,12 @@ export interface TauriBridge {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 }
 
+export type VaultRegistrationMode = 'local' | 'remote';
+
+export function vaultRegistrationMode(apiBase: string): VaultRegistrationMode {
+  return apiBase.trim() ? 'remote' : 'local';
+}
+
 export function resolveTauri(): TauriBridge | null {
   if (typeof window === 'undefined') return null;
   const t = (window as unknown as {
