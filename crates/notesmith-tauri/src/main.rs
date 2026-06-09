@@ -670,8 +670,7 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let vaults = registered_vault_names();
 
     let open = MenuItem::with_id(app, MENU_OPEN, "Open Notesmith", true, None::<&str>)?;
-    let settings =
-        MenuItem::with_id(app, MENU_SETTINGS, "Settings…", true, Some("CmdOrCtrl+,"))?;
+    let settings = MenuItem::with_id(app, MENU_SETTINGS, "Settings…", true, Some("CmdOrCtrl+,"))?;
     let hide = MenuItem::with_id(app, MENU_HIDE, "Close Window", true, Some("CmdOrCtrl+W"))?;
     let quit = MenuItem::with_id(app, MENU_QUIT, "Quit", true, Some("CmdOrCtrl+Q"))?;
     let separator = PredefinedMenuItem::separator(app)?;
@@ -2401,16 +2400,31 @@ async fn close_vault_window(app: tauri::AppHandle, vault: String) -> Result<(), 
 /// Returns `Ok(None)` when the user cancels the dialog. The path is validated
 /// to point at an existing directory; symlinks are accepted. The frontend uses
 /// this for the "Open Folder as Vault" flow in #103.
+///
+/// On macOS the native NSOpenPanel must be created from the main AppKit
+/// thread; calling rfd from a worker thread fails silently or panics. We
+/// dispatch to the main thread via `AppHandle::run_on_main_thread` and run
+/// the (synchronous) `pick_folder()` there, then return the result through a
+/// oneshot channel.
 #[tauri::command]
-async fn pick_vault_folder() -> Result<Option<String>, String> {
-    let result = rfd::AsyncFileDialog::new()
-        .set_title("Choose a folder to open as a vault")
-        .pick_folder()
-        .await;
-    let Some(handle) = result else {
+async fn pick_vault_folder<R: Runtime>(app: AppHandle<R>) -> Result<Option<String>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<std::path::PathBuf>>();
+    app.run_on_main_thread(move || {
+        let picked = rfd::FileDialog::new()
+            .set_title("Choose a folder to open as a vault")
+            .pick_folder();
+        // Receiver may have been dropped if the command was cancelled; ignore.
+        let _ = tx.send(picked);
+    })
+    .map_err(|error| format!("Failed to dispatch folder picker to main thread: {error}"))?;
+
+    let picked = rx
+        .await
+        .map_err(|error| format!("Folder picker dropped before returning: {error}"))?;
+
+    let Some(path) = picked else {
         return Ok(None);
     };
-    let path = handle.path().to_path_buf();
     if !path.is_dir() {
         return Err(format!("Selected path is not a folder: {}", path.display()));
     }

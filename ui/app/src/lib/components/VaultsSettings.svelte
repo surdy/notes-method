@@ -140,7 +140,10 @@
 				addParentPath = result;
 			}
 		} catch (e) {
-			addError = e instanceof Error ? e.message : 'Folder picker failed.';
+			// Tauri command rejections are strings, not Error instances.
+			const detail =
+				e instanceof Error ? e.message : typeof e === 'string' ? e : JSON.stringify(e);
+			addError = `Folder picker failed: ${detail}`;
 		}
 	}
 
