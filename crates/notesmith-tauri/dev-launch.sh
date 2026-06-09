@@ -48,6 +48,24 @@ cp "$SCRIPT_DIR/binaries/notesmith-${TARGET_TRIPLE}${EXTENSION}" \
 chmod +x "$TAURI_TARGET_DIR/notesmith-${TARGET_TRIPLE}${EXTENSION}"
 echo "[dev-launch] Refreshed $TAURI_TARGET_DIR/notesmith-${TARGET_TRIPLE}${EXTENSION}"
 
+# The daemon resolves its frontend bundle relative to its own binary location:
+# <exe_dir>/../../ui/app/build. When the desktop spawns the daemon from
+# crates/notesmith-tauri/target/<profile>/, that resolves to
+# crates/ui/app/build — which doesn't exist — and the desktop shows a blank
+# window. Build the frontend if missing and pin NOTESMITH_APP_DIR so the
+# spawned daemon always finds the right bundle regardless of CWD.
+APP_BUILD_DIR="$REPO_ROOT/ui/app/build"
+if [[ ! -f "$APP_BUILD_DIR/index.html" ]]; then
+  echo "[dev-launch] Building SvelteKit frontend (missing $APP_BUILD_DIR/index.html)..."
+  if command -v pnpm >/dev/null 2>&1; then
+    (cd "$REPO_ROOT/ui/app" && pnpm install --silent && pnpm build)
+  else
+    (cd "$REPO_ROOT/ui/app" && npm install --silent && npm run build)
+  fi
+fi
+export NOTESMITH_APP_DIR="$APP_BUILD_DIR"
+echo "[dev-launch] NOTESMITH_APP_DIR=$NOTESMITH_APP_DIR"
+
 echo "[dev-launch] Launching desktop..."
 cd "$SCRIPT_DIR"
 exec cargo run --bin notesmith-desktop "${CARGO_PROFILE_FLAG[@]}"
