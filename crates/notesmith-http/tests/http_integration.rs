@@ -316,6 +316,128 @@ async fn add_vault_with_duplicate_name_returns_conflict() {
 }
 
 #[tokio::test]
+async fn add_vault_with_create_flag_creates_missing_directory() {
+    let temp_dir = TempDir::new().unwrap();
+    let existing_root = temp_dir.path().join("alpha");
+    let new_root = temp_dir.path().join("nested/beta");
+    fs::create_dir_all(&existing_root).unwrap();
+
+    let registered_vaults = vec![("alpha".to_string(), existing_root.clone())];
+    let config_path = temp_dir.path().join("config/notesmith/config.toml");
+    write_global_config(&config_path, &registered_vaults, Some("alpha"));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = build_test_state_with_vaults(&registered_vaults, config_path.clone());
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, state).await.unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("http://{address}/api/app/vaults"))
+        .json(&serde_json::json!({
+            "name": "beta",
+            "path": new_root,
+            "create": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+    assert!(new_root.exists());
+    assert!(new_root.join(".notesmith").exists());
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn add_vault_without_create_flag_rejects_missing_directory() {
+    let temp_dir = TempDir::new().unwrap();
+    let existing_root = temp_dir.path().join("alpha");
+    let new_root = temp_dir.path().join("does-not-exist");
+    fs::create_dir_all(&existing_root).unwrap();
+
+    let registered_vaults = vec![("alpha".to_string(), existing_root.clone())];
+    let config_path = temp_dir.path().join("config/notesmith/config.toml");
+    write_global_config(&config_path, &registered_vaults, Some("alpha"));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = build_test_state_with_vaults(&registered_vaults, config_path);
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, state).await.unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("http://{address}/api/app/vaults"))
+        .json(&serde_json::json!({
+            "name": "beta",
+            "path": new_root,
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(!new_root.exists());
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn add_vault_emits_vaults_changed_event() {
+    use tokio::time::{Duration, timeout};
+
+    let temp_dir = TempDir::new().unwrap();
+    let existing_root = temp_dir.path().join("alpha");
+    let new_root = temp_dir.path().join("beta");
+    fs::create_dir_all(&existing_root).unwrap();
+    fs::create_dir_all(&new_root).unwrap();
+
+    let registered_vaults = vec![("alpha".to_string(), existing_root.clone())];
+    let config_path = temp_dir.path().join("config/notesmith/config.toml");
+    write_global_config(&config_path, &registered_vaults, Some("alpha"));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = build_test_state_with_vaults(&registered_vaults, config_path);
+
+    // Subscribe to events before the change.
+    let mut rx = state.event_tx.subscribe();
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, state).await.unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("http://{address}/api/app/vaults"))
+        .json(&serde_json::json!({
+            "name": "beta",
+            "path": new_root,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+
+    let event = timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .expect("event arrived in time")
+        .expect("event channel ok");
+
+    assert_eq!(event.event_type.as_str(), "vaults.changed");
+    assert_eq!(event.vault, "beta");
+
+    server.abort();
+}
+
+#[tokio::test]
 async fn list_notes_returns_cached_notes_for_vault() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

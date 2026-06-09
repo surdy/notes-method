@@ -10,6 +10,7 @@ use notesmith_core::VaultEngine;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::events::{self, EventType, VaultEvent};
 use crate::server::SharedAppState;
 use crate::write_guard::WriteGuard;
 
@@ -19,6 +20,11 @@ use super::helpers::internal_error;
 pub struct AddVaultRequest {
     pub name: String,
     pub path: String,
+    /// When true and `path` does not exist, the daemon will create the directory
+    /// (recursively) before registering the vault. When false (default), a
+    /// missing path returns 422.
+    #[serde(default)]
+    pub create: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,10 +90,29 @@ pub async fn add_vault(
 
     let vault_path = std::path::PathBuf::from(&body.path);
     if !vault_path.exists() {
+        if body.create {
+            fs::create_dir_all(&vault_path).map_err(|error| {
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(json!({
+                        "error": "path_create_failed",
+                        "message": format!("Failed to create '{}': {}", body.path, error)
+                    })),
+                )
+            })?;
+        } else {
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(
+                    json!({ "error": "path_not_found", "message": format!("Path '{}' does not exist", body.path) }),
+                ),
+            ));
+        }
+    } else if !vault_path.is_dir() {
         return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(
-                json!({ "error": "path_not_found", "message": format!("Path '{}' does not exist", body.path) }),
+                json!({ "error": "path_not_directory", "message": format!("Path '{}' is not a directory", body.path) }),
             ),
         ));
     }
@@ -101,6 +126,8 @@ pub async fn add_vault(
         notesmith_config::VaultRegistration { path: vault_path },
     );
     config.save_to(&config_path).map_err(internal_error)?;
+
+    emit_vaults_changed(&state, &body.name).await;
 
     Ok((
         StatusCode::CREATED,
@@ -148,6 +175,8 @@ pub async fn update_vault(
     config.vaults.insert(new_name.clone(), registration);
     config.save_to(&config_path).map_err(internal_error)?;
 
+    emit_vaults_changed(&state, &new_name).await;
+
     Ok(Json(json!({ "name": new_name, "status": "updated" })))
 }
 
@@ -182,6 +211,8 @@ pub async fn remove_vault(
     config.vaults.remove(&vault_name);
     config.save_to(&config_path).map_err(internal_error)?;
 
+    emit_vaults_changed(&state, &vault_name).await;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -208,7 +239,20 @@ pub async fn set_default_vault(
     config.default_vault = Some(body.name.clone());
     config.save_to(&config_path).map_err(internal_error)?;
 
+    emit_vaults_changed(&state, &body.name).await;
+
     Ok(Json(json!({ "default_vault": body.name })))
+}
+
+/// Emit a `vaults.changed` SSE event so other windows (Settings UI, vault
+/// switcher, etc.) refresh without requiring a restart.
+async fn emit_vaults_changed(state: &SharedAppState, vault_name: &str) {
+    let state = state.read().await;
+    events::emit(
+        &state.event_tx,
+        &state.event_buffer,
+        VaultEvent::new(vault_name, EventType::VaultsChanged, ""),
+    );
 }
 
 pub async fn reindex_vault(
