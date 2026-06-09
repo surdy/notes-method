@@ -114,6 +114,23 @@ runs the desktop in one shot:
 
 The `binaries/notesmith-*` files are gitignored — they are generated artifacts.
 
+### Container images
+
+The default GHCR image is the full app flavor:
+
+```sh
+docker pull ghcr.io/surdy/notesmith:latest
+```
+
+`latest` includes the `notesmith` binary plus the built SvelteKit frontend so the
+daemon can serve `/app/` to browsers and to the Tauri desktop app when
+`NOTESMITH_DESKTOP_DAEMON_URL` points at a server. The `api-latest` flavor is
+binary-only for CLI, MCP, or API-only deployments; it does not support the
+desktop webview until the desktop shell embeds its own frontend assets.
+
+See [deploy/README.md](deploy/README.md) for Docker Compose, Quadlet, and tag
+details.
+
 ### Test
 
 ```sh

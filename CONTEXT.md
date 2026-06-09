@@ -69,7 +69,8 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 ## Runtime & Events
 
-- **Daemon** — The HTTP server process (`notesmith daemon start`) that serves the API, SSE events, and static frontend.
+- **Daemon** — The HTTP server process (`notesmith daemon start`) that serves the API, SSE events, and static frontend when frontend assets are available.
+- **Container image flavors** — GHCR publishes an `app` flavor (`latest`, `sha-*`, date tags) with the SvelteKit frontend at `/app-ui` for `/app/`, and an `api` flavor (`api-latest`, `api-sha-*`, date tags) with only the Rust binary. Use `app` for browser access or desktop app connections via `NOTESMITH_DESKTOP_DAEMON_URL`; `api` is for CLI/MCP/API-only deployments until the desktop shell embeds frontend assets.
 - **MCP server** — The `notesmith mcp start` stdio server. It builds its own in-memory indexes for local MCP clients rather than proxying through the HTTP daemon.
 - **VaultState** — Per-vault runtime state held by the daemon: cache, search index, engine, root path, config (ArcSwap), template engine.
 - **AppState** — Global daemon state containing all VaultStates and shared config.
