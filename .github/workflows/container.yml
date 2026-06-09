@@ -8,6 +8,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'crates/**'
+      - 'ui/app/**'
       - 'Containerfile'
       - 'deploy/healthcheck.sh'
   workflow_dispatch: {}   # allow manual builds from the Actions UI
@@ -56,17 +57,23 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # ── Tags & labels ─────────────────────────────────────────────────────
+      # Two image flavors:
+      #
+      #   app (default / latest)  — binary + SvelteKit frontend bundled
+      #                             Use this when connecting from the desktop app
+      #                             or a browser on the same network.
+      #
+      #   api                     — binary only (smaller image)
+      #                             For CLI/MCP/API-only access.  Desktop-app
+      #                             support requires a future update (Phase 2).
+      #
       # Versioning strategy (pre-release, no semver):
       #
-      #   latest            — always the most recent build from main
-      #   edge              — same image; alias that signals "in active development"
-      #   sha-<7-char-sha>  — immutable; use this in Compose/Quadlet for rollback safety
-      #   YYYY.MM.DD        — date tag; helps reason about when a change shipped
-      #
-      # When semver is introduced, add a 'release' workflow that pushes
-      # vX.Y.Z and updates 'latest' only on non-pre-release tags.
-      - name: Generate tags and labels
-        id: meta
+      #   latest / api-latest       — most recent build from main
+      #   sha-<7> / api-sha-<7>     — immutable; use in Compose/Quadlet for rollback
+      #   YYYY.MM.DD / api-YYYY.MM.DD — date tag; helps reason about when a change shipped
+      - name: Generate tags for app flavor
+        id: meta-app
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
@@ -77,40 +84,68 @@ jobs:
             type=raw,value={{date 'YYYY.MM.DD'}}
           labels: |
             org.opencontainers.image.title=Notesmith
-            org.opencontainers.image.description=Notesmith HTTP daemon
+            org.opencontainers.image.description=Notesmith daemon with bundled frontend
             org.opencontainers.image.url=https://github.com/surdy/notes-method
             org.opencontainers.image.source=https://github.com/surdy/notes-method
             org.opencontainers.image.vendor=surdy
 
-      # ── Build & push ──────────────────────────────────────────────────────
-      - name: Build and push
+      - name: Generate tags for api flavor
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=api-latest
+            type=raw,value=api-edge
+            type=sha,prefix=api-sha-,format=short
+            type=raw,value=api-{{date 'YYYY.MM.DD'}}
+          labels: |
+            org.opencontainers.image.title=Notesmith (API only)
+            org.opencontainers.image.description=Notesmith daemon without frontend (API/CLI/MCP)
+            org.opencontainers.image.url=https://github.com/surdy/notes-method
+            org.opencontainers.image.source=https://github.com/surdy/notes-method
+            org.opencontainers.image.vendor=surdy
+
+      # ── Build & push: app flavor (default) ───────────────────────────────
+      - name: Build and push (app)
+        id: build-app
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Containerfile
+          target: app
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # Registry-backed layer cache: pulls cached layers from the
-          # 'edge' image on GHCR so the Rust compile step is fast after
-          # the first successful build.
+          tags: ${{ steps.meta-app.outputs.tags }}
+          labels: ${{ steps.meta-app.outputs.labels }}
+          # Registry-backed layer cache using the edge tag.
           cache-from: type=registry,ref=${{ env.IMAGE }}:edge
           cache-to: type=registry,ref=${{ env.IMAGE }}:edge,mode=max
+
+      # ── Build & push: api flavor ─────────────────────────────────────────
+      - name: Build and push (api)
+        id: build-api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          target: api
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          # Reuse layers already built for the app flavor above.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:edge
 
       # ── Summary ──────────────────────────────────────────────────────────
       - name: Write job summary
         run: |
-          echo "## Container image published :package:" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Container images published :package:" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Registry:** \`${{ env.IMAGE }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Tags pushed:**" >> "$GITHUB_STEP_SUMMARY"
-          echo '${{ steps.meta.outputs.tags }}' | tr ',' '\n' | sed 's/^/- `/' | sed 's/$/`/' >> "$GITHUB_STEP_SUMMARY"
+          echo "### \`app\` flavor (binary + frontend)" >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.meta-app.outputs.tags }}' | tr ',' '\n' | sed 's/^/- `/' | sed 's/$/`/' >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Digest:** \`${{ steps.build-push.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Pull with:" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "docker pull ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "### \`api\` flavor (binary only)" >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.meta-api.outputs.tags }}' | tr ',' '\n' | sed 's/^/- `/' | sed 's/$/`/' >> "$GITHUB_STEP_SUMMARY"

@@ -23,11 +23,25 @@ CLI, MCP server, and desktop app.
 
 ---
 
+## Image flavors
+
+Two flavors are published from the same `Containerfile`:
+
+| Flavor | Tag prefix | Contents | Use case |
+|--------|------------|----------|----------|
+| **app** (default) | `latest`, `sha-*`, `YYYY.MM.DD` | Binary + SvelteKit frontend | Desktop app (`NOTESMITH_DESKTOP_DAEMON_URL`) or browser on the same network |
+| **api** | `api-latest`, `api-sha-*`, `api-YYYY.MM.DD` | Binary only (smaller) | CLI / MCP / API-only access |
+
+> ⚠️ **`api` + desktop app:** The desktop app loads its UI from `{daemon_url}/app/`.
+> The `api` flavor has no frontend there, so the webview shows blank.
+> Use the `app` flavor when connecting from the desktop app.
+> Full `api`-flavor desktop-app support requires a future update.
+
 ## Image tags
 
 | Tag | Meaning |
 |-----|---------|
-| `latest` | Most recent build from `main` |
+| `latest` | Most recent `app` build from `main` |
 | `edge` | Same as `latest`; signals active development |
 | `sha-<7chars>` | Immutable — pinned to a specific git commit |
 | `YYYY.MM.DD` | Date the image was built |
@@ -44,10 +58,14 @@ The image is automatically built and pushed to GHCR by CI on every push to
 `main`. You can pull it directly on your server:
 
 ```bash
+# app flavor (default — includes frontend)
 docker pull ghcr.io/surdy/notesmith:latest
 
 # Or pin to a specific immutable SHA tag (recommended for production):
 docker pull ghcr.io/surdy/notesmith:sha-a1b2c3d
+
+# api flavor (binary only)
+docker pull ghcr.io/surdy/notesmith:api-latest
 ```
 
 To build locally from source instead:
