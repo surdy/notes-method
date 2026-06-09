@@ -96,6 +96,24 @@ cargo run --bin theme-gen -- --catalog ui/app/src/styles/theme-catalog.json --ou
 cd ui/app && pnpm build     # SvelteKit app
 ```
 
+### Run the desktop app (dev)
+
+`notesmith-tauri` is excluded from the default workspace because it pulls in
+the Tauri toolchain. It also bundles the `notesmith` CLI as a sidecar — so
+launching the desktop with `cargo run` directly will pick up whichever
+`crates/notesmith-tauri/binaries/notesmith-<target-triple>` happens to be on
+disk, which is often stale.
+
+Use the helper script, which rebuilds the CLI, refreshes the sidecar, and then
+runs the desktop in one shot:
+
+```sh
+./crates/notesmith-tauri/dev-launch.sh           # debug build (default)
+./crates/notesmith-tauri/dev-launch.sh --release # release build
+```
+
+The `binaries/notesmith-*` files are gitignored — they are generated artifacts.
+
 ### Test
 
 ```sh
