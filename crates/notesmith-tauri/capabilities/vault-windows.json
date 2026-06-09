@@ -4,18 +4,10 @@
   "description": "Capability granted to every per-vault window (main:*).",
   "windows": ["main:*"],
   "remote": {
-    "urls": ["http://127.0.0.1:27183/*", "http://localhost:27183/*"]
+    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
   },
   "permissions": [
     "core:default",
-    "shell:allow-open",
-    "deep-link:default",
-    "allow-retry-daemon-connect",
-    "allow-open-diagnostics",
-    "allow-quit-app",
-    "allow-restart-app",
-    "allow-view-crash-report",
-    "allow-restart-daemon-anyway",
     "allow-open-vault-window",
     "allow-set-window-title",
     "allow-confirm-window-close",
