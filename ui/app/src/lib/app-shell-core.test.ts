@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createAppShell } from './app-shell-core.ts';
+import { chooseRegisteredVault, createAppShell } from './app-shell-core.ts';
 import type {
 	AppShellCallbacks,
 	AppShellDependencies,
@@ -93,5 +93,49 @@ describe('createAppShell — init with no vaults', () => {
 			expect.any(Function),
 			expect.any(Function)
 		);
+	});
+
+	it('falls back to the remote default when URL vault is not registered', async () => {
+		const vaultStore = makeVaultStore();
+		const deps = makeDeps({
+			vaultStore,
+			listVaults: vi.fn().mockResolvedValue([
+				{ name: 'remote-work', is_default: true },
+				{ name: 'remote-personal', is_default: false }
+			])
+		});
+		const shell = createAppShell(makeCallbacks(), deps);
+		const vaults: string[] = [];
+
+		await shell.init('local-only', vaults);
+
+		expect(vaultStore.currentVault).toBe('remote-work');
+		expect(vaultStore.loadNotes).toHaveBeenCalledOnce();
+		expect(deps.connectSSE).toHaveBeenCalledWith(
+			'remote-work',
+			expect.any(Function),
+			expect.any(Function)
+		);
+		expect(vaults).toEqual(['remote-work', 'remote-personal']);
+	});
+});
+
+describe('chooseRegisteredVault', () => {
+	it('keeps a URL-pinned vault only when it is registered', () => {
+		expect(
+			chooseRegisteredVault('remote-personal', [
+				{ name: 'remote-work', is_default: true },
+				{ name: 'remote-personal', is_default: false }
+			])
+		).toEqual({ vault: 'remote-personal', pinned: true });
+	});
+
+	it('falls back to default when the URL-pinned vault is stale', () => {
+		expect(
+			chooseRegisteredVault('local-only', [
+				{ name: 'remote-work', is_default: true },
+				{ name: 'remote-personal', is_default: false }
+			])
+		).toEqual({ vault: 'remote-work', pinned: false });
 	});
 });

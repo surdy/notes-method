@@ -4,6 +4,8 @@
 	import { base } from '$app/paths';
 	import { settingsStore } from '$lib/settings.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
+	import { listVaults } from '$lib/api';
+	import { chooseRegisteredVault } from '$lib/app-shell-core';
 	import { registerHotkeys } from '$lib/hotkeys';
 	import SidebarSettings from '$lib/components/SidebarSettings.svelte';
 	import VaultsSettings from '$lib/components/VaultsSettings.svelte';
@@ -90,24 +92,7 @@
 	}
 
 	onMount(() => {
-		const url = new URL(window.location.href);
-		const v = url.searchParams.get('vault');
-		if (v) vaultStore.currentVault = v;
-
-		// Only load vault config when we actually have a vault. Without this
-		// guard the daemon returns 404 for `/api/v//config` and surfaces a
-		// confusing error to the user on a fresh install.
-		if (vault) {
-			void settingsStore.loadConfig(vault);
-		} else {
-			// No vault → drop the user straight into the Vaults section so the
-			// empty-state CTA is what they see first.
-			selectedSection = 'vaults';
-		}
-		if (!settingsStore.capabilities) {
-			void settingsStore.loadCapabilities();
-		}
-
+		void initializeSettings();
 		const unregister = registerHotkeys([
 			{
 				key: 'Escape',
@@ -119,6 +104,36 @@
 			unregister();
 		};
 	});
+
+	async function initializeSettings() {
+		const url = new URL(window.location.href);
+		const requestedVault = url.searchParams.get('vault');
+		let selectedVault = vaultStore.currentVault;
+		try {
+			const registrations = await listVaults();
+			selectedVault = chooseRegisteredVault(requestedVault, registrations).vault;
+			vaultStore.currentVault = selectedVault;
+		} catch {
+			if (requestedVault) {
+				selectedVault = requestedVault;
+				vaultStore.currentVault = requestedVault;
+			}
+		}
+
+		// Only load vault config when we actually have a vault. Without this
+		// guard the daemon returns 404 for `/api/v//config` and surfaces a
+		// confusing error to the user on a fresh install.
+		if (selectedVault) {
+			void settingsStore.loadConfig(selectedVault);
+		} else {
+			// No vault → drop the user straight into the Vaults section so the
+			// empty-state CTA is what they see first.
+			selectedSection = 'vaults';
+		}
+		if (!settingsStore.capabilities) {
+			void settingsStore.loadCapabilities();
+		}
+	}
 </script>
 
 <div class="settings-layout">

@@ -924,6 +924,16 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
         return Ok(());
     }
 
+    if !should_use_local_vault_state(&startup_settings()) {
+        ensure_main_window(app)?;
+        if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+        return Ok(());
+    }
+
     match resolve_default_vault() {
         Some(vault) => {
             let label = ensure_vault_window(app, &vault)?;
@@ -1427,6 +1437,16 @@ fn show_main_app_window<R: Runtime>(
     close_window(app, FALLBACK_WINDOW_LABEL)?;
     set_current_daemon_url(app, daemon::resolve_daemon_url(settings));
 
+    if !should_use_local_vault_state(settings) {
+        ensure_main_window(app)?;
+        if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+        return Ok(());
+    }
+
     // First: replay persisted windows so a user who had two vaults open
     // gets both back. If anything was restored, we're done.
     if restore_windows_from_disk(app) > 0 {
@@ -1644,6 +1664,10 @@ fn frontend_mode() -> FrontendMode {
     } else {
         FrontendMode::Daemon
     }
+}
+
+fn should_use_local_vault_state(settings: &DaemonSettings) -> bool {
+    !settings.external_url
 }
 
 fn webview_url_for_app(url: Url) -> WebviewUrl {
@@ -2269,16 +2293,20 @@ async fn restart_daemon_anyway(app: tauri::AppHandle) -> Result<String, String> 
 
 /// Open (or focus) the window bound to the given vault.
 ///
-/// If the vault is not registered in the global config, returns an error.
-/// Otherwise creates a new window with `?vault=<vault>` in the URL, or
-/// focuses the existing window if one is already open for that vault.
+/// In local-daemon mode, returns an error if the vault is not registered in the
+/// global config. In remote-daemon mode the configured daemon is authoritative,
+/// so the frontend may request windows for vaults that do not exist locally.
+/// Creates a new window with `?vault=<vault>` in the URL, or focuses the
+/// existing window if one is already open for that vault.
 #[tauri::command]
 async fn open_vault_window(app: tauri::AppHandle, vault: String) -> Result<(), String> {
     // Validate the vault is registered so we don't create a window pointing
     // at a non-existent vault (the frontend would surface a confusing error).
-    let config = notesmith_config::GlobalConfig::load().map_err(|error| error.to_string())?;
-    if config.vault(&vault).is_none() {
-        return Err(format!("Vault '{vault}' is not registered"));
+    if should_use_local_vault_state(&startup_settings()) {
+        let config = notesmith_config::GlobalConfig::load().map_err(|error| error.to_string())?;
+        if config.vault(&vault).is_none() {
+            return Err(format!("Vault '{vault}' is not registered"));
+        }
     }
 
     let label = ensure_vault_window(&app, &vault).map_err(|error| error.to_string())?;
@@ -2514,7 +2542,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        CrashAction, CrashTracker, QuitRequestAction, admin_route_url, evaluate_quit_request,
+        CrashAction, CrashTracker, DaemonSettings, QuitRequestAction, admin_route_url,
+        evaluate_quit_request, should_use_local_vault_state,
     };
 
     #[test]
@@ -2592,5 +2621,18 @@ mod tests {
             admin_route_url("http://127.0.0.1:27183/", "shutdown"),
             "http://127.0.0.1:27183/admin/shutdown"
         );
+    }
+
+    #[test]
+    fn external_daemon_mode_does_not_use_local_vault_state() {
+        assert!(!should_use_local_vault_state(&DaemonSettings {
+            external_url: true,
+            ..DaemonSettings::default()
+        }));
+    }
+
+    #[test]
+    fn local_daemon_mode_uses_local_vault_state() {
+        assert!(should_use_local_vault_state(&DaemonSettings::default()));
     }
 }

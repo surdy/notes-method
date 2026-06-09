@@ -61,6 +61,21 @@ export interface AppShellVaultRegistration {
 	is_default: boolean;
 }
 
+export function chooseRegisteredVault(
+	vaultParam: string | null,
+	registrations: AppShellVaultRegistration[]
+): { vault: string; pinned: boolean } {
+	const vaultNames = registrations.map((vault) => vault.name);
+	const defaultVault =
+		registrations.find((vault) => vault.is_default)?.name ?? registrations[0]?.name ?? '';
+	const pinnedVault = vaultParam && vaultNames.includes(vaultParam) ? vaultParam : null;
+
+	return {
+		vault: pinnedVault ?? defaultVault,
+		pinned: pinnedVault !== null
+	};
+}
+
 export interface AppShellDependencies {
 	connectSSE: (
 		vault: string,
@@ -281,7 +296,7 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 	async function init(vaultParam: string | null, vaults: string[]) {
 		teardown();
 		availableVaults = vaults;
-		urlPinnedVault = vaultParam !== null && vaultParam !== '';
+		urlPinnedVault = false;
 
 		unregisterHotkeys = dependencies.registerHotkeys(
 			buildHotkeys(callbacks, dependencies.tabStore, logger)
@@ -290,10 +305,11 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 
 		try {
 			const registrations = await dependencies.listVaults();
-			vaults.splice(0, vaults.length, ...registrations.map((vault) => vault.name));
-			const defaultVault =
-				registrations.find((vault) => vault.is_default)?.name ?? registrations[0]?.name ?? '';
-			const vault = vaultParam ?? defaultVault;
+			const vaultNames = registrations.map((vault) => vault.name);
+			vaults.splice(0, vaults.length, ...vaultNames);
+			const selected = chooseRegisteredVault(vaultParam, registrations);
+			urlPinnedVault = selected.pinned;
+			const vault = selected.vault;
 
 			// No vaults registered yet — stay on the empty state; don't issue
 			// a notes request that would return 404 and show a spurious error.
