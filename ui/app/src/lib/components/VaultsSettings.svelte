@@ -13,7 +13,11 @@
 	import { API_BASE } from '$lib/api/core';
 	import { toastStore } from '$lib/toast-store.svelte';
 	import { onMount, onDestroy } from 'svelte';
-	import { resolveTauri, vaultRegistrationMode } from '$lib/open-folder-as-vault';
+	import {
+		resolveTauri,
+		shouldUseNativeVaultRegistration,
+		vaultRegistrationMode
+	} from '$lib/open-folder-as-vault';
 
 	interface Props {
 		capabilities: Capabilities | null;
@@ -165,7 +169,16 @@
 		addSaving = true;
 		addError = null;
 		try {
-			await addVault(name, computedPath, { create: addCreateSubfolder });
+			const nativeBridge = tauriBridge;
+			if (shouldUseNativeVaultRegistration(API_BASE, nativeBridge) && nativeBridge) {
+				await nativeBridge.invoke('open_folder_as_vault', {
+					path: computedPath,
+					displayName: name,
+					create: addCreateSubfolder
+				});
+			} else {
+				await addVault(name, computedPath, { create: addCreateSubfolder });
+			}
 			showAddForm = false;
 			addName = '';
 			addParentPath = '';

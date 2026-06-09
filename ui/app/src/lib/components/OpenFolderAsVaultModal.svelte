@@ -5,6 +5,7 @@
 	import {
 		defaultNameFromPath,
 		resolveTauri,
+		shouldUseNativeVaultRegistration,
 		validateVaultName,
 		vaultRegistrationMode,
 		type TauriBridge
@@ -79,16 +80,22 @@
 		phase = 'submitting';
 		error = null;
 		try {
-			if (isRemoteDaemon) {
+			const nativeBridge = bridge;
+			if (shouldUseNativeVaultRegistration(API_BASE, nativeBridge) && nativeBridge) {
+				await nativeBridge.invoke('open_folder_as_vault', {
+					path,
+					displayName: result.value,
+					create: false
+				});
+			} else if (isRemoteDaemon) {
 				await addVault(result.value, path, { create: false });
-				await bridge?.invoke('open_vault_window', { vault: result.value });
 			} else {
-				if (!bridge) {
+				if (!nativeBridge) {
 					error = 'Cannot register vaults outside the Notesmith desktop app.';
 					phase = 'naming';
 					return;
 				}
-				await bridge.invoke('open_folder_as_vault', {
+				await nativeBridge.invoke('open_folder_as_vault', {
 					path,
 					displayName: result.value
 				});

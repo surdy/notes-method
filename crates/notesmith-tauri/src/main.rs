@@ -2368,18 +2368,23 @@ async fn open_folder_as_vault(
     app: tauri::AppHandle,
     path: String,
     display_name: String,
+    create: Option<bool>,
 ) -> Result<(), String> {
-    let existing: Vec<String> = notesmith_config::GlobalConfig::load()
-        .map_err(|error| error.to_string())?
-        .vaults
-        .keys()
-        .cloned()
-        .collect();
+    let existing: Vec<String> = if should_use_local_vault_state(&startup_settings()) {
+        notesmith_config::GlobalConfig::load()
+            .map_err(|error| error.to_string())?
+            .vaults
+            .keys()
+            .cloned()
+            .collect()
+    } else {
+        Vec::new()
+    };
     let validated = validate_vault_display_name(&display_name, existing.iter())?;
 
     let base = current_daemon_url(&app);
     let url = format!("{}/api/app/vaults", base.trim_end_matches('/'));
-    let body = serde_json::json!({ "name": validated, "path": path });
+    let body = serde_json::json!({ "name": validated, "path": path, "create": create.unwrap_or(false) });
 
     let client = reqwest::Client::new();
     let response = client

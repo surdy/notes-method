@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { validateVaultName, defaultNameFromPath, vaultRegistrationMode } from './open-folder-as-vault';
+import {
+  validateVaultName,
+  defaultNameFromPath,
+  vaultRegistrationMode,
+  shouldUseNativeVaultRegistration,
+  type TauriBridge
+} from './open-folder-as-vault';
 
 describe('validateVaultName', () => {
   it('accepts a clean unique name', () => {
@@ -71,5 +77,25 @@ describe('vaultRegistrationMode', () => {
 
   it('uses remote registration when an API base is configured', () => {
     expect(vaultRegistrationMode('https://notesmith.clusterfault.com')).toBe('remote');
+  });
+});
+
+describe('shouldUseNativeVaultRegistration', () => {
+  const bridge: TauriBridge = { invoke: async () => undefined };
+
+  it('uses native registration for remote desktop vault writes', () => {
+    expect(shouldUseNativeVaultRegistration('https://notesmith.clusterfault.com', bridge)).toBe(
+      true
+    );
+  });
+
+  it('uses fetch registration for remote browser vault writes', () => {
+    expect(shouldUseNativeVaultRegistration('https://notesmith.clusterfault.com', null)).toBe(
+      false
+    );
+  });
+
+  it('keeps local desktop registration on the existing local command flow', () => {
+    expect(shouldUseNativeVaultRegistration('', bridge)).toBe(false);
   });
 });

@@ -66,6 +66,13 @@ export function vaultRegistrationMode(apiBase: string): VaultRegistrationMode {
   return apiBase.trim() ? 'remote' : 'local';
 }
 
+export function shouldUseNativeVaultRegistration(
+  apiBase: string,
+  bridge: TauriBridge | null | undefined
+): boolean {
+  return vaultRegistrationMode(apiBase) === 'remote' && bridge != null;
+}
+
 export function resolveTauri(): TauriBridge | null {
   if (typeof window === 'undefined') return null;
   const t = (window as unknown as {

@@ -1,4 +1,4 @@
-import { API_BASE, ApiError, apiFetch } from './core.ts';
+import { API_BASE, ApiError, apiFetch, readErrorBody } from './core.ts';
 
 export interface VaultInfo {
 	name: string;
@@ -30,7 +30,10 @@ export async function addVault(
 		const data = await res.json();
 		throw new ApiError(data.message ?? 'Invalid path', 422);
 	}
-	if (!res.ok) throw new ApiError(`Failed to add vault: ${res.status}`, res.status);
+	if (!res.ok) {
+		const data = await readErrorBody(res);
+		throw new ApiError(data.message ?? `Failed to add vault: ${res.status}`, res.status, data.code);
+	}
 }
 
 export async function updateVault(
