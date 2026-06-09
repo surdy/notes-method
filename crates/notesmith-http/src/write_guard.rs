@@ -6,7 +6,7 @@ use axum::{
 /// Allowed origins for config write operations.
 /// In desktop mode, Tauri webview sends `tauri://localhost`.
 /// In embedded-frontend remote mode, the Tauri app protocol sends `notesmith-app://localhost`.
-/// On Windows/Android, Tauri custom protocols use `http://notesmith-app.localhost`.
+/// Some WebView backends expose custom protocols as `http(s)://notesmith-app.localhost`.
 /// In dev/web mode, localhost origins are allowed.
 const EMBEDDED_APP_HTTP_HOST: &str = "notesmith-app.localhost";
 
@@ -49,11 +49,8 @@ fn is_allowed_write_origin(origin: &str) -> bool {
 
     match scheme {
         "tauri" | "notesmith-app" => host.eq_ignore_ascii_case("localhost"),
-        "http" => {
-            host.eq_ignore_ascii_case("localhost")
-                || host == "127.0.0.1"
-                || host.eq_ignore_ascii_case(EMBEDDED_APP_HTTP_HOST)
-        }
+        "http" | "https" if host.eq_ignore_ascii_case(EMBEDDED_APP_HTTP_HOST) => true,
+        "http" => host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1",
         _ => false,
     }
 }
@@ -98,6 +95,15 @@ mod tests {
     async fn allows_embedded_app_http_origin() {
         assert!(
             extract_guard(Some("http://notesmith-app.localhost"))
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn allows_secure_embedded_app_http_origin() {
+        assert!(
+            extract_guard(Some("https://notesmith-app.localhost"))
                 .await
                 .is_ok()
         );

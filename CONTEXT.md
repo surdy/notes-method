@@ -89,7 +89,7 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 ## Security & Conflict Detection
 
-- **WriteGuard** — An Axum extractor that checks the `Origin` header on write requests. Allows localhost, `tauri://localhost`, `notesmith-app://localhost`, and `http://notesmith-app.localhost` origins; rejects foreign origins.
+- **WriteGuard** — An Axum extractor that checks the `Origin` header on write requests. Allows localhost, `tauri://localhost`, `notesmith-app://localhost`, and `http(s)://notesmith-app.localhost` origins; rejects foreign origins.
 - **ETag** — A BLAKE3 hash of config file content used for optimistic concurrency. GET returns it; PUT requires `If-Match`.
 - **Capabilities** — A server-driven feature flags endpoint (`GET /api/capabilities`) that tells the frontend what the deployment supports (desktop vs hosted, config editing, local path opening).
 
