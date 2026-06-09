@@ -70,7 +70,7 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 ## Runtime & Events
 
 - **Daemon** — The HTTP server process (`notesmith daemon start`) that serves the API, SSE events, and static frontend when frontend assets are available.
-- **Container image flavors** — GHCR publishes an `app` flavor (`latest`, `sha-*`, date tags) with the SvelteKit frontend at `/app-ui` for `/app/`, and an `api` flavor (`api-latest`, `api-sha-*`, date tags) with only the Rust binary. Use `app` for browser access or desktop app connections via `NOTESMITH_DESKTOP_DAEMON_URL`; `api` is for CLI/MCP/API-only deployments until the desktop shell embeds frontend assets.
+- **Container image flavors** — GHCR publishes an `app` flavor (`latest`, `sha-*`, date tags) with the SvelteKit frontend at `/app-ui` for browser `/app/` access, and an `api` flavor (`api-latest`, `api-sha-*`, date tags) with only the Rust binary. The Tauri desktop can use either flavor via `NOTESMITH_DESKTOP_DAEMON_URL` because remote-daemon mode serves the frontend from embedded desktop assets.
 - **MCP server** — The `notesmith mcp start` stdio server. It builds its own in-memory indexes for local MCP clients rather than proxying through the HTTP daemon.
 - **VaultState** — Per-vault runtime state held by the daemon: cache, search index, engine, root path, config (ArcSwap), template engine.
 - **AppState** — Global daemon state containing all VaultStates and shared config.
@@ -89,7 +89,7 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 ## Security & Conflict Detection
 
-- **WriteGuard** — An Axum extractor that checks the `Origin` header on write requests. Allows localhost and Tauri origins; rejects foreign origins.
+- **WriteGuard** — An Axum extractor that checks the `Origin` header on write requests. Allows localhost, `tauri://localhost`, `notesmith-app://localhost`, and `http://notesmith-app.localhost` origins; rejects foreign origins.
 - **ETag** — A BLAKE3 hash of config file content used for optimistic concurrency. GET returns it; PUT requires `If-Match`.
 - **Capabilities** — A server-driven feature flags endpoint (`GET /api/capabilities`) that tells the frontend what the deployment supports (desktop vs hosted, config editing, local path opening).
 

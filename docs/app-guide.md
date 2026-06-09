@@ -1,6 +1,6 @@
 # Notesmith Desktop App User Guide
 
-Notesmith's desktop app is the main place to read, write, and organize notes by hand. It is a SvelteKit frontend served by the Notesmith daemon and wrapped in Tauri for macOS.
+Notesmith's desktop app is the main place to read, write, and organize notes by hand. It is a SvelteKit frontend wrapped in Tauri for macOS; local launches normally load the app from the daemon, while remote-daemon launches use frontend assets embedded in the desktop shell.
 
 For automation and system-level details, see the [CLI Reference](cli.md), [HTTP API Reference](http-api.md), and [SQL Views Reference](sql-views.md). This guide stays focused on the day-to-day desktop experience.
 
@@ -12,7 +12,7 @@ Notesmith uses a three-pane layout:
 - **Editor area (center):** tabs, note toolbar, editing, and reading
 - **Right rail (right):** context for the selected note
 
-The desktop app connects to the live Notesmith daemon discovered from the Notesmith lockfile. By default that is `http://127.0.0.1:27183`, but the desktop shell follows the daemon's active port when it changes.
+The desktop app connects to the live Notesmith daemon discovered from the Notesmith lockfile. By default that is `http://127.0.0.1:27183`, but the desktop shell follows the daemon's active port when it changes. If `NOTESMITH_DESKTOP_DAEMON_URL` is set, the shell uses that daemon for API/SSE traffic and serves its own embedded UI locally.
 
 In practice, that means:
 

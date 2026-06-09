@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { API_BASE } from './api/core.ts';
 
 export type VaultEventHandler = (event: VaultEvent) => void;
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected';
@@ -86,7 +87,7 @@ export function connectSSE(
 			return;
 		}
 
-		const url = `/api/v/${encodeURIComponent(vault)}/events`;
+		const url = `${API_BASE}/api/v/${encodeURIComponent(vault)}/events`;
 		const sourceUrl = lastEventId ? `${url}?last_event_id=${encodeURIComponent(lastEventId)}` : url;
 		source = new EventSource(sourceUrl);
 		source.onmessage = handleMessage;

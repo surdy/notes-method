@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 
-export const API_BASE = '';
+export const API_BASE = resolveApiBase();
 export const CLIENT_VERSION = '0.1.0';
 export const CLIENT_SCHEMA_VERSION = '1';
 const MAX_SILENT_RETRIES = 3;
@@ -17,6 +17,26 @@ export interface VersionInfo {
 }
 
 export const versionMismatch = writable<VersionInfo | null>(null);
+
+export function resolveApiBase(source: Pick<Location, 'search'> | URL | null = currentLocation()): string {
+	if (!source) return '';
+	const raw = new URLSearchParams(source.search).get('apiBase')?.trim();
+	if (!raw) return '';
+	try {
+		const url = new URL(raw);
+		if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+			return '';
+		}
+		const path = url.pathname === '/' ? '' : url.pathname.replace(/\/+$/, '');
+		return `${url.origin}${path}`;
+	} catch {
+		return '';
+	}
+}
+
+function currentLocation(): Pick<Location, 'search'> | null {
+	return typeof globalThis.location === 'undefined' ? null : globalThis.location;
+}
 
 export class ApiError extends Error {
 	readonly status: number;

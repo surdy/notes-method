@@ -60,12 +60,11 @@ jobs:
       # Two image flavors:
       #
       #   app (default / latest)  — binary + SvelteKit frontend bundled
-      #                             Use this when connecting from the desktop app
-      #                             or a browser on the same network.
+      #                             Use this for browser access on the same network.
       #
       #   api                     — binary only (smaller image)
-      #                             For CLI/MCP/API-only access.  Desktop-app
-      #                             support requires a future update (Phase 2).
+      #                             For CLI/MCP/API-only access or Tauri desktop
+      #                             clients that embed their own frontend.
       #
       # Versioning strategy (pre-release, no semver):
       #

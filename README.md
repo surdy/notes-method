@@ -8,7 +8,7 @@ Notesmith keeps notes as plain markdown files on disk — no database of record 
 
 - **Single binary** (`notesmith`) with subcommands for CLI usage and a `daemon start` mode
 - **HTTP daemon** on `127.0.0.1:27183` (Axum) with REST API + Server-Sent Events
-- **SvelteKit frontend** served by the daemon, wrapped in Tauri for the desktop app
+- **SvelteKit frontend** served by the daemon for browser use and embedded in Tauri for remote-desktop daemon connections
 - **SQLite cache** (rebuildable from markdown files — never the source of truth)
 - **Agent-first**: native CLI, MCP adapter, and URL scheme (`notesmith://app/...`) for external integration
 - **Generic data model**: unified fields, separate tags, configurable task statuses — no hardcoded note types
@@ -31,7 +31,7 @@ Notesmith keeps notes as plain markdown files on disk — no database of record 
 
 - **Single binary** (`notesmith`) with subcommands for CLI usage and a `daemon start` mode
 - **HTTP daemon** on `127.0.0.1:27183` (Axum) with REST API + Server-Sent Events
-- **SvelteKit frontend** served by the daemon, wrapped in Tauri for the desktop app
+- **SvelteKit frontend** served by the daemon for browser use and embedded in Tauri for remote-desktop daemon connections
 - **SQLite cache** (rebuildable from markdown files — never the source of truth)
 - **Agent-first**: native CLI, MCP adapter, and URL scheme (`notesmith://app/...`) for external integration
 
@@ -123,10 +123,9 @@ docker pull ghcr.io/surdy/notesmith:latest
 ```
 
 `latest` includes the `notesmith` binary plus the built SvelteKit frontend so the
-daemon can serve `/app/` to browsers and to the Tauri desktop app when
-`NOTESMITH_DESKTOP_DAEMON_URL` points at a server. The `api-latest` flavor is
-binary-only for CLI, MCP, or API-only deployments; it does not support the
-desktop webview until the desktop shell embeds its own frontend assets.
+daemon can serve `/app/` to browsers. The `api-latest` flavor is binary-only for
+CLI, MCP, API-only deployments, and Tauri desktop clients that provide their own
+embedded frontend while `NOTESMITH_DESKTOP_DAEMON_URL` points at the server.
 
 See [deploy/README.md](deploy/README.md) for Docker Compose, Quadlet, and tag
 details.

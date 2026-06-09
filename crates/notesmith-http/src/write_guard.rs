@@ -1,10 +1,14 @@
-use axum::{extract::FromRequestParts, http::request::Parts};
+use axum::{
+    extract::FromRequestParts,
+    http::{Uri, request::Parts},
+};
 
 /// Allowed origins for config write operations.
 /// In desktop mode, Tauri webview sends `tauri://localhost`.
+/// In embedded-frontend remote mode, the Tauri app protocol sends `notesmith-app://localhost`.
+/// On Windows/Android, Tauri custom protocols use `http://notesmith-app.localhost`.
 /// In dev/web mode, localhost origins are allowed.
-const ALLOWED_WRITE_ORIGINS: &[&str] =
-    &["tauri://localhost", "http://localhost", "http://127.0.0.1"];
+const EMBEDDED_APP_HTTP_HOST: &str = "notesmith-app.localhost";
 
 #[derive(Debug)]
 pub struct WriteGuard;
@@ -18,10 +22,7 @@ impl<S: Send + Sync> FromRequestParts<S> for WriteGuard {
             return Ok(WriteGuard);
         };
 
-        if ALLOWED_WRITE_ORIGINS
-            .iter()
-            .any(|allowed| origin.starts_with(allowed))
-        {
+        if is_allowed_write_origin(origin) {
             return Ok(WriteGuard);
         }
 
@@ -32,6 +33,28 @@ impl<S: Send + Sync> FromRequestParts<S> for WriteGuard {
                 "message": format!("Origin '{origin}' is not allowed for write operations")
             })),
         ))
+    }
+}
+
+fn is_allowed_write_origin(origin: &str) -> bool {
+    let Ok(uri) = origin.parse::<Uri>() else {
+        return false;
+    };
+    let Some(scheme) = uri.scheme_str() else {
+        return false;
+    };
+    let Some(host) = uri.host() else {
+        return false;
+    };
+
+    match scheme {
+        "tauri" | "notesmith-app" => host.eq_ignore_ascii_case("localhost"),
+        "http" => {
+            host.eq_ignore_ascii_case("localhost")
+                || host == "127.0.0.1"
+                || host.eq_ignore_ascii_case(EMBEDDED_APP_HTTP_HOST)
+        }
+        _ => false,
     }
 }
 
@@ -63,6 +86,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn allows_embedded_app_origin() {
+        assert!(
+            extract_guard(Some("notesmith-app://localhost"))
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn allows_embedded_app_http_origin() {
+        assert!(
+            extract_guard(Some("http://notesmith-app.localhost"))
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
     async fn allows_localhost_origin() {
         assert!(extract_guard(Some("http://localhost:5173")).await.is_ok());
     }
@@ -75,6 +116,12 @@ mod tests {
     #[tokio::test]
     async fn rejects_foreign_origin() {
         let result = extract_guard(Some("https://evil.example.com")).await;
+        assert_eq!(result.unwrap_err(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn rejects_localhost_prefix_spoofing() {
+        let result = extract_guard(Some("http://localhost.evil.example")).await;
         assert_eq!(result.unwrap_err(), axum::http::StatusCode::FORBIDDEN);
     }
 }

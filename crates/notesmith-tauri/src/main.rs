@@ -11,12 +11,15 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+use notesmith_tauri::app_url::{
+    APP_PROTOCOL, FrontendMode, app_asset_path, app_window_url, should_fallback_to_index,
+};
 use notesmith_tauri::daemon::{self, DaemonSettings, DaemonState, DynError};
 use notesmith_tauri::vault_menu::{
     OPEN_FOLDER_AS_VAULT_ID, decode_open_vault_id, encode_open_vault_id,
     validate_vault_display_name,
 };
-use notesmith_tauri::vault_window::{is_vault_window_label, vault_app_url, vault_window_label};
+use notesmith_tauri::vault_window::{is_vault_window_label, vault_window_label};
 use notesmith_tauri::windows_persist::{
     self, Rect, WindowEntry, WindowsFile, dedupe_latest_per_vault,
 };
@@ -345,6 +348,7 @@ fn main() {
             fallback: None,
         })))
         .register_uri_scheme_protocol(INTERNAL_PROTOCOL, handle_internal_protocol)
+        .register_uri_scheme_protocol(APP_PROTOCOL, handle_app_protocol)
         .enable_macos_default_menu(false)
         .invoke_handler(tauri::generate_handler![
             retry_daemon_connect,
@@ -397,27 +401,27 @@ fn main() {
                         handle_vault_window_destroyed(window.app_handle(), &label);
                     }
                 }
-                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
-                    if is_vault_window_label(&label) {
-                        let app = window.app_handle().clone();
-                        let label = label.clone();
-                        // Debounce in-process: only one writer wins per slot.
-                        if app
-                            .state::<WindowsPersistState>()
-                            .try_take_debounce_slot()
-                        {
-                            tauri::async_runtime::spawn(async move {
-                                tauri::async_runtime::spawn_blocking(move || {
-                                    if let Err(error) = persist_open_windows(&app) {
-                                        tracing::warn!(
-                                            "failed to persist windows after geometry change ({label}): {error}"
-                                        );
-                                    }
-                                })
-                                .await
-                                .ok();
-                            });
-                        }
+                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_)
+                    if is_vault_window_label(&label) =>
+                {
+                    let app = window.app_handle().clone();
+                    let label = label.clone();
+                    // Debounce in-process: only one writer wins per slot.
+                    if app
+                        .state::<WindowsPersistState>()
+                        .try_take_debounce_slot()
+                    {
+                        tauri::async_runtime::spawn(async move {
+                            tauri::async_runtime::spawn_blocking(move || {
+                                if let Err(error) = persist_open_windows(&app) {
+                                    tracing::warn!(
+                                        "failed to persist windows after geometry change ({label}): {error}"
+                                    );
+                                }
+                            })
+                            .await
+                            .ok();
+                        });
                     }
                 }
                 _ => {}
@@ -1150,7 +1154,7 @@ fn ensure_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
         .cloned()
         .ok_or_else(|| std::io::Error::other("missing main window config"))?;
 
-    window_config.url = WebviewUrl::External(app_url);
+    window_config.url = webview_url_for_app(app_url);
     WebviewWindowBuilder::from_config(app, &window_config)?.build()?;
     Ok(())
 }
@@ -1166,7 +1170,7 @@ fn ensure_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
 /// The caller is responsible for `.show()/.set_focus()` on the returned window.
 fn ensure_vault_window<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<String, DynError> {
     let label = vault_window_label(vault);
-    let target_url = Url::parse(&vault_app_url(&current_daemon_url(app), vault))?;
+    let target_url = current_vault_app_url(app, vault)?;
 
     if let Some(window) = app.get_webview_window(&label) {
         if window.url()?.as_str() != target_url.as_str() {
@@ -1187,7 +1191,7 @@ fn ensure_vault_window<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<St
         .ok_or_else(|| std::io::Error::other("missing main window config"))?;
 
     window_config.label = label.clone();
-    window_config.url = WebviewUrl::External(target_url);
+    window_config.url = webview_url_for_app(target_url);
     window_config.title = "Notesmith".to_string();
     WebviewWindowBuilder::from_config(app, &window_config)?.build()?;
 
@@ -1615,11 +1619,39 @@ fn set_current_daemon_url<R: Runtime>(app: &AppHandle<R>, daemon_url: String) {
 }
 
 fn current_app_url<R: Runtime>(app: &AppHandle<R>) -> Result<Url, DynError> {
-    Url::parse(&format!(
-        "{}/app/",
-        current_daemon_url(app).trim_end_matches('/')
+    current_app_url_for_vault(app, None)
+}
+
+fn current_vault_app_url<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<Url, DynError> {
+    current_app_url_for_vault(app, Some(vault))
+}
+
+fn current_app_url_for_vault<R: Runtime>(
+    app: &AppHandle<R>,
+    vault: Option<&str>,
+) -> Result<Url, DynError> {
+    Url::parse(&app_window_url(
+        &current_daemon_url(app),
+        vault,
+        frontend_mode(),
     ))
     .map_err(Into::into)
+}
+
+fn frontend_mode() -> FrontendMode {
+    if DaemonSettings::default().external_url {
+        FrontendMode::Embedded
+    } else {
+        FrontendMode::Daemon
+    }
+}
+
+fn webview_url_for_app(url: Url) -> WebviewUrl {
+    if url.scheme() == APP_PROTOCOL {
+        WebviewUrl::CustomProtocol(url)
+    } else {
+        WebviewUrl::External(url)
+    }
 }
 
 fn register_supervised_child<R: Runtime + 'static>(app: AppHandle<R>, child: Child) {
@@ -2038,6 +2070,48 @@ fn handle_internal_protocol<R: Runtime>(
             .body(Cow::Borrowed(b"Not found" as &[u8]))
             .expect("404 response must build"),
     }
+}
+
+fn handle_app_protocol<R: Runtime>(
+    ctx: UriSchemeContext<'_, R>,
+    request: tauri::http::Request<Vec<u8>>,
+) -> tauri::http::Response<Cow<'static, [u8]>> {
+    let path = request.uri().path();
+    let Some(asset_path) = app_asset_path(path) else {
+        return not_found_response();
+    };
+
+    if let Some(asset) = ctx.app_handle().asset_resolver().get(asset_path) {
+        return asset_response(asset);
+    }
+
+    if should_fallback_to_index(path)
+        && let Some(asset) = ctx
+            .app_handle()
+            .asset_resolver()
+            .get("index.html".to_string())
+    {
+        return asset_response(asset);
+    }
+
+    not_found_response()
+}
+
+fn asset_response(asset: tauri::Asset) -> tauri::http::Response<Cow<'static, [u8]>> {
+    let mut builder = tauri::http::Response::builder().header("Content-Type", asset.mime_type);
+    if let Some(csp) = asset.csp_header {
+        builder = builder.header("Content-Security-Policy", csp);
+    }
+    builder
+        .body(Cow::Owned(asset.bytes))
+        .expect("asset response must build")
+}
+
+fn not_found_response() -> tauri::http::Response<Cow<'static, [u8]>> {
+    tauri::http::Response::builder()
+        .status(404)
+        .body(Cow::Borrowed(b"Not found" as &[u8]))
+        .expect("404 response must build")
 }
 
 fn escape_html(input: &str) -> String {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { apiFetch, isNetworkError, versionMismatch } from './core.ts';
+import { apiFetch, isNetworkError, resolveApiBase, versionMismatch } from './core.ts';
 
 afterEach(() => {
 	versionMismatch.set(null);
@@ -44,5 +44,22 @@ describe('isNetworkError', () => {
 	it('detects fetch type errors', () => {
 		expect(isNetworkError(new TypeError('Failed to fetch'))).toBe(true);
 		expect(isNetworkError(new Error('Failed to fetch'))).toBe(false);
+	});
+});
+
+describe('resolveApiBase', () => {
+	it('uses apiBase from the embedded desktop app URL', () => {
+		const url = new URL(
+			'notesmith-app://localhost/app/?apiBase=http%3A%2F%2F100.64.0.10%3A27183&vault=work'
+		);
+
+		expect(resolveApiBase(url)).toBe('http://100.64.0.10:27183');
+	});
+
+	it('ignores missing or unsafe apiBase values', () => {
+		expect(resolveApiBase(new URL('notesmith-app://localhost/app/'))).toBe('');
+		expect(resolveApiBase(new URL('notesmith-app://localhost/app/?apiBase=javascript:alert(1)'))).toBe(
+			''
+		);
 	});
 });

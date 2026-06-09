@@ -150,7 +150,7 @@ curl -i http://127.0.0.1:27183/api/v/work/config
 
 ### `PUT /api/v/{vault}/config`
 
-Update the vault configuration. Requires an `If-Match` header with the current config hash (from a prior `GET`) for optimistic concurrency control. The `WriteGuard` extractor checks the `Origin` header — only `tauri://localhost`, `http://localhost`, and `http://127.0.0.1` origins are allowed for writes. Requests with no `Origin` header (curl, CLI) are permitted.
+Update the vault configuration. Requires an `If-Match` header with the current config hash (from a prior `GET`) for optimistic concurrency control. The `WriteGuard` extractor checks the `Origin` header — only `tauri://localhost`, `notesmith-app://localhost`, `http://notesmith-app.localhost`, `http://localhost`, and `http://127.0.0.1` origins are allowed for writes. Requests with no `Origin` header (curl, CLI) are permitted.
 
 **Request headers:**
 - `If-Match: "a1b2c3d4..."` — required, config hash from prior GET

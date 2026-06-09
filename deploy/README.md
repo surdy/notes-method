@@ -29,13 +29,13 @@ Two flavors are published from the same `Containerfile`:
 
 | Flavor | Tag prefix | Contents | Use case |
 |--------|------------|----------|----------|
-| **app** (default) | `latest`, `sha-*`, `YYYY.MM.DD` | Binary + SvelteKit frontend | Desktop app (`NOTESMITH_DESKTOP_DAEMON_URL`) or browser on the same network |
-| **api** | `api-latest`, `api-sha-*`, `api-YYYY.MM.DD` | Binary only (smaller) | CLI / MCP / API-only access |
+| **app** (default) | `latest`, `sha-*`, `YYYY.MM.DD` | Binary + SvelteKit frontend | Browser on the same network, or desktop app |
+| **api** | `api-latest`, `api-sha-*`, `api-YYYY.MM.DD` | Binary only (smaller) | CLI / MCP / API-only access, or desktop app with embedded frontend |
 
-> ⚠️ **`api` + desktop app:** The desktop app loads its UI from `{daemon_url}/app/`.
-> The `api` flavor has no frontend there, so the webview shows blank.
-> Use the `app` flavor when connecting from the desktop app.
-> Full `api`-flavor desktop-app support requires a future update.
+> **Browser access:** Use the `app` flavor if you want to open
+> `http://server:27183/app/` directly in a browser. The `api` flavor has no
+> daemon-served frontend, but the Tauri desktop app supplies its own embedded
+> frontend when `NOTESMITH_DESKTOP_DAEMON_URL` points at the server.
 
 ## Image tags
 
@@ -58,13 +58,13 @@ The image is automatically built and pushed to GHCR by CI on every push to
 `main`. You can pull it directly on your server:
 
 ```bash
-# app flavor (default — includes frontend)
+# app flavor (default — includes daemon-served frontend for browsers)
 docker pull ghcr.io/surdy/notesmith:latest
 
 # Or pin to a specific immutable SHA tag (recommended for production):
 docker pull ghcr.io/surdy/notesmith:sha-a1b2c3d
 
-# api flavor (binary only)
+# api flavor (binary only; still works with the Tauri desktop app)
 docker pull ghcr.io/surdy/notesmith:api-latest
 ```
 
@@ -174,6 +174,9 @@ podman volume inspect notesmith-logs
 ## 4. Point the desktop app at the remote daemon
 
 The Tauri desktop app reads `NOTESMITH_DESKTOP_DAEMON_URL` to find the daemon.
+When this variable is set, the desktop shell serves its embedded frontend
+locally and sends API/SSE traffic to that daemon URL, so either image flavor
+works for desktop access.
 
 ### macOS (launchd)
 

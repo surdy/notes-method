@@ -5,17 +5,16 @@
 
 services:
   notesmith:
-    # 'latest' is the 'app' flavor — includes the SvelteKit frontend.
-    # Use this when connecting from the desktop app (NOTESMITH_DESKTOP_DAEMON_URL)
-    # or a browser on the same network.
-    # For API/CLI/MCP-only use, switch to 'api-latest'.
+    # 'latest' is the 'app' flavor — includes the daemon-served SvelteKit
+    # frontend for browser access. The Tauri desktop app also works with
+    # 'api-latest' because it embeds the frontend and only needs the daemon API.
     image: ghcr.io/surdy/notesmith:latest
     # Pin to an immutable SHA tag for production stability, e.g.:
     # image: ghcr.io/surdy/notesmith:sha-a1b2c3d
     build:
       context: .
       dockerfile: Containerfile
-      target: app   # or 'api' for binary-only
+      target: app   # or 'api' for binary-only / desktop-API access
     container_name: notesmith-daemon
     restart: unless-stopped
 

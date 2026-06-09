@@ -6,6 +6,8 @@
 //! slugs would otherwise collide (e.g. `Foo Bar`, `foo-bar`, `foo_bar` all
 //! reduce to slug `foo-bar`).
 
+use crate::app_url::{FrontendMode, app_window_url};
+
 /// Prefix used by every vault-bound window label.
 pub const VAULT_WINDOW_LABEL_PREFIX: &str = "main:";
 
@@ -82,33 +84,12 @@ pub fn short_hash(vault: &str) -> String {
 ///
 /// Returns a string like `http://127.0.0.1:27183/app/?vault=<encoded>`.
 pub fn vault_app_url(daemon_base: &str, vault: &str) -> String {
-    let base = daemon_base.trim_end_matches('/');
-    format!("{base}/app/?vault={}", encode_query_value(vault))
+    app_window_url(daemon_base, Some(vault), FrontendMode::Daemon)
 }
 
 /// Build the webview URL for the onboarding/no-vault flow.
 pub fn onboarding_app_url(daemon_base: &str) -> String {
-    let base = daemon_base.trim_end_matches('/');
-    format!("{base}/app/")
-}
-
-/// Minimal URL-query-component encoder (percent-encodes characters outside
-/// the unreserved set). Avoids a dependency on `urlencoding` for one call site.
-fn encode_query_value(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        let is_unreserved = byte.is_ascii_alphanumeric()
-            || byte == b'-'
-            || byte == b'_'
-            || byte == b'.'
-            || byte == b'~';
-        if is_unreserved {
-            out.push(byte as char);
-        } else {
-            out.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    out
+    app_window_url(daemon_base, None, FrontendMode::Daemon)
 }
 
 #[cfg(test)]

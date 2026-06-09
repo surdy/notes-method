@@ -30,11 +30,9 @@ COPY crates/ crates/
 RUN cargo build --release -p notesmith-cli --target x86_64-unknown-linux-gnu
 
 # ── Stage 3: api — runtime with Rust binary only ────────────────────────────
-# Use this image when you access Notesmith exclusively via the desktop app
-# (NOTESMITH_DESKTOP_DAEMON_URL) or CLI/MCP. No browser-based UI is bundled.
-# NOTE: desktop-app support for this flavor requires a future desktop-app update
-# (embedded frontend assets + configurable API_BASE). Until then, use the 'app'
-# flavor when connecting from the desktop app.
+# Use this image when you access Notesmith through CLI/MCP/API clients or the
+# Tauri desktop app with NOTESMITH_DESKTOP_DAEMON_URL. No browser-based UI is
+# bundled; browser access to /app/ requires the 'app' flavor below.
 FROM debian:bookworm-slim AS api
 
 # ca-certificates: needed for any HTTPS calls the daemon may make
@@ -78,9 +76,8 @@ ENTRYPOINT ["notesmith"]
 CMD ["daemon", "start", "--bind", "0.0.0.0:27183"]
 
 # ── Stage 4: app — runtime with frontend bundled (default) ──────────────────
-# Includes the SvelteKit frontend. The daemon serves it at /app so the Tauri
-# desktop app (NOTESMITH_DESKTOP_DAEMON_URL) and any browser on the same
-# network can use the full UI.
+# Includes the SvelteKit frontend. The daemon serves it at /app so browsers on
+# the same network can use the full UI.
 FROM api AS app
 
 USER root

@@ -171,7 +171,7 @@ vaults/ (plain markdown)
 - It is launched with `notesmith daemon start`.
 - Default bind address is `127.0.0.1:27183`.
 - `--bind` can expose it elsewhere, but the daemon itself remains auth-ignorant.
-- The compiled SvelteKit app is served by the daemon under `/app/` when frontend assets are present. Containerized deployments publish two flavors: `app` bundles the frontend and sets `NOTESMITH_APP_DIR=/app-ui`, while `api` is binary-only for CLI/MCP/API-only use.
+- The compiled SvelteKit app is served by the daemon under `/app/` when frontend assets are present. Containerized deployments publish two flavors: `app` bundles the frontend and sets `NOTESMITH_APP_DIR=/app-ui` for browser access, while `api` is binary-only for CLI/MCP/API-only use and Tauri desktop clients with embedded frontend assets.
 - There is **no separate `notesmithd` binary**.
 
 ### 3.3 Tauri shell role
@@ -184,7 +184,7 @@ Tauri is a **thin shell pointing at localhost**. It is responsible for:
 - exposing the system tray and basic native menu items.
 
 The Tauri shell does **not** own business logic, query execution, or note state.
-When `NOTESMITH_DESKTOP_DAEMON_URL` points the desktop shell at a remote/container daemon, that daemon must be the `app` image flavor so `/app/` serves the frontend. Supporting the binary-only `api` flavor with the desktop app is deferred until the Tauri shell embeds frontend assets and serves them locally.
+When `NOTESMITH_DESKTOP_DAEMON_URL` points the desktop shell at a remote/container daemon, the shell loads bundled SvelteKit assets from the `notesmith-app://localhost/app/` custom protocol and passes `apiBase=<daemon>` to the frontend. API calls and SSE streams target that daemon, so the desktop app works with both container flavors; only browser access requires the `app` flavor's daemon-served `/app/`.
 
 ### 3.4 Authentication model
 

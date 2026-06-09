@@ -393,14 +393,14 @@ where
     StatusFuture: Future<Output = Result<DaemonStatus, DynError>>,
 {
     pub async fn orchestrate_startup(&self) -> DaemonState {
-        if !self.settings.external_url {
-            if let Some((settings, lockfile)) = self.read_lockfile_settings() {
-                if self.wait_until_ready(settings.clone()).await {
-                    return self.check_version(settings).await;
-                }
-
-                return DaemonState::PortConflict { pid: lockfile.pid };
+        if !self.settings.external_url
+            && let Some((settings, lockfile)) = self.read_lockfile_settings()
+        {
+            if self.wait_until_ready(settings.clone()).await {
+                return self.check_version(settings).await;
             }
+
+            return DaemonState::PortConflict { pid: lockfile.pid };
         }
 
         if (self.probe)(self.settings.clone()).await {

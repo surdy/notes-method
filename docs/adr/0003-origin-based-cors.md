@@ -15,7 +15,7 @@ Use **Origin-based CORS enforcement** for write operations:
 
 - Read endpoints (GET): permissive (existing behavior)
 - Write endpoints (PUT/POST): require `Origin` header matching allowed origins
-- Allowed origins: `tauri://localhost`, `http://localhost`, `http://127.0.0.1`
+- Allowed origins: `tauri://localhost`, `notesmith-app://localhost`, `http://notesmith-app.localhost`, `http://localhost`, `http://127.0.0.1`
 - No Origin header = allowed (same-origin requests, curl, CLI tools)
 - Return `403 Forbidden` for disallowed origins
 
