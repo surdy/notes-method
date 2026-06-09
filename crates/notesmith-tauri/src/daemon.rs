@@ -19,19 +19,25 @@ pub struct DaemonSettings {
     pub ping_timeout: Duration,
     pub startup_wait: Duration,
     pub startup_poll_interval: Duration,
+    /// True when the daemon URL was supplied via `NOTESMITH_DESKTOP_DAEMON_URL`.
+    /// When true, skip the local lockfile check and daemon launch — the remote
+    /// daemon is managed independently and its lockfile is not on this machine.
+    pub external_url: bool,
 }
 
 impl Default for DaemonSettings {
     fn default() -> Self {
+        let external = std::env::var("NOTESMITH_DESKTOP_DAEMON_URL");
+        let external_url = external.is_ok();
         Self {
-            daemon_url: std::env::var("NOTESMITH_DESKTOP_DAEMON_URL")
-                .unwrap_or_else(|_| DEFAULT_DAEMON_URL.to_string()),
+            daemon_url: external.unwrap_or_else(|_| DEFAULT_DAEMON_URL.to_string()),
             daemon_bin: std::env::var("NOTESMITH_DESKTOP_DAEMON_BIN")
                 .unwrap_or_else(|_| DEFAULT_DAEMON_BIN.to_string()),
             sidecar_path: None,
             ping_timeout: Duration::from_secs(2),
             startup_wait: Duration::from_secs(10),
             startup_poll_interval: Duration::from_millis(500),
+            external_url,
         }
     }
 }
@@ -48,6 +54,8 @@ impl DaemonSettings {
     pub fn with_daemon_url(&self, daemon_url: impl Into<String>) -> Self {
         let mut settings = self.clone();
         settings.daemon_url = daemon_url.into();
+        // Preserve external_url — callers like daemon_settings_for_lockfile only
+        // adjust the port, they don't change whether the daemon is remote.
         settings
     }
 
@@ -385,16 +393,26 @@ where
     StatusFuture: Future<Output = Result<DaemonStatus, DynError>>,
 {
     pub async fn orchestrate_startup(&self) -> DaemonState {
-        if let Some((settings, lockfile)) = self.read_lockfile_settings() {
-            if self.wait_until_ready(settings.clone()).await {
-                return self.check_version(settings).await;
-            }
+        if !self.settings.external_url {
+            if let Some((settings, lockfile)) = self.read_lockfile_settings() {
+                if self.wait_until_ready(settings.clone()).await {
+                    return self.check_version(settings).await;
+                }
 
-            return DaemonState::PortConflict { pid: lockfile.pid };
+                return DaemonState::PortConflict { pid: lockfile.pid };
+            }
         }
 
         if (self.probe)(self.settings.clone()).await {
             return self.check_version(self.settings.clone()).await;
+        }
+
+        if self.settings.external_url {
+            tracing::warn!(
+                "external daemon at {} is unreachable",
+                self.settings.daemon_url
+            );
+            return DaemonState::Unreachable;
         }
 
         if let Err(error) = (self.launch)(self.settings.clone()).await {
@@ -484,25 +502,42 @@ pub async fn orchestrate_startup(settings: &DaemonSettings) -> DaemonState {
 pub async fn orchestrate_startup_supervised(settings: &DaemonSettings) -> SupervisedStartup {
     let settings = settings.clone();
 
-    match read_active_lockfile() {
-        Ok(Some(lockfile)) => {
-            let settings = daemon_settings_for_lockfile(&settings, &lockfile);
-            if wait_for_status_ready(settings.clone()).await {
-                return resolve_supervised_version(settings, None).await;
-            }
+    // When pointing at an external daemon (NOTESMITH_DESKTOP_DAEMON_URL), the
+    // local lockfile belongs to a different process.  Skip the lockfile check
+    // and skip launching — just probe the configured URL.
+    if !settings.external_url {
+        match read_active_lockfile() {
+            Ok(Some(lockfile)) => {
+                let settings = daemon_settings_for_lockfile(&settings, &lockfile);
+                if wait_for_status_ready(settings.clone()).await {
+                    return resolve_supervised_version(settings, None).await;
+                }
 
-            return SupervisedStartup {
-                state: DaemonState::PortConflict { pid: lockfile.pid },
-                child: None,
-                upgraded_daemon: false,
-            };
+                return SupervisedStartup {
+                    state: DaemonState::PortConflict { pid: lockfile.pid },
+                    child: None,
+                    upgraded_daemon: false,
+                };
+            }
+            Ok(None) => {}
+            Err(error) => tracing::warn!("failed to read daemon lockfile: {error}"),
         }
-        Ok(None) => {}
-        Err(error) => tracing::warn!("failed to read daemon lockfile: {error}"),
     }
 
     if probe_daemon(settings.clone()).await {
         return resolve_supervised_version(settings, None).await;
+    }
+
+    if settings.external_url {
+        tracing::warn!(
+            "external daemon at {} is unreachable",
+            settings.daemon_url
+        );
+        return SupervisedStartup {
+            state: DaemonState::Unreachable,
+            child: None,
+            upgraded_daemon: false,
+        };
     }
 
     match launch_daemon_supervised(settings.clone()).await {
@@ -531,6 +566,9 @@ pub async fn orchestrate_startup_supervised(settings: &DaemonSettings) -> Superv
 }
 
 pub fn resolve_daemon_settings(settings: &DaemonSettings) -> DaemonSettings {
+    if settings.external_url {
+        return settings.clone();
+    }
     match read_active_lockfile() {
         Ok(Some(lockfile)) => daemon_settings_for_lockfile(settings, &lockfile),
         Ok(None) => settings.clone(),
@@ -761,6 +799,15 @@ mod tests {
             ping_timeout: std::time::Duration::from_millis(5),
             startup_wait: std::time::Duration::from_millis(30),
             startup_poll_interval: std::time::Duration::from_millis(5),
+            external_url: false,
+        }
+    }
+
+    fn external_test_settings() -> DaemonSettings {
+        DaemonSettings {
+            daemon_url: "https://notesmith.example.com".into(),
+            external_url: true,
+            ..test_settings()
         }
     }
 
@@ -1169,5 +1216,42 @@ mod tests {
                 .all(|url| url == "http://127.0.0.1:40123"),
             "expected all probes to use the lockfile port"
         );
+    }
+
+    #[tokio::test]
+    async fn orchestrate_startup_skips_lockfile_when_external_url_set() {
+        // When NOTESMITH_DESKTOP_DAEMON_URL is set, a stale local lockfile must
+        // not cause a PortConflict — the external daemon is unreachable here, so
+        // we expect Unreachable (not PortConflict).
+        let launches = Arc::new(AtomicUsize::new(0));
+        let orchestrator = StartupOrchestrator::new(
+            external_test_settings(),
+            // Lockfile has a stale PID — should be ignored
+            || Ok(Some(sample_lockfile(36794, 27183))),
+            // External daemon is down
+            |_| async { false },
+            {
+                let launches = launches.clone();
+                move |_| {
+                    let launches = launches.clone();
+                    async move {
+                        launches.fetch_add(1, Ordering::SeqCst);
+                        Ok::<(), DynError>(())
+                    }
+                }
+            },
+            |_| async {
+                Ok(super::DaemonStatus {
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                })
+            },
+        );
+
+        assert_eq!(
+            orchestrator.orchestrate_startup().await,
+            DaemonState::Unreachable
+        );
+        // Must NOT try to launch a local daemon when external_url is set
+        assert_eq!(launches.load(Ordering::SeqCst), 0);
     }
 }
