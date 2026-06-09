@@ -41,7 +41,12 @@
 	let reindexingVault = $state<string | null>(null);
 
 	// Remove-confirmation modal state.
-	let confirmRemove = $state<{ name: string; isOpen: boolean } | null>(null);
+	let confirmRemove = $state<{
+		name: string;
+		isOpen: boolean;
+		isDefault: boolean;
+		isLast: boolean;
+	} | null>(null);
 	let removing = $state(false);
 
 	// Open-vault tracking. We still display whether a window is open in the UI,
@@ -207,7 +212,13 @@
 
 	// ── Remove ───────────────────────────────────────────────────
 	function requestRemove(name: string) {
-		confirmRemove = { name, isOpen: openVaults.includes(name) };
+		const vault = vaults.find((v) => v.name === name);
+		confirmRemove = {
+			name,
+			isOpen: openVaults.includes(name),
+			isDefault: vault?.is_default ?? false,
+			isLast: vaults.length === 1
+		};
 	}
 
 	function cancelConfirmRemove() {
@@ -343,10 +354,7 @@
 							<button
 								type="button"
 								class="btn-small danger"
-								disabled={vault.is_default}
-								title={vault.is_default
-									? 'Cannot remove the default vault. Set a different default first.'
-									: 'Remove vault'}
+								title="Remove vault"
 								onclick={() => requestRemove(vault.name)}
 							>Remove</button>
 						</div>
@@ -444,6 +452,15 @@
 				{#if confirmRemove.isOpen}
 					<br /><br />
 					The vault window is currently open and will be closed.
+				{/if}
+				{#if confirmRemove.isLast}
+					<br /><br />
+					This is your last vault. After removal, the app will show an
+					empty state where you can add a new vault.
+				{:else if confirmRemove.isDefault}
+					<br /><br />
+					This is your default vault. Another vault will be promoted to
+					default automatically.
 				{/if}
 			</p>
 			<div class="modal-actions">

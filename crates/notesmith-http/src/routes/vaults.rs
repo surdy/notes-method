@@ -198,17 +198,21 @@ pub async fn remove_vault(
         ));
     }
 
+    config.vaults.remove(&vault_name);
+
+    // If the removed vault was the default, pick a new one (first remaining
+    // by sorted name for determinism), or clear it entirely if no vaults
+    // remain. This lets the user delete the last vault without first having
+    // to promote another to default.
     if config.default_vault.as_deref() == Some(vault_name.as_str()) {
-        return Err((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(json!({
-                "error": "cannot_remove_default",
-                "message": "Cannot remove the default vault. Set a different default first."
-            })),
-        ));
+        let next_default = {
+            let mut names: Vec<&String> = config.vaults.keys().collect();
+            names.sort();
+            names.first().map(|name| (*name).clone())
+        };
+        config.default_vault = next_default;
     }
 
-    config.vaults.remove(&vault_name);
     config.save_to(&config_path).map_err(internal_error)?;
 
     emit_vaults_changed(&state, &vault_name).await;

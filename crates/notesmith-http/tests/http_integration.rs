@@ -438,6 +438,78 @@ async fn add_vault_emits_vaults_changed_event() {
 }
 
 #[tokio::test]
+async fn remove_default_vault_promotes_another_to_default() {
+    let temp_dir = TempDir::new().unwrap();
+    let alpha = temp_dir.path().join("alpha");
+    let beta = temp_dir.path().join("beta");
+    fs::create_dir_all(&alpha).unwrap();
+    fs::create_dir_all(&beta).unwrap();
+
+    let registered = vec![
+        ("alpha".to_string(), alpha.clone()),
+        ("beta".to_string(), beta.clone()),
+    ];
+    let config_path = temp_dir.path().join("config/notesmith/config.toml");
+    write_global_config(&config_path, &registered, Some("alpha"));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = build_test_state_with_vaults(&registered, config_path.clone());
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, state).await.unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .delete(format!("http://{address}/api/app/vaults/alpha"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::NO_CONTENT);
+
+    let config = GlobalConfig::load_from(&config_path).unwrap();
+    assert!(config.vault("alpha").is_none());
+    assert!(config.vault("beta").is_some());
+    assert_eq!(config.default_vault.as_deref(), Some("beta"));
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn remove_last_vault_clears_default() {
+    let temp_dir = TempDir::new().unwrap();
+    let solo = temp_dir.path().join("solo");
+    fs::create_dir_all(&solo).unwrap();
+
+    let registered = vec![("solo".to_string(), solo.clone())];
+    let config_path = temp_dir.path().join("config/notesmith/config.toml");
+    write_global_config(&config_path, &registered, Some("solo"));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = build_test_state_with_vaults(&registered, config_path.clone());
+
+    let server = tokio::spawn(async move {
+        serve_with_listener(listener, state).await.unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .delete(format!("http://{address}/api/app/vaults/solo"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::NO_CONTENT);
+
+    let config = GlobalConfig::load_from(&config_path).unwrap();
+    assert!(config.vaults.is_empty());
+    assert_eq!(config.default_vault, None);
+
+    server.abort();
+}
+
+#[tokio::test]
 async fn list_notes_returns_cached_notes_for_vault() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
