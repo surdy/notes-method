@@ -12,11 +12,15 @@ export async function listVaults(): Promise<VaultInfo[]> {
 	return res.json();
 }
 
-export async function addVault(name: string, path: string): Promise<void> {
+export async function addVault(
+	name: string,
+	path: string,
+	options: { create?: boolean } = {}
+): Promise<void> {
 	const res = await apiFetch(`${API_BASE}/api/app/vaults`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ name, path })
+		body: JSON.stringify({ name, path, create: options.create ?? false })
 	});
 	if (res.status === 409) {
 		const data = await res.json();

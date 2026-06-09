@@ -27,7 +27,8 @@
 	// Add vault form
 	let showAddForm = $state(false);
 	let addName = $state('');
-	let addPath = $state('');
+	let addParentPath = $state('');
+	let addCreateSubfolder = $state(true);
 	let addError = $state<string | null>(null);
 	let addSaving = $state(false);
 
@@ -39,7 +40,13 @@
 	// Reindex state
 	let reindexingVault = $state<string | null>(null);
 
-	// Open-vault tracking for issue 103 — disable Remove for vaults with a live window.
+	// Remove-confirmation modal state.
+	let confirmRemove = $state<{ name: string; isOpen: boolean } | null>(null);
+	let removing = $state(false);
+
+	// Open-vault tracking. We still display whether a window is open in the UI,
+	// but Remove is no longer gated by it — we close the window automatically
+	// before unregistering the vault.
 	let openVaults = $state<string[]>([]);
 	const tauriBridge = resolveTauri();
 	let openVaultsPollHandle: ReturnType<typeof setInterval> | null = null;
@@ -60,8 +67,6 @@
 	onMount(() => {
 		void refreshOpenVaults();
 		if (tauriBridge) {
-			// Light polling so the Remove buttons re-enable when the user closes a
-			// vault window without leaving Settings.
 			openVaultsPollHandle = setInterval(() => void refreshOpenVaults(), 2000);
 		}
 	});
@@ -94,7 +99,8 @@
 	function openAddForm() {
 		showAddForm = true;
 		addName = '';
-		addPath = capabilities?.vaults_root ?? '';
+		addParentPath = capabilities?.vaults_root ?? '';
+		addCreateSubfolder = true;
 		addError = null;
 	}
 
@@ -103,18 +109,56 @@
 		addError = null;
 	}
 
+	// Strip a trailing slash for clean preview concatenation.
+	function trimTrailingSlash(p: string): string {
+		return p.replace(/[\\/]+$/, '');
+	}
+
+	let computedPath = $derived.by(() => {
+		const parent = trimTrailingSlash(addParentPath.trim());
+		const name = addName.trim();
+		if (!parent) return '';
+		if (addCreateSubfolder && name) {
+			return `${parent}/${name}`;
+		}
+		return parent;
+	});
+
+	async function browseFolder() {
+		if (!tauriBridge) {
+			addError = 'Folder picker requires the desktop app.';
+			return;
+		}
+		try {
+			const result = (await tauriBridge.invoke('pick_vault_folder')) as string | null;
+			if (result) {
+				addParentPath = result;
+			}
+		} catch (e) {
+			addError = e instanceof Error ? e.message : 'Folder picker failed.';
+		}
+	}
+
 	async function submitAdd() {
-		if (!addName.trim() || !addPath.trim()) {
-			addError = 'Both name and path are required.';
+		const name = addName.trim();
+		const parent = trimTrailingSlash(addParentPath.trim());
+		if (!name) {
+			addError = 'Vault name is required.';
+			return;
+		}
+		if (!parent) {
+			addError = addCreateSubfolder
+				? 'Pick a parent folder for the new vault.'
+				: 'Pick the vault folder.';
 			return;
 		}
 		addSaving = true;
 		addError = null;
 		try {
-			await addVault(addName.trim(), addPath.trim());
+			await addVault(name, computedPath, { create: addCreateSubfolder });
 			showAddForm = false;
 			addName = '';
-			addPath = '';
+			addParentPath = '';
 			await load();
 		} catch (e) {
 			addError = e instanceof Error ? e.message : 'Failed to add vault';
@@ -162,20 +206,38 @@
 	}
 
 	// ── Remove ───────────────────────────────────────────────────
-	async function handleRemove(name: string) {
+	function requestRemove(name: string) {
+		confirmRemove = { name, isOpen: openVaults.includes(name) };
+	}
+
+	function cancelConfirmRemove() {
+		if (removing) return;
+		confirmRemove = null;
+	}
+
+	async function confirmRemoveNow() {
+		if (!confirmRemove) return;
+		const { name, isOpen } = confirmRemove;
+		removing = true;
 		error = null;
-		if (openVaults.includes(name)) {
-			error = `Close the "${name}" window first before removing this vault.`;
-			return;
-		}
-		if (!window.confirm(`Remove vault "${name}"? This only unregisters the vault — your files will not be deleted.`)) {
-			return;
-		}
 		try {
+			if (isOpen && tauriBridge) {
+				try {
+					await tauriBridge.invoke('close_vault_window', { vault: name });
+				} catch (e) {
+					// Non-fatal — proceed with removal even if window close failed.
+					console.warn('close_vault_window failed', e);
+				}
+			}
 			await removeVault(name);
+			confirmRemove = null;
 			await load();
+			await refreshOpenVaults();
+			toastStore.add(`Vault "${name}" removed.`, 'success');
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to remove vault';
+		} finally {
+			removing = false;
 		}
 	}
 
@@ -201,80 +263,98 @@
 {#if status === 'loading'}
 	<p class="loading">Loading vaults…</p>
 {:else}
-	<div class="vaults-list">
-		{#each vaults as vault (vault.name)}
-			<div class="vault-card" class:is-default={vault.is_default}>
-				<div class="vault-main">
-					<div class="vault-info">
-						{#if renamingVault === vault.name}
-							<div class="rename-row">
-								<input
-									type="text"
-									class="rename-input"
-									bind:value={renameValue}
-									onkeydown={(e) => {
-										if (e.key === 'Enter') void submitRename(vault.name);
-										if (e.key === 'Escape') cancelRename();
-									}}
-								/>
-								<button
-									type="button"
-									class="btn-small"
-									onclick={() => void submitRename(vault.name)}>Save</button
-								>
-								<button type="button" class="btn-small muted" onclick={cancelRename}
-									>Cancel</button
-								>
-							</div>
-							{#if renameError}
-								<span class="inline-error">{renameError}</span>
+	{#if vaults.length === 0 && !showAddForm}
+		<div class="empty-state">
+			<h3 class="empty-title">No vaults yet</h3>
+			<p class="empty-message">
+				A vault is a folder where Notesmith stores your notes. Add an existing
+				folder or create a new one to get started.
+			</p>
+			<button type="button" class="btn-add-vault primary" onclick={openAddForm}>
+				+ Add Vault
+			</button>
+		</div>
+	{:else}
+		<div class="vaults-list">
+			{#each vaults as vault (vault.name)}
+				<div class="vault-card" class:is-default={vault.is_default}>
+					<div class="vault-main">
+						<div class="vault-info">
+							{#if renamingVault === vault.name}
+								<div class="rename-row">
+									<input
+										type="text"
+										class="rename-input"
+										bind:value={renameValue}
+										onkeydown={(e) => {
+											if (e.key === 'Enter') void submitRename(vault.name);
+											if (e.key === 'Escape') cancelRename();
+										}}
+									/>
+									<button
+										type="button"
+										class="btn-small"
+										onclick={() => void submitRename(vault.name)}>Save</button
+									>
+									<button type="button" class="btn-small muted" onclick={cancelRename}
+										>Cancel</button
+									>
+								</div>
+								{#if renameError}
+									<span class="inline-error">{renameError}</span>
+								{/if}
+							{:else}
+								<span class="vault-name">
+									{vault.name}
+									{#if openVaults.includes(vault.name)}
+										<span class="open-badge" title="A window is open for this vault"
+											>open</span
+										>
+									{/if}
+								</span>
 							{/if}
-						{:else}
-							<span class="vault-name">{vault.name}</span>
-						{/if}
-						<span class="vault-path">{vault.path}</span>
-					</div>
-					<div class="vault-actions">
-						<button
-							type="button"
-							class="default-btn"
-							class:active={vault.is_default}
-							title={vault.is_default ? 'Default vault' : 'Set as default'}
-							onclick={() => {
-								if (!vault.is_default) void handleSetDefault(vault.name);
-							}}
-						>
-							{vault.is_default ? '★' : '☆'}
-						</button>
-						<button
-							type="button"
-							class="btn-small"
-							onclick={() => startRename(vault.name)}
-						>Rename</button>
-						<button
-							type="button"
-							class="btn-small"
-							disabled={reindexingVault === vault.name}
-							onclick={() => void handleReindex(vault.name)}
-						>
-							{reindexingVault === vault.name ? 'Reindexing…' : 'Reindex'}
-						</button>
-						<button
-							type="button"
-							class="btn-small danger"
-							disabled={vault.is_default || openVaults.includes(vault.name)}
-							title={vault.is_default
-								? 'Cannot remove the default vault'
-								: openVaults.includes(vault.name)
-									? `Close the "${vault.name}" window first`
+							<span class="vault-path">{vault.path}</span>
+						</div>
+						<div class="vault-actions">
+							<button
+								type="button"
+								class="default-btn"
+								class:active={vault.is_default}
+								title={vault.is_default ? 'Default vault' : 'Set as default'}
+								onclick={() => {
+									if (!vault.is_default) void handleSetDefault(vault.name);
+								}}
+							>
+								{vault.is_default ? '★' : '☆'}
+							</button>
+							<button
+								type="button"
+								class="btn-small"
+								onclick={() => startRename(vault.name)}
+							>Rename</button>
+							<button
+								type="button"
+								class="btn-small"
+								disabled={reindexingVault === vault.name}
+								onclick={() => void handleReindex(vault.name)}
+							>
+								{reindexingVault === vault.name ? 'Reindexing…' : 'Reindex'}
+							</button>
+							<button
+								type="button"
+								class="btn-small danger"
+								disabled={vault.is_default}
+								title={vault.is_default
+									? 'Cannot remove the default vault. Set a different default first.'
 									: 'Remove vault'}
-							onclick={() => void handleRemove(vault.name)}
-						>Remove</button>
+								onclick={() => requestRemove(vault.name)}
+							>Remove</button>
+						</div>
 					</div>
 				</div>
-			</div>
-		{/each}
-	</div>
+			{/each}
+		</div>
+	{/if}
 
 	{#if showAddForm}
 		<div class="add-form">
@@ -291,24 +371,40 @@
 				/>
 			</label>
 			<label class="field">
-				<span class="field-label">Path</span>
-				{#if capabilities?.vaults_root}
-					<div class="path-prefix">
-						<span class="prefix">{capabilities.vaults_root}/</span>
-						<input
-							type="text"
-							bind:value={addPath}
-							placeholder="subfolder"
-						/>
-					</div>
-				{:else}
+				<span class="field-label">
+					{addCreateSubfolder ? 'Parent folder' : 'Vault folder'}
+				</span>
+				<div class="path-row">
 					<input
 						type="text"
-						bind:value={addPath}
-						placeholder="/path/to/vault"
+						bind:value={addParentPath}
+						placeholder={addCreateSubfolder
+							? '/path/to/parent'
+							: '/path/to/existing/vault'}
 					/>
-				{/if}
+					{#if tauriBridge}
+						<button type="button" class="btn-small" onclick={() => void browseFolder()}>
+							Browse…
+						</button>
+					{/if}
+				</div>
 			</label>
+			<label class="checkbox-row">
+				<input type="checkbox" bind:checked={addCreateSubfolder} />
+				<span>
+					Create new subfolder for vault
+					<small class="hint">
+						{addCreateSubfolder
+							? 'A new folder named after the vault will be created inside the parent folder.'
+							: 'Use an existing folder as the vault root.'}
+					</small>
+				</span>
+			</label>
+			{#if computedPath}
+				<div class="path-preview">
+					Vault path: <code>{computedPath}</code>
+				</div>
+			{/if}
 			<div class="add-actions">
 				<button
 					type="button"
@@ -321,9 +417,51 @@
 				<button type="button" class="btn-revert" onclick={cancelAdd}>Cancel</button>
 			</div>
 		</div>
-	{:else}
+	{:else if vaults.length > 0}
 		<button type="button" class="btn-add-vault" onclick={openAddForm}>+ Add Vault</button>
 	{/if}
+{/if}
+
+{#if confirmRemove}
+	<div class="modal-backdrop">
+		<button
+			type="button"
+			class="modal-backdrop-button"
+			aria-label="Close dialog"
+			onclick={cancelConfirmRemove}
+		></button>
+		<div
+			class="modal"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="confirm-remove-title"
+			tabindex="-1"
+		>
+			<h3 id="confirm-remove-title" class="modal-title">Remove vault?</h3>
+			<p class="modal-body">
+				Remove vault <strong>"{confirmRemove.name}"</strong>?
+				This only unregisters the vault — your files will not be deleted.
+				{#if confirmRemove.isOpen}
+					<br /><br />
+					The vault window is currently open and will be closed.
+				{/if}
+			</p>
+			<div class="modal-actions">
+				<button
+					type="button"
+					class="btn-revert"
+					disabled={removing}
+					onclick={cancelConfirmRemove}
+				>Cancel</button>
+				<button
+					type="button"
+					class="btn-danger"
+					disabled={removing}
+					onclick={() => void confirmRemoveNow()}
+				>{removing ? 'Removing…' : 'Remove'}</button>
+			</div>
+		</div>
+	</div>
 {/if}
 
 <style>
@@ -336,6 +474,29 @@
 	.loading {
 		color: var(--text-muted);
 		font-size: 13px;
+	}
+
+	.empty-state {
+		padding: 32px 24px;
+		text-align: center;
+		border: 1px dashed var(--border-strong);
+		border-radius: 8px;
+		margin: 8px 0 12px;
+	}
+
+	.empty-title {
+		margin: 0 0 6px;
+		font-size: 15px;
+		font-weight: 600;
+		color: var(--text-default);
+	}
+
+	.empty-message {
+		margin: 0 auto 16px;
+		max-width: 420px;
+		color: var(--text-muted);
+		font-size: 13px;
+		line-height: 1.5;
 	}
 
 	.vaults-list {
@@ -373,6 +534,20 @@
 	.vault-name {
 		font-size: 14px;
 		font-weight: 500;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.open-badge {
+		font-size: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		padding: 1px 6px;
+		border-radius: 3px;
+		background: var(--surface-translucent-subtle);
+		color: var(--text-muted);
 	}
 
 	.vault-path {
@@ -500,27 +675,52 @@
 		border-color: var(--accent-bg);
 	}
 
-	.path-prefix {
+	.path-row {
 		display: flex;
-		align-items: center;
-		gap: 0;
-		max-width: 360px;
+		align-items: stretch;
+		gap: 6px;
+		max-width: 480px;
 	}
 
-	.prefix {
-		padding: 5px 6px;
-		background: var(--surface-translucent-subtle);
-		border: 1px solid var(--border-strong);
-		border-right: none;
-		border-radius: 4px 0 0 4px;
-		color: var(--text-muted);
-		font-size: 12px;
-		white-space: nowrap;
-	}
-
-	.path-prefix input {
-		border-radius: 0 4px 4px 0 !important;
+	.path-row input {
 		flex: 1;
+		max-width: none;
+	}
+
+	.checkbox-row {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		margin-bottom: 10px;
+		font-size: 13px;
+		color: var(--text-default);
+		cursor: pointer;
+	}
+
+	.checkbox-row input[type='checkbox'] {
+		margin-top: 3px;
+		cursor: pointer;
+	}
+
+	.checkbox-row .hint {
+		display: block;
+		font-size: 11px;
+		color: var(--text-muted);
+		margin-top: 2px;
+	}
+
+	.path-preview {
+		margin-bottom: 10px;
+		font-size: 11px;
+		color: var(--text-muted);
+	}
+
+	.path-preview code {
+		font-family: var(--font-mono, monospace);
+		background: var(--surface-translucent-subtle);
+		padding: 2px 6px;
+		border-radius: 3px;
+		color: var(--text-default);
 	}
 
 	.add-actions {
@@ -529,7 +729,8 @@
 	}
 
 	.btn-save,
-	.btn-revert {
+	.btn-revert,
+	.btn-danger {
 		padding: 5px 14px;
 		border-radius: 4px;
 		border: 1px solid var(--border-strong);
@@ -547,8 +748,11 @@
 		background: var(--accent-hover);
 	}
 
-	.btn-save:disabled {
+	.btn-save:disabled,
+	.btn-danger:disabled,
+	.btn-revert:disabled {
 		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.btn-revert {
@@ -556,9 +760,19 @@
 		color: var(--text-muted);
 	}
 
-	.btn-revert:hover {
+	.btn-revert:hover:not(:disabled) {
 		background: var(--bg-hover);
 		color: var(--text-default);
+	}
+
+	.btn-danger {
+		background: var(--color-danger);
+		border-color: var(--color-danger);
+		color: var(--text-inverse);
+	}
+
+	.btn-danger:hover:not(:disabled) {
+		opacity: 0.9;
 	}
 
 	.btn-add-vault {
@@ -575,5 +789,71 @@
 	.btn-add-vault:hover {
 		border-color: var(--text-muted);
 		color: var(--text-default);
+	}
+
+	.btn-add-vault.primary {
+		border-style: solid;
+		border-color: var(--accent-bg);
+		background: var(--accent-bg);
+		color: var(--text-inverse);
+		font-weight: 500;
+	}
+
+	.btn-add-vault.primary:hover {
+		background: var(--accent-hover);
+		border-color: var(--accent-hover);
+		color: var(--text-inverse);
+	}
+
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+
+	.modal-backdrop-button {
+		position: absolute;
+		inset: 0;
+		background: transparent;
+		border: none;
+		padding: 0;
+		margin: 0;
+		cursor: default;
+	}
+
+	.modal {
+		position: relative;
+		z-index: 1;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-default);
+		border-radius: 8px;
+		padding: 20px 24px;
+		max-width: 420px;
+		width: calc(100% - 32px);
+		box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
+	}
+
+	.modal-title {
+		margin: 0 0 12px;
+		font-size: 15px;
+		font-weight: 600;
+		color: var(--text-default);
+	}
+
+	.modal-body {
+		margin: 0 0 20px;
+		font-size: 13px;
+		line-height: 1.5;
+		color: var(--text-default);
+	}
+
+	.modal-actions {
+		display: flex;
+		gap: 8px;
+		justify-content: flex-end;
 	}
 </style>

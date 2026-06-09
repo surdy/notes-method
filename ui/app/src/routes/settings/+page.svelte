@@ -34,6 +34,7 @@
 	let conflict = $derived(settingsStore.conflict);
 	let dirty = $derived(settingsStore.dirtySections);
 	let caps = $derived(settingsStore.capabilities);
+	let hasVault = $derived(Boolean(vault));
 
 	const vaultSections: { id: Section; label: string }[] = [
 		{ id: 'general', label: 'General' },
@@ -51,7 +52,11 @@
 
 	function navigateBack() {
 		settingsStore.resetState();
-		void goto(`${base}/?vault=${encodeURIComponent(vault)}`);
+		if (vault) {
+			void goto(`${base}/?vault=${encodeURIComponent(vault)}`);
+		} else {
+			void goto(`${base}/`);
+		}
 	}
 
 	function markDirty(section: string) {
@@ -89,7 +94,16 @@
 		const v = url.searchParams.get('vault');
 		if (v) vaultStore.currentVault = v;
 
-		void settingsStore.loadConfig(vault);
+		// Only load vault config when we actually have a vault. Without this
+		// guard the daemon returns 404 for `/api/v//config` and surfaces a
+		// confusing error to the user on a fresh install.
+		if (vault) {
+			void settingsStore.loadConfig(vault);
+		} else {
+			// No vault → drop the user straight into the Vaults section so the
+			// empty-state CTA is what they see first.
+			selectedSection = 'vaults';
+		}
 		if (!settingsStore.capabilities) {
 			void settingsStore.loadCapabilities();
 		}
@@ -109,24 +123,28 @@
 
 <div class="settings-layout">
 	<nav class="settings-nav">
-		<button class="back-btn" type="button" onclick={navigateBack}>← Back to vault</button>
+		<button class="back-btn" type="button" onclick={navigateBack}
+			>{hasVault ? '← Back to vault' : '← Close'}</button
+		>
 
-		<div class="nav-group">
-			<h3 class="nav-group-title">VAULT: {vault}</h3>
-			{#each vaultSections as section}
-				<button
-					class="nav-item"
-					class:active={selectedSection === section.id}
-					type="button"
-					onclick={() => (selectedSection = section.id)}
-				>
-					{section.label}
-					{#if dirty.has(section.id)}
-						<span class="dirty-dot" title="Unsaved changes">●</span>
-					{/if}
-				</button>
-			{/each}
-		</div>
+		{#if hasVault}
+			<div class="nav-group">
+				<h3 class="nav-group-title">VAULT: {vault}</h3>
+				{#each vaultSections as section}
+					<button
+						class="nav-item"
+						class:active={selectedSection === section.id}
+						type="button"
+						onclick={() => (selectedSection = section.id)}
+					>
+						{section.label}
+						{#if dirty.has(section.id)}
+							<span class="dirty-dot" title="Unsaved changes">●</span>
+						{/if}
+					</button>
+				{/each}
+			</div>
+		{/if}
 
 		<div class="nav-group">
 			<h3 class="nav-group-title">APP</h3>
