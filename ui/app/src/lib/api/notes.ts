@@ -1,4 +1,4 @@
-import { API_BASE, ApiError, apiFetch, encodePath } from './core.ts';
+import { API_BASE, ApiError, readErrorBody, apiFetch, encodePath } from './core.ts';
 
 export interface NoteSummary {
 	path: string;
@@ -62,13 +62,19 @@ export interface NoteTask {
 
 export async function listNotes(vault: string): Promise<NoteSummary[]> {
 	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes`);
-	if (!res.ok) throw new ApiError(`Failed to list notes: ${res.status}`, res.status);
+	if (!res.ok) {
+		const { code, message } = await readErrorBody(res);
+		throw new ApiError(message ?? `Failed to list notes: ${res.status}`, res.status, code);
+	}
 	return res.json();
 }
 
 export async function getNote(vault: string, path: string): Promise<NoteDetail> {
 	const res = await apiFetch(`${API_BASE}/api/v/${encodeURIComponent(vault)}/notes/${encodePath(path)}`);
-	if (!res.ok) throw new ApiError(`Failed to get note: ${res.status}`, res.status);
+	if (!res.ok) {
+		const { code, message } = await readErrorBody(res);
+		throw new ApiError(message ?? `Failed to get note: ${res.status}`, res.status, code);
+	}
 	return res.json();
 }
 

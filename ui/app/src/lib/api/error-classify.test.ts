@@ -58,4 +58,30 @@ describe('classifyError', () => {
 		expect(classified.category).toBe('unknown');
 		expect(classified.hint).toBe(SAFETY_HINT);
 	});
+
+	it('classifies vault-not-found 404 as a vault removal, not a version mismatch', () => {
+		const classified = classifyError(
+			new ApiError('vault not found: x', 404, 'vault_not_found'),
+			'list-notes'
+		);
+
+		expect(classified.title).toBe('Vault no longer exists');
+		expect(classified.retryable).toBe(false);
+		expect(classified.hint).toBe(SAFETY_HINT);
+	});
+
+	it('recognizes the legacy "vault not found: <name>" code', () => {
+		const classified = classifyError(
+			new ApiError('not found', 404, 'vault not found: alpha'),
+			'list-notes'
+		);
+
+		expect(classified.title).toBe('Vault no longer exists');
+	});
+
+	it('still treats 404 without a vault-not-found code as a version mismatch', () => {
+		const classified = classifyError(new ApiError('Not found', 404), 'list-notes');
+
+		expect(classified.title).toBe('Version mismatch detected');
+	});
 });

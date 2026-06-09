@@ -23,6 +23,16 @@ export interface ClassifiedError {
 
 const SAFETY_HINT = 'Your markdown files are safe on disk.';
 
+/**
+ * The daemon returns either the structured code `"vault_not_found"` (newer
+ * routes) or a message-style code `"vault not found: <name>"` (older
+ * routes). Both signal the same condition.
+ */
+function isVaultNotFoundCode(code: string | undefined): boolean {
+	if (!code) return false;
+	return code === 'vault_not_found' || code.startsWith('vault not found');
+}
+
 const SERVICE_NOT_RUNNING_RE =
 	/connection refused|econnrefused|failed to fetch|fetch failed|load failed|networkerror/i;
 const CONNECTION_LOST_RE =
@@ -58,8 +68,26 @@ export function classifyError(error: unknown, endpointHint?: string): Classified
 	}
 
 	if (error instanceof ApiError) {
-		if (error.status === 404 && endpointHint) {
-			return classifyEndpointNotFound(endpointHint, retryCount);
+		if (error.status === 404) {
+			// A 404 carrying `vault_not_found` (or the legacy "vault not
+			// found: <name>" message) means the requested vault no longer
+			// exists. This happens after the vault is removed from another
+			// window (or from Settings). Surfacing the generic "version
+			// mismatch" message would be misleading.
+			if (isVaultNotFoundCode(error.code)) {
+				return {
+					category: 'endpoint-not-found',
+					title: 'Vault no longer exists',
+					message:
+						'This vault has been removed. Open another vault or add a new one from Settings.',
+					hint: SAFETY_HINT,
+					retryable: false,
+					retryCount
+				};
+			}
+			if (endpointHint) {
+				return classifyEndpointNotFound(endpointHint, retryCount);
+			}
 		}
 		if (error.status === 409) {
 			return {

@@ -36,7 +36,9 @@ export interface AppShellEvent {
 
 export interface AppShellVaultStore {
 	currentVault: string;
+	notes: { length: number; splice: (start: number, deleteCount: number) => unknown };
 	loadNotes: () => Promise<void> | void;
+	clearError: () => void;
 }
 
 export interface AppShellTabStore {
@@ -239,11 +241,27 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 			return;
 		}
 
+		// Current vault is gone. If no vaults remain, drop into the empty
+		// state so the user isn't shown stale notes from a deleted vault
+		// (and isn't bombarded with 404 errors when the UI tries to load
+		// notes for a vault that no longer exists).
+		if (vaultNames.length === 0) {
+			sseConnection?.close();
+			sseConnection = null;
+			dependencies.vaultStore.currentVault = '';
+			dependencies.vaultStore.notes.splice(0, dependencies.vaultStore.notes.length);
+			dependencies.vaultStore.clearError();
+			callbacks.onNotesChanged();
+			return;
+		}
+
 		// Sticky window: once a vault was URL-pinned for this window, never
-		// auto-swap it away — even if the vault disappears from the registry.
-		// The window stays bound to the original vault; the user can close it
-		// manually.
-		if (urlPinnedVault) {
+		// auto-swap it away unless the vault was deleted. If it *was*
+		// deleted, fall through so we pick a replacement instead of leaving
+		// the window in a broken "vault not found" state.
+		const pinnedAndStillExists =
+			urlPinnedVault && vaultNames.includes(dependencies.vaultStore.currentVault);
+		if (urlPinnedVault && pinnedAndStillExists) {
 			return;
 		}
 
@@ -254,6 +272,7 @@ export function createAppShell(callbacks: AppShellCallbacks, dependencies: AppSh
 		}
 
 		dependencies.vaultStore.currentVault = nextVault;
+		dependencies.vaultStore.clearError();
 		await Promise.resolve(dependencies.vaultStore.loadNotes());
 		callbacks.onNotesChanged();
 		connectToVault(nextVault);

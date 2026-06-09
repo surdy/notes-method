@@ -20,12 +20,39 @@ export const versionMismatch = writable<VersionInfo | null>(null);
 
 export class ApiError extends Error {
 	readonly status: number;
+	/**
+	 * Optional machine-readable error code parsed from the daemon's JSON
+	 * response body (the `error` field). Lets the UI distinguish, for
+	 * example, a 404 caused by a vault that no longer exists from a 404
+	 * caused by a missing endpoint (version mismatch).
+	 */
+	readonly code?: string;
 
-	constructor(message: string, status: number) {
+	constructor(message: string, status: number, code?: string) {
 		super(message);
 		this.name = 'ApiError';
 		this.status = status;
+		this.code = code;
 	}
+}
+
+/**
+ * Try to parse `{ "error": "...", "message": "..." }` from a fetch Response
+ * body. Returns undefined if the body is not JSON or has no recognisable
+ * error fields. Consumes the response body.
+ */
+export async function readErrorBody(res: Response): Promise<{ code?: string; message?: string }> {
+	try {
+		const data = await res.clone().json();
+		if (data && typeof data === 'object') {
+			const code = typeof data.error === 'string' ? data.error : undefined;
+			const message = typeof data.message === 'string' ? data.message : undefined;
+			return { code, message };
+		}
+	} catch {
+		// Body wasn't JSON — fall through.
+	}
+	return {};
 }
 
 const NETWORK_ERROR_RE =
