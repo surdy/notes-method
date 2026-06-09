@@ -358,6 +358,7 @@ fn main() {
             confirm_window_close,
             open_folder_as_vault,
             list_open_vaults,
+            close_vault_window,
             pick_vault_folder
         ])
         .menu(build_app_menu)
@@ -2369,6 +2370,30 @@ fn list_open_vaults(app: tauri::AppHandle) -> Vec<String> {
         .collect();
     open.sort();
     open
+}
+
+/// Close the window for a given vault, if one is open.
+///
+/// Used by the Settings UI to gracefully close an open vault window before
+/// the user removes the vault registration. `WindowEvent::Destroyed` will
+/// then clean up the `VaultWindows` entry and persist `windows.json`.
+///
+/// Returns Ok(()) whether or not a window was found — callers shouldn't have
+/// to distinguish "no window open" from "window closed" before removing the
+/// vault registration.
+#[tauri::command]
+async fn close_vault_window(app: tauri::AppHandle, vault: String) -> Result<(), String> {
+    let label = {
+        let state = app.state::<VaultWindows>();
+        let guard = state.0.lock().expect("vault windows state poisoned");
+        guard.get(&vault).cloned()
+    };
+    if let Some(label) = label
+        && let Some(window) = app.get_webview_window(&label)
+    {
+        window.destroy().map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 /// Open a native folder picker and return the absolute path the user selected.
