@@ -14,6 +14,7 @@
 	import { toastStore } from '$lib/toast-store.svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import {
+		messageFromUnknownError,
 		resolveTauri,
 		shouldUseNativeVaultRegistration,
 		vaultRegistrationMode
@@ -184,7 +185,7 @@
 			addParentPath = '';
 			await load();
 		} catch (e) {
-			addError = e instanceof Error ? e.message : 'Failed to add vault';
+			addError = messageFromUnknownError(e, 'Failed to add vault');
 		} finally {
 			addSaving = false;
 		}

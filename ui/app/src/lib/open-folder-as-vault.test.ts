@@ -4,6 +4,7 @@ import {
   defaultNameFromPath,
   vaultRegistrationMode,
   shouldUseNativeVaultRegistration,
+  messageFromUnknownError,
   type TauriBridge
 } from './open-folder-as-vault';
 
@@ -97,5 +98,19 @@ describe('shouldUseNativeVaultRegistration', () => {
 
   it('keeps local desktop registration on the existing local command flow', () => {
     expect(shouldUseNativeVaultRegistration('', bridge)).toBe(false);
+  });
+});
+
+describe('messageFromUnknownError', () => {
+  it('surfaces string rejections from Tauri commands', () => {
+    expect(messageFromUnknownError('Path does not exist', 'fallback')).toBe('Path does not exist');
+  });
+
+  it('surfaces Error messages', () => {
+    expect(messageFromUnknownError(new Error('Network failed'), 'fallback')).toBe('Network failed');
+  });
+
+  it('uses the fallback for unknown rejection shapes', () => {
+    expect(messageFromUnknownError({ message: 'not trusted' }, 'fallback')).toBe('fallback');
   });
 });
