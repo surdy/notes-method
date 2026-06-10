@@ -2327,6 +2327,13 @@ fn set_window_title(window: tauri::Window, title: String) -> Result<(), String> 
     window.set_title(&title).map_err(|error| error.to_string())
 }
 
+fn daemon_error_detail(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("message")
+        .or_else(|| value.get("error"))
+        .and_then(|message| message.as_str().map(str::to_string))
+}
+
 /// Legacy command: webview response to close-requested events.
 ///
 /// Retained for API compatibility. Vault windows now close natively (the OS
@@ -2400,11 +2407,7 @@ async fn open_folder_as_vault(
             .json::<serde_json::Value>()
             .await
             .ok()
-            .and_then(|value| {
-                value
-                    .get("message")
-                    .and_then(|message| message.as_str().map(str::to_string))
-            })
+            .and_then(|value| daemon_error_detail(&value))
             .unwrap_or_else(|| format!("daemon returned status {status}"));
         return Err(detail);
     }
@@ -2548,7 +2551,7 @@ mod tests {
 
     use super::{
         CrashAction, CrashTracker, DaemonSettings, QuitRequestAction, admin_route_url,
-        evaluate_quit_request, should_use_local_vault_state,
+        daemon_error_detail, evaluate_quit_request, should_use_local_vault_state,
     };
 
     #[test]
@@ -2559,6 +2562,33 @@ mod tests {
         assert_eq!(
             tracker.record_crash(now, Duration::from_secs(60), 2),
             CrashAction::Restart
+        );
+    }
+
+    #[test]
+    fn daemon_error_detail_prefers_message() {
+        let value = serde_json::json!({
+            "message": "Path '/vaults/new' does not exist",
+            "error": "path_not_found"
+        });
+
+        assert_eq!(
+            daemon_error_detail(&value).as_deref(),
+            Some("Path '/vaults/new' does not exist")
+        );
+    }
+
+    #[test]
+    fn daemon_error_detail_uses_error_when_message_is_absent() {
+        let value = serde_json::json!({
+            "error": "Could not write config at /config/notesmith/config.toml: Read-only file system (os error 30)"
+        });
+
+        assert_eq!(
+            daemon_error_detail(&value).as_deref(),
+            Some(
+                "Could not write config at /config/notesmith/config.toml: Read-only file system (os error 30)"
+            )
         );
     }
 

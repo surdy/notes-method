@@ -99,6 +99,10 @@ Key things to set in `config.toml`:
   container-side mount point (e.g. `/vaults/notes`)
 - **`default_vault`** — the vault used when `--vault` is not specified
 
+The container's `/config` mount must be writable. Notesmith updates
+`/config/notesmith/config.toml` when vaults are added, renamed, removed, or when
+the default vault changes from the desktop app or API.
+
 ---
 
 ## 3a. Launch with Docker Compose
@@ -240,7 +244,7 @@ notesmith --vault notes note list
 | Mount | Purpose | Recommended host path |
 |-------|---------|----------------------|
 | `/vaults/<name>` | Vault markdown files | `/home/user/notes` |
-| `/config` | Global config (`notesmith/config.toml`) | `/etc/notesmith` |
+| `/config` | Global config (`notesmith/config.toml`); must be writable for vault registry updates | `/etc/notesmith` |
 | `/data` | SQLite caches, Tantivy indexes, lockfile | Named volume |
 | `/logs` | Daemon log files (7-day rolling) | Named volume |
 

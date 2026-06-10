@@ -32,10 +32,11 @@ PublishPort=100.x.x.x:27183:27183
 # Vault markdown files (host path : container path)
 Volume=/home/user/notes:/vaults/notes:rw,z
 
-# Global config directory — must contain notesmith/config.toml
+# Global config directory — must contain notesmith/config.toml.
+# This must be writable because remote vault registration updates the vault registry.
 # Copy deploy/config.toml.example → /etc/notesmith/notesmith/config.toml
 # then adjust the vault paths.
-Volume=/etc/notesmith:/config:ro,z
+Volume=/etc/notesmith:/config:rw,z
 
 # Persistent data (SQLite caches, Tantivy indexes, lockfile)
 Volume=notesmith-data:/data:rw,z
