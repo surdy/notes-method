@@ -228,10 +228,13 @@ impl HookRunner {
             .stdin
             .take()
             .expect("hook command stdin should be piped");
-        stdin
-            .write_all(payload_json.as_bytes())
-            .await
-            .map_err(|source| HookError::StdinWriteFailed { source })?;
+        match stdin.write_all(payload_json.as_bytes()).await {
+            Ok(_) => {}
+            // The script exited before reading stdin (e.g. it only writes to stderr).
+            // This is not an error — the process ran successfully.
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+            Err(source) => return Err(HookError::StdinWriteFailed { source }),
+        }
         drop(stdin);
 
         let stdout_task = read_stream(
