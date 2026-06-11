@@ -14,11 +14,12 @@ use notesmith_ops::{LocalOps, Ops};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
-use rmcp::{
-    ErrorData as McpError, RoleServer, ServerHandler, ServiceExt, model::*, service::RequestContext,
-};
+use rmcp::{ErrorData as McpError, RoleServer, ServerHandler, model::*, service::RequestContext};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
+
+mod bridge;
+pub use bridge::{run_bridge, run_stdio_bridge};
 
 pub struct NotesmithMcp {
     ops: Arc<dyn Ops>,
@@ -480,12 +481,6 @@ impl ServerHandler for NotesmithMcp {
             )),
         }
     }
-}
-
-pub async fn run_stdio(mcp: NotesmithMcp) -> anyhow::Result<()> {
-    let service = mcp.serve((tokio::io::stdin(), tokio::io::stdout())).await?;
-    service.waiting().await?;
-    Ok(())
 }
 
 /// Build a streamable-HTTP MCP service backed by the given [`Ops`] surface.

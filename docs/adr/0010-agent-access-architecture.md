@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted (2026-06-11). Implementation phased; phases 1–2 complete (Ops layer
-+ read-only; daemon-hosted MCP over HTTP/SSE). Phases 3–5 (stdio bridge, CLI
-remote profile, auth) outstanding.
+Accepted (2026-06-11). Implementation phased; phases 1–3 complete (Ops layer
++ read-only; daemon-hosted MCP over HTTP/SSE; stdio↔HTTP bridge). Phases 4–5
+(CLI remote profile, auth) outstanding.
 
 ## Context
 
@@ -120,8 +120,11 @@ boundary, structured 4xx (not 500) on malformed request bodies.
    `ReadOnlyOps` and the daemon's live per-vault indexes. Endpoints are
    mounted for vaults known at daemon start; new vaults need a restart.
    *(Done.)*
-3. **Bridge replaces embedded MCP.** `notesmith mcp` becomes the stdio↔HTTP
-   bridge; the embedded-engine path is removed.
+3. **Bridge replaces embedded MCP.** `notesmith mcp start` becomes a
+   stdio↔HTTP bridge that connects to the daemon's `/mcp/<vault>` (or
+   `/mcp-ro/<vault>`) endpoint and forwards every request; the embedded
+   in-memory engine path is removed. The local daemon is auto-started when no
+   `--url` is supplied. *(Done.)*
 4. **CLI remote profile.** `RemoteOps` + `--url` / `NOTESMITH_URL`; route
    daemon-backed commands through `Ops`.
 5. **Auth (later).** Bearer tokens + per-identity scopes, integrated with the

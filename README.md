@@ -52,7 +52,7 @@ crates/
 ├── notesmith-config     # Global and per-vault configuration loading
 ├── notesmith-http       # Axum daemon, REST endpoints, SSE, daemon-hosted MCP
 ├── notesmith-ops        # Canonical vault operations (Ops trait, LocalOps, ReadOnlyOps)
-├── notesmith-mcp        # MCP adapter (stdio + daemon HTTP/SSE) over the Ops layer
+├── notesmith-mcp        # MCP adapter: daemon HTTP/SSE endpoints + stdio↔HTTP bridge
 ├── notesmith-cli        # Clap command tree; produces the `notesmith` binary
 ├── theme-gen            # Build-time theme CSS generator from the catalog JSON
 └── notesmith-tauri      # Thin Tauri desktop shell (excluded from default build)

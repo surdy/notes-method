@@ -2,22 +2,31 @@
 
 Notesmith exposes an MCP server in two ways:
 
-**1. Over stdio** (for stdio-only clients such as Claude Desktop):
-
-```bash
-notesmith mcp start [--vault <name>]
-```
-
-**2. Hosted by the daemon over HTTP/SSE** — when the daemon is running it mounts a streamable-HTTP MCP endpoint per vault, reusing the daemon's live indexes:
+**1. Hosted by the daemon over HTTP/SSE** — when the daemon is running it mounts a streamable-HTTP MCP endpoint per vault, reusing the daemon's live indexes:
 
 | Endpoint | Capabilities |
 |----------|--------------|
 | `POST/GET /mcp/{vault}` | Full read and write access |
 | `POST/GET /mcp-ro/{vault}` | Read-only (write tools rejected) |
 
-See [`docs/http-api.md`](http-api.md#agent-access-mcp-over-http) for connection details, reverse-proxy/TLS guidance, and the read-only model. Both transports expose the same tools and resources and share the same operation logic (`notesmith-ops`).
+See [`docs/http-api.md`](http-api.md#agent-access-mcp-over-http) for connection details, reverse-proxy/TLS guidance, and the read-only model.
 
-The MCP adapter wraps the existing vault engine, SQLite cache, search index, routing engine, task toggling, daily note creation, and template instantiation.
+**2. Over stdio** (for stdio-only clients such as Claude Desktop):
+
+```bash
+notesmith mcp start [--vault <name>] [--url <daemon-url>] [--read-only]
+```
+
+`mcp start` is a **stdio↔HTTP bridge**, not an embedded server. It resolves a
+daemon base URL (auto-starting the local daemon when `--url` is omitted), connects
+to that daemon's `/mcp/{vault}` endpoint (or `/mcp-ro/{vault}` with `--read-only`),
+and transparently forwards every stdio request to it. This means stdio and HTTP
+clients always share the daemon's live indexes and the same operation logic
+(`notesmith-ops`) — there is no separate in-memory index path to drift.
+
+Both transports expose the same tools and resources.
+
+The MCP operations wrap the existing vault engine, SQLite cache, search index, routing engine, task toggling, daily note creation, and template instantiation.
 
 ## Tools
 

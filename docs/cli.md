@@ -121,13 +121,24 @@ The desktop binary accepts a small set of flags before any Tauri-specific argume
 
 ### `mcp start`
 
-Start the Notesmith MCP server over stdio for local MCP clients such as Claude Desktop.
+Bridge a stdio-only MCP client (such as Claude Desktop) to a daemon's HTTP MCP
+endpoint. The command resolves the target vault, resolves a daemon base URL
+(auto-starting the local daemon when `--url` is omitted), then runs a
+transparent stdio↔HTTP proxy. There is no embedded vault engine; every request
+is forwarded to the daemon, which owns the live indexes.
 
 ```bash
-notesmith mcp start [--vault <name>]
+notesmith mcp start [--vault <name>] [--url <daemon-url>] [--read-only]
 ```
 
-The command detects the target vault, scans and indexes it in memory, then serves MCP tools and resources over standard input/output.
+| Flag | Description |
+|------|-------------|
+| `--vault <name>` | Target vault. Taken as-is so it can name a vault hosted only on a remote daemon; otherwise detected from the working directory. |
+| `--url <daemon-url>` | Daemon base URL (e.g. `http://host:27183`). Defaults to the local daemon, auto-starting it if needed. |
+| `--read-only` | Bridge to the daemon's read-only endpoint, where write tools are rejected. |
+
+The bridge connects to `<url>/mcp/<vault>` (or `<url>/mcp-ro/<vault>` with
+`--read-only`). See [`docs/mcp.md`](mcp.md) for the tool/resource surface.
 
 ---
 

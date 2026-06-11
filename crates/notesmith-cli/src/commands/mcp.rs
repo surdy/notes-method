@@ -2,17 +2,24 @@
 
 use std::path::Path;
 
-use anyhow::Context;
+use anyhow::{Context, Result};
 use clap::Subcommand;
-use notesmith_config::{GlobalConfig, VaultConfig, detect_vault, migration};
-use notesmith_core::VaultEngine;
-use notesmith_index::{SearchIndex, VaultCache};
-use notesmith_vault::NativeVaultEngine;
+use notesmith_config::{GlobalConfig, detect_vault};
+use reqwest::Url;
 
 #[derive(Debug, Subcommand)]
 pub enum McpCommand {
-    /// Start the MCP server over stdio
-    Start,
+    /// Bridge a stdio MCP client to the daemon's MCP endpoint over HTTP
+    Start {
+        /// Daemon base URL to bridge to (e.g. `http://host:27183`).
+        /// Defaults to the local daemon, auto-starting it if needed.
+        #[arg(long)]
+        url: Option<String>,
+
+        /// Bridge to the read-only endpoint, where write tools are rejected.
+        #[arg(long)]
+        read_only: bool,
+    },
 }
 
 impl McpCommand {
@@ -23,7 +30,16 @@ impl McpCommand {
         cwd: &Path,
     ) -> anyhow::Result<()> {
         match self {
-            McpCommand::Start => cmd_start(global_config, explicit_vault, cwd).await,
+            McpCommand::Start { url, read_only } => {
+                cmd_start(
+                    global_config,
+                    explicit_vault,
+                    cwd,
+                    url.as_deref(),
+                    *read_only,
+                )
+                .await
+            }
         }
     }
 }
@@ -32,30 +48,55 @@ async fn cmd_start(
     global_config: &GlobalConfig,
     explicit_vault: Option<&str>,
     cwd: &Path,
+    url: Option<&str>,
+    read_only: bool,
 ) -> anyhow::Result<()> {
-    let detected = detect_vault(cwd, explicit_vault, global_config)?;
-    let engine = NativeVaultEngine;
-    let notes = engine
-        .scan(&detected.root)
-        .with_context(|| format!("failed to scan vault {}", detected.name))?;
-    let vault_config = migration::load_and_migrate(&detected.root).unwrap_or_else(|error| {
-        eprintln!("Warning: failed to load/migrate vault config: {error}");
-        VaultConfig {
-            name: detected.name.clone(),
-            ..Default::default()
-        }
-    });
-    let cache = VaultCache::open_in_memory()?;
-    cache.reindex_with_periodic(&detected.name, &notes, &vault_config.periodic)?;
-    let search_index = SearchIndex::open_in_memory()?;
-    search_index.reindex(&detected.name, &notes)?;
+    let vault_name = resolve_vault_name(global_config, explicit_vault, cwd)?;
 
-    let mcp = notesmith_mcp::NotesmithMcp::new(
-        detected.name.clone(),
-        detected.root,
-        cache,
-        search_index,
-        vault_config,
-    );
-    notesmith_mcp::run_stdio(mcp).await
+    let base = match url {
+        Some(url) => Url::parse(url).with_context(|| format!("invalid daemon URL: {url}"))?,
+        None => crate::daemon_client::ensure_daemon(global_config).await?,
+    };
+
+    let endpoint = mcp_endpoint(&base, &vault_name, read_only)?;
+    notesmith_mcp::run_stdio_bridge(endpoint.to_string()).await
+}
+
+fn resolve_vault_name(
+    global_config: &GlobalConfig,
+    explicit_vault: Option<&str>,
+    cwd: &Path,
+) -> Result<String> {
+    // An explicit vault name is taken as-is so the bridge works against a
+    // remote daemon without a matching local vault on disk.
+    if let Some(vault) = explicit_vault {
+        return Ok(vault.to_string());
+    }
+    Ok(detect_vault(cwd, explicit_vault, global_config)?.name)
+}
+
+fn mcp_endpoint(base: &Url, vault: &str, read_only: bool) -> Result<Url> {
+    let prefix = if read_only { "mcp-ro" } else { "mcp" };
+    // `base` typically ends in `/`; trim before joining for a clean path.
+    let joined = format!("{}/{prefix}/{vault}", base.as_str().trim_end_matches('/'));
+    Url::parse(&joined).with_context(|| format!("could not build MCP endpoint URL: {joined}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_read_write_endpoint() {
+        let base = Url::parse("http://127.0.0.1:27183/").unwrap();
+        let endpoint = mcp_endpoint(&base, "work", false).unwrap();
+        assert_eq!(endpoint.as_str(), "http://127.0.0.1:27183/mcp/work");
+    }
+
+    #[test]
+    fn builds_read_only_endpoint() {
+        let base = Url::parse("http://host:8080").unwrap();
+        let endpoint = mcp_endpoint(&base, "notes", true).unwrap();
+        assert_eq!(endpoint.as_str(), "http://host:8080/mcp-ro/notes");
+    }
 }

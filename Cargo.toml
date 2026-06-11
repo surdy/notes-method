@@ -83,4 +83,4 @@ arboard = "3"
 insta = { version = "1", features = ["yaml"] }
 pretty_assertions = "1"
 arc-swap = "1"
-rmcp = { version = "0.16", features = ["server", "transport-streamable-http-server"] }
+rmcp = { version = "0.16", features = ["server", "transport-io", "transport-streamable-http-server", "client", "transport-streamable-http-client-reqwest", "reqwest"] }
