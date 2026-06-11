@@ -41,8 +41,8 @@ async fn watcher_indexes_new_markdown_files() {
         vaults: HashMap::from([(
             "test-vault".to_string(),
             VaultState {
-                cache,
-                search_index,
+                cache: std::sync::Arc::new(cache),
+                search_index: std::sync::Arc::new(search_index),
                 engine,
                 root: vault_root.clone(),
                 vault_config: arc_swap::ArcSwap::from_pointee(VaultConfig {
@@ -51,7 +51,10 @@ async fn watcher_indexes_new_markdown_files() {
                 }),
                 watcher_state: WatcherState::new(),
                 rebuilding: std::sync::atomic::AtomicBool::new(false),
-                template_engine: notesmith_templates::TemplateEngine::new(vault_root.clone(), None),
+                template_engine: std::sync::Arc::new(notesmith_templates::TemplateEngine::new(
+                    vault_root.clone(),
+                    None,
+                )),
             },
         )]),
         event_tx,

@@ -336,17 +336,17 @@ mod tests {
             vaults: HashMap::from([(
                 vault_name.to_string(),
                 VaultState {
-                    cache,
-                    search_index,
+                    cache: Arc::new(cache),
+                    search_index: Arc::new(search_index),
                     engine,
                     root: vault_root.to_path_buf(),
                     vault_config: arc_swap::ArcSwap::from_pointee(default_vault_config(vault_name)),
                     watcher_state: WatcherState::new(),
                     rebuilding: std::sync::atomic::AtomicBool::new(false),
-                    template_engine: notesmith_templates::TemplateEngine::new(
+                    template_engine: Arc::new(notesmith_templates::TemplateEngine::new(
                         vault_root.to_path_buf(),
                         Some(PathBuf::from(cache_path)),
-                    ),
+                    )),
                 },
             )]),
             event_tx,

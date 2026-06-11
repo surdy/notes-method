@@ -37,14 +37,14 @@ fn build_vault_state(vault_name: &str, root: &Path) -> VaultState {
     let template_engine = notesmith_templates::TemplateEngine::new(root.to_path_buf(), None);
 
     VaultState {
-        cache,
-        search_index,
+        cache: std::sync::Arc::new(cache),
+        search_index: std::sync::Arc::new(search_index),
         engine,
         root: root.to_path_buf(),
         vault_config: arc_swap::ArcSwap::from_pointee(vault_config),
         watcher_state: WatcherState::new(),
         rebuilding: std::sync::atomic::AtomicBool::new(false),
-        template_engine,
+        template_engine: std::sync::Arc::new(template_engine),
     }
 }
 

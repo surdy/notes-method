@@ -902,8 +902,8 @@ mod tests {
             vaults: HashMap::from([(
                 "work".to_string(),
                 VaultState {
-                    cache,
-                    search_index,
+                    cache: Arc::new(cache),
+                    search_index: Arc::new(search_index),
                     engine: NativeVaultEngine,
                     root: vault_root.clone(),
                     vault_config: ArcSwap::from_pointee(VaultConfig {
@@ -912,10 +912,10 @@ mod tests {
                     }),
                     watcher_state: watcher_state.clone(),
                     rebuilding: std::sync::atomic::AtomicBool::new(false),
-                    template_engine: notesmith_templates::TemplateEngine::new(
+                    template_engine: Arc::new(notesmith_templates::TemplateEngine::new(
                         vault_root.clone(),
                         None,
-                    ),
+                    )),
                 },
             )]),
             event_tx,

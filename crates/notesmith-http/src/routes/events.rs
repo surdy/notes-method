@@ -167,8 +167,8 @@ mod tests {
             vaults: HashMap::from([(
                 "work".to_string(),
                 VaultState {
-                    cache: notesmith_index::VaultCache::open_in_memory().unwrap(),
-                    search_index: notesmith_index::SearchIndex::open_in_memory().unwrap(),
+                    cache: Arc::new(notesmith_index::VaultCache::open_in_memory().unwrap()),
+                    search_index: Arc::new(notesmith_index::SearchIndex::open_in_memory().unwrap()),
                     engine: notesmith_vault::NativeVaultEngine,
                     root: root.clone(),
                     vault_config: arc_swap::ArcSwap::from_pointee(VaultConfig {
@@ -177,7 +177,7 @@ mod tests {
                     }),
                     watcher_state: WatcherState::new(),
                     rebuilding: std::sync::atomic::AtomicBool::new(false),
-                    template_engine: notesmith_templates::TemplateEngine::new(root, None),
+                    template_engine: Arc::new(notesmith_templates::TemplateEngine::new(root, None)),
                 },
             )]),
             event_tx: create_event_channel().0,
@@ -245,8 +245,8 @@ mod tests {
         state.vaults.insert(
             "work".to_string(),
             VaultState {
-                cache: notesmith_index::VaultCache::open_in_memory().unwrap(),
-                search_index: notesmith_index::SearchIndex::open_in_memory().unwrap(),
+                cache: Arc::new(notesmith_index::VaultCache::open_in_memory().unwrap()),
+                search_index: Arc::new(notesmith_index::SearchIndex::open_in_memory().unwrap()),
                 engine: notesmith_vault::NativeVaultEngine,
                 root: std::env::current_dir().unwrap(),
                 vault_config: arc_swap::ArcSwap::from_pointee(VaultConfig {
@@ -255,10 +255,10 @@ mod tests {
                 }),
                 watcher_state: WatcherState::new(),
                 rebuilding: std::sync::atomic::AtomicBool::new(false),
-                template_engine: notesmith_templates::TemplateEngine::new(
+                template_engine: Arc::new(notesmith_templates::TemplateEngine::new(
                     std::env::current_dir().unwrap(),
                     None,
-                ),
+                )),
             },
         );
 

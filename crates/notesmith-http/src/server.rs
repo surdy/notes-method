@@ -39,14 +39,14 @@ use crate::{
 };
 
 pub struct VaultState {
-    pub cache: VaultCache,
-    pub search_index: SearchIndex,
+    pub cache: Arc<VaultCache>,
+    pub search_index: Arc<SearchIndex>,
     pub engine: NativeVaultEngine,
     pub root: PathBuf,
     pub vault_config: ArcSwap<VaultConfig>,
     pub watcher_state: WatcherState,
     pub rebuilding: AtomicBool,
-    pub template_engine: notesmith_templates::TemplateEngine,
+    pub template_engine: Arc<notesmith_templates::TemplateEngine>,
 }
 
 pub struct AppState {
@@ -470,14 +470,14 @@ pub fn create_vault_state(vault_name: &str, vault_path: &Path) -> anyhow::Result
         notesmith_templates::TemplateEngine::new(vault_path.to_path_buf(), Some(cache_path));
 
     Ok(VaultState {
-        cache,
-        search_index,
+        cache: Arc::new(cache),
+        search_index: Arc::new(search_index),
         engine,
         root: vault_path.to_path_buf(),
         vault_config: ArcSwap::from_pointee(vault_config),
         watcher_state: WatcherState::new(),
         rebuilding: AtomicBool::new(false),
-        template_engine,
+        template_engine: Arc::new(template_engine),
     })
 }
 
