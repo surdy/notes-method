@@ -298,7 +298,13 @@ async fn serve_shared_with_listener(
         state.shutdown_rx.clone()
     };
 
-    axum::serve(listener, build_router_with_shared_state(state))
+    let router = build_router_with_shared_state(state.clone());
+    let router = {
+        let app_state = state.read().await;
+        nest_mcp_routes(router, &app_state)
+    };
+
+    axum::serve(listener, router)
         .with_graceful_shutdown(async move {
             if let Err(error) = wait_for_shutdown_signal(shutdown_rx).await {
                 tracing::warn!("graceful shutdown signal listener failed: {error}");
@@ -316,6 +322,42 @@ async fn serve_shared_with_listener(
 
 pub async fn serve_with_listener(listener: TcpListener, state: AppState) -> anyhow::Result<()> {
     serve_shared_with_listener(listener, Arc::new(RwLock::new(state)), false).await
+}
+
+/// Mount the per-vault MCP-over-HTTP endpoints onto a built router.
+///
+/// For every vault known at serve time, registers a read-write endpoint at
+/// `/mcp/<name>` and a read-only endpoint at `/mcp-ro/<name>`. Each endpoint
+/// shares the daemon's live per-vault indexes via [`notesmith_ops::LocalOps::from_shared`].
+/// Vaults added after the daemon starts only gain an MCP endpoint after a
+/// restart.
+fn nest_mcp_routes(mut router: Router, state: &AppState) -> Router {
+    for (name, vault) in &state.vaults {
+        let read_write: Arc<dyn notesmith_ops::Ops> = Arc::new(local_ops_for(name, vault));
+        let read_only: Arc<dyn notesmith_ops::Ops> =
+            Arc::new(notesmith_ops::ReadOnlyOps::new(local_ops_for(name, vault)));
+        router = router
+            .nest_service(
+                &format!("/mcp/{name}"),
+                notesmith_mcp::streamable_http_service(read_write),
+            )
+            .nest_service(
+                &format!("/mcp-ro/{name}"),
+                notesmith_mcp::streamable_http_service(read_only),
+            );
+    }
+    router
+}
+
+fn local_ops_for(name: &str, vault: &VaultState) -> notesmith_ops::LocalOps {
+    notesmith_ops::LocalOps::from_shared(
+        name.to_string(),
+        vault.root.clone(),
+        vault.cache.clone(),
+        vault.search_index.clone(),
+        vault.template_engine.clone(),
+        vault.vault_config.load().as_ref().clone(),
+    )
 }
 
 pub async fn serve(bind: &str, state: AppState) -> anyhow::Result<()> {

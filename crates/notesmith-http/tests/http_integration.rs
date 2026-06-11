@@ -3271,3 +3271,74 @@ suggest_from = "SELECT DISTINCT value FROM v_fields WHERE key = 'customer' ORDER
 
     server.server.abort();
 }
+
+fn mcp_initialize_body() -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": { "name": "notesmith-test", "version": "0" }
+        }
+    })
+}
+
+async fn mcp_initialize(client: &reqwest::Client, url: String) -> reqwest::Response {
+    client
+        .post(url)
+        .header(
+            reqwest::header::ACCEPT,
+            "application/json, text/event-stream",
+        )
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .json(&mcp_initialize_body())
+        .send()
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn daemon_mounts_read_write_mcp_endpoint_per_vault() {
+    let server = TestServer::empty().await;
+    let client = reqwest::Client::new();
+
+    let response = mcp_initialize(&client, server.url("/mcp/test-vault")).await;
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert!(
+        response.headers().contains_key("mcp-session-id"),
+        "read-write MCP endpoint should establish an MCP session"
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn daemon_mounts_read_only_mcp_endpoint_per_vault() {
+    let server = TestServer::empty().await;
+    let client = reqwest::Client::new();
+
+    let response = mcp_initialize(&client, server.url("/mcp-ro/test-vault")).await;
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert!(
+        response.headers().contains_key("mcp-session-id"),
+        "read-only MCP endpoint should establish an MCP session"
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn daemon_does_not_mount_mcp_for_unknown_vault() {
+    let server = TestServer::empty().await;
+    let client = reqwest::Client::new();
+
+    let response = mcp_initialize(&client, server.url("/mcp/does-not-exist")).await;
+
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+    server.server.abort();
+}

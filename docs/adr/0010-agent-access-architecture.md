@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed (2026-06-11). Design accepted; implementation phased and not yet started.
+Accepted (2026-06-11). Implementation phased; phases 1–2 complete (Ops layer
++ read-only; daemon-hosted MCP over HTTP/SSE). Phases 3–5 (stdio bridge, CLI
+remote profile, auth) outstanding.
 
 ## Context
 
@@ -112,10 +114,12 @@ boundary, structured 4xx (not 500) on malformed request bodies.
 
 1. **Ops layer + read-only.** Define `Ops`, refactor the daemon onto
    `LocalOps`, add `ReadOnlyOps`. Pure consolidation; no external behavior
-   change beyond the new capability being available internally.
+   change beyond the new capability being available internally. *(Done.)*
 2. **Host MCP in the daemon.** Add `/mcp/<vault>` and `/mcp-ro/<vault>`
    HTTP/SSE endpoints (rmcp streamable transport) backed by `LocalOps` /
-   `ReadOnlyOps` and the daemon's live per-vault indexes.
+   `ReadOnlyOps` and the daemon's live per-vault indexes. Endpoints are
+   mounted for vaults known at daemon start; new vaults need a restart.
+   *(Done.)*
 3. **Bridge replaces embedded MCP.** `notesmith mcp` becomes the stdio↔HTTP
    bridge; the embedded-engine path is removed.
 4. **CLI remote profile.** `RemoteOps` + `--url` / `NOTESMITH_URL`; route

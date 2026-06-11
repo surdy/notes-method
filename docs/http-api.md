@@ -1486,3 +1486,43 @@ Triggers a full reindex of the vault cache and search index.
 **Errors:**
 - `404` — vault not found
 - `422` — invalid reindex mode
+
+---
+
+## Agent access (MCP over HTTP)
+
+The daemon hosts a [Model Context Protocol](https://modelcontextprotocol.io) server for each vault using the streamable-HTTP transport (HTTP + SSE). Agents connect directly to the daemon and reuse its live per-vault indexes — there is no separate process to launch.
+
+Two endpoints are mounted per vault:
+
+| Endpoint | Capabilities |
+|----------|--------------|
+| `/mcp/{vault}` | Full read **and** write access (all MCP tools) |
+| `/mcp-ro/{vault}` | Read-only — write tools are rejected with an error |
+
+Both expose the same tool and resource set as the stdio adapter (see [`docs/mcp.md`](mcp.md)). The read-only endpoint runs the identical handler wrapped so every mutating operation is refused; it guards against agent mistakes, not malicious actors.
+
+### `POST /mcp/{vault}` · `POST /mcp-ro/{vault}`
+
+Streamable-HTTP MCP session endpoint. Send JSON-RPC 2.0 messages (`initialize`, `tools/list`, `tools/call`, …) with:
+
+- `Content-Type: application/json`
+- `Accept: application/json, text/event-stream`
+
+The `initialize` response returns an `mcp-session-id` header; include it on subsequent requests. `GET` on the same path opens the server-sent-event stream for the session.
+
+**Errors:**
+- `404` — unknown vault (only vaults known at daemon start are mounted; adding a vault requires a daemon restart to gain its MCP endpoints)
+
+### Reverse proxy / TLS
+
+The daemon serves plain HTTP and defers authentication under the LAN/VPN trust model (see [ADR 0010](adr/0010-agent-access-architecture.md)). Terminate TLS at a reverse proxy. Because MCP uses SSE, disable response buffering for these paths — for nginx:
+
+```nginx
+location /mcp/ {
+    proxy_pass http://127.0.0.1:27183;
+    proxy_buffering off;
+    proxy_set_header Connection '';
+    proxy_http_version 1.1;
+}
+```

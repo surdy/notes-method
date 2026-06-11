@@ -1,10 +1,21 @@
 # Notesmith MCP Adapter
 
-Notesmith exposes an MCP server over stdio via:
+Notesmith exposes an MCP server in two ways:
+
+**1. Over stdio** (for stdio-only clients such as Claude Desktop):
 
 ```bash
 notesmith mcp start [--vault <name>]
 ```
+
+**2. Hosted by the daemon over HTTP/SSE** — when the daemon is running it mounts a streamable-HTTP MCP endpoint per vault, reusing the daemon's live indexes:
+
+| Endpoint | Capabilities |
+|----------|--------------|
+| `POST/GET /mcp/{vault}` | Full read and write access |
+| `POST/GET /mcp-ro/{vault}` | Read-only (write tools rejected) |
+
+See [`docs/http-api.md`](http-api.md#agent-access-mcp-over-http) for connection details, reverse-proxy/TLS guidance, and the read-only model. Both transports expose the same tools and resources and share the same operation logic (`notesmith-ops`).
 
 The MCP adapter wraps the existing vault engine, SQLite cache, search index, routing engine, task toggling, daily note creation, and template instantiation.
 

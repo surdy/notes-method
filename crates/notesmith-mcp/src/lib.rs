@@ -6,10 +6,14 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use notesmith_config::VaultConfig;
 use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_ops::{LocalOps, Ops};
+use rmcp::transport::streamable_http_server::{
+    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
+};
 use rmcp::{
     ErrorData as McpError, RoleServer, ServerHandler, ServiceExt, model::*, service::RequestContext,
 };
@@ -17,7 +21,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 pub struct NotesmithMcp {
-    ops: LocalOps,
+    ops: Arc<dyn Ops>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,19 +112,25 @@ impl NotesmithMcp {
         vault_config: VaultConfig,
     ) -> Self {
         Self {
-            ops: LocalOps::new(vault_name, vault_root, cache, search_index, vault_config),
+            ops: Arc::new(LocalOps::new(
+                vault_name,
+                vault_root,
+                cache,
+                search_index,
+                vault_config,
+            )),
         }
     }
 
-    /// Construct from an existing [`LocalOps`] (e.g. backed by the daemon's
-    /// live per-vault state).
-    pub fn from_ops(ops: LocalOps) -> Self {
+    /// Construct from an existing [`Ops`] surface (e.g. backed by the daemon's
+    /// live per-vault state, or wrapped in [`notesmith_ops::ReadOnlyOps`]).
+    pub fn from_ops(ops: Arc<dyn Ops>) -> Self {
         Self { ops }
     }
 
     /// Borrow the underlying operation surface.
-    pub fn ops(&self) -> &LocalOps {
-        &self.ops
+    pub fn ops(&self) -> &dyn Ops {
+        self.ops.as_ref()
     }
 
     fn registered_tools(&self) -> Vec<Tool> {
@@ -476,6 +486,22 @@ pub async fn run_stdio(mcp: NotesmithMcp) -> anyhow::Result<()> {
     let service = mcp.serve((tokio::io::stdin(), tokio::io::stdout())).await?;
     service.waiting().await?;
     Ok(())
+}
+
+/// Build a streamable-HTTP MCP service backed by the given [`Ops`] surface.
+///
+/// The returned service is an axum-compatible tower service that can be mounted
+/// with `Router::nest_service`. A fresh [`NotesmithMcp`] handler is created per
+/// MCP session, all sharing the same `ops` (and therefore the same live vault
+/// indexes when `ops` is backed by [`LocalOps::from_shared`]).
+pub fn streamable_http_service(
+    ops: Arc<dyn Ops>,
+) -> StreamableHttpService<NotesmithMcp, LocalSessionManager> {
+    StreamableHttpService::new(
+        move || Ok(NotesmithMcp::from_ops(ops.clone())),
+        LocalSessionManager::default().into(),
+        StreamableHttpServerConfig::default(),
+    )
 }
 
 fn parse_arguments<T>(arguments: Option<Map<String, Value>>) -> anyhow::Result<T>

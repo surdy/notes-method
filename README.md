@@ -50,8 +50,9 @@ crates/
 ├── notesmith-git        # Opt-in git timers and sync helpers
 ├── notesmith-html       # Comrak-based HTML rendering and clipboard helpers
 ├── notesmith-config     # Global and per-vault configuration loading
-├── notesmith-http       # Axum daemon, REST endpoints, SSE
-├── notesmith-mcp        # MCP adapter wrapping VaultOps
+├── notesmith-http       # Axum daemon, REST endpoints, SSE, daemon-hosted MCP
+├── notesmith-ops        # Canonical vault operations (Ops trait, LocalOps, ReadOnlyOps)
+├── notesmith-mcp        # MCP adapter (stdio + daemon HTTP/SSE) over the Ops layer
 ├── notesmith-cli        # Clap command tree; produces the `notesmith` binary
 ├── theme-gen            # Build-time theme CSS generator from the catalog JSON
 └── notesmith-tauri      # Thin Tauri desktop shell (excluded from default build)
