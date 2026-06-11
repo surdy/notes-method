@@ -1883,7 +1883,24 @@ name = "notesmith-mcp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "blake3",
+ "notesmith-config",
+ "notesmith-core",
+ "notesmith-index",
+ "notesmith-ops",
+ "notesmith-vault",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "notesmith-ops"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "chrono",
  "notesmith-config",
  "notesmith-core",
@@ -1893,14 +1910,11 @@ dependencies = [
  "notesmith-tasks",
  "notesmith-templates",
  "notesmith-vault",
- "rmcp",
  "rusqlite",
  "serde",
  "serde_json",
  "serde_yaml",
  "tempfile",
- "tokio",
- "tracing",
 ]
 
 [[package]]

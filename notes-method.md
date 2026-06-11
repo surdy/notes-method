@@ -163,4 +163,10 @@ For an example of a complete customer-facing work workflow, see `docs/example-wo
 - The daemon should write a JSON lockfile at the platform-specific Notesmith data/runtime location containing PID, port, version, start time, and binary path so desktop and other local clients can discover the live daemon and clean up stale entries.
 - The daemon should watch the global config file and hot-reload vault registrations (add, remove, rename/path changes) without requiring a restart, emitting SSE `vaults.changed` so clients can refresh the vault list.
 - Daemon-backed CLI commands should auto-start the HTTP daemon on first use when `[daemon].auto_start = true`, so workflows like capture, query, note CRUD, search, routing, templates, reindex, dailies, tasks, and `notesmith://` deep links do not require a manual `notesmith daemon start`.
-- `notesmith mcp start` remains a standalone stdio server with its own in-memory indexes rather than proxying through the HTTP daemon.
+- `notesmith mcp start` remains a standalone stdio server with its own in-memory indexes rather than proxying through the HTTP daemon. Its operation logic is the shared `notesmith-ops` layer (`NotesmithMcp` wraps a `LocalOps`), not a private re-implementation.
+
+## Agent Access Architecture
+
+- All vault operations are defined once by the `notesmith-ops` crate: an `Ops` trait (read + write methods), a `LocalOps` in-process implementation backed by the engine/cache/search index/template engine, and a `ReadOnlyOps<O>` wrapper that rejects every write so a read-only agent surface can be exposed without authentication.
+- The target architecture (see `docs/adr/0010-agent-access-architecture.md`) makes the daemon the single source of truth and turns every adapter (MCP, CLI) into a thin client of a daemon — local or remote: daemon-hosted MCP over HTTP/SSE at per-vault paths `/mcp/<vault>` (full) and `/mcp-ro/<vault>` (read-only), a `notesmith mcp` stdio↔HTTP bridge for stdio-only clients, and a CLI remote profile (`--url`/`NOTESMITH_URL`).
+- Read-only agent operation is selected by which endpoint an agent connects to, not by identity; it guards against agent mistakes, not malicious actors. Authentication and per-identity scopes are deferred under the LAN/VPN trust model, with TLS terminated by a reverse proxy.

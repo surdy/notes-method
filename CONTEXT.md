@@ -71,7 +71,8 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 - **Daemon** — The HTTP server process (`notesmith daemon start`) that serves the API, SSE events, and static frontend when frontend assets are available.
 - **Container image flavors** — GHCR publishes an `app` flavor (`latest`, `sha-*`, date tags) with the SvelteKit frontend at `/app-ui` for browser `/app/` access, and an `api` flavor (`api-latest`, `api-sha-*`, date tags) with only the Rust binary. The Tauri desktop can use either flavor via `NOTESMITH_DESKTOP_DAEMON_URL` because remote-daemon mode serves the frontend from embedded desktop assets.
-- **MCP server** — The `notesmith mcp start` stdio server. It builds its own in-memory indexes for local MCP clients rather than proxying through the HTTP daemon.
+- **MCP server** — The `notesmith mcp start` stdio server. It maps MCP tool/resource requests onto the shared `notesmith-ops` operations layer (`NotesmithMcp` wraps a `LocalOps`); it currently builds its own in-memory indexes rather than proxying through the HTTP daemon (daemon-hosted MCP is planned — ADR 0010).
+- **Ops layer** — `notesmith-ops` defines the canonical vault-operation surface. `Ops` is the trait (read + write methods); `LocalOps` is the in-process implementation backed by engine/cache/search index/template engine; `ReadOnlyOps<O>` wraps any `Ops` and rejects every write (used to expose read-only agent surfaces without auth). See ADR 0010.
 - **VaultState** — Per-vault runtime state held by the daemon: cache, search index, engine, root path, config (ArcSwap), template engine.
 - **AppState** — Global daemon state containing all VaultStates and shared config.
 - **VaultEvent** — An SSE event broadcast when something changes in a vault: note CRUD, task updates, config changes, cache rebuilds.

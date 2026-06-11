@@ -6,24 +6,17 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-notesmith-core = { workspace = true }
-notesmith-vault = { workspace = true }
-notesmith-index = { workspace = true }
-notesmith-query = { workspace = true }
-notesmith-tasks = { workspace = true }
-notesmith-templates = { workspace = true }
-notesmith-routing = { workspace = true }
 notesmith-config = { workspace = true }
+notesmith-index = { workspace = true }
+notesmith-ops = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-rusqlite = { workspace = true }
 rmcp = { workspace = true }
-chrono = { workspace = true }
-blake3 = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+notesmith-core = { workspace = true }
+notesmith-vault = { workspace = true }

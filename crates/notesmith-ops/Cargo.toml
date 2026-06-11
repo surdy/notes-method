@@ -1,0 +1,25 @@
+[package]
+name = "notesmith-ops"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+notesmith-core = { workspace = true }
+notesmith-vault = { workspace = true }
+notesmith-index = { workspace = true }
+notesmith-query = { workspace = true }
+notesmith-tasks = { workspace = true }
+notesmith-templates = { workspace = true }
+notesmith-routing = { workspace = true }
+notesmith-config = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+rusqlite = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
