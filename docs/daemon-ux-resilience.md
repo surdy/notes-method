@@ -252,7 +252,7 @@ Schema-versioned `vault.toml`. On load, detect old schema, apply migrations, wri
 
 - `notesmith capture`, `notesmith query`, `notesmith note`, `notesmith search`, `notesmith route`, `notesmith template`, `notesmith reindex`, `notesmith daily`, `notesmith task`, and `notesmith url-open` auto-spawn the HTTP daemon if it is not already healthy (Ollama pattern).
 - `[daemon].auto_start = true` remains the default; setting it to `false` restores the manual `notesmith daemon start` flow.
-- `notesmith mcp start` stays independent because it serves stdio requests from its own in-memory indexes instead of calling the daemon HTTP API.
+- `notesmith mcp start` is a stdio↔HTTP bridge: it resolves a daemon base URL (the global `--url`/`NOTESMITH_URL` when set, otherwise the local daemon — auto-started on demand) and forwards stdio MCP requests to the daemon's `/mcp/<vault>` endpoint, so it shares the daemon's live indexes rather than building its own.
 
 ---
 

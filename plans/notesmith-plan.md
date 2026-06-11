@@ -2402,7 +2402,8 @@ Vault selection works like git:
 - JSON when piped or when `--format json` is set.
 - Errors are structured for agent consumption.
 - Daemon-backed CLI commands auto-start the HTTP daemon when `[daemon].auto_start = true` and `/api/status` is not healthy.
-- `notesmith mcp start` remains independent of the HTTP daemon and serves stdio requests from its own in-memory indexes.
+- `notesmith mcp start` is a stdio↔HTTP bridge to the daemon's per-vault MCP endpoint (`/mcp/<vault>`, or `/mcp-ro/<vault>` with `--read-only`): it resolves a daemon URL (global `--url`/`NOTESMITH_URL`, otherwise the local daemon auto-started on demand) and forwards every stdio request, sharing the daemon's live indexes.
+- A global `--url` flag and `NOTESMITH_URL` env var retarget daemon-backed commands (and `mcp start`) at a remote daemon; `daemon` lifecycle subcommands stay local.
 
 ### 16.5 Pipe-friendly examples
 
@@ -2524,7 +2525,7 @@ notesmith route apply "Inbox/atlas.md"
 
 ### 18.4 MCP scope
 
-The MCP adapter exposes only existing operations such as note read/write, SQL query, routing, capture workflows, periodic note creation, and task mutation. It exists for clients that cannot run the CLI directly, and it serves those operations from its own in-memory indexes rather than proxying through the HTTP daemon.
+The MCP adapter exposes only existing operations such as note read/write, SQL query, routing, capture workflows, periodic note creation, and task mutation. It exists for clients that cannot run the CLI directly. It is served by the daemon as streamable-HTTP endpoints mounted per vault at `/mcp/<vault>` (full) and `/mcp-ro/<vault>` (read-only), reusing the daemon's live indexes via the shared `notesmith-ops` layer; `notesmith mcp start` is a thin stdio↔HTTP bridge to those endpoints rather than a standalone server with its own in-memory indexes.
 
 ## 19. GUI Design
 
