@@ -14,14 +14,29 @@ pub enum FrontendMode {
 }
 
 pub fn app_window_url(daemon_base: &str, vault: Option<&str>, mode: FrontendMode) -> String {
+    app_route_window_url(daemon_base, "/", vault, mode)
+}
+
+pub fn app_route_window_url(
+    daemon_base: &str,
+    route: &str,
+    vault: Option<&str>,
+    mode: FrontendMode,
+) -> String {
     let daemon_base = daemon_base.trim_end_matches('/');
+    let route = route.trim_start_matches('/');
+    let route_path = if route.is_empty() {
+        String::new()
+    } else {
+        format!("{route}/").trim_end_matches('/').to_string()
+    };
     match mode {
         FrontendMode::Daemon => {
-            let base = format!("{daemon_base}/app/");
+            let base = format!("{daemon_base}/app/{route_path}");
             append_query(base, vault, None)
         }
         FrontendMode::Embedded => {
-            let base = format!("{APP_PROTOCOL}://localhost/app/");
+            let base = format!("{APP_PROTOCOL}://localhost/app/{route_path}");
             append_query(base, vault, Some(daemon_base))
         }
     }
@@ -112,6 +127,28 @@ mod tests {
         assert_eq!(
             app_window_url("http://100.64.0.10:27183/", Some("Work Vault"), FrontendMode::Embedded),
             "notesmith-app://localhost/app/?apiBase=http%3A%2F%2F100.64.0.10%3A27183&vault=Work%20Vault"
+        );
+    }
+
+    #[test]
+    fn route_urls_load_spa_routes() {
+        assert_eq!(
+            app_route_window_url(
+                "http://127.0.0.1:27183",
+                "/settings",
+                None,
+                FrontendMode::Daemon
+            ),
+            "http://127.0.0.1:27183/app/settings"
+        );
+        assert_eq!(
+            app_route_window_url(
+                "https://notesmith.example",
+                "settings",
+                Some("work"),
+                FrontendMode::Embedded
+            ),
+            "notesmith-app://localhost/app/settings?apiBase=https%3A%2F%2Fnotesmith.example&vault=work"
         );
     }
 

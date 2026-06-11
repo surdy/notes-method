@@ -12,7 +12,8 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use notesmith_tauri::app_url::{
-    APP_PROTOCOL, FrontendMode, app_asset_path, app_window_url, should_fallback_to_index,
+    APP_PROTOCOL, FrontendMode, app_asset_path, app_route_window_url, app_window_url,
+    should_fallback_to_index,
 };
 use notesmith_tauri::daemon::{self, DaemonSettings, DaemonState, DynError};
 use notesmith_tauri::vault_menu::{
@@ -37,6 +38,7 @@ use tokio::process::Child;
 use std::os::unix::process::ExitStatusExt;
 
 const MAIN_WINDOW_LABEL: &str = "main";
+const SETTINGS_WINDOW_LABEL: &str = "settings";
 const SPLASH_WINDOW_LABEL: &str = "startup-splash";
 const FALLBACK_WINDOW_LABEL: &str = "startup-fallback";
 const TRAY_ID: &str = "notesmith-tray";
@@ -697,12 +699,12 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let paste = PredefinedMenuItem::paste(app, None::<&str>)?;
     let select_all = PredefinedMenuItem::select_all(app, None::<&str>)?;
 
-    let app_submenu = Submenu::with_items(
-        app,
-        "Notesmith",
-        true,
-        &[&open, &settings, &separator, &hide, &quit],
-    )?;
+    let app_menu_items: Vec<&dyn tauri::menu::IsMenuItem<R>> = if cfg!(target_os = "macos") {
+        vec![&open, &settings, &separator, &hide, &quit]
+    } else {
+        vec![&open, &separator, &hide, &quit]
+    };
+    let app_submenu = Submenu::with_items(app, "Notesmith", true, &app_menu_items)?;
 
     let new_window_items = build_new_window_submenu_items(app, &vaults)?;
     let new_window_refs: Vec<&dyn tauri::menu::IsMenuItem<R>> =
@@ -711,12 +713,12 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let file_separator = PredefinedMenuItem::separator(app)?;
     let file_settings =
         MenuItem::with_id(app, MENU_SETTINGS, "Settings", true, Some("CmdOrCtrl+,"))?;
-    let file_submenu = Submenu::with_items(
-        app,
-        "File",
-        true,
-        &[&new_window_submenu, &file_separator, &file_settings],
-    )?;
+    let file_menu_items: Vec<&dyn tauri::menu::IsMenuItem<R>> = if cfg!(target_os = "macos") {
+        vec![&new_window_submenu]
+    } else {
+        vec![&new_window_submenu, &file_separator, &file_settings]
+    };
+    let file_submenu = Submenu::with_items(app, "File", true, &file_menu_items)?;
 
     let edit_submenu = Submenu::with_items(app, "Edit", true, &[&copy, &paste, &select_all])?;
     let diagnostics_submenu = Submenu::with_items(
@@ -846,18 +848,7 @@ fn registered_vault_names() -> Vec<String> {
 fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<(), DynError> {
     match id {
         MENU_OPEN => show_main_window(app),
-        MENU_SETTINGS => {
-            // Emit event to frontend to navigate to settings page.
-            for label in all_app_window_labels(app) {
-                if let Some(window) = app.get_webview_window(&label) {
-                    let _ = window.emit("notesmith://open-settings", ());
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    break;
-                }
-            }
-            Ok(())
-        }
+        MENU_SETTINGS => show_settings_window(app),
         MENU_HIDE => hide_main_window(app),
         MENU_QUIT => handle_quit_request(app),
         MENU_RESTART_SERVICE => {
@@ -953,6 +944,17 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
         }
     }
 
+    Ok(())
+}
+
+fn show_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
+    clear_last_quit_attempt(app);
+    ensure_settings_window(app)?;
+    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
     Ok(())
 }
 
@@ -1165,6 +1167,32 @@ fn ensure_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
         .ok_or_else(|| std::io::Error::other("missing main window config"))?;
 
     window_config.url = webview_url_for_app(app_url);
+    WebviewWindowBuilder::from_config(app, &window_config)?.build()?;
+    Ok(())
+}
+
+fn ensure_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
+    let settings_url = current_settings_app_url(app)?;
+
+    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW_LABEL) {
+        if window.url()?.as_str() != settings_url.as_str() {
+            window.navigate(settings_url)?;
+        }
+        return Ok(());
+    }
+
+    let mut window_config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == MAIN_WINDOW_LABEL)
+        .cloned()
+        .ok_or_else(|| std::io::Error::other("missing main window config"))?;
+
+    window_config.label = SETTINGS_WINDOW_LABEL.to_string();
+    window_config.url = webview_url_for_app(settings_url);
+    window_config.title = "Notesmith Settings".to_string();
     WebviewWindowBuilder::from_config(app, &window_config)?.build()?;
     Ok(())
 }
@@ -1427,6 +1455,9 @@ fn all_app_window_labels<R: Runtime>(app: &AppHandle<R>) -> Vec<String> {
     if app.get_webview_window(MAIN_WINDOW_LABEL).is_some() {
         labels.push(MAIN_WINDOW_LABEL.to_string());
     }
+    if app.get_webview_window(SETTINGS_WINDOW_LABEL).is_some() {
+        labels.push(SETTINGS_WINDOW_LABEL.to_string());
+    }
     labels
 }
 
@@ -1644,6 +1675,16 @@ fn current_app_url<R: Runtime>(app: &AppHandle<R>) -> Result<Url, DynError> {
 
 fn current_vault_app_url<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<Url, DynError> {
     current_app_url_for_vault(app, Some(vault))
+}
+
+fn current_settings_app_url<R: Runtime>(app: &AppHandle<R>) -> Result<Url, DynError> {
+    Url::parse(&app_route_window_url(
+        &current_daemon_url(app),
+        "/settings",
+        None,
+        frontend_mode(),
+    ))
+    .map_err(Into::into)
 }
 
 fn current_app_url_for_vault<R: Runtime>(
