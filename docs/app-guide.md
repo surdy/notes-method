@@ -16,6 +16,8 @@ The desktop app connects to the live Notesmith daemon discovered from the Notesm
 
 When connected to a remote daemon, vault management actions apply to the remote server. The Settings → Vaults add form and the Add Remote Vault dialog expect paths as seen by the server/container, not local paths on the desktop machine; local folder browsing is only shown for local desktop daemon launches.
 
+Removing a vault from Settings only unregisters it by default. The confirmation dialog has a separate, unchecked option to also delete the vault folder and its files from the daemon host.
+
 In practice, that means:
 
 - the daemon provides notes, search, SQL results, and rendered HTML

@@ -52,6 +52,7 @@
 		isOpen: boolean;
 		isDefault: boolean;
 		isLast: boolean;
+		deleteFiles: boolean;
 	} | null>(null);
 	let removing = $state(false);
 
@@ -236,7 +237,8 @@
 			name,
 			isOpen: openVaults.includes(name),
 			isDefault: vault?.is_default ?? false,
-			isLast: vaults.length === 1
+			isLast: vaults.length === 1,
+			deleteFiles: false
 		};
 	}
 
@@ -247,7 +249,7 @@
 
 	async function confirmRemoveNow() {
 		if (!confirmRemove) return;
-		const { name, isOpen } = confirmRemove;
+		const { name, isOpen, deleteFiles } = confirmRemove;
 		removing = true;
 		error = null;
 		try {
@@ -259,11 +261,14 @@
 					console.warn('close_vault_window failed', e);
 				}
 			}
-			await removeVault(name);
+			await removeVault(name, { deleteFiles });
 			confirmRemove = null;
 			await load();
 			await refreshOpenVaults();
-			toastStore.add(`Vault "${name}" removed.`, 'success');
+			toastStore.add(
+				deleteFiles ? `Vault "${name}" and its files were deleted.` : `Vault "${name}" removed.`,
+				'success'
+			);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to remove vault';
 		} finally {
@@ -483,7 +488,11 @@
 			<h3 id="confirm-remove-title" class="modal-title">Remove vault?</h3>
 			<p class="modal-body">
 				Remove vault <strong>"{confirmRemove.name}"</strong>?
-				This only unregisters the vault — your files will not be deleted.
+				{#if confirmRemove.deleteFiles}
+					The vault will be unregistered and its files will be deleted.
+				{:else}
+					This only unregisters the vault — your files will not be deleted.
+				{/if}
 				{#if confirmRemove.isOpen}
 					<br /><br />
 					The vault window is currently open and will be closed.
@@ -498,6 +507,32 @@
 					default automatically.
 				{/if}
 			</p>
+			<label class="checkbox-row">
+				<input
+					type="checkbox"
+					checked={confirmRemove.deleteFiles}
+					disabled={removing}
+					onchange={(event) => {
+						if (!confirmRemove) return;
+						confirmRemove = {
+							...confirmRemove,
+							deleteFiles: event.currentTarget.checked
+						};
+					}}
+				/>
+				<span>
+					Also delete files on disk
+					<small class="hint">
+						Off by default. If enabled, Notesmith recursively deletes the vault folder
+						from the machine running the daemon.
+					</small>
+				</span>
+			</label>
+			{#if confirmRemove.deleteFiles}
+				<p class="danger-note" role="alert">
+					This permanently deletes the vault folder and all files inside it.
+				</p>
+			{/if}
 			<div class="modal-actions">
 				<button
 					type="button"
@@ -510,7 +545,11 @@
 					class="btn-danger"
 					disabled={removing}
 					onclick={() => void confirmRemoveNow()}
-				>{removing ? 'Removing…' : 'Remove'}</button>
+				>{removing
+					? 'Removing…'
+					: confirmRemove.deleteFiles
+						? 'Remove and Delete Files'
+						: 'Remove'}</button>
 			</div>
 		</div>
 	</div>
@@ -759,6 +798,13 @@
 		font-size: 11px;
 		color: var(--text-muted);
 		margin-top: 2px;
+	}
+
+	.danger-note {
+		margin: 0 0 12px;
+		color: var(--color-danger);
+		font-size: 12px;
+		line-height: 1.4;
 	}
 
 	.path-preview {

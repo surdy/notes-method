@@ -32,6 +32,12 @@ pub struct UpdateVaultRequest {
     pub name: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct RemoveVaultQuery {
+    #[serde(default)]
+    pub delete_files: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SetDefaultRequest {
     pub name: String,
@@ -183,6 +189,7 @@ pub async fn update_vault(
 pub async fn remove_vault(
     State(state): State<SharedAppState>,
     Path(vault_name): Path<String>,
+    Query(query): Query<RemoveVaultQuery>,
     _guard: WriteGuard,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     let config_path = {
@@ -191,14 +198,22 @@ pub async fn remove_vault(
     };
     let mut config = GlobalConfig::load_from(&config_path).map_err(internal_error)?;
 
-    if !config.vaults.contains_key(&vault_name) {
-        return Err((
+    let registration = config.vaults.remove(&vault_name).ok_or_else(|| {
+        (
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "vault_not_found" })),
+        )
+    })?;
+    let vault_path = registration.path;
+    if query.delete_files && vault_path.exists() && !vault_path.is_dir() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({
+                "error": "path_not_directory",
+                "message": format!("Path '{}' is not a directory", vault_path.display())
+            })),
         ));
     }
-
-    config.vaults.remove(&vault_name);
 
     // If the removed vault was the default, pick a new one (first remaining
     // by sorted name for determinism), or clear it entirely if no vaults
@@ -214,6 +229,18 @@ pub async fn remove_vault(
     }
 
     config.save_to(&config_path).map_err(internal_error)?;
+
+    if query.delete_files && vault_path.exists() {
+        fs::remove_dir_all(&vault_path).map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({
+                    "error": "path_delete_failed",
+                    "message": format!("Failed to delete '{}': {}", vault_path.display(), error)
+                })),
+            )
+        })?;
+    }
 
     emit_vaults_changed(&state, &vault_name).await;
 
@@ -319,9 +346,12 @@ impl Drop for RebuildGuard<'_> {
 mod tests {
     use std::{collections::HashMap, fs, sync::Arc};
 
-    use axum::extract::{Path, Query, State};
+    use axum::{
+        extract::{Path, Query, State},
+        http::StatusCode,
+    };
     use chrono::Utc;
-    use notesmith_config::{VaultConfig, migration};
+    use notesmith_config::{GlobalConfig, VaultConfig, VaultRegistration, migration};
     use notesmith_core::VaultEngine;
     use notesmith_index::{SearchIndex, VaultCache};
     use notesmith_vault::NativeVaultEngine;
@@ -334,7 +364,85 @@ mod tests {
         write_guard::WriteGuard,
     };
 
-    use super::{ReindexVaultQuery, reindex_vault};
+    use super::{ReindexVaultQuery, RemoveVaultQuery, reindex_vault, remove_vault};
+
+    fn minimal_state(config_path: std::path::PathBuf) -> SharedAppState {
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        Arc::new(RwLock::new(AppState {
+            vaults: HashMap::new(),
+            event_tx: create_event_channel().0,
+            event_buffer: Arc::new(EventBuffer::new(crate::events::EVENT_BUFFER_CAPACITY)),
+            global_config_path: config_path,
+            started_at: Utc::now(),
+            sse_connection_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            shutdown_tx,
+            shutdown_rx,
+        }))
+    }
+
+    fn write_global_config(
+        config_path: &std::path::Path,
+        vault_name: &str,
+        vault_root: std::path::PathBuf,
+    ) {
+        let mut config = GlobalConfig::default();
+        config.default_vault = Some(vault_name.to_string());
+        config.vaults.insert(
+            vault_name.to_string(),
+            VaultRegistration { path: vault_root },
+        );
+        config.save_to(config_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn remove_vault_keeps_files_by_default() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+        let vault_root = temp_dir.path().join("vault");
+        fs::create_dir_all(vault_root.join("Notes")).unwrap();
+        fs::write(vault_root.join("Notes/Keep.md"), "# Keep\n").unwrap();
+        write_global_config(&config_path, "work", vault_root.clone());
+        let state = minimal_state(config_path.clone());
+
+        let status = remove_vault(
+            State(state),
+            Path("work".to_string()),
+            Query(RemoveVaultQuery::default()),
+            WriteGuard,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert!(vault_root.join("Notes/Keep.md").exists());
+        let config = GlobalConfig::load_from(&config_path).unwrap();
+        assert!(!config.vaults.contains_key("work"));
+    }
+
+    #[tokio::test]
+    async fn remove_vault_deletes_files_when_requested() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+        let vault_root = temp_dir.path().join("vault");
+        fs::create_dir_all(vault_root.join("Notes")).unwrap();
+        fs::write(vault_root.join("Notes/Delete.md"), "# Delete\n").unwrap();
+        write_global_config(&config_path, "work", vault_root.clone());
+        let state = minimal_state(config_path.clone());
+
+        let status = remove_vault(
+            State(state),
+            Path("work".to_string()),
+            Query(RemoveVaultQuery { delete_files: true }),
+            WriteGuard,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert!(!vault_root.exists());
+        let config = GlobalConfig::load_from(&config_path).unwrap();
+        assert!(!config.vaults.contains_key("work"));
+    }
 
     #[tokio::test]
     async fn reindex_vault_honors_cache_only_and_search_only_flags() {

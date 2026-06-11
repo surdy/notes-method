@@ -1438,13 +1438,18 @@ Updates a vault (rename).
 
 ### `DELETE /api/app/vaults/{name}`
 
-Unregisters a vault. Does not delete files.
+Unregisters a vault. Does not delete files by default.
+
+**Query parameters:**
+- `delete_files` (optional, default `false`) — when `true`, recursively deletes
+  the vault folder on the daemon host after unregistering the vault.
 
 **Response:** `204 No Content`
 
 **Errors:**
 - `404` — vault not found
-- `422` — cannot remove the default vault
+- `422` — file deletion failed, or the registered path is not a directory when
+  `delete_files=true`
 
 ### `PUT /api/app/default-vault`
 

@@ -57,8 +57,12 @@ export async function updateVault(
 	if (!res.ok) throw new ApiError(`Failed to update vault: ${res.status}`, res.status);
 }
 
-export async function removeVault(name: string): Promise<void> {
-	const res = await apiFetch(`${API_BASE}/api/app/vaults/${encodeURIComponent(name)}`, {
+export async function removeVault(
+	name: string,
+	options: { deleteFiles?: boolean } = {}
+): Promise<void> {
+	const params = options.deleteFiles ? '?delete_files=true' : '';
+	const res = await apiFetch(`${API_BASE}/api/app/vaults/${encodeURIComponent(name)}${params}`, {
 		method: 'DELETE'
 	});
 	if (res.status === 422) {
@@ -68,7 +72,14 @@ export async function removeVault(name: string): Promise<void> {
 	if (res.status === 404) {
 		throw new ApiError('Vault not found', 404);
 	}
-	if (!res.ok) throw new ApiError(`Failed to remove vault: ${res.status}`, res.status);
+	if (!res.ok) {
+		const data = await readErrorBody(res);
+		throw new ApiError(
+			data.message ?? data.code ?? `Failed to remove vault: ${res.status}`,
+			res.status,
+			data.code
+		);
+	}
 }
 
 export async function setDefaultVault(name: string): Promise<void> {
