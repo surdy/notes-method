@@ -30,6 +30,12 @@ struct Cli {
     #[arg(long, global = true)]
     vault: Option<String>,
 
+    /// Target daemon base URL (e.g. https://host:8443). Overrides the local
+    /// daemon; can also be set via NOTESMITH_URL. A remote daemon is never
+    /// auto-started.
+    #[arg(long, global = true)]
+    url: Option<String>,
+
     /// Output format
     #[arg(long, global = true, default_value = "text")]
     format: FormatArg,
@@ -128,6 +134,15 @@ async fn main() -> anyhow::Result<()> {
     let global_config = GlobalConfig::load().unwrap_or_default();
     let cwd = std::env::current_dir()?;
     let format: OutputFormat = cli.format.into();
+
+    // Resolve the remote daemon override from `--url` / `NOTESMITH_URL`. The
+    // `daemon` lifecycle subcommands always manage the local daemon, so the
+    // override does not apply to them.
+    if let Some(base) = notesmith_cli::daemon_client::resolve_override(cli.url.as_deref())? {
+        if !matches!(cli.command, Command::Daemon { .. }) {
+            notesmith_cli::daemon_client::set_remote_override(base);
+        }
+    }
 
     match cli.command {
         Command::Daemon { command } => {

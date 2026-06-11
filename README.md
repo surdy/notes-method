@@ -128,6 +128,11 @@ daemon can serve `/app/` to browsers. The `api-latest` flavor is binary-only for
 CLI, MCP, API-only deployments, and Tauri desktop clients that provide their own
 embedded frontend while `NOTESMITH_DESKTOP_DAEMON_URL` points at the server.
 
+A local `notesmith` CLI can drive such a remote daemon by setting the global
+`--url` flag or the `NOTESMITH_URL` environment variable (e.g.
+`NOTESMITH_URL=https://notes.example.com notesmith search ...`); the same target
+applies to `notesmith mcp start`, so stdio MCP clients reach the remote vault.
+
 See [deploy/README.md](deploy/README.md) for Docker Compose, Quadlet, and tag
 details.
 

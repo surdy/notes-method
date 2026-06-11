@@ -320,3 +320,101 @@ async fn search_uses_http_daemon() {
     assert!(stdout.contains("Home.md"));
     assert!(stdout.contains("Home"));
 }
+
+/// `--url` and `NOTESMITH_URL` retarget daemon-backed commands at a remote
+/// daemon, overriding the configured local bind without auto-starting locally.
+#[tokio::test]
+async fn search_targets_remote_daemon_via_url_override() {
+    let temp_dir = TempDir::new().unwrap();
+    let vault_root = temp_dir.path().join("work");
+    create_vault(&vault_root, "work");
+    fs::write(
+        vault_root.join("Home.md"),
+        "# Home\n\nAcme landing zone and remoteonlyneedle.\n",
+    )
+    .unwrap();
+
+    // The "remote" daemon we expect commands to reach.
+    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let remote_bind = reserved.local_addr().unwrap();
+    drop(reserved);
+
+    // A different, unused port recorded as the *local* bind. If the override is
+    // ignored, commands would target this dead address and fail.
+    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let dead_local_bind = reserved.local_addr().unwrap();
+    drop(reserved);
+
+    let config_home = temp_dir.path().join("config-home");
+    let cache_home = temp_dir.path().join("cache-home");
+    write_global_config(
+        &config_home,
+        "work",
+        &vault_root,
+        Some(dead_local_bind.to_string()),
+    );
+
+    let mut daemon = Command::new(notesmith_bin())
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .env("HOME", temp_dir.path())
+        .env("XDG_RUNTIME_DIR", temp_dir.path().join("runtime"))
+        .arg("daemon")
+        .arg("start")
+        .arg("--bind")
+        .arg(remote_bind.to_string())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    wait_for_daemon(&mut daemon, &remote_bind).await;
+
+    let remote_url = format!("http://{remote_bind}");
+
+    // 1. `--url` flag targets the remote daemon.
+    let via_flag = Command::new(notesmith_bin())
+        .current_dir(&vault_root)
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .args(["--url", &remote_url, "search", "remoteonlyneedle"])
+        .output()
+        .unwrap();
+
+    // 2. `NOTESMITH_URL` env var targets the remote daemon.
+    let via_env = Command::new(notesmith_bin())
+        .current_dir(&vault_root)
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_CACHE_HOME", &cache_home)
+        .env("NOTESMITH_URL", &remote_url)
+        .args(["search", "remoteonlyneedle"])
+        .output()
+        .unwrap();
+
+    daemon.kill().unwrap();
+    let _ = daemon.wait();
+
+    assert!(
+        via_flag.status.success(),
+        "--url flag run failed\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&via_flag.stdout),
+        String::from_utf8_lossy(&via_flag.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&via_flag.stdout).contains("Home.md"),
+        "--url stdout: {}",
+        String::from_utf8_lossy(&via_flag.stdout)
+    );
+
+    assert!(
+        via_env.status.success(),
+        "NOTESMITH_URL run failed\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&via_env.stdout),
+        String::from_utf8_lossy(&via_env.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&via_env.stdout).contains("Home.md"),
+        "NOTESMITH_URL stdout: {}",
+        String::from_utf8_lossy(&via_env.stdout)
+    );
+}

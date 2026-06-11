@@ -11,11 +11,6 @@ use reqwest::Url;
 pub enum McpCommand {
     /// Bridge a stdio MCP client to the daemon's MCP endpoint over HTTP
     Start {
-        /// Daemon base URL to bridge to (e.g. `http://host:27183`).
-        /// Defaults to the local daemon, auto-starting it if needed.
-        #[arg(long)]
-        url: Option<String>,
-
         /// Bridge to the read-only endpoint, where write tools are rejected.
         #[arg(long)]
         read_only: bool,
@@ -30,15 +25,8 @@ impl McpCommand {
         cwd: &Path,
     ) -> anyhow::Result<()> {
         match self {
-            McpCommand::Start { url, read_only } => {
-                cmd_start(
-                    global_config,
-                    explicit_vault,
-                    cwd,
-                    url.as_deref(),
-                    *read_only,
-                )
-                .await
+            McpCommand::Start { read_only } => {
+                cmd_start(global_config, explicit_vault, cwd, *read_only).await
             }
         }
     }
@@ -48,15 +36,13 @@ async fn cmd_start(
     global_config: &GlobalConfig,
     explicit_vault: Option<&str>,
     cwd: &Path,
-    url: Option<&str>,
     read_only: bool,
 ) -> anyhow::Result<()> {
     let vault_name = resolve_vault_name(global_config, explicit_vault, cwd)?;
 
-    let base = match url {
-        Some(url) => Url::parse(url).with_context(|| format!("invalid daemon URL: {url}"))?,
-        None => crate::daemon_client::ensure_daemon(global_config).await?,
-    };
+    // Resolves to the remote daemon when `--url` / `NOTESMITH_URL` is set,
+    // otherwise the local daemon (auto-started on demand).
+    let base = crate::daemon_client::ensure_daemon(global_config).await?;
 
     let endpoint = mcp_endpoint(&base, &vault_name, read_only)?;
     notesmith_mcp::run_stdio_bridge(endpoint.to_string()).await

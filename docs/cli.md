@@ -3,7 +3,7 @@
 Notesmith ships a single user-facing binary: **`notesmith`**. The workspace also includes a developer-only helper binary, **`theme-gen`**, for precomputing theme CSS from the catalog JSON.
 
 ```
-notesmith [--vault <name|path>] [--format text|json] <command>
+notesmith [--vault <name|path>] [--url <daemon-url>] [--format text|json] <command>
 ```
 
 **Global flags:**
@@ -11,7 +11,10 @@ notesmith [--vault <name|path>] [--format text|json] <command>
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--vault <name\|path>` | Override vault detection (name from config or path) | auto-detect |
+| `--url <daemon-url>` | Target a daemon base URL (e.g. `https://host:8443`) instead of the local daemon. Also settable via the `NOTESMITH_URL` env var (the flag wins). A remote daemon is used as-is and never auto-started; terminate TLS with a reverse proxy. Reverse-proxy subpaths are supported (`https://host/notesmith`). | local daemon |
 | `--format text\|json` | Output format | `text` (JSON when piped) |
+
+`--url` / `NOTESMITH_URL` applies to all daemon-backed commands (query, note, search, reindex, task, capture, template, route, daily, periodic, url-open, and `mcp start`). The `daemon` lifecycle subcommands always manage the **local** daemon and ignore the override.
 
 ---
 
@@ -123,22 +126,23 @@ The desktop binary accepts a small set of flags before any Tauri-specific argume
 
 Bridge a stdio-only MCP client (such as Claude Desktop) to a daemon's HTTP MCP
 endpoint. The command resolves the target vault, resolves a daemon base URL
-(auto-starting the local daemon when `--url` is omitted), then runs a
-transparent stdio↔HTTP proxy. There is no embedded vault engine; every request
-is forwarded to the daemon, which owns the live indexes.
+(the global `--url` / `NOTESMITH_URL` when set, otherwise the local daemon,
+auto-started on demand), then runs a transparent stdio↔HTTP proxy. There is no
+embedded vault engine; every request is forwarded to the daemon, which owns the
+live indexes.
 
 ```bash
-notesmith mcp start [--vault <name>] [--url <daemon-url>] [--read-only]
+notesmith [--url <daemon-url>] mcp start [--vault <name>] [--read-only]
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--vault <name>` | Target vault. Taken as-is so it can name a vault hosted only on a remote daemon; otherwise detected from the working directory. |
-| `--url <daemon-url>` | Daemon base URL (e.g. `http://host:27183`). Defaults to the local daemon, auto-starting it if needed. |
 | `--read-only` | Bridge to the daemon's read-only endpoint, where write tools are rejected. |
 
-The bridge connects to `<url>/mcp/<vault>` (or `<url>/mcp-ro/<vault>` with
-`--read-only`). See [`docs/mcp.md`](mcp.md) for the tool/resource surface.
+The bridge connects to `<daemon>/mcp/<vault>` (or `<daemon>/mcp-ro/<vault>` with
+`--read-only`), where `<daemon>` is the global `--url` / `NOTESMITH_URL` target
+or the local daemon. See [`docs/mcp.md`](mcp.md) for the tool/resource surface.
 
 ---
 

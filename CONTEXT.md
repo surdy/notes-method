@@ -52,7 +52,7 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 - **Capture** — A first-class command that writes timestamped notes to the configured capture folder. Delegates to the template system internally. When `capture.folder = ""`, captures land in the vault root.
 - **Routing** — Rule-based note filing using an expressive YAML DSL (`.notesmith/routing.yaml`). Rules match on field values, tag presence/absence, path globs, and boolean combinators (all/any/not). Mutations: move_to, set_fields, remove_fields, add_tags, remove_tags. Supports both manual trigger (`notesmith route apply`) and auto-routing (opt-in per rule).
 - **Route Log** — An append-only audit table recording every routing operation (from_path, to_path, rule_id, mutations). Enables undo via `notesmith route undo`.
-- **Daemon-backed CLI commands** — `capture`, `query`, `note`, `search`, `template`, `route`, `periodic`, `task`, `reindex`, and daemon-backed `notesmith://` handlers. They probe `/api/status` and auto-start the HTTP daemon when `[daemon].auto_start = true`.
+- **Daemon-backed CLI commands** — `capture`, `query`, `note`, `search`, `template`, `route`, `periodic`, `task`, `reindex`, `daily`, `url-open`, and `mcp start`. They resolve a daemon base URL (the global `--url` flag or `NOTESMITH_URL` env var when set, otherwise the local bind) and, for the local daemon, probe `/api/status` and auto-start it when `[daemon].auto_start = true`. A remote target (`--url`/`NOTESMITH_URL`) is used verbatim and never auto-started; the `daemon` lifecycle subcommands always manage the local daemon. Base-URL resolution is centralized in `notesmith-cli`'s `daemon_client` (`resolve_override`/`set_remote_override`).
 
 ## Templates
 

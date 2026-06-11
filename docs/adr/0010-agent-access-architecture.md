@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted (2026-06-11). Implementation phased; phases 1–3 complete (Ops layer
-+ read-only; daemon-hosted MCP over HTTP/SSE; stdio↔HTTP bridge). Phases 4–5
-(CLI remote profile, auth) outstanding.
+Accepted (2026-06-11). Implementation phased; phases 1–4 complete (Ops layer
++ read-only; daemon-hosted MCP over HTTP/SSE; stdio↔HTTP bridge; CLI remote
+profile via `--url` / `NOTESMITH_URL`). Phase 5 (auth) outstanding.
 
 ## Context
 
@@ -72,13 +72,20 @@ A single canonical operations abstraction is introduced:
 - `Ops` — trait defining every vault operation (read and write).
 - `LocalOps` — in-process implementation used by the daemon's own handlers and
   by the daemon-hosted MCP endpoint; wraps the existing engines/indexes.
-- `RemoteOps` — an HTTP client implementation used by the CLI remote profile
-  and the stdio bridge; talks to a daemon over HTTP.
+- `RemoteOps` — originally envisioned as a sync HTTP client implementation of
+  `Ops` for the CLI and bridge. In practice this was **not** introduced: the
+  stdio bridge is an rmcp proxy that forwards MCP requests to the daemon over
+  HTTP (holding a `Peer<RoleClient>`), and the CLI remote profile retargets the
+  daemon base URL (`--url` / `NOTESMITH_URL`) of the existing async REST
+  clients. A synchronous `Ops` HTTP impl would have to block inside the CLI's
+  async runtime and would duplicate that REST client, so `Ops` stays the
+  in-process daemon-side abstraction (`LocalOps` / `ReadOnlyOps`).
 - `ReadOnlyOps` — a decorator over any `Ops` that returns an error for write
   operations; backs the `/mcp-ro/<vault>` endpoint.
 
-The daemon's REST surface, the MCP endpoints, the CLI, and the bridge all sit
-on top of `Ops`, so operation logic exists exactly once.
+The daemon's REST surface and the MCP endpoints sit on top of `Ops`, so
+operation logic exists exactly once. The CLI and the bridge are thin HTTP/MCP
+clients of the daemon rather than direct `Ops` callers.
 
 ## Consequences
 
@@ -125,8 +132,13 @@ boundary, structured 4xx (not 500) on malformed request bodies.
    `/mcp-ro/<vault>`) endpoint and forwards every request; the embedded
    in-memory engine path is removed. The local daemon is auto-started when no
    `--url` is supplied. *(Done.)*
-4. **CLI remote profile.** `RemoteOps` + `--url` / `NOTESMITH_URL`; route
-   daemon-backed commands through `Ops`.
+4. **CLI remote profile.** A global `--url` flag and `NOTESMITH_URL` env var
+   retarget all daemon-backed commands (and `mcp start`) at a remote daemon's
+   base URL, overriding the local bind. A remote target is used verbatim and
+   never auto-started; reverse-proxy subpaths are supported. The `daemon`
+   lifecycle subcommands always manage the local daemon. Implemented by
+   centralizing base-URL resolution in the CLI's daemon client rather than by a
+   sync `RemoteOps` (see "The Ops layer"). *(Done.)*
 5. **Auth (later).** Bearer tokens + per-identity scopes, integrated with the
    existing origin-based `WriteGuard`; loopback exemption for local use.
    Native HTTPS becomes optional at this point.

@@ -14,15 +14,16 @@ See [`docs/http-api.md`](http-api.md#agent-access-mcp-over-http) for connection 
 **2. Over stdio** (for stdio-only clients such as Claude Desktop):
 
 ```bash
-notesmith mcp start [--vault <name>] [--url <daemon-url>] [--read-only]
+notesmith [--url <daemon-url>] mcp start [--vault <name>] [--read-only]
 ```
 
 `mcp start` is a **stdio↔HTTP bridge**, not an embedded server. It resolves a
-daemon base URL (auto-starting the local daemon when `--url` is omitted), connects
-to that daemon's `/mcp/{vault}` endpoint (or `/mcp-ro/{vault}` with `--read-only`),
-and transparently forwards every stdio request to it. This means stdio and HTTP
-clients always share the daemon's live indexes and the same operation logic
-(`notesmith-ops`) — there is no separate in-memory index path to drift.
+daemon base URL (the global `--url` / `NOTESMITH_URL` when set, otherwise the
+local daemon, auto-started on demand), connects to that daemon's `/mcp/{vault}`
+endpoint (or `/mcp-ro/{vault}` with `--read-only`), and transparently forwards
+every stdio request to it. This means stdio and HTTP clients always share the
+daemon's live indexes and the same operation logic (`notesmith-ops`) — there is
+no separate in-memory index path to drift.
 
 Both transports expose the same tools and resources.
 
