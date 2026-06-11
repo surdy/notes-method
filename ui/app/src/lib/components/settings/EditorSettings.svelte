@@ -80,6 +80,7 @@ live preview so the title isn't shown twice. The source file is not modified.
 <span class="field-label">Image URL Whitelist</span>
 <textarea
 rows="4"
+autocapitalize="off"
 placeholder="youtu.?be|vimeo&#10;imgur\\.com&#10;.*\\.(?:png|jpg|gif)"
 value={cfg.editor.paste_url_image_whitelist ?? ''}
 onchange={(e) => {

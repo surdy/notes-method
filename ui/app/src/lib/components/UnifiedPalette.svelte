@@ -493,6 +493,7 @@
 							: 'Filter themes by name, tone, or tags...'
 				}
 				type="text"
+				autocapitalize="off"
 			/>
 		</div>
 

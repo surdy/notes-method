@@ -314,6 +314,7 @@
 								<div class="rename-row">
 									<input
 										type="text"
+										autocapitalize="off"
 										class="rename-input"
 										bind:value={renameValue}
 										onkeydown={(e) => {
@@ -393,6 +394,7 @@
 				<span class="field-label">Vault Name</span>
 				<input
 					type="text"
+					autocapitalize="off"
 					bind:value={addName}
 					placeholder="e.g. Personal"
 				/>
@@ -408,6 +410,7 @@
 				<div class="path-row">
 					<input
 						type="text"
+						autocapitalize="off"
 						bind:value={addParentPath}
 						placeholder={addCreateSubfolder
 							? isRemoteDaemon

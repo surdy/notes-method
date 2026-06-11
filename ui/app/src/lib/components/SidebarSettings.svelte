@@ -393,6 +393,7 @@
 								<span class="field-label">Name</span>
 								<input
 									type="text"
+									autocapitalize="off"
 									value={view.name}
 									oninput={(e) => {
 										view.name = (e.target as HTMLInputElement).value;
@@ -420,6 +421,7 @@
 								<span class="field-label">Badge Query (optional)</span>
 								<input
 									type="text"
+									autocapitalize="off"
 									value={view.badge_query ?? ''}
 									placeholder="e.g. SELECT COUNT(*) FROM tasks WHERE status='todo'"
 									oninput={(e) => {
@@ -467,6 +469,7 @@
 										<span class="field-label">Label</span>
 										<input
 											type="text"
+											autocapitalize="off"
 											value={section.label}
 											oninput={(e) => {
 												section.label = (e.target as HTMLInputElement).value;
@@ -518,6 +521,7 @@
 													<div class="autocomplete-wrapper">
 														<input
 															type="text"
+															autocapitalize="off"
 															value={folder}
 															placeholder="Folder path"
 															oninput={(e) => {
@@ -580,6 +584,7 @@
 														<span class="field-label">Name</span>
 														<input
 															type="text"
+															autocapitalize="off"
 															value={item.name}
 															oninput={(e) => {
 																item.name = (e.target as HTMLInputElement).value;
@@ -608,6 +613,7 @@
 															<span class="field-label">Folder</span>
 															<input
 																type="text"
+																autocapitalize="off"
 																value={item.source.folder}
 																placeholder="Folder path"
 																oninput={(e) => {
@@ -626,6 +632,7 @@
 															<span class="field-label">Query</span>
 															<input
 																type="text"
+																autocapitalize="off"
 																value={item.source.query}
 																placeholder="SQL query"
 																oninput={(e) => {

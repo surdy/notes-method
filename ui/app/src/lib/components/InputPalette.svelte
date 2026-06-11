@@ -131,7 +131,7 @@
 				<p class="step-label">{stepLabel}</p>
 			</div>
 
-			<input bind:this={inputRef} class="palette-input" oninput={handleInput} placeholder={step.placeholder ?? ''} type="text" value={step.mode === 'list' ? query : textValue} />
+			<input bind:this={inputRef} class="palette-input" oninput={handleInput} placeholder={step.placeholder ?? ''} type="text" autocapitalize="off" value={step.mode === 'list' ? query : textValue} />
 
 			<div bind:this={resultsRef} class="palette-results">
 				{#if isListStep}

@@ -27,6 +27,7 @@ setter: (v: string) => void
 ) {
 return {
 value: value ?? '',
+autocapitalize: 'off' as const,
 oninput(e: Event) {
 setter((e.target as HTMLInputElement).value);
 markDirty(section);

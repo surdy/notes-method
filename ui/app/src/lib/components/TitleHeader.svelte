@@ -99,6 +99,7 @@
 			bind:value={draft}
 			class="title-input"
 			type="text"
+			autocapitalize="off"
 			disabled={saving}
 			onkeydown={onKeydown}
 			onblur={() => void commit()}

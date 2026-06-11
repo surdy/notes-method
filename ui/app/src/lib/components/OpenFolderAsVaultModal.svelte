@@ -154,6 +154,7 @@
 						bind:this={pathInput}
 						value={path}
 						type="text"
+						autocapitalize="off"
 						class="name-input"
 						placeholder="/vaults/notes"
 						disabled={phase === 'submitting'}
@@ -171,6 +172,7 @@
 					bind:this={nameInput}
 					bind:value={name}
 					type="text"
+					autocapitalize="off"
 					class="name-input"
 					placeholder="e.g. Personal"
 					disabled={phase === 'submitting'}
