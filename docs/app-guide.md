@@ -371,7 +371,21 @@ The theme is tuned for long editing sessions, with:
 - readable code and markdown syntax colors
 - a layout that keeps focus on the note content
 
-## 14. URL Scheme
+## 14. Hosted (Browser) Access
+
+Notesmith can also be used in a plain web browser when the daemon serves the bundled UI (the `app` container flavor) at `/app/`. The browser experience matches the desktop app, with one difference in navigation chrome.
+
+The desktop app has a native macOS menu bar (including **Settings**) and opens each vault in its own window. A browser tab has neither, so in browser mode the vault name in the top-left of the workspace chrome becomes a **dropdown menu**:
+
+- **Switch Vault** — reloads the current tab to another registered vault
+- **Add Vault…** — opens the add-vault dialog (server-side paths when remote)
+- **Settings** — opens the settings screen for the current vault
+
+This menu only appears in the browser. The desktop app continues to use its native menu and window-per-vault model unchanged.
+
+You can also reach settings directly at `/<base>/app/settings` (optionally `?vault=<name>`).
+
+## 15. URL Scheme
 
 Notesmith supports deep links with the `notesmith://` URL scheme.
 

@@ -18,6 +18,7 @@
 	import TabBar from '$lib/components/TabBar.svelte';
 	import ToastStack from '$lib/components/ToastStack.svelte';
 	import UnifiedPalette from '$lib/components/UnifiedPalette.svelte';
+	import VaultMenu from '$lib/components/VaultMenu.svelte';
 	import VersionBanner from '$lib/components/VersionBanner.svelte';
 	import OpenFolderAsVaultModal from '$lib/components/OpenFolderAsVaultModal.svelte';
 	import { versionMismatch } from '$lib/api/core';
@@ -182,10 +183,7 @@
 	<span class={`sidebar-panel-icon ${chromeLayout.leftToggleIcon}`} aria-hidden="true"></span>
 </button>
 {#if !leftSidebarCollapsed}
-<span class="vault-identity" title={vaultStore.currentVault}>
-	<span class="vault-icon" aria-hidden="true">🗄️</span>
-	<span class="vault-name">{vaultStore.currentVault}</span>
-</span>
+<VaultMenu {vaults} currentVault={vaultStore.currentVault} />
 {/if}
 </section>
 
@@ -450,26 +448,6 @@ overflow: hidden;
 
 .sidebar.collapsed .sidebar-body {
 display: none;
-}
-
-.vault-identity {
-display: flex;
-align-items: center;
-gap: 5px;
-overflow: hidden;
-}
-
-.vault-identity .vault-icon {
-font-size: 14px;
-flex-shrink: 0;
-}
-
-.vault-identity .vault-name {
-font-size: 14px;
-font-weight: 600;
-white-space: nowrap;
-overflow: hidden;
-text-overflow: ellipsis;
 }
 
 .chrome-section-title {
