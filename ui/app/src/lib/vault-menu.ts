@@ -52,3 +52,33 @@ export function settingsRoute(base: string, vault: string): string {
   const route = `${base}/settings`;
   return vault ? `${route}?vault=${encodeURIComponent(vault)}` : route;
 }
+
+export interface DropdownAnchor {
+  bottom: number;
+  left: number;
+}
+
+export interface DropdownPosition {
+  top: number;
+  left: number;
+}
+
+/**
+ * Compute the viewport-relative coordinates for the vault dropdown, anchored
+ * just below its trigger. The menu uses `position: fixed` with these
+ * coordinates so it escapes the workspace chrome's `overflow: hidden`, which
+ * would otherwise clip it (the dropdown appeared hidden behind the sidebar).
+ * The left edge is clamped so the menu stays within the viewport.
+ */
+export function vaultDropdownPosition(
+  trigger: DropdownAnchor,
+  viewportWidth: number,
+  menuWidth = 220
+): DropdownPosition {
+  const gap = 4;
+  const margin = 8;
+  const top = trigger.bottom + gap;
+  const maxLeft = viewportWidth - menuWidth - margin;
+  const left = Math.max(margin, Math.min(trigger.left, maxLeft));
+  return { top, left };
+}

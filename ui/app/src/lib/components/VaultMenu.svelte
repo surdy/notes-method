@@ -6,6 +6,7 @@
 		buildVaultMenuModel,
 		isBrowserVaultMenu,
 		settingsRoute,
+		vaultDropdownPosition,
 		vaultSwitchUrl
 	} from '$lib/vault-menu';
 
@@ -20,12 +21,20 @@
 	let open = $state(false);
 	let menuRef = $state<HTMLDivElement | null>(null);
 	let triggerRef = $state<HTMLButtonElement | null>(null);
+	let menuPos = $state({ top: 0, left: 0 });
 
 	const model = $derived(buildVaultMenuModel({ vaults, currentVault }));
 	const label = $derived(currentVault || 'No vault selected');
 
+	function updatePosition() {
+		if (!triggerRef || typeof window === 'undefined') return;
+		const rect = triggerRef.getBoundingClientRect();
+		menuPos = vaultDropdownPosition(rect, window.innerWidth);
+	}
+
 	function toggle() {
 		open = !open;
+		if (open) updatePosition();
 	}
 
 	function close() {
@@ -65,11 +74,16 @@
 
 	$effect(() => {
 		if (!open || typeof window === 'undefined') return;
+		updatePosition();
 		window.addEventListener('pointerdown', onWindowPointerDown, true);
 		window.addEventListener('keydown', onKeydown, true);
+		window.addEventListener('resize', updatePosition);
+		window.addEventListener('scroll', updatePosition, true);
 		return () => {
 			window.removeEventListener('pointerdown', onWindowPointerDown, true);
 			window.removeEventListener('keydown', onKeydown, true);
+			window.removeEventListener('resize', updatePosition);
+			window.removeEventListener('scroll', updatePosition, true);
 		};
 	});
 </script>
@@ -96,7 +110,13 @@
 		</button>
 
 		{#if open}
-			<div bind:this={menuRef} class="vault-dropdown" role="menu" aria-label="Vault menu">
+			<div
+				bind:this={menuRef}
+				class="vault-dropdown"
+				role="menu"
+				aria-label="Vault menu"
+				style="top: {menuPos.top}px; left: {menuPos.left}px;"
+			>
 				{#if model.hasOtherVaults}
 					<div class="dropdown-section" role="group" aria-label="Switch vault">
 						{#each model.vaults as entry (entry.name)}
@@ -199,9 +219,7 @@
 	}
 
 	.vault-dropdown {
-		position: absolute;
-		top: calc(100% + 4px);
-		left: 0;
+		position: fixed;
 		min-width: 220px;
 		max-width: 280px;
 		padding: 5px;
@@ -209,7 +227,7 @@
 		border: 1px solid var(--border-strong);
 		border-radius: 8px;
 		box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
-		z-index: 50;
+		z-index: 1000;
 	}
 
 	.dropdown-section {

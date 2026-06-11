@@ -4,6 +4,7 @@ import {
   buildVaultMenuModel,
   isBrowserVaultMenu,
   settingsRoute,
+  vaultDropdownPosition,
   vaultSwitchUrl
 } from './vault-menu.ts';
 
@@ -96,5 +97,23 @@ describe('settingsRoute', () => {
 
   it('works with an empty base', () => {
     expect(settingsRoute('', 'learn')).toBe('/settings?vault=learn');
+  });
+});
+
+describe('vaultDropdownPosition', () => {
+  it('anchors just below the trigger, aligned to its left edge', () => {
+    const pos = vaultDropdownPosition({ bottom: 38, left: 12 }, 1280);
+    expect(pos).toEqual({ top: 42, left: 12 });
+  });
+
+  it('clamps the left edge so the menu stays within the viewport', () => {
+    // Trigger near the right edge would push a 220px menu off-screen.
+    const pos = vaultDropdownPosition({ bottom: 38, left: 1200 }, 1280);
+    expect(pos.left).toBe(1280 - 220 - 8);
+  });
+
+  it('never positions the menu left of the viewport margin', () => {
+    const pos = vaultDropdownPosition({ bottom: 38, left: -100 }, 300);
+    expect(pos.left).toBe(8);
   });
 });
