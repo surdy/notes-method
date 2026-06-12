@@ -157,7 +157,7 @@ foundation the desktop chat panel builds on; on the server, agent access stays
 MCP-only (no server-side chat runner).
 
 ```bash
-notesmith agent run <message> [--agent <kind>] [--bin <path>] [--json]
+notesmith agent run <message> [--agent <kind>] [--bin <path>] [--local-file-access] [--json]
 ```
 
 | Flag | Description |
@@ -165,6 +165,7 @@ notesmith agent run <message> [--agent <kind>] [--bin <path>] [--json]
 | `<message>` | The user message to send to the agent (required). |
 | `--agent <kind>` | Which agent to drive (all over ACP): `claude-code` (default), `codex`, or `copilot`. |
 | `--bin <path>` | Override the agent binary (path or name on `PATH`). Defaults to the agent's expected binary. |
+| `--local-file-access` | Grant the agent scoped filesystem and terminal access to the working directory (ACP `fs/*` and `terminal/*`). Off by default; when off the agent reaches the vault through the Notesmith MCP tools only. See [ADR 0012](adr/0012-agent-local-io.md). |
 | `--json` | Emit each normalized event as a JSON line instead of human-readable text. |
 
 Events are normalized to `user_message`, `agent_message_delta`, `tool_call`,
@@ -183,6 +184,11 @@ are not bundled — install them first:
 
 If an adapter is missing, the command fails with a clear error that names the
 expected binary and the install command rather than hanging.
+
+Every session opens with a one-time context message steering the agent to the
+vault-aware Notesmith MCP tools. By default the agent has **no** direct shell or
+filesystem access; pass `--local-file-access` to grant it scoped `fs/*` and
+`terminal/*` access to the working directory (see [ADR 0012](adr/0012-agent-local-io.md)).
 
 ```bash
 notesmith agent run "Summarize today's note" --json
