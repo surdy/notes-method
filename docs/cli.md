@@ -163,7 +163,7 @@ notesmith agent run <message> [--agent <kind>] [--bin <path>] [--json]
 | Flag | Description |
 |------|-------------|
 | `<message>` | The user message to send to the agent (required). |
-| `--agent <kind>` | Which agent CLI to drive: `claude-code` (default), `codex`, `copilot-cli`, or `copilot-acp`. |
+| `--agent <kind>` | Which agent CLI to drive: `claude-code` (default), `codex`, `copilot-cli`, `copilot-acp`, `claude-acp`, or `codex-acp`. |
 | `--bin <path>` | Override the agent binary (path or name on `PATH`). Defaults to the adapter's expected binary. |
 | `--json` | Emit each normalized event as a JSON line instead of human-readable text. |
 
@@ -178,10 +178,22 @@ the Copilot CLI over the **Agent Client Protocol** (`copilot --acp`), a multi-tu
 JSON-RPC transport (ADR 0011 Phase E); the headless command still streams a single
 turn (stopping at `done`).
 
+`claude-acp` and `codex-acp` drive Claude Code and Codex over the **same ACP
+transport** via small adapter binaries. They are not bundled — install them first:
+
+- **Claude (ACP):** `npx --yes @zed-industries/claude-code-acp` (the default
+  command; requires Node/`npx` on `PATH`).
+- **Codex (ACP):** a `codex-acp` binary on `PATH` (override with `--bin`).
+
+If the adapter is missing, the command fails with a clear error that names the
+expected binary and the install command rather than hanging.
+
 ```bash
 notesmith agent run "Summarize today's note" --json
 notesmith agent run "List my open tasks" --agent codex
 notesmith agent run "What changed this week?" --agent copilot-acp --json
+notesmith agent run "Refactor my daily template" --agent claude-acp
+notesmith agent run "Draft a weekly review" --agent codex-acp --bin /opt/codex-acp
 ```
 
 ---

@@ -51,6 +51,21 @@ pub enum AgentKind {
     /// GitHub Copilot CLI over the Agent Client Protocol (`copilot --acp`),
     /// multi-turn (ADR 0011 Phase E).
     CopilotAcp,
+    /// Claude Code over ACP via its adapter binary (Phase E2).
+    ClaudeAcp,
+    /// Codex over ACP via the `codex-acp` adapter binary (Phase E2).
+    CodexAcp,
+}
+
+impl AgentKind {
+    /// Whether this kind is driven over the ACP transport (rather than a line
+    /// adapter).
+    fn is_acp(&self) -> bool {
+        matches!(
+            self,
+            AgentKind::CopilotAcp | AgentKind::ClaudeAcp | AgentKind::CodexAcp
+        )
+    }
 }
 
 /// A line adapter dispatching to one of the supported agents.
@@ -220,10 +235,14 @@ fn build_adapter(kind: &AgentKind, bin: Option<&str>, mcp_url: Option<&str>) -> 
             }
             NotesmithAdapter::Codex(adapter)
         }
-        // `CopilotAcp` is routed to an `AcpSession` in `agent_start` and never
-        // reaches this line-adapter builder; fold it into the Copilot CLI arm
-        // (same binary) as a non-panicking defensive fallback.
-        AgentKind::CopilotCli | AgentKind::CopilotAcp => {
+        // ACP kinds (`CopilotAcp`/`ClaudeAcp`/`CodexAcp`) are routed to an
+        // `AcpSession` in `agent_start` and never reach this line-adapter
+        // builder; fold them into the Copilot CLI arm as a non-panicking
+        // defensive fallback.
+        AgentKind::CopilotCli
+        | AgentKind::CopilotAcp
+        | AgentKind::ClaudeAcp
+        | AgentKind::CodexAcp => {
             let mut adapter = match bin {
                 Some(bin) => CopilotCliAdapter::new(bin),
                 None => CopilotCliAdapter::default(),
@@ -238,17 +257,25 @@ fn build_adapter(kind: &AgentKind, bin: Option<&str>, mcp_url: Option<&str>) -> 
 
 /// Build a persistent ACP session for the active vault (ADR 0011 Phase E).
 ///
-/// Currently the only ACP-wired agent is the Copilot CLI (`copilot --acp`);
-/// Claude Code and Codex join via their ACP adapter binaries in Phase E2. The
-/// MCP endpoint is passed via the ACP `session/new` `mcpServers` param, and the
-/// read-only / read-write scope is derived from the endpoint URL.
+/// Copilot speaks ACP natively (`copilot --acp`); Claude Code and Codex are
+/// driven via their ACP adapter binaries (Phase E2), which carry a setup hint so
+/// a missing adapter surfaces actionable guidance. The MCP endpoint is passed
+/// via the ACP `session/new` `mcpServers` param, and the read-only / read-write
+/// scope is derived from the endpoint URL.
 fn build_acp_session(
+    kind: &AgentKind,
     bin: Option<&str>,
     mcp_url: Option<&str>,
     working_dir: Option<PathBuf>,
 ) -> AcpSession {
     let bin = bin.filter(|b| !b.is_empty());
-    let session = AcpSession::copilot(bin).in_dir(working_dir);
+    let session = match kind {
+        AgentKind::ClaudeAcp => AcpSession::claude_code(bin),
+        AgentKind::CodexAcp => AcpSession::codex(bin),
+        // CopilotAcp (and any non-ACP kind that reaches here defensively).
+        _ => AcpSession::copilot(bin),
+    }
+    .in_dir(working_dir);
     match mcp_url {
         Some(url) if !url.is_empty() => session.with_mcp(McpBinding::new(MCP_SERVER_NAME, url)),
         _ => session,
@@ -288,17 +315,17 @@ pub async fn agent_start<R: Runtime>(
     let config = GlobalConfig::load().unwrap_or_default();
     let working_dir = vault_working_dir(&config, &vault);
 
-    let session = match agent {
-        AgentKind::CopilotAcp => DriverSession::Acp(build_acp_session(
+    let session = if agent.is_acp() {
+        DriverSession::Acp(build_acp_session(
+            &agent,
             bin.as_deref(),
             mcp_url.as_deref(),
             working_dir,
-        )),
-        _ => {
-            let adapter = build_adapter(&agent, bin.as_deref(), mcp_url.as_deref());
-            spawn_session(adapter, working_dir)
-                .map_err(|error| format!("could not start agent: {error}"))?
-        }
+        ))
+    } else {
+        let adapter = build_adapter(&agent, bin.as_deref(), mcp_url.as_deref());
+        spawn_session(adapter, working_dir)
+            .map_err(|error| format!("could not start agent: {error}"))?
     };
 
     let (input_tx, input_rx) = mpsc::unbounded_channel::<String>();
@@ -434,15 +461,48 @@ mod tests {
     }
 
     #[test]
-    fn build_acp_session_constructs_without_mcp() {
+    fn claude_and_codex_acp_kinds_deserialize_from_kebab_case() {
+        assert_eq!(
+            serde_json::from_str::<AgentKind>("\"claude-acp\"").unwrap(),
+            AgentKind::ClaudeAcp
+        );
+        assert_eq!(
+            serde_json::from_str::<AgentKind>("\"codex-acp\"").unwrap(),
+            AgentKind::CodexAcp
+        );
+    }
+
+    #[test]
+    fn is_acp_classifies_transport_kinds() {
+        assert!(AgentKind::CopilotAcp.is_acp());
+        assert!(AgentKind::ClaudeAcp.is_acp());
+        assert!(AgentKind::CodexAcp.is_acp());
+        assert!(!AgentKind::ClaudeCode.is_acp());
+        assert!(!AgentKind::Codex.is_acp());
+        assert!(!AgentKind::CopilotCli.is_acp());
+    }
+
+    #[test]
+    fn build_acp_session_constructs_each_kind_without_spawning() {
         // Smoke test: building the session must not spawn a process or panic.
-        let _ = build_acp_session(None, None, None);
-        let _ = build_acp_session(Some("/opt/copilot"), Some(""), None);
+        let _ = build_acp_session(&AgentKind::CopilotAcp, None, None, None);
+        let _ = build_acp_session(
+            &AgentKind::ClaudeAcp,
+            Some("/opt/claude-acp"),
+            Some(""),
+            None,
+        );
+        let _ = build_acp_session(&AgentKind::CodexAcp, None, None, None);
     }
 
     #[test]
     fn build_acp_session_wires_mcp_when_url_provided() {
-        let _ = build_acp_session(None, Some("http://127.0.0.1:27183/mcp-ro/work"), None);
+        let _ = build_acp_session(
+            &AgentKind::CopilotAcp,
+            None,
+            Some("http://127.0.0.1:27183/mcp-ro/work"),
+            None,
+        );
     }
 
     #[test]

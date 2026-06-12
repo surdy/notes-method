@@ -22,7 +22,9 @@
 		{ value: 'claude-code', label: 'Claude Code' },
 		{ value: 'codex', label: 'Codex' },
 		{ value: 'copilot-cli', label: 'Copilot CLI' },
-		{ value: 'copilot-acp', label: 'Copilot (ACP)' }
+		{ value: 'copilot-acp', label: 'Copilot (ACP)' },
+		{ value: 'claude-acp', label: 'Claude Code (ACP)' },
+		{ value: 'codex-acp', label: 'Codex (ACP)' }
 	];
 
 	let chat = $state<ChatState>(emptyChatState());

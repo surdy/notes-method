@@ -152,3 +152,18 @@ async fn missing_binary_is_a_clean_error_not_a_panic() {
     let mut session = AcpSession::new("notesmith-acp-does-not-exist", vec!["--acp".to_string()]);
     assert!(session.send("hi").await.is_err());
 }
+
+#[tokio::test]
+async fn missing_codex_adapter_error_includes_setup_hint() {
+    // The default `codex-acp` adapter is not installed in CI; the failure must
+    // be a clean error carrying actionable setup guidance, not a panic.
+    let mut session = AcpSession::codex(Some("notesmith-codex-acp-missing"));
+    let error = session
+        .send("hi")
+        .await
+        .expect_err("missing adapter errors");
+    assert!(
+        error.to_string().contains("codex-acp"),
+        "error should mention the adapter: {error}"
+    );
+}

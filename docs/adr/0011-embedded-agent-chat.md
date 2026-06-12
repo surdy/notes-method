@@ -8,8 +8,9 @@ Implemented across all four phases: the `notesmith-agent` crate + headless
 (Phase B), active-vault MCP auto-wiring with a read-only/read-write toggle
 (Phase C, #155), and the remaining agent adapters — Codex and Copilot CLI
 alongside Claude Code (Phase D, #156). **Phase E** converges all three agents
-onto a single ACP transport — **E1 (the ACP client + `AcpSession`, wired for
-Copilot natively) is implemented (#157)**; E2/E3 remain planned. See the
+onto a single ACP transport — **E1 (Copilot native ACP, #157) and E2 (Claude
+Code + Codex via adapter binaries, #158) are implemented**; E3 (retiring the line
+adapters) remains planned. See the
 [ACP amendment](#amendment-2026--acp-single-transport-convergence-phase-e).
 
 ### Per-agent transport
@@ -185,8 +186,8 @@ speaks ACP natively.
 | Agent | ACP launch | Install |
 | --- | --- | --- |
 | **Copilot CLI** | `copilot --acp` (native) | already installed; **E1 — implemented (#157)**, verified end-to-end. |
-| **Claude Code** | `npx @zed-industries/claude-code-acp` (adapter binary) | **E2**; graceful "adapter not installed" error + setup docs. |
-| **Codex** | `codex-acp` (adapter binary; native Codex is app-server/proto) | **E2**; same graceful-error treatment. |
+| **Claude Code** | `npx @zed-industries/claude-code-acp` (adapter binary) | **E2 — implemented (#158)**; graceful "adapter not installed" error + setup docs. Real end-to-end pending the adapter being installed locally. |
+| **Codex** | `codex-acp` (adapter binary; native Codex is app-server/proto) | **E2 — implemented (#158)**; same graceful-error treatment. Real end-to-end pending the adapter. |
 
 **MCP wiring moves into `session/new`.** Instead of per-CLI flags
 (`--mcp-config` / `-c mcp_servers...` / `--additional-mcp-config`), the active
@@ -205,11 +206,15 @@ that affected Codex/Copilot under Phase D disappears.
 
 **Staging keeps a fallback.** E1 **(implemented, #157)** landed the ACP client +
 `AcpSession` for Copilot **coexisting** with the existing line adapters (selected
-via the `copilot-acp` agent kind); E2 brings Claude/Codex onto ACP via adapter
-binaries; E3 retires `claude_code.rs` / `codex.rs` / `copilot_cli.rs`,
-`OneShotProcessSession`, the `Launch`/`PromptDelivery` enums, and the
-`NotesmithAdapter`/`DriverSession` dispatch enums once all three are proven on
-ACP. Tracked as issues E1/E2/E3 (label `agent-chat`).
+via the `copilot-acp` agent kind); E2 **(implemented, #158)** brings Claude/Codex
+onto the same ACP transport via adapter binaries (the `claude-acp` / `codex-acp`
+agent kinds), attaching a setup hint so a missing adapter yields a clear,
+actionable error instead of a hang; E3 retires `claude_code.rs` / `codex.rs` /
+`copilot_cli.rs`, `OneShotProcessSession`, the `Launch`/`PromptDelivery` enums, and
+the `NotesmithAdapter`/`DriverSession` dispatch enums once all three are proven on
+ACP. (E3 is gated on real end-to-end verification of the Claude/Codex adapters,
+which requires those binaries to be installed.) Tracked as issues E1/E2/E3 (label
+`agent-chat`).
 
 ## Alternatives considered
 

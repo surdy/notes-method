@@ -47,6 +47,12 @@ const PROTOCOL_VERSION: u32 = 1;
 /// Default binary that speaks ACP natively (GitHub Copilot CLI).
 pub const DEFAULT_COPILOT_BIN: &str = "copilot";
 
+/// npm package providing the Claude Code ACP adapter (run via `npx`).
+pub const CLAUDE_ACP_PACKAGE: &str = "@zed-industries/claude-code-acp";
+
+/// Default binary providing the Codex ACP adapter.
+pub const DEFAULT_CODEX_ACP_BIN: &str = "codex-acp";
+
 /// Build the `initialize` request params.
 ///
 /// File-system and terminal capabilities are advertised as **false**: an ACP
@@ -288,6 +294,7 @@ pub struct AcpSession {
     working_dir: Option<PathBuf>,
     mcp: Option<McpBinding>,
     read_only: bool,
+    setup_hint: Option<String>,
     conn: Option<Connection>,
     event_rx: Option<mpsc::UnboundedReceiver<AgentEvent>>,
     child: Option<Child>,
@@ -303,6 +310,7 @@ impl AcpSession {
             working_dir: None,
             mcp: None,
             read_only: true,
+            setup_hint: None,
             conn: None,
             event_rx: None,
             child: None,
@@ -319,9 +327,52 @@ impl AcpSession {
         Self::new(program, vec!["--acp".to_string()])
     }
 
+    /// Build an ACP session for Claude Code via its ACP adapter binary
+    /// (ADR 0011 Phase E2).
+    ///
+    /// Claude Code does not speak ACP natively; the adapter
+    /// [`CLAUDE_ACP_PACKAGE`] is run through `npx`. `bin` overrides the launcher
+    /// with a direct path to an adapter executable (run with no extra args).
+    pub fn claude_code(bin: Option<&str>) -> Self {
+        let session = match bin.filter(|b| !b.is_empty()) {
+            Some(bin) => Self::new(bin, Vec::new()),
+            None => Self::new(
+                "npx",
+                vec!["--yes".to_string(), CLAUDE_ACP_PACKAGE.to_string()],
+            ),
+        };
+        session.with_setup_hint(format!(
+            "Claude Code over ACP needs its adapter. Install Node.js and run \
+             `npx --yes {CLAUDE_ACP_PACKAGE}` once, or set the agent binary to a \
+             `claude-code-acp` executable."
+        ))
+    }
+
+    /// Build an ACP session for Codex via its ACP adapter binary
+    /// (ADR 0011 Phase E2).
+    ///
+    /// Codex's native protocol is app-server/proto; the [`DEFAULT_CODEX_ACP_BIN`]
+    /// adapter exposes it over ACP. `bin` overrides the adapter binary.
+    pub fn codex(bin: Option<&str>) -> Self {
+        let program = bin
+            .filter(|b| !b.is_empty())
+            .unwrap_or(DEFAULT_CODEX_ACP_BIN);
+        Self::new(program, Vec::new()).with_setup_hint(format!(
+            "Codex over ACP needs the `{DEFAULT_CODEX_ACP_BIN}` adapter on your \
+             PATH (see https://github.com/zed-industries/codex-acp)."
+        ))
+    }
+
     /// Run the agent in `working_dir` (the active vault's directory).
     pub fn in_dir(mut self, working_dir: Option<PathBuf>) -> Self {
         self.working_dir = working_dir;
+        self
+    }
+
+    /// Attach a human-readable setup hint, appended to start/handshake failures
+    /// so a missing ACP adapter binary surfaces actionable guidance.
+    pub fn with_setup_hint(mut self, hint: impl Into<String>) -> Self {
+        self.setup_hint = Some(hint.into());
         self
     }
 
@@ -440,12 +491,23 @@ impl AcpSession {
         self.session_id = Some(session_id);
         Ok(())
     }
+
+    /// Append the setup hint (when set) to a startup/handshake failure so a
+    /// missing ACP adapter binary surfaces actionable guidance.
+    fn explain(&self, error: AgentError) -> AgentError {
+        match &self.setup_hint {
+            Some(hint) => AgentError::Protocol(format!("{error} — {hint}")),
+            None => error,
+        }
+    }
 }
 
 impl AgentSession for AcpSession {
     async fn send(&mut self, message: &str) -> Result<(), AgentError> {
         if self.conn.is_none() {
-            self.initialize().await?;
+            self.initialize()
+                .await
+                .map_err(|error| self.explain(error))?;
         }
         let session_id = self
             .session_id
@@ -789,6 +851,56 @@ mod tests {
     fn copilot_honors_binary_override() {
         let session = AcpSession::copilot(Some("/opt/copilot"));
         assert_eq!(session.program, "/opt/copilot");
+    }
+
+    #[test]
+    fn claude_code_launches_the_adapter_via_npx() {
+        let session = AcpSession::claude_code(None);
+        assert_eq!(session.program, "npx");
+        assert!(session.args.contains(&CLAUDE_ACP_PACKAGE.to_string()));
+        assert!(session.setup_hint.is_some());
+    }
+
+    #[test]
+    fn claude_code_binary_override_runs_directly() {
+        let session = AcpSession::claude_code(Some("/opt/claude-code-acp"));
+        assert_eq!(session.program, "/opt/claude-code-acp");
+        assert!(session.args.is_empty());
+    }
+
+    #[test]
+    fn codex_launches_the_default_adapter_binary() {
+        let session = AcpSession::codex(None);
+        assert_eq!(session.program, DEFAULT_CODEX_ACP_BIN);
+        assert!(session.args.is_empty());
+        assert!(session.setup_hint.is_some());
+    }
+
+    #[test]
+    fn codex_honors_binary_override() {
+        assert_eq!(
+            AcpSession::codex(Some("/opt/codex-acp")).program,
+            "/opt/codex-acp"
+        );
+    }
+
+    #[test]
+    fn explain_appends_setup_hint_when_present() {
+        let session = AcpSession::codex(None);
+        let explained = session.explain(AgentError::MissingPipe("stdout"));
+        let message = explained.to_string();
+        assert!(message.contains("codex-acp"), "{message}");
+    }
+
+    #[test]
+    fn explain_is_a_noop_without_a_hint() {
+        let session = AcpSession::copilot(None);
+        assert!(session.setup_hint.is_none());
+        let explained = session.explain(AgentError::MissingPipe("stdout"));
+        assert_eq!(
+            explained.to_string(),
+            AgentError::MissingPipe("stdout").to_string()
+        );
     }
 
     #[test]

@@ -24,6 +24,10 @@ pub enum AgentKind {
     /// GitHub Copilot CLI over the Agent Client Protocol (`copilot --acp`),
     /// multi-turn (ADR 0011 Phase E).
     CopilotAcp,
+    /// Claude Code over ACP via its adapter binary (`npx @zed-industries/claude-code-acp`).
+    ClaudeAcp,
+    /// Codex over ACP via the `codex-acp` adapter binary.
+    CodexAcp,
 }
 
 #[derive(Debug, Subcommand)]
@@ -85,6 +89,16 @@ async fn cmd_run(message: &str, agent: &AgentKind, bin: Option<&str>, json: bool
         }
         AgentKind::CopilotAcp => {
             let mut session = AcpSession::copilot(bin);
+            session.send(message).await?;
+            stream_until_done(&mut session, json).await
+        }
+        AgentKind::ClaudeAcp => {
+            let mut session = AcpSession::claude_code(bin);
+            session.send(message).await?;
+            stream_until_done(&mut session, json).await
+        }
+        AgentKind::CodexAcp => {
+            let mut session = AcpSession::codex(bin);
             session.send(message).await?;
             stream_until_done(&mut session, json).await
         }

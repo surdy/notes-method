@@ -80,6 +80,20 @@ describe('agent-bridge', () => {
 		});
 	});
 
+	it.each(['claude-acp', 'codex-acp'] as const)(
+		'forwards the %s agent kind to the runner',
+		async (agent) => {
+			const { adapter, invoke } = fakeAdapter(vi.fn().mockResolvedValue('agent-1'));
+			await startAgentSession({ vault: 'notes', agent }, adapter);
+			expect(invoke).toHaveBeenCalledWith('agent_start', {
+				vault: 'notes',
+				agent,
+				bin: null,
+				mcpUrl: null
+			});
+		}
+	);
+
 	it('sends a message with camelCase session id arg', async () => {
 		const { adapter, invoke } = fakeAdapter(vi.fn().mockResolvedValue(undefined));
 		await sendAgentMessage('agent-1', 'hello', adapter);

@@ -26,7 +26,10 @@ mod event;
 mod mcp;
 mod session;
 
-pub use acp::{AcpSession, DEFAULT_COPILOT_BIN, mcp_url_is_read_only};
+pub use acp::{
+    AcpSession, CLAUDE_ACP_PACKAGE, DEFAULT_CODEX_ACP_BIN, DEFAULT_COPILOT_BIN,
+    mcp_url_is_read_only,
+};
 pub use adapter::{Launch, LineAdapter, PromptDelivery};
 pub use claude_code::{ClaudeCodeAdapter, DEFAULT_BIN};
 pub use codex::CodexAdapter;
