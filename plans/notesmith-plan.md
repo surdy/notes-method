@@ -2527,6 +2527,10 @@ notesmith route apply "Inbox/atlas.md"
 
 The MCP adapter exposes only existing operations such as note read/write, SQL query, routing, capture workflows, periodic note creation, and task mutation. It exists for clients that cannot run the CLI directly. It is served by the daemon as streamable-HTTP endpoints mounted per vault at `/mcp/<vault>` (full) and `/mcp-ro/<vault>` (read-only), reusing the daemon's live indexes via the shared `notesmith-ops` layer; `notesmith mcp start` is a thin stdio↔HTTP bridge to those endpoints rather than a standalone server with its own in-memory indexes.
 
+### 18.5 Embedded agent chat (planned)
+
+The desktop app will host agent CLIs (Copilot CLI, Claude Code, Codex) as an in-app chat panel. The Tauri shell spawns the agent locally and streams it to the UI over Tauri IPC; a `notesmith-agent` crate normalizes each CLI behind an `AgentSession` event stream, and the spawned agent is auto-wired to the active vault's MCP endpoint (`/mcp/<vault>`, or the default read-only `/mcp-ro/<vault>`). Embedded chat is **desktop-only** — the hosted browser UI has no chat runner; server-hosted vaults are reached by external agents over MCP. Notesmith does not manage model credentials. See `docs/adr/0011-embedded-agent-chat.md`.
+
 ## 19. GUI Design
 
 ### 19.1 Core UI layout
