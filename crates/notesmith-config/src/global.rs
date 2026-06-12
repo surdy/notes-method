@@ -8,9 +8,24 @@ pub struct GlobalConfig {
     #[serde(default)]
     pub daemon: DaemonConfig,
     #[serde(default)]
+    pub agent: AgentConfig,
+    #[serde(default)]
     pub default_vault: Option<String>,
     #[serde(default)]
     pub vaults: BTreeMap<String, VaultRegistration>,
+}
+
+/// Desktop agent settings.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct AgentConfig {
+    /// When `true`, the embedded agent is granted scoped filesystem and
+    /// terminal access to the active vault's directory (ACP `fs/*` and
+    /// `terminal/*` client capabilities). Off by default: the agent reaches the
+    /// vault through the Notesmith MCP tools, which keeps access vault-aware and
+    /// honours the read-only scope. Enabling this lets the agent read/write
+    /// files and run shell commands directly within the vault directory.
+    #[serde(default)]
+    pub local_file_access: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -118,6 +133,9 @@ mod tests {
                 bind: "0.0.0.0:8080".to_string(),
                 auto_start: false,
             },
+            agent: AgentConfig {
+                local_file_access: true,
+            },
             default_vault: Some("work".to_string()),
             vaults: BTreeMap::new(),
         };
@@ -173,6 +191,7 @@ path = "/vaults/personal"
         assert_eq!(config.default_vault.as_deref(), Some("work"));
         assert_eq!(config.daemon.bind, "0.0.0.0:8080");
         assert!(!config.daemon.auto_start);
+        assert!(!config.agent.local_file_access);
         assert_eq!(config.vaults["work"].path, PathBuf::from("/vaults/work"));
         assert_eq!(
             config.vaults["personal"].path,
@@ -189,6 +208,22 @@ path = "/vaults/personal"
         let error = GlobalConfig::load_from(&path).unwrap_err();
 
         assert!(matches!(error, ConfigError::ParseError { .. }));
+    }
+
+    #[test]
+    fn agent_local_file_access_defaults_off_and_round_trips() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+
+        // Absent section defaults to off.
+        fs::write(&path, "default_vault = \"work\"\n").unwrap();
+        let config = GlobalConfig::load_from(&path).unwrap();
+        assert!(!config.agent.local_file_access);
+
+        // Explicitly enabled round-trips through disk.
+        fs::write(&path, "[agent]\nlocal_file_access = true\n").unwrap();
+        let config = GlobalConfig::load_from(&path).unwrap();
+        assert!(config.agent.local_file_access);
     }
 
     #[test]

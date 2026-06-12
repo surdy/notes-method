@@ -36,6 +36,11 @@ pub enum AgentCommand {
         #[arg(long)]
         bin: Option<String>,
 
+        /// Grant the agent scoped filesystem and terminal access to the working
+        /// directory (ACP `fs/*` and `terminal/*`; off by default).
+        #[arg(long)]
+        local_file_access: bool,
+
         /// Emit each event as a JSON line instead of human-readable text.
         #[arg(long)]
         json: bool,
@@ -49,18 +54,26 @@ impl AgentCommand {
                 message,
                 agent,
                 bin,
+                local_file_access,
                 json,
-            } => cmd_run(message, agent, bin.as_deref(), *json).await,
+            } => cmd_run(message, agent, bin.as_deref(), *local_file_access, *json).await,
         }
     }
 }
 
-async fn cmd_run(message: &str, agent: &AgentKind, bin: Option<&str>, json: bool) -> Result<()> {
-    let mut session = match agent {
+async fn cmd_run(
+    message: &str,
+    agent: &AgentKind,
+    bin: Option<&str>,
+    local_file_access: bool,
+    json: bool,
+) -> Result<()> {
+    let session = match agent {
         AgentKind::ClaudeCode => AcpSession::claude_code(bin),
         AgentKind::Codex => AcpSession::codex(bin),
         AgentKind::Copilot => AcpSession::copilot(bin),
     };
+    let mut session = session.with_local_io(local_file_access);
     session.send(message).await?;
     stream_until_done(&mut session, json).await
 }

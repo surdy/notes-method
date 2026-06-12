@@ -8,6 +8,9 @@ default_vault = "work"
 bind = "127.0.0.1:27183"
 auto_start = true
 
+[agent]
+local_file_access = false
+
 [vaults.personal]
 path = "/Users/surdy/Notes/personal"
 

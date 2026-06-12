@@ -813,6 +813,7 @@ mod tests {
 
         let config = GlobalConfig {
             daemon: Default::default(),
+            agent: Default::default(),
             default_vault: Some(vault_name.clone()),
             vaults: BTreeMap::from([(
                 vault_name.clone(),

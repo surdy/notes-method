@@ -35,7 +35,7 @@ for line in sys.stdin:
     elif method == "session/new":
         send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": "fake-session"}})
     elif method == "session/prompt":
-        text = msg["params"]["prompt"][0]["text"]
+        text = msg["params"]["prompt"][-1]["text"]
         if "PERMISSION" in text:
             # Ask the client to approve; reuse a fixed request id (100).
             send({

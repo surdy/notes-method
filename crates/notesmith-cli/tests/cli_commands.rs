@@ -43,6 +43,7 @@ fn write_global_config(
 ) {
     let mut config = GlobalConfig {
         daemon: Default::default(),
+        agent: Default::default(),
         default_vault: Some(vault_name.to_string()),
         vaults: BTreeMap::from([(
             vault_name.to_string(),

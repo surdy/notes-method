@@ -36,6 +36,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
+use crate::acp_client::ClientHandler;
 use crate::error::AgentError;
 use crate::event::{AgentEvent, ToolCall, ToolResult};
 use crate::mcp::McpBinding;
@@ -55,17 +56,54 @@ pub const DEFAULT_CODEX_ACP_BIN: &str = "codex-acp";
 
 /// Build the `initialize` request params.
 ///
-/// File-system and terminal capabilities are advertised as **false**: an ACP
-/// agent runs locally in the vault directory and does its own file I/O, so we
-/// do not proxy `fs/*` calls.
-fn initialize_params() -> Value {
+/// File-system and terminal client capabilities are advertised as `local_io`:
+/// when the opt-in `agent.local_file_access` setting is on (ADR 0012) Notesmith
+/// proxies the agent's `fs/*` and `terminal/*` requests, scoped to the vault
+/// directory; otherwise they stay off and the agent reaches the vault through
+/// the Notesmith MCP tools only.
+fn initialize_params(local_io: bool) -> Value {
     json!({
         "protocolVersion": PROTOCOL_VERSION,
         "clientCapabilities": {
-            "fs": { "readTextFile": false, "writeTextFile": false },
-            "terminal": false,
+            "fs": { "readTextFile": local_io, "writeTextFile": local_io },
+            "terminal": local_io,
         },
     })
+}
+
+/// Build a one-time context preamble steering the agent to the Notesmith MCP
+/// tools (ADR 0012). It is prepended to the first prompt of a session so the
+/// agent prefers vault-aware tools over guessing at the filesystem.
+///
+/// The wording adapts to the session: whether the vault MCP endpoint is wired,
+/// and whether the agent also has scoped local filesystem/terminal access.
+pub(crate) fn session_preamble(has_mcp: bool, local_io: bool) -> String {
+    let mut text = String::from(
+        "You are an assistant operating inside a Notesmith vault (a directory of \
+         Markdown notes).",
+    );
+    if has_mcp {
+        text.push_str(
+            " To read, search, or modify notes, use the Notesmith MCP tools \
+             (for example `search_notes`, `get_note`, `list_notes`, `query_sql`, \
+             and `list_tasks`); they are vault-aware and respect the vault's \
+             indexes and read-only scope.",
+        );
+    }
+    if local_io {
+        text.push_str(
+            " You also have scoped filesystem and terminal access to this vault \
+             directory for anything the Notesmith tools do not cover; prefer the \
+             Notesmith tools when they apply.",
+        );
+    } else {
+        text.push_str(
+            " You do NOT have shell or direct filesystem access in this session, \
+             so do not attempt to run shell commands or read files from disk \
+             directly — use the Notesmith tools instead.",
+        );
+    }
+    text
 }
 
 /// Build the `session/new` request params for `cwd`, wiring the active vault's
@@ -75,11 +113,18 @@ fn session_new_params(cwd: &str, mcp: Option<&McpBinding>) -> Value {
     json!({ "cwd": cwd, "mcpServers": servers })
 }
 
-/// Build the `session/prompt` request params for a single user turn.
-fn prompt_params(session_id: &str, text: &str) -> Value {
+/// Build the `session/prompt` request params for a single user turn. When
+/// `preamble` is set it is sent as a leading text block so the agent receives
+/// the Notesmith context ahead of the user's first message.
+fn prompt_params(session_id: &str, preamble: Option<&str>, text: &str) -> Value {
+    let mut blocks = Vec::new();
+    if let Some(preamble) = preamble {
+        blocks.push(json!({ "type": "text", "text": preamble }));
+    }
+    blocks.push(json!({ "type": "text", "text": text }));
     json!({
         "sessionId": session_id,
-        "prompt": [{ "type": "text", "text": text }],
+        "prompt": blocks,
     })
 }
 
@@ -189,7 +234,7 @@ fn map_prompt_response(message: &Value) -> AgentEvent {
 /// `reject_*` option. Falls back to cancelling when no suitable option exists.
 ///
 /// Returns the JSON-RPC `result` body for the response.
-fn permission_result(params: &Value, read_only: bool) -> Value {
+pub(crate) fn permission_result(params: &Value, read_only: bool) -> Value {
     let options = params.get("options").and_then(Value::as_array);
     let wanted_prefix = if read_only { "reject" } else { "allow" };
 
@@ -262,7 +307,12 @@ impl Connection {
     /// Send a `session/prompt` request without blocking on completion: its
     /// response is forwarded to the event stream as a terminal event so the
     /// turn's streaming deltas keep flowing through [`AgentSession::next_event`].
-    async fn send_prompt(&self, session_id: &str, text: &str) -> Result<(), AgentError> {
+    async fn send_prompt(
+        &self,
+        session_id: &str,
+        preamble: Option<&str>,
+        text: &str,
+    ) -> Result<(), AgentError> {
         let id = self.alloc_id();
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
@@ -270,7 +320,7 @@ impl Connection {
             "jsonrpc": "2.0",
             "id": id,
             "method": "session/prompt",
-            "params": prompt_params(session_id, text),
+            "params": prompt_params(session_id, preamble, text),
         }))?;
         let event_tx = self.event_tx.clone();
         tokio::spawn(async move {
@@ -294,6 +344,8 @@ pub struct AcpSession {
     working_dir: Option<PathBuf>,
     mcp: Option<McpBinding>,
     read_only: bool,
+    local_io: bool,
+    preamble_sent: bool,
     setup_hint: Option<String>,
     conn: Option<Connection>,
     event_rx: Option<mpsc::UnboundedReceiver<AgentEvent>>,
@@ -310,6 +362,8 @@ impl AcpSession {
             working_dir: None,
             mcp: None,
             read_only: true,
+            local_io: false,
+            preamble_sent: false,
             setup_hint: None,
             conn: None,
             event_rx: None,
@@ -366,6 +420,14 @@ impl AcpSession {
     /// Run the agent in `working_dir` (the active vault's directory).
     pub fn in_dir(mut self, working_dir: Option<PathBuf>) -> Self {
         self.working_dir = working_dir;
+        self
+    }
+
+    /// Grant the agent scoped filesystem and terminal access to the vault
+    /// directory (the opt-in `agent.local_file_access` setting, ADR 0012). Off
+    /// by default; when off the agent reaches the vault through MCP tools only.
+    pub fn with_local_io(mut self, enabled: bool) -> Self {
+        self.local_io = enabled;
         self
     }
 
@@ -454,14 +516,19 @@ impl AcpSession {
         let reader_pending = pending.clone();
         let reader_event_tx = event_tx.clone();
         let reader_writer_tx = writer_tx.clone();
-        let read_only = self.read_only;
+        let cwd = self.absolute_cwd();
+        let handler = Arc::new(ClientHandler::new(
+            self.read_only,
+            self.local_io,
+            PathBuf::from(&cwd),
+        ));
         tokio::spawn(async move {
             drive_acp(
                 BufReader::new(stdout),
                 reader_pending,
                 reader_event_tx,
                 reader_writer_tx,
-                read_only,
+                handler,
             )
             .await;
         });
@@ -473,9 +540,9 @@ impl AcpSession {
             next_id: AtomicU64::new(1),
         };
 
-        conn.request("initialize", initialize_params()).await?;
+        conn.request("initialize", initialize_params(self.local_io))
+            .await?;
 
-        let cwd = self.absolute_cwd();
         let new_response = conn
             .request("session/new", session_new_params(&cwd, self.mcp.as_ref()))
             .await?;
@@ -513,11 +580,20 @@ impl AgentSession for AcpSession {
             .session_id
             .clone()
             .ok_or_else(|| AgentError::Protocol("session is not initialized".into()))?;
+        // The Notesmith context preamble (ADR 0012) is sent once, ahead of the
+        // first user message, to steer the agent toward the MCP tools.
+        let preamble = if self.preamble_sent {
+            None
+        } else {
+            self.preamble_sent = true;
+            Some(session_preamble(self.mcp.is_some(), self.local_io))
+        };
         let conn = self
             .conn
             .as_ref()
             .ok_or_else(|| AgentError::Protocol("session is not initialized".into()))?;
-        conn.send_prompt(&session_id, message).await
+        conn.send_prompt(&session_id, preamble.as_deref(), message)
+            .await
     }
 
     async fn next_event(&mut self) -> Option<AgentEvent> {
@@ -540,15 +616,16 @@ impl Drop for AcpSession {
 
 /// Read newline-delimited JSON-RPC messages from `reader` and dispatch them:
 /// responses resolve pending requests, `session/update` notifications map to
-/// events, and inbound agent requests (permission/fs) are answered via
-/// `writer_tx`. Returns on EOF (which drops `event_tx`, ending the session) or a
-/// read error (reported as a single [`AgentEvent::Error`]).
+/// events, and inbound agent requests (permission / fs / terminal) are answered
+/// via `writer_tx` through the [`ClientHandler`]. Returns on EOF (which drops
+/// `event_tx`, ending the session) or a read error (reported as a single
+/// [`AgentEvent::Error`]).
 async fn drive_acp<R>(
     reader: R,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
     event_tx: mpsc::UnboundedSender<AgentEvent>,
     writer_tx: mpsc::UnboundedSender<String>,
-    read_only: bool,
+    handler: Arc<ClientHandler>,
 ) where
     R: tokio::io::AsyncBufRead + Unpin,
 {
@@ -568,7 +645,7 @@ async fn drive_acp<R>(
                         continue;
                     }
                 };
-                dispatch(&message, &pending, &event_tx, &writer_tx, read_only).await;
+                dispatch(&message, &pending, &event_tx, &writer_tx, &handler).await;
             }
             Ok(None) => return,
             Err(err) => {
@@ -586,17 +663,25 @@ async fn dispatch(
     pending: &Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
     writer_tx: &mpsc::UnboundedSender<String>,
-    read_only: bool,
+    handler: &Arc<ClientHandler>,
 ) {
     let method = message.get("method").and_then(Value::as_str);
     let has_id = message.get("id").is_some();
 
     match (has_id, method) {
-        // Inbound request from the agent (carries both id and method).
+        // Inbound request from the agent (carries both id and method). Handle it
+        // on a detached task so a blocking handler (e.g. `terminal/wait_for_exit`)
+        // never stalls the reader loop.
         (true, Some(method)) => {
             let id = message.get("id").cloned().unwrap_or(Value::Null);
-            let response = handle_agent_request(method, message.get("params"), read_only, id);
-            let _ = writer_tx.send(response.to_string());
+            let method = method.to_string();
+            let params = message.get("params").cloned();
+            let handler = handler.clone();
+            let writer_tx = writer_tx.clone();
+            tokio::spawn(async move {
+                let response = handler.handle(&method, params.as_ref(), id).await;
+                let _ = writer_tx.send(response.to_string());
+            });
         }
         // Response to one of our requests.
         (true, None) => {
@@ -620,37 +705,28 @@ async fn dispatch(
     }
 }
 
-/// Build a JSON-RPC response to an inbound agent request.
-fn handle_agent_request(method: &str, params: Option<&Value>, read_only: bool, id: Value) -> Value {
-    match method {
-        "session/request_permission" => {
-            let result = permission_result(params.unwrap_or(&Value::Null), read_only);
-            json!({ "jsonrpc": "2.0", "id": id, "result": result })
-        }
-        // We advertised no fs/terminal capabilities, so any such request is
-        // unexpected; answer with a JSON-RPC "method not found" rather than
-        // hanging the agent.
-        _ => json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": { "code": -32601, "message": format!("method not handled: {method}") },
-        }),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn initialize_params_advertise_protocol_version_and_no_proxy_capabilities() {
-        let params = initialize_params();
-        assert_eq!(params["protocolVersion"], json!(PROTOCOL_VERSION));
+    fn initialize_params_advertise_protocol_version_and_capabilities_by_local_io() {
+        let off = initialize_params(false);
+        assert_eq!(off["protocolVersion"], json!(PROTOCOL_VERSION));
         assert_eq!(
-            params["clientCapabilities"]["fs"]["readTextFile"],
+            off["clientCapabilities"]["fs"]["readTextFile"],
             json!(false)
         );
-        assert_eq!(params["clientCapabilities"]["terminal"], json!(false));
+        assert_eq!(
+            off["clientCapabilities"]["fs"]["writeTextFile"],
+            json!(false)
+        );
+        assert_eq!(off["clientCapabilities"]["terminal"], json!(false));
+
+        let on = initialize_params(true);
+        assert_eq!(on["clientCapabilities"]["fs"]["readTextFile"], json!(true));
+        assert_eq!(on["clientCapabilities"]["fs"]["writeTextFile"], json!(true));
+        assert_eq!(on["clientCapabilities"]["terminal"], json!(true));
     }
 
     #[test]
@@ -670,10 +746,30 @@ mod tests {
 
     #[test]
     fn prompt_params_wrap_text_in_a_content_block() {
-        let params = prompt_params("sess-1", "hello");
+        let params = prompt_params("sess-1", None, "hello");
         assert_eq!(params["sessionId"], json!("sess-1"));
         assert_eq!(params["prompt"][0]["type"], json!("text"));
         assert_eq!(params["prompt"][0]["text"], json!("hello"));
+    }
+
+    #[test]
+    fn prompt_params_prepend_preamble_block_when_present() {
+        let params = prompt_params("sess-1", Some("context"), "hello");
+        assert_eq!(params["prompt"][0]["text"], json!("context"));
+        assert_eq!(params["prompt"][1]["text"], json!("hello"));
+    }
+
+    #[test]
+    fn session_preamble_steers_to_mcp_and_reflects_local_io() {
+        let mcp_only = session_preamble(true, false);
+        assert!(mcp_only.contains("Notesmith MCP tools"));
+        assert!(mcp_only.contains("do NOT have shell"));
+
+        let with_io = session_preamble(true, true);
+        assert!(with_io.contains("scoped filesystem and terminal access"));
+
+        let no_mcp = session_preamble(false, false);
+        assert!(!no_mcp.contains("search_notes"));
     }
 
     #[test]
@@ -909,22 +1005,6 @@ mod tests {
         assert!(ro.read_only);
         let rw = AcpSession::copilot(None).with_mcp(McpBinding::new("n", "http://h/mcp/w"));
         assert!(!rw.read_only);
-    }
-
-    #[test]
-    fn handle_unknown_request_returns_method_not_found() {
-        let response = handle_agent_request("fs/read_text_file", None, false, json!(7));
-        assert_eq!(response["id"], json!(7));
-        assert_eq!(response["error"]["code"], json!(-32601));
-    }
-
-    #[test]
-    fn handle_permission_request_returns_a_result() {
-        let params = json!({ "options": [{ "optionId": "ok", "kind": "allow_once" }] });
-        let response =
-            handle_agent_request("session/request_permission", Some(&params), false, json!(9));
-        assert_eq!(response["id"], json!(9));
-        assert_eq!(response["result"]["outcome"]["optionId"], json!("ok"));
     }
 
     #[test]

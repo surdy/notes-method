@@ -114,12 +114,14 @@ const MCP_SERVER_NAME: &str = "notesmith";
 /// driven via their ACP adapter binaries, which carry a setup hint so a missing
 /// adapter surfaces actionable guidance. The MCP endpoint is passed via the ACP
 /// `session/new` `mcpServers` param, and the read-only / read-write scope is
-/// derived from the endpoint URL.
+/// derived from the endpoint URL. `local_io` grants the agent scoped filesystem
+/// and terminal access to the vault directory (ADR 0012, off by default).
 fn build_acp_session(
     kind: &AgentKind,
     bin: Option<&str>,
     mcp_url: Option<&str>,
     working_dir: Option<PathBuf>,
+    local_io: bool,
 ) -> AcpSession {
     let bin = bin.filter(|b| !b.is_empty());
     let session = match kind {
@@ -127,7 +129,8 @@ fn build_acp_session(
         AgentKind::Codex => AcpSession::codex(bin),
         AgentKind::Copilot => AcpSession::copilot(bin),
     }
-    .in_dir(working_dir);
+    .in_dir(working_dir)
+    .with_local_io(local_io);
     match mcp_url {
         Some(url) if !url.is_empty() => session.with_mcp(McpBinding::new(MCP_SERVER_NAME, url)),
         _ => session,
@@ -149,8 +152,15 @@ pub async fn agent_start<R: Runtime>(
 ) -> Result<String, String> {
     let config = GlobalConfig::load().unwrap_or_default();
     let working_dir = vault_working_dir(&config, &vault);
+    let local_io = config.agent.local_file_access;
 
-    let session = build_acp_session(&agent, bin.as_deref(), mcp_url.as_deref(), working_dir);
+    let session = build_acp_session(
+        &agent,
+        bin.as_deref(),
+        mcp_url.as_deref(),
+        working_dir,
+        local_io,
+    );
 
     let (input_tx, input_rx) = mpsc::unbounded_channel::<String>();
     let session_id = {
@@ -277,14 +287,15 @@ mod tests {
     #[test]
     fn build_acp_session_constructs_each_kind_without_spawning() {
         // Smoke test: building the session must not spawn a process or panic.
-        let _ = build_acp_session(&AgentKind::Copilot, None, None, None);
+        let _ = build_acp_session(&AgentKind::Copilot, None, None, None, false);
         let _ = build_acp_session(
             &AgentKind::ClaudeCode,
             Some("/opt/claude-acp"),
             Some(""),
             None,
+            false,
         );
-        let _ = build_acp_session(&AgentKind::Codex, None, None, None);
+        let _ = build_acp_session(&AgentKind::Codex, None, None, None, false);
     }
 
     #[test]
@@ -294,12 +305,19 @@ mod tests {
             None,
             Some("http://127.0.0.1:27183/mcp-ro/work"),
             None,
+            false,
         );
     }
 
     #[test]
     fn build_acp_session_honors_binary_override() {
-        let _ = build_acp_session(&AgentKind::Copilot, Some("/opt/copilot"), None, None);
+        let _ = build_acp_session(&AgentKind::Copilot, Some("/opt/copilot"), None, None, false);
+    }
+
+    #[test]
+    fn build_acp_session_grants_local_io_when_enabled() {
+        // Smoke test: enabling local I/O must not spawn or panic at build time.
+        let _ = build_acp_session(&AgentKind::Copilot, None, None, None, true);
     }
 
     #[test]
