@@ -9,8 +9,8 @@
 use anyhow::Result;
 use clap::{Subcommand, ValueEnum};
 use notesmith_agent::{
-    AgentEvent, AgentSession, ClaudeCodeAdapter, CodexAdapter, CopilotCliAdapter, Launch,
-    LineAdapter, OneShotProcessSession, ProcessAgentSession,
+    AcpSession, AgentEvent, AgentSession, ClaudeCodeAdapter, CodexAdapter, CopilotCliAdapter,
+    Launch, LineAdapter, OneShotProcessSession, ProcessAgentSession,
 };
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -21,6 +21,9 @@ pub enum AgentKind {
     Codex,
     /// GitHub Copilot CLI (`copilot -p`, single-shot plain text).
     CopilotCli,
+    /// GitHub Copilot CLI over the Agent Client Protocol (`copilot --acp`),
+    /// multi-turn (ADR 0011 Phase E).
+    CopilotAcp,
 }
 
 #[derive(Debug, Subcommand)]
@@ -80,6 +83,11 @@ async fn cmd_run(message: &str, agent: &AgentKind, bin: Option<&str>, json: bool
             };
             drive(adapter, message, json).await
         }
+        AgentKind::CopilotAcp => {
+            let mut session = AcpSession::copilot(bin);
+            session.send(message).await?;
+            stream_until_done(&mut session, json).await
+        }
     }
 }
 
@@ -106,11 +114,31 @@ async fn drive<A: LineAdapter + Clone + 'static>(
 
 async fn stream<S: AgentSession>(session: &mut S, json: bool) -> Result<()> {
     while let Some(event) = session.next_event().await {
-        if json {
-            println!("{}", serde_json::to_string(&event)?);
-        } else {
-            print_event(&event);
+        emit(&event, json)?;
+    }
+    Ok(())
+}
+
+/// Stream events for a single turn of a **persistent** session (ACP), stopping
+/// at the terminal [`AgentEvent::Done`]/[`AgentEvent::Error`]. Unlike the
+/// single-shot agents, an ACP process stays alive between turns, so the headless
+/// command must stop itself after one turn rather than waiting for process EOF.
+async fn stream_until_done<S: AgentSession>(session: &mut S, json: bool) -> Result<()> {
+    while let Some(event) = session.next_event().await {
+        let terminal = matches!(event, AgentEvent::Done { .. } | AgentEvent::Error { .. });
+        emit(&event, json)?;
+        if terminal {
+            break;
         }
+    }
+    Ok(())
+}
+
+fn emit(event: &AgentEvent, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string(event)?);
+    } else {
+        print_event(event);
     }
     Ok(())
 }

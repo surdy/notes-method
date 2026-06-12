@@ -69,6 +69,17 @@ describe('agent-bridge', () => {
 		).rejects.toThrow(/desktop app/);
 	});
 
+	it('forwards the copilot-acp agent kind to the runner', async () => {
+		const { adapter, invoke } = fakeAdapter(vi.fn().mockResolvedValue('agent-1'));
+		await startAgentSession({ vault: 'notes', agent: 'copilot-acp' }, adapter);
+		expect(invoke).toHaveBeenCalledWith('agent_start', {
+			vault: 'notes',
+			agent: 'copilot-acp',
+			bin: null,
+			mcpUrl: null
+		});
+	});
+
 	it('sends a message with camelCase session id arg', async () => {
 		const { adapter, invoke } = fakeAdapter(vi.fn().mockResolvedValue(undefined));
 		await sendAgentMessage('agent-1', 'hello', adapter);

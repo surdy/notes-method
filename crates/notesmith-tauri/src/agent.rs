@@ -25,8 +25,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use notesmith_agent::{
-    AgentError, AgentEvent, AgentSession, ClaudeCodeAdapter, CodexAdapter, CopilotCliAdapter,
-    Launch, LineAdapter, McpBinding, OneShotProcessSession, ProcessAgentSession,
+    AcpSession, AgentError, AgentEvent, AgentSession, ClaudeCodeAdapter, CodexAdapter,
+    CopilotCliAdapter, Launch, LineAdapter, McpBinding, OneShotProcessSession, ProcessAgentSession,
 };
 use notesmith_config::GlobalConfig;
 use serde::{Deserialize, Serialize};
@@ -48,6 +48,9 @@ pub enum AgentKind {
     Codex,
     /// GitHub Copilot CLI (`copilot -p`, single-shot plain text).
     CopilotCli,
+    /// GitHub Copilot CLI over the Agent Client Protocol (`copilot --acp`),
+    /// multi-turn (ADR 0011 Phase E).
+    CopilotAcp,
 }
 
 /// A line adapter dispatching to one of the supported agents.
@@ -103,10 +106,12 @@ impl LineAdapter for NotesmithAdapter {
     }
 }
 
-/// A running session: streaming (Claude Code) or single-shot (Codex/Copilot).
+/// A running session: streaming (Claude Code), single-shot (Codex/Copilot CLI),
+/// or persistent ACP (Copilot `--acp`, ADR 0011 Phase E).
 enum DriverSession {
     Streaming(ProcessAgentSession<NotesmithAdapter>),
     OneShot(OneShotProcessSession<NotesmithAdapter>),
+    Acp(AcpSession),
 }
 
 impl DriverSession {
@@ -114,6 +119,7 @@ impl DriverSession {
         match self {
             DriverSession::Streaming(session) => session.send(message).await,
             DriverSession::OneShot(session) => session.send(message).await,
+            DriverSession::Acp(session) => session.send(message).await,
         }
     }
 
@@ -121,6 +127,7 @@ impl DriverSession {
         match self {
             DriverSession::Streaming(session) => session.next_event().await,
             DriverSession::OneShot(session) => session.next_event().await,
+            DriverSession::Acp(session) => session.next_event().await,
         }
     }
 }
@@ -213,7 +220,10 @@ fn build_adapter(kind: &AgentKind, bin: Option<&str>, mcp_url: Option<&str>) -> 
             }
             NotesmithAdapter::Codex(adapter)
         }
-        AgentKind::CopilotCli => {
+        // `CopilotAcp` is routed to an `AcpSession` in `agent_start` and never
+        // reaches this line-adapter builder; fold it into the Copilot CLI arm
+        // (same binary) as a non-panicking defensive fallback.
+        AgentKind::CopilotCli | AgentKind::CopilotAcp => {
             let mut adapter = match bin {
                 Some(bin) => CopilotCliAdapter::new(bin),
                 None => CopilotCliAdapter::default(),
@@ -223,6 +233,25 @@ fn build_adapter(kind: &AgentKind, bin: Option<&str>, mcp_url: Option<&str>) -> 
             }
             NotesmithAdapter::CopilotCli(adapter)
         }
+    }
+}
+
+/// Build a persistent ACP session for the active vault (ADR 0011 Phase E).
+///
+/// Currently the only ACP-wired agent is the Copilot CLI (`copilot --acp`);
+/// Claude Code and Codex join via their ACP adapter binaries in Phase E2. The
+/// MCP endpoint is passed via the ACP `session/new` `mcpServers` param, and the
+/// read-only / read-write scope is derived from the endpoint URL.
+fn build_acp_session(
+    bin: Option<&str>,
+    mcp_url: Option<&str>,
+    working_dir: Option<PathBuf>,
+) -> AcpSession {
+    let bin = bin.filter(|b| !b.is_empty());
+    let session = AcpSession::copilot(bin).in_dir(working_dir);
+    match mcp_url {
+        Some(url) if !url.is_empty() => session.with_mcp(McpBinding::new(MCP_SERVER_NAME, url)),
+        _ => session,
     }
 }
 
@@ -259,9 +288,18 @@ pub async fn agent_start<R: Runtime>(
     let config = GlobalConfig::load().unwrap_or_default();
     let working_dir = vault_working_dir(&config, &vault);
 
-    let adapter = build_adapter(&agent, bin.as_deref(), mcp_url.as_deref());
-    let session = spawn_session(adapter, working_dir)
-        .map_err(|error| format!("could not start agent: {error}"))?;
+    let session = match agent {
+        AgentKind::CopilotAcp => DriverSession::Acp(build_acp_session(
+            bin.as_deref(),
+            mcp_url.as_deref(),
+            working_dir,
+        )),
+        _ => {
+            let adapter = build_adapter(&agent, bin.as_deref(), mcp_url.as_deref());
+            spawn_session(adapter, working_dir)
+                .map_err(|error| format!("could not start agent: {error}"))?
+        }
+    };
 
     let (input_tx, input_rx) = mpsc::unbounded_channel::<String>();
     let session_id = {
@@ -385,6 +423,26 @@ mod tests {
             serde_json::from_str::<AgentKind>("\"copilot-cli\"").unwrap(),
             AgentKind::CopilotCli
         );
+    }
+
+    #[test]
+    fn copilot_acp_kind_deserializes_from_kebab_case() {
+        assert_eq!(
+            serde_json::from_str::<AgentKind>("\"copilot-acp\"").unwrap(),
+            AgentKind::CopilotAcp
+        );
+    }
+
+    #[test]
+    fn build_acp_session_constructs_without_mcp() {
+        // Smoke test: building the session must not spawn a process or panic.
+        let _ = build_acp_session(None, None, None);
+        let _ = build_acp_session(Some("/opt/copilot"), Some(""), None);
+    }
+
+    #[test]
+    fn build_acp_session_wires_mcp_when_url_provided() {
+        let _ = build_acp_session(None, Some("http://127.0.0.1:27183/mcp-ro/work"), None);
     }
 
     #[test]

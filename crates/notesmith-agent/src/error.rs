@@ -24,4 +24,10 @@ pub enum AgentError {
     /// Writing a message to the agent's stdin failed.
     #[error("could not send message to agent: {0}")]
     Send(#[source] std::io::Error),
+
+    /// A protocol-level failure while driving an ACP (Agent Client Protocol)
+    /// session — e.g. the agent closed the connection before answering a
+    /// request, or returned a JSON-RPC error during the handshake.
+    #[error("agent protocol error: {0}")]
+    Protocol(String),
 }

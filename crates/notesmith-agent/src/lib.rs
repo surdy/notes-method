@@ -9,10 +9,14 @@
 //!   `stream-json`).
 //! - [`AgentSession`] — push user messages in, pull events out;
 //!   [`ProcessAgentSession`] spawns an agent CLI and streams its stdout.
+//! - [`AcpSession`] — the single Agent Client Protocol transport (ADR 0011
+//!   Phase E): one JSON-RPC 2.0 client drives any ACP-speaking agent
+//!   (Copilot CLI natively via `copilot --acp`).
 //!
 //! The crate has no Tauri, HTTP or UI dependency: the desktop runner (Phase B)
 //! and the headless `notesmith agent run` command both build on this surface.
 
+mod acp;
 mod adapter;
 mod claude_code;
 mod codex;
@@ -22,6 +26,7 @@ mod event;
 mod mcp;
 mod session;
 
+pub use acp::{AcpSession, DEFAULT_COPILOT_BIN, mcp_url_is_read_only};
 pub use adapter::{Launch, LineAdapter, PromptDelivery};
 pub use claude_code::{ClaudeCodeAdapter, DEFAULT_BIN};
 pub use codex::CodexAdapter;

@@ -50,6 +50,21 @@ impl McpBinding {
     pub fn codex_config_overrides(&self) -> Vec<String> {
         vec![format!("mcp_servers.{}.url=\"{}\"", self.name, self.url)]
     }
+
+    /// An entry for an ACP `session/new` `mcpServers` array, describing this
+    /// server as an HTTP MCP transport:
+    /// `{"type":"http","name":"<name>","url":"<url>","headers":[]}`.
+    ///
+    /// The agent advertises `mcpCapabilities.http` during `initialize`; this is
+    /// the single MCP-wiring path shared by every ACP agent (ADR 0011 Phase E).
+    pub fn acp_server_json(&self) -> Value {
+        json!({
+            "type": "http",
+            "name": self.name,
+            "url": self.url,
+            "headers": [],
+        })
+    }
 }
 
 #[cfg(test)]
@@ -80,6 +95,20 @@ mod tests {
         assert_eq!(
             binding.codex_config_overrides(),
             vec!["mcp_servers.notesmith.url=\"http://127.0.0.1:27183/mcp/work\"".to_string()]
+        );
+    }
+
+    #[test]
+    fn acp_server_json_describes_an_http_transport() {
+        let binding = McpBinding::new("notesmith", "http://127.0.0.1:27183/mcp-ro/work");
+        assert_eq!(
+            binding.acp_server_json(),
+            json!({
+                "type": "http",
+                "name": "notesmith",
+                "url": "http://127.0.0.1:27183/mcp-ro/work",
+                "headers": [],
+            })
         );
     }
 }

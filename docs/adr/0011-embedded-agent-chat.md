@@ -7,8 +7,9 @@ Implemented across all four phases: the `notesmith-agent` crate + headless
 `notesmith agent run` (Phase A), the desktop Tauri runner + Svelte chat panel
 (Phase B), active-vault MCP auto-wiring with a read-only/read-write toggle
 (Phase C, #155), and the remaining agent adapters — Codex and Copilot CLI
-alongside Claude Code (Phase D, #156). **Phase E (planned)** converges all three
-agents onto a single ACP transport — see the
+alongside Claude Code (Phase D, #156). **Phase E** converges all three agents
+onto a single ACP transport — **E1 (the ACP client + `AcpSession`, wired for
+Copilot natively) is implemented (#157)**; E2/E3 remain planned. See the
 [ACP amendment](#amendment-2026--acp-single-transport-convergence-phase-e).
 
 ### Per-agent transport
@@ -134,8 +135,9 @@ LAN/VPN, with auth deferred.
   Copilot CLI / Claude Code / Codex). **(Implemented, #156.)**
 - **E — ACP single-transport convergence.** Replace the three per-agent line
   adapters with one **Agent Client Protocol** client (see the amendment below).
-  Staged: **E1** Copilot (native ACP), **E2** Claude Code + Codex via adapter
-  binaries, **E3** retire the line adapters once all three are proven on ACP.
+  Staged: **E1** Copilot (native ACP) — **implemented (#157)**; **E2** Claude
+  Code + Codex via adapter binaries; **E3** retire the line adapters once all
+  three are proven on ACP.
 
 ## Amendment (2026) — ACP single-transport convergence (Phase E)
 
@@ -168,7 +170,10 @@ speaks ACP natively.
 - **`session/new`** → `{ cwd, mcpServers: [...] }` returns `{ sessionId, models,
   modes, configOptions }`. Session modes use the canonical
   `agentclientprotocol.com/protocol/session-modes#{agent,plan,autopilot}` IDs;
-  `configOptions` includes an `allow_all` (permissions) select.
+  `configOptions` includes an `allow_all` (permissions) select. **`cwd` must be
+  an absolute path** — a relative value (e.g. `.`) is rejected with a
+  `-32603 Internal error` (`Directory path must be absolute`), so `AcpSession`
+  resolves the working directory to an absolute path before `session/new`.
 - **`session/prompt`** → `{ sessionId, prompt: [{ type: "text", text }] }`.
   Streaming arrives as `session/update` notifications whose `update.sessionUpdate`
   is e.g. `agent_message_chunk` (carrying `content: { type: "text", text }`),
@@ -179,7 +184,7 @@ speaks ACP natively.
 
 | Agent | ACP launch | Install |
 | --- | --- | --- |
-| **Copilot CLI** | `copilot --acp` (native) | already installed; **E1**, end-to-end testable here. |
+| **Copilot CLI** | `copilot --acp` (native) | already installed; **E1 — implemented (#157)**, verified end-to-end. |
 | **Claude Code** | `npx @zed-industries/claude-code-acp` (adapter binary) | **E2**; graceful "adapter not installed" error + setup docs. |
 | **Codex** | `codex-acp` (adapter binary; native Codex is app-server/proto) | **E2**; same graceful-error treatment. |
 
@@ -198,9 +203,10 @@ the per-CLI "allow all tools" flags with a uniform, scope-aware gate.
 `session/prompt` calls against the same `sessionId`, so the single-turn caveat
 that affected Codex/Copilot under Phase D disappears.
 
-**Staging keeps a fallback.** E1 lands the ACP client + `AcpSession` for Copilot
-**coexisting** with the existing line adapters; E2 brings Claude/Codex onto ACP
-via adapter binaries; E3 retires `claude_code.rs` / `codex.rs` / `copilot_cli.rs`,
+**Staging keeps a fallback.** E1 **(implemented, #157)** landed the ACP client +
+`AcpSession` for Copilot **coexisting** with the existing line adapters (selected
+via the `copilot-acp` agent kind); E2 brings Claude/Codex onto ACP via adapter
+binaries; E3 retires `claude_code.rs` / `codex.rs` / `copilot_cli.rs`,
 `OneShotProcessSession`, the `Launch`/`PromptDelivery` enums, and the
 `NotesmithAdapter`/`DriverSession` dispatch enums once all three are proven on
 ACP. Tracked as issues E1/E2/E3 (label `agent-chat`).
