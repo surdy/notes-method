@@ -7,7 +7,9 @@ Implemented across all four phases: the `notesmith-agent` crate + headless
 `notesmith agent run` (Phase A), the desktop Tauri runner + Svelte chat panel
 (Phase B), active-vault MCP auto-wiring with a read-only/read-write toggle
 (Phase C, #155), and the remaining agent adapters — Codex and Copilot CLI
-alongside Claude Code (Phase D, #156).
+alongside Claude Code (Phase D, #156). **Phase E (planned)** converges all three
+agents onto a single ACP transport — see the
+[ACP amendment](#amendment-2026--acp-single-transport-convergence-phase-e).
 
 ### Per-agent transport
 
@@ -129,7 +131,79 @@ LAN/VPN, with auth deferred.
   Notesmith MCP for the active vault; add the read-only (default) / read-write
   toggle and an "operating on `<vault>` · read-only" badge.
 - **D — Additional adapters.** Add the remaining CLI adapters (the other two of
-  Copilot CLI / Claude Code / Codex).
+  Copilot CLI / Claude Code / Codex). **(Implemented, #156.)**
+- **E — ACP single-transport convergence.** Replace the three per-agent line
+  adapters with one **Agent Client Protocol** client (see the amendment below).
+  Staged: **E1** Copilot (native ACP), **E2** Claude Code + Codex via adapter
+  binaries, **E3** retire the line adapters once all three are proven on ACP.
+
+## Amendment (2026) — ACP single-transport convergence (Phase E)
+
+The Phase A–D design uses **three per-agent line adapters** (Claude stream-json,
+Codex `exec --json`, Copilot plain-text) over **two session drivers**
+(`ProcessAgentSession`, `OneShotProcessSession`). This carries two costs: each
+new agent needs a bespoke adapter, and only Claude Code is multi-turn — Codex and
+Copilot are one-shot (one turn per chat session). The
+[Agent Client Protocol (ACP)](https://agentclientprotocol.com) — JSON-RPC 2.0
+over stdio — has since matured enough to be a single convergence point.
+
+**Decision (amends Decision 3).** Converge all agents onto **one ACP transport**:
+a single JSON-RPC 2.0 client (`acp.rs`) plus one persistent `AcpSession` driver
+behind the existing `AgentSession` contract, fed by a small **per-agent launch
+table**. The normalized `AgentEvent` model, the generic Svelte renderer,
+`agent-chat.ts`, the Tauri IPC envelope, and the read-only/read-write toggle all
+stay unchanged — only the per-agent transport layer is replaced. We accept that
+Claude Code and Codex require an **extra adapter binary** install; Copilot CLI
+speaks ACP natively.
+
+**Empirically confirmed against `copilot --acp` v1.0.61 (spike, 2026):**
+
+- **Framing is newline-delimited JSON** (one JSON-RPC message per line), *not*
+  LSP `Content-Length` headers.
+- **`initialize`** → `{ protocolVersion: 1, clientCapabilities: { fs:
+  { readTextFile, writeTextFile }, terminal } }`. The agent replies with
+  `agentCapabilities` including **`mcpCapabilities: { http: true, sse: true }`** —
+  so Notesmith's HTTP MCP endpoints can be passed directly — plus `authMethods`
+  and `agentInfo { name, version }`.
+- **`session/new`** → `{ cwd, mcpServers: [...] }` returns `{ sessionId, models,
+  modes, configOptions }`. Session modes use the canonical
+  `agentclientprotocol.com/protocol/session-modes#{agent,plan,autopilot}` IDs;
+  `configOptions` includes an `allow_all` (permissions) select.
+- **`session/prompt`** → `{ sessionId, prompt: [{ type: "text", text }] }`.
+  Streaming arrives as `session/update` notifications whose `update.sessionUpdate`
+  is e.g. `agent_message_chunk` (carrying `content: { type: "text", text }`),
+  `config_option_update`, `available_commands_update`. The prompt request's final
+  response carries `{ stopReason: "end_turn" }`.
+
+**Per-agent launch table (E1–E2):**
+
+| Agent | ACP launch | Install |
+| --- | --- | --- |
+| **Copilot CLI** | `copilot --acp` (native) | already installed; **E1**, end-to-end testable here. |
+| **Claude Code** | `npx @zed-industries/claude-code-acp` (adapter binary) | **E2**; graceful "adapter not installed" error + setup docs. |
+| **Codex** | `codex-acp` (adapter binary; native Codex is app-server/proto) | **E2**; same graceful-error treatment. |
+
+**MCP wiring moves into `session/new`.** Instead of per-CLI flags
+(`--mcp-config` / `-c mcp_servers...` / `--additional-mcp-config`), the active
+vault's endpoint is passed once as an ACP `mcpServers` entry pointing at
+`/mcp/<vault>` (read-write) or `/mcp-ro/<vault>` (read-only) — one code path for
+all agents, leaning on the confirmed `mcpCapabilities.http`.
+
+**Permission model maps onto the RO/RW toggle.** ACP `session/request_permission`
+round-trips are answered by the runner from the toggle state: read-only
+auto-denies write/destructive tool calls, read-write auto-approves. This replaces
+the per-CLI "allow all tools" flags with a uniform, scope-aware gate.
+
+**Multi-turn for free.** A persistent ACP session accepts repeated
+`session/prompt` calls against the same `sessionId`, so the single-turn caveat
+that affected Codex/Copilot under Phase D disappears.
+
+**Staging keeps a fallback.** E1 lands the ACP client + `AcpSession` for Copilot
+**coexisting** with the existing line adapters; E2 brings Claude/Codex onto ACP
+via adapter binaries; E3 retires `claude_code.rs` / `codex.rs` / `copilot_cli.rs`,
+`OneShotProcessSession`, the `Launch`/`PromptDelivery` enums, and the
+`NotesmithAdapter`/`DriverSession` dispatch enums once all three are proven on
+ACP. Tracked as issues E1/E2/E3 (label `agent-chat`).
 
 ## Alternatives considered
 
