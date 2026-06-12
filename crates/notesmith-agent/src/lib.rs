@@ -17,10 +17,12 @@ mod adapter;
 mod claude_code;
 mod error;
 mod event;
+mod mcp;
 mod session;
 
 pub use adapter::LineAdapter;
 pub use claude_code::{ClaudeCodeAdapter, DEFAULT_BIN};
 pub use error::AgentError;
 pub use event::{AgentEvent, ToolCall, ToolResult};
+pub use mcp::McpBinding;
 pub use session::{AgentSession, ProcessAgentSession, drive_lines};

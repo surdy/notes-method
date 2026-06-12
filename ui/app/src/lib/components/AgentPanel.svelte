@@ -9,11 +9,13 @@
 	} from '$lib/agent-chat';
 	import {
 		listenForSession,
+		mcpEndpoint,
 		sendAgentMessage,
 		startAgentSession,
 		stopAgentSession,
 		type AgentKind
 	} from '$lib/agent-bridge';
+	import { API_BASE } from '$lib/api/core';
 	import { vaultStore } from '$lib/stores.svelte';
 
 	const AGENTS: { value: AgentKind; label: string }[] = [{ value: 'claude-code', label: 'Claude Code' }];
@@ -21,12 +23,14 @@
 	let chat = $state<ChatState>(emptyChatState());
 	let sessionId = $state<string | null>(null);
 	let agent = $state<AgentKind>('claude-code');
+	let readOnly = $state(true);
 	let input = $state('');
 	let busy = $state(false);
 	let panelError = $state<string | null>(null);
 	let teardown: (() => void) | null = null;
 
 	const running = $derived(chat.running);
+	const mcpUrl = $derived(mcpEndpoint(API_BASE, vaultStore.currentVault ?? '', readOnly));
 
 	async function send() {
 		const message = input.trim();
@@ -44,7 +48,7 @@
 		try {
 			if (!sessionId) {
 				chat = startedChatState();
-				const id = await startAgentSession({ vault, agent });
+				const id = await startAgentSession({ vault, agent, mcpUrl });
 				sessionId = id;
 				teardown = await listenForSession(id, {
 					onEvent: (event) => {
@@ -130,6 +134,10 @@
 				{/each}
 			</select>
 		</label>
+		<label class="agent-scope" title="Read-only lets the agent read the vault; read-write also lets it edit notes.">
+			<input type="checkbox" bind:checked={readOnly} disabled={running || busy} />
+			<span>Read-only</span>
+		</label>
 		<div class="agent-toolbar-status">
 			{#if running}
 				<span class="agent-running">● running</span>
@@ -143,6 +151,13 @@
 			<button type="button" class="agent-btn" onclick={reset}>New chat</button>
 		{/if}
 	</div>
+
+	{#if mcpUrl}
+		<div class="agent-scope-badge">
+			operating on <strong>{vaultStore.currentVault}</strong> ·
+			<span class:scope-rw={!readOnly}>{readOnly ? 'read-only' : 'read-write'}</span>
+		</div>
+	{/if}
 
 	<div class="agent-stream">
 		{#if chat.messages.length === 0}
@@ -227,6 +242,35 @@
 		flex: 1;
 		font-size: 12px;
 		color: var(--text-muted);
+	}
+
+	.agent-scope {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 12px;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+
+	.agent-scope input {
+		cursor: pointer;
+	}
+
+	.agent-scope-badge {
+		padding: 4px 12px;
+		font-size: 11px;
+		color: var(--text-muted);
+		background: var(--bg-secondary);
+		border-bottom: 1px solid var(--border-default);
+	}
+
+	.agent-scope-badge strong {
+		color: var(--text-default);
+	}
+
+	.agent-scope-badge .scope-rw {
+		color: var(--accent);
 	}
 
 	.agent-running {

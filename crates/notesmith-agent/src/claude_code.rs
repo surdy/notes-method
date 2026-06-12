@@ -24,6 +24,7 @@ use serde_json::{Value, json};
 
 use crate::adapter::LineAdapter;
 use crate::event::{AgentEvent, ToolCall, ToolResult};
+use crate::mcp::McpBinding;
 
 /// Default binary name for Claude Code.
 pub const DEFAULT_BIN: &str = "claude";
@@ -32,6 +33,7 @@ pub const DEFAULT_BIN: &str = "claude";
 #[derive(Debug, Clone)]
 pub struct ClaudeCodeAdapter {
     bin: String,
+    mcp: Option<McpBinding>,
 }
 
 impl Default for ClaudeCodeAdapter {
@@ -43,7 +45,16 @@ impl Default for ClaudeCodeAdapter {
 impl ClaudeCodeAdapter {
     /// Build an adapter that launches the given binary (path or name).
     pub fn new(bin: impl Into<String>) -> Self {
-        Self { bin: bin.into() }
+        Self {
+            bin: bin.into(),
+            mcp: None,
+        }
+    }
+
+    /// Auto-wire the agent to a Notesmith MCP endpoint (ADR 0011 Phase C).
+    pub fn with_mcp(mut self, binding: McpBinding) -> Self {
+        self.mcp = Some(binding);
+        self
     }
 }
 
@@ -88,17 +99,20 @@ impl LineAdapter for ClaudeCodeAdapter {
     }
 
     fn command(&self) -> (String, Vec<String>) {
-        (
-            self.bin.clone(),
-            vec![
-                "--print".to_string(),
-                "--input-format".to_string(),
-                "stream-json".to_string(),
-                "--output-format".to_string(),
-                "stream-json".to_string(),
-                "--verbose".to_string(),
-            ],
-        )
+        let mut args = vec![
+            "--print".to_string(),
+            "--input-format".to_string(),
+            "stream-json".to_string(),
+            "--output-format".to_string(),
+            "stream-json".to_string(),
+            "--verbose".to_string(),
+        ];
+        if let Some(binding) = &self.mcp {
+            args.push("--mcp-config".to_string());
+            args.push(binding.claude_config_json());
+            args.push("--strict-mcp-config".to_string());
+        }
+        (self.bin.clone(), args)
     }
 }
 
@@ -378,5 +392,22 @@ mod tests {
             args.windows(2)
                 .any(|w| w == ["--input-format", "stream-json"])
         );
+        // Without an MCP binding, no MCP flags are emitted.
+        assert!(!args.iter().any(|a| a == "--mcp-config"));
+    }
+
+    #[test]
+    fn command_with_mcp_appends_strict_http_config() {
+        let binding = McpBinding::new("notesmith", "http://127.0.0.1:27183/mcp-ro/work");
+        let (_, args) = ClaudeCodeAdapter::new("claude")
+            .with_mcp(binding.clone())
+            .command();
+
+        let idx = args
+            .iter()
+            .position(|a| a == "--mcp-config")
+            .expect("--mcp-config present");
+        assert_eq!(args[idx + 1], binding.claude_config_json());
+        assert!(args.iter().any(|a| a == "--strict-mcp-config"));
     }
 }

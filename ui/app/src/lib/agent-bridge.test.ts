@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	isAgentRunnerAvailable,
 	listenForSession,
+	mcpEndpoint,
 	sendAgentMessage,
 	startAgentSession,
 	stopAgentSession
@@ -39,7 +40,26 @@ describe('agent-bridge', () => {
 		expect(invoke).toHaveBeenCalledWith('agent_start', {
 			vault: 'notes',
 			agent: 'claude-code',
-			bin: null
+			bin: null,
+			mcpUrl: null
+		});
+	});
+
+	it('passes the resolved mcp url to the runner', async () => {
+		const { adapter, invoke } = fakeAdapter(vi.fn().mockResolvedValue('agent-1'));
+		await startAgentSession(
+			{
+				vault: 'notes',
+				agent: 'claude-code',
+				mcpUrl: 'http://127.0.0.1:27183/mcp-ro/notes'
+			},
+			adapter
+		);
+		expect(invoke).toHaveBeenCalledWith('agent_start', {
+			vault: 'notes',
+			agent: 'claude-code',
+			bin: null,
+			mcpUrl: 'http://127.0.0.1:27183/mcp-ro/notes'
 		});
 	});
 
@@ -94,5 +114,37 @@ describe('agent-bridge', () => {
 		expect(listeners.size).toBe(2);
 		teardown();
 		expect(listeners.size).toBe(0);
+	});
+
+	describe('mcpEndpoint', () => {
+		it('builds a read-only endpoint by default scope', () => {
+			expect(mcpEndpoint('http://127.0.0.1:27183', 'notes', true)).toBe(
+				'http://127.0.0.1:27183/mcp-ro/notes'
+			);
+		});
+
+		it('builds a read-write endpoint when not read-only', () => {
+			expect(mcpEndpoint('http://127.0.0.1:27183', 'notes', false)).toBe(
+				'http://127.0.0.1:27183/mcp/notes'
+			);
+		});
+
+		it('trims trailing slashes from the api base', () => {
+			expect(mcpEndpoint('http://127.0.0.1:27183/', 'notes', true)).toBe(
+				'http://127.0.0.1:27183/mcp-ro/notes'
+			);
+		});
+
+		it('encodes vault names with special characters', () => {
+			expect(mcpEndpoint('http://h', 'my notes', false)).toBe('http://h/mcp/my%20notes');
+		});
+
+		it('returns null when the api base is empty (hosted browser)', () => {
+			expect(mcpEndpoint('', 'notes', true)).toBeNull();
+		});
+
+		it('returns null when the vault is empty', () => {
+			expect(mcpEndpoint('http://h', '', true)).toBeNull();
+		});
 	});
 });

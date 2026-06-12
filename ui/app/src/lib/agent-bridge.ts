@@ -18,6 +18,33 @@ export interface StartSessionOptions {
 	vault: string;
 	agent: AgentKind;
 	bin?: string;
+	/**
+	 * Streamable HTTP MCP endpoint to auto-wire the agent to the active vault
+	 * (ADR 0011 Phase C). Omit (or pass null) to launch without MCP.
+	 */
+	mcpUrl?: string | null;
+}
+
+/**
+ * Resolve the per-vault MCP endpoint URL for a spawned agent.
+ *
+ * The daemon serves Streamable HTTP MCP at `/mcp/<vault>` (read-write) and
+ * `/mcp-ro/<vault>` (read-only); the scope is encoded in the path. Returns
+ * `null` when `apiBase` is empty (hosted browser, where the absolute daemon
+ * origin is unknown) or `vault` is empty, in which case the agent runs without
+ * MCP wiring.
+ */
+export function mcpEndpoint(
+	apiBase: string,
+	vault: string,
+	readOnly: boolean
+): string | null {
+	if (!apiBase || !vault) {
+		return null;
+	}
+	const base = apiBase.replace(/\/+$/, '');
+	const scope = readOnly ? 'mcp-ro' : 'mcp';
+	return `${base}/${scope}/${encodeURIComponent(vault)}`;
 }
 
 export interface AgentEventHandlers {
@@ -43,7 +70,8 @@ export async function startAgentSession(
 	const sessionId = await adapter.invoke('agent_start', {
 		vault: options.vault,
 		agent: options.agent,
-		bin: options.bin ?? null
+		bin: options.bin ?? null,
+		mcpUrl: options.mcpUrl ?? null
 	});
 	if (typeof sessionId !== 'string') {
 		throw new Error('Agent runner did not return a session id.');

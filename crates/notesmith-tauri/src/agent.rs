@@ -24,7 +24,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use notesmith_agent::{AgentEvent, AgentSession, ClaudeCodeAdapter, ProcessAgentSession};
+use notesmith_agent::{
+    AgentEvent, AgentSession, ClaudeCodeAdapter, McpBinding, ProcessAgentSession,
+};
 use notesmith_config::GlobalConfig;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
@@ -99,13 +101,21 @@ fn vault_working_dir(config: &GlobalConfig, vault: &str) -> Option<PathBuf> {
     }
 }
 
-/// Build the line adapter for the requested agent, honoring a binary override.
-fn build_adapter(kind: &AgentKind, bin: Option<&str>) -> ClaudeCodeAdapter {
-    match kind {
+/// MCP server name exposed to spawned agents for the active vault.
+const MCP_SERVER_NAME: &str = "notesmith";
+
+/// Build the line adapter for the requested agent, honoring a binary override
+/// and an optional MCP endpoint to auto-wire (ADR 0011 Phase C).
+fn build_adapter(kind: &AgentKind, bin: Option<&str>, mcp_url: Option<&str>) -> ClaudeCodeAdapter {
+    let adapter = match kind {
         AgentKind::ClaudeCode => match bin {
             Some(bin) if !bin.is_empty() => ClaudeCodeAdapter::new(bin),
             _ => ClaudeCodeAdapter::default(),
         },
+    };
+    match mcp_url {
+        Some(url) if !url.is_empty() => adapter.with_mcp(McpBinding::new(MCP_SERVER_NAME, url)),
+        _ => adapter,
     }
 }
 
@@ -120,11 +130,12 @@ pub async fn agent_start<R: Runtime>(
     vault: String,
     agent: AgentKind,
     bin: Option<String>,
+    mcp_url: Option<String>,
 ) -> Result<String, String> {
     let config = GlobalConfig::load().unwrap_or_default();
     let working_dir = vault_working_dir(&config, &vault);
 
-    let adapter = build_adapter(&agent, bin.as_deref());
+    let adapter = build_adapter(&agent, bin.as_deref(), mcp_url.as_deref());
     let session = ProcessAgentSession::spawn_in(adapter, working_dir)
         .map_err(|error| format!("could not start agent: {error}"))?;
 
@@ -242,7 +253,7 @@ mod tests {
 
     #[test]
     fn build_adapter_uses_default_binary_without_override() {
-        let adapter = build_adapter(&AgentKind::ClaudeCode, None);
+        let adapter = build_adapter(&AgentKind::ClaudeCode, None, None);
         let (program, _) = {
             use notesmith_agent::LineAdapter;
             adapter.command()
@@ -252,7 +263,7 @@ mod tests {
 
     #[test]
     fn build_adapter_honors_binary_override() {
-        let adapter = build_adapter(&AgentKind::ClaudeCode, Some("/opt/claude"));
+        let adapter = build_adapter(&AgentKind::ClaudeCode, Some("/opt/claude"), None);
         let (program, _) = {
             use notesmith_agent::LineAdapter;
             adapter.command()
@@ -262,12 +273,38 @@ mod tests {
 
     #[test]
     fn build_adapter_ignores_empty_binary_override() {
-        let adapter = build_adapter(&AgentKind::ClaudeCode, Some(""));
+        let adapter = build_adapter(&AgentKind::ClaudeCode, Some(""), None);
         let (program, _) = {
             use notesmith_agent::LineAdapter;
             adapter.command()
         };
         assert_eq!(program, notesmith_agent::DEFAULT_BIN);
+    }
+
+    #[test]
+    fn build_adapter_wires_mcp_when_url_provided() {
+        use notesmith_agent::LineAdapter;
+        let adapter = build_adapter(
+            &AgentKind::ClaudeCode,
+            None,
+            Some("http://127.0.0.1:27183/mcp-ro/work"),
+        );
+        let (_, args) = adapter.command();
+        let idx = args
+            .iter()
+            .position(|a| a == "--mcp-config")
+            .expect("--mcp-config present");
+        assert!(args[idx + 1].contains("http://127.0.0.1:27183/mcp-ro/work"));
+        assert!(args[idx + 1].contains("notesmith"));
+        assert!(args.iter().any(|a| a == "--strict-mcp-config"));
+    }
+
+    #[test]
+    fn build_adapter_skips_mcp_for_empty_url() {
+        use notesmith_agent::LineAdapter;
+        let adapter = build_adapter(&AgentKind::ClaudeCode, None, Some(""));
+        let (_, args) = adapter.command();
+        assert!(!args.iter().any(|a| a == "--mcp-config"));
     }
 
     #[test]
