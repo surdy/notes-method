@@ -155,8 +155,6 @@
   --surface-translucent-strong: rgba(255, 255, 255, 0.12);
   --surface-translucent-subtle: rgba(255, 255, 255, 0.05);
   --surface-translucent-alt: rgba(255, 255, 255, 0.03);
-  --onboarding-bg: var(--bg-elevated);
-  --onboarding-border: var(--border-default);
   --dirty-dot: var(--yellow-9);
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   --line-height-normal: 1.5;
@@ -330,7 +328,5 @@
   --surface-translucent-strong: rgba(0, 0, 0, 0.08);
   --surface-translucent-subtle: rgba(0, 0, 0, 0.03);
   --surface-translucent-alt: rgba(0, 0, 0, 0.02);
-  --onboarding-bg: var(--neutral-2);
-  --onboarding-border: var(--neutral-3);
   --dirty-dot: var(--yellow-9);
 }
