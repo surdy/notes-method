@@ -103,7 +103,36 @@ impl SearchIndex {
         let mut parser =
             QueryParser::for_index(&self.index, vec![self.title_field, self.body_field]);
         parser.set_field_boost(self.title_field, TITLE_BOOST);
-        let parsed_query = parser.parse_query(query)?;
+        let parsed_query = match parser.parse_query(query) {
+            Ok(parsed) => parsed,
+            Err(_) => {
+                // Search queries are untrusted (agent / user input). Tantivy's
+                // parser rejects field syntax and operator characters
+                // (`:`, `+`, `(`, `"`, `~`, ...), so a natural-language query
+                // like `note:foo` or `what's "the" plan?` would otherwise
+                // surface as a hard error to the caller (e.g. an MCP tool
+                // failure). Fall back to a sanitized, operator-free query so
+                // the input degrades to a plain term search instead.
+                let sanitized = sanitize_query(query);
+                if sanitized.is_empty() {
+                    return Ok(Vec::new());
+                }
+                match parser.parse_query(&sanitized) {
+                    Ok(parsed) => {
+                        tracing::debug!(
+                            query,
+                            sanitized,
+                            "search query had reserved syntax; retried sanitized"
+                        );
+                        parsed
+                    }
+                    Err(error) => {
+                        tracing::debug!(query, %error, "search query unparseable; returning no results");
+                        return Ok(Vec::new());
+                    }
+                }
+            }
+        };
         let top_docs = searcher.search(&parsed_query, &TopDocs::with_limit(limit))?;
 
         let mut body_snippets =
@@ -191,6 +220,33 @@ fn build_schema() -> Schema {
     builder.build()
 }
 
+/// Reduce an untrusted query to plain, operator-free terms so it can be parsed
+/// as a best-effort term search after the strict parse fails.
+///
+/// Tantivy's query syntax reserves a number of characters (`: + - ( ) { } [ ]
+/// ^ " ~ * ? \ /` etc.) and the boolean keywords `AND` / `OR` / `NOT` / `IN`.
+/// Natural-language search input from an agent or user routinely contains
+/// these. We replace every non-alphanumeric character with whitespace (keeping
+/// Unicode letters/digits) and drop bare boolean keywords, leaving a space-
+/// separated bag of terms.
+fn sanitize_query(query: &str) -> String {
+    let cleaned: String = query
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c.is_whitespace() {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect();
+    cleaned
+        .split_whitespace()
+        .filter(|term| !matches!(*term, "AND" | "OR" | "NOT" | "IN"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn stored_text(document: &TantivyDocument, field: Field) -> String {
     document
         .get_first(field)
@@ -228,7 +284,7 @@ fn strip_html(text: &str) -> String {
 mod tests {
     use notesmith_core::Note;
 
-    use super::SearchIndex;
+    use super::{SearchIndex, sanitize_query};
 
     #[test]
     fn check_integrity_reports_healthy_index() {
@@ -241,6 +297,79 @@ mod tests {
             .unwrap();
 
         assert!(index.check_integrity().unwrap());
+    }
+
+    #[test]
+    fn search_matches_plain_terms() {
+        let index = SearchIndex::open_in_memory().unwrap();
+        index
+            .reindex(
+                "work",
+                &[sample_note(
+                    "Inbox/test.md",
+                    "this is a test note about launches",
+                )],
+            )
+            .unwrap();
+
+        let results = index.search("test note", 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].path, "Inbox/test.md");
+    }
+
+    #[test]
+    fn search_degrades_field_syntax_to_plain_terms() {
+        // An agent often passes `field:value` style queries. Tantivy rejects an
+        // unknown field, which previously surfaced as a hard error. It must now
+        // degrade to a plain term search and still find the note.
+        let index = SearchIndex::open_in_memory().unwrap();
+        index
+            .reindex(
+                "work",
+                &[sample_note(
+                    "Inbox/test.md",
+                    "this is a test note about launches",
+                )],
+            )
+            .unwrap();
+
+        let results = index.search("note:test", 10).expect("must not error");
+        assert!(
+            results.iter().any(|r| r.path == "Inbox/test.md"),
+            "sanitized fallback should still match the note: {results:?}"
+        );
+    }
+
+    #[test]
+    fn search_tolerates_reserved_characters_without_erroring() {
+        let index = SearchIndex::open_in_memory().unwrap();
+        index
+            .reindex(
+                "work",
+                &[sample_note("Inbox/cpp.md", "notes on C plus plus")],
+            )
+            .unwrap();
+
+        for query in [
+            "C++ (test)",
+            "what's \"the\" plan?",
+            "foo~bar^2",
+            "AND OR NOT",
+        ] {
+            let result = index.search(query, 10);
+            assert!(
+                result.is_ok(),
+                "query {query:?} should not error: {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn sanitize_query_strips_operators_and_boolean_keywords() {
+        assert_eq!(sanitize_query("note:foo"), "note foo");
+        assert_eq!(sanitize_query("C++ (test)"), "C test");
+        assert_eq!(sanitize_query("a AND b OR c"), "a b c");
+        assert_eq!(sanitize_query("+-*?\"~^"), "");
     }
 
     fn sample_note(path: &str, body: &str) -> Note {
