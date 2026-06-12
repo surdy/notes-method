@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import {
 		applyAgentEvent,
 		emptyChatState,
@@ -8,6 +8,7 @@
 		type ChatState
 	} from '$lib/agent-chat';
 	import {
+		agentLocalFileAccessDefault,
 		listenForSession,
 		mcpEndpoint,
 		sendAgentMessage,
@@ -28,6 +29,7 @@
 	let sessionId = $state<string | null>(null);
 	let agent = $state<AgentKind>('claude-code');
 	let readOnly = $state(true);
+	let localFileAccess = $state(false);
 	let input = $state('');
 	let busy = $state(false);
 	let panelError = $state<string | null>(null);
@@ -35,6 +37,12 @@
 
 	const running = $derived(chat.running);
 	const mcpUrl = $derived(mcpEndpoint(API_BASE, vaultStore.currentVault ?? '', readOnly));
+
+	onMount(async () => {
+		// Honor the persisted global default as the toggle's starting state
+		// (ADR 0012); the per-session toggle then overrides it on start.
+		localFileAccess = await agentLocalFileAccessDefault();
+	});
 
 	async function send() {
 		const message = input.trim();
@@ -52,7 +60,7 @@
 		try {
 			if (!sessionId) {
 				chat = startedChatState();
-				const id = await startAgentSession({ vault, agent, mcpUrl });
+				const id = await startAgentSession({ vault, agent, mcpUrl, localFileAccess });
 				sessionId = id;
 				teardown = await listenForSession(id, {
 					onEvent: (event) => {
@@ -141,6 +149,10 @@
 		<label class="agent-scope" title="Read-only lets the agent read the vault; read-write also lets it edit notes.">
 			<input type="checkbox" bind:checked={readOnly} disabled={running || busy} />
 			<span>Read-only</span>
+		</label>
+		<label class="agent-scope" title="Grant the agent scoped filesystem and terminal access to the vault directory (off by default).">
+			<input type="checkbox" bind:checked={localFileAccess} disabled={running || busy} />
+			<span>Local file access</span>
 		</label>
 		<div class="agent-toolbar-status">
 			{#if running}

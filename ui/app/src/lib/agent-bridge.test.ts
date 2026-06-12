@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+	agentLocalFileAccessDefault,
 	isAgentRunnerAvailable,
 	listenForSession,
 	mcpEndpoint,
@@ -41,7 +42,8 @@ describe('agent-bridge', () => {
 			vault: 'notes',
 			agent: 'claude-code',
 			bin: null,
-			mcpUrl: null
+			mcpUrl: null,
+			localFileAccess: false
 		});
 	});
 
@@ -59,7 +61,23 @@ describe('agent-bridge', () => {
 			vault: 'notes',
 			agent: 'claude-code',
 			bin: null,
-			mcpUrl: 'http://127.0.0.1:27183/mcp-ro/notes'
+			mcpUrl: 'http://127.0.0.1:27183/mcp-ro/notes',
+			localFileAccess: false
+		});
+	});
+
+	it('forwards the local file access toggle to the runner', async () => {
+		const { adapter, invoke } = fakeAdapter(vi.fn().mockResolvedValue('agent-1'));
+		await startAgentSession(
+			{ vault: 'notes', agent: 'copilot', localFileAccess: true },
+			adapter
+		);
+		expect(invoke).toHaveBeenCalledWith('agent_start', {
+			vault: 'notes',
+			agent: 'copilot',
+			bin: null,
+			mcpUrl: null,
+			localFileAccess: true
 		});
 	});
 
@@ -78,7 +96,8 @@ describe('agent-bridge', () => {
 				vault: 'notes',
 				agent,
 				bin: null,
-				mcpUrl: null
+				mcpUrl: null,
+				localFileAccess: false
 			});
 		}
 	);
@@ -94,6 +113,21 @@ describe('agent-bridge', () => {
 
 	it('stop is a no-op without an adapter', async () => {
 		await expect(stopAgentSession('agent-1', null)).resolves.toBeUndefined();
+	});
+
+	it('reads the local file access default from the runner', async () => {
+		const { adapter, invoke } = fakeAdapter(vi.fn().mockResolvedValue(true));
+		await expect(agentLocalFileAccessDefault(adapter)).resolves.toBe(true);
+		expect(invoke).toHaveBeenCalledWith('agent_local_file_access_default');
+	});
+
+	it('coerces a non-boolean default to false', async () => {
+		const { adapter } = fakeAdapter(vi.fn().mockResolvedValue(undefined));
+		await expect(agentLocalFileAccessDefault(adapter)).resolves.toBe(false);
+	});
+
+	it('defaults local file access to false without an adapter', async () => {
+		await expect(agentLocalFileAccessDefault(null)).resolves.toBe(false);
 	});
 
 	it('delivers only events for the subscribed session and strips session_id', async () => {

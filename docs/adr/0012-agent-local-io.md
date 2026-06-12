@@ -86,8 +86,11 @@ not** call an unadvertised capability.
   the write/terminal handlers are disabled in read-only sessions, so a read-only
   session cannot mutate the vault even with local I/O enabled.
 - The CLI exposes the same capability via `notesmith agent run
-  --local-file-access` for headless testing; the desktop runner reads the global
-  config.
+  --local-file-access` for headless testing. The desktop runner reads the global
+  config as the default and surfaces a per-session **"Local file access"** toggle
+  in the chat panel (alongside the read-only toggle); the toggle is initialized
+  from `agent.local_file_access` via the `agent_local_file_access_default`
+  command and passed to `agent_start` to override the default for that session.
 - Server/remote vaults are unaffected: there is no server-side chat runner, and
   hosted access stays MCP-only over HTTP (ADR 0010/0011).
 

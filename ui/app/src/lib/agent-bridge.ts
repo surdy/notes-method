@@ -23,6 +23,12 @@ export interface StartSessionOptions {
 	 * (ADR 0011 Phase C). Omit (or pass null) to launch without MCP.
 	 */
 	mcpUrl?: string | null;
+	/**
+	 * Grant the agent scoped filesystem + terminal access to the vault
+	 * directory (ADR 0012). Off by default; overrides the persisted global
+	 * default for this session only.
+	 */
+	localFileAccess?: boolean;
 }
 
 /**
@@ -71,12 +77,27 @@ export async function startAgentSession(
 		vault: options.vault,
 		agent: options.agent,
 		bin: options.bin ?? null,
-		mcpUrl: options.mcpUrl ?? null
+		mcpUrl: options.mcpUrl ?? null,
+		localFileAccess: options.localFileAccess ?? false
 	});
 	if (typeof sessionId !== 'string') {
 		throw new Error('Agent runner did not return a session id.');
 	}
 	return sessionId;
+}
+
+/**
+ * Read the persisted default for agent local filesystem + terminal access
+ * (ADR 0012). Used to initialize the panel toggle so the global config value is
+ * honored as the starting state. Returns false when the runner is unavailable.
+ */
+export async function agentLocalFileAccessDefault(
+	adapter: TauriAdapter | null = resolveTauri()
+): Promise<boolean> {
+	if (!adapter) {
+		return false;
+	}
+	return (await adapter.invoke('agent_local_file_access_default')) === true;
 }
 
 /** Send a user message to a running session. */

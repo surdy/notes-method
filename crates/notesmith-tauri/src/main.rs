@@ -370,7 +370,8 @@ fn main() {
             pick_vault_folder,
             agent::agent_start,
             agent::agent_send,
-            agent::agent_stop
+            agent::agent_stop,
+            agent::agent_local_file_access_default
         ])
         .menu(build_app_menu)
         .on_menu_event(|app, event| {

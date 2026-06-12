@@ -149,10 +149,13 @@ pub async fn agent_start<R: Runtime>(
     agent: AgentKind,
     bin: Option<String>,
     mcp_url: Option<String>,
+    local_file_access: Option<bool>,
 ) -> Result<String, String> {
     let config = GlobalConfig::load().unwrap_or_default();
     let working_dir = vault_working_dir(&config, &vault);
-    let local_io = config.agent.local_file_access;
+    // A per-session toggle from the panel overrides the persisted default
+    // (ADR 0012); when absent, fall back to the global config value.
+    let local_io = local_file_access.unwrap_or(config.agent.local_file_access);
 
     let session = build_acp_session(
         &agent,
@@ -209,6 +212,17 @@ pub async fn agent_stop(
     // and the session is dropped, killing the child process.
     registry.sessions.remove(&session_id);
     Ok(())
+}
+
+/// Return the persisted default for agent local filesystem + terminal access
+/// (ADR 0012). The panel uses this to initialize its "Local file access"
+/// toggle so the global config value is honored as the starting state.
+#[tauri::command]
+pub fn agent_local_file_access_default() -> Result<bool, String> {
+    Ok(GlobalConfig::load()
+        .unwrap_or_default()
+        .agent
+        .local_file_access)
 }
 
 /// Pump user messages into `session` and emit its events until the input
@@ -345,5 +359,13 @@ mod tests {
     fn vault_working_dir_is_none_for_empty_vault() {
         let config = GlobalConfig::default();
         assert_eq!(vault_working_dir(&config, ""), None);
+    }
+
+    #[test]
+    fn agent_local_file_access_default_returns_a_bool() {
+        // The command reads the (possibly absent) global config and must never
+        // fail; the value mirrors `agent.local_file_access` (default false).
+        let value = agent_local_file_access_default().expect("default lookup must succeed");
+        let _ = value;
     }
 }
