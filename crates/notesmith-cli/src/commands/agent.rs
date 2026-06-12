@@ -1,33 +1,24 @@
 //! `notesmith agent` subcommands.
 //!
 //! Phase A of [ADR 0011](../../../../docs/adr/0011-embedded-agent-chat.md): a
-//! headless driver for the `notesmith-agent` crate so adapters can be exercised
-//! without the desktop UI. `notesmith agent run` spawns an agent CLI, sends one
-//! user message, and streams the normalized event stream to stdout (as text or
-//! JSON lines).
+//! headless driver for the `notesmith-agent` crate so the agent transport can
+//! be exercised without the desktop UI. `notesmith agent run` starts an agent
+//! over the Agent Client Protocol (ADR 0011 Phase E — the single transport),
+//! sends one user message, and streams the normalized event stream to stdout
+//! (as text or JSON lines).
 
 use anyhow::Result;
 use clap::{Subcommand, ValueEnum};
-use notesmith_agent::{
-    AcpSession, AgentEvent, AgentSession, ClaudeCodeAdapter, CodexAdapter, CopilotCliAdapter,
-    Launch, LineAdapter, OneShotProcessSession, ProcessAgentSession,
-};
+use notesmith_agent::{AcpSession, AgentEvent, AgentSession};
 
 #[derive(Debug, Clone, ValueEnum)]
 pub enum AgentKind {
-    /// Anthropic Claude Code (`stream-json` transport).
+    /// Anthropic Claude Code over ACP (`npx @zed-industries/claude-code-acp`).
     ClaudeCode,
-    /// OpenAI Codex (`codex exec --json`, single-shot).
+    /// OpenAI Codex over ACP (the `codex-acp` adapter binary).
     Codex,
-    /// GitHub Copilot CLI (`copilot -p`, single-shot plain text).
-    CopilotCli,
-    /// GitHub Copilot CLI over the Agent Client Protocol (`copilot --acp`),
-    /// multi-turn (ADR 0011 Phase E).
-    CopilotAcp,
-    /// Claude Code over ACP via its adapter binary (`npx @zed-industries/claude-code-acp`).
-    ClaudeAcp,
-    /// Codex over ACP via the `codex-acp` adapter binary.
-    CodexAcp,
+    /// GitHub Copilot over ACP (`copilot --acp`, native).
+    Copilot,
 }
 
 #[derive(Debug, Subcommand)]
@@ -37,7 +28,7 @@ pub enum AgentCommand {
         /// The user message to send to the agent.
         message: String,
 
-        /// Which agent CLI to drive.
+        /// Which agent to drive (all over the Agent Client Protocol).
         #[arg(long, value_enum, default_value = "claude-code")]
         agent: AgentKind,
 
@@ -65,78 +56,19 @@ impl AgentCommand {
 }
 
 async fn cmd_run(message: &str, agent: &AgentKind, bin: Option<&str>, json: bool) -> Result<()> {
-    match agent {
-        AgentKind::ClaudeCode => {
-            let adapter = match bin {
-                Some(bin) => ClaudeCodeAdapter::new(bin),
-                None => ClaudeCodeAdapter::default(),
-            };
-            drive(adapter, message, json).await
-        }
-        AgentKind::Codex => {
-            let adapter = match bin {
-                Some(bin) => CodexAdapter::new(bin),
-                None => CodexAdapter::default(),
-            };
-            drive(adapter, message, json).await
-        }
-        AgentKind::CopilotCli => {
-            let adapter = match bin {
-                Some(bin) => CopilotCliAdapter::new(bin),
-                None => CopilotCliAdapter::default(),
-            };
-            drive(adapter, message, json).await
-        }
-        AgentKind::CopilotAcp => {
-            let mut session = AcpSession::copilot(bin);
-            session.send(message).await?;
-            stream_until_done(&mut session, json).await
-        }
-        AgentKind::ClaudeAcp => {
-            let mut session = AcpSession::claude_code(bin);
-            session.send(message).await?;
-            stream_until_done(&mut session, json).await
-        }
-        AgentKind::CodexAcp => {
-            let mut session = AcpSession::codex(bin);
-            session.send(message).await?;
-            stream_until_done(&mut session, json).await
-        }
-    }
+    let mut session = match agent {
+        AgentKind::ClaudeCode => AcpSession::claude_code(bin),
+        AgentKind::Codex => AcpSession::codex(bin),
+        AgentKind::Copilot => AcpSession::copilot(bin),
+    };
+    session.send(message).await?;
+    stream_until_done(&mut session, json).await
 }
 
-/// Spawn the right session variant for `adapter`, send `message`, and stream the
-/// resulting events to stdout.
-async fn drive<A: LineAdapter + Clone + 'static>(
-    adapter: A,
-    message: &str,
-    json: bool,
-) -> Result<()> {
-    match adapter.launch() {
-        Launch::Streaming => {
-            let mut session = ProcessAgentSession::spawn(adapter)?;
-            session.send(message).await?;
-            stream(&mut session, json).await
-        }
-        Launch::OneShot(_) => {
-            let mut session = OneShotProcessSession::new(adapter, None);
-            session.send(message).await?;
-            stream(&mut session, json).await
-        }
-    }
-}
-
-async fn stream<S: AgentSession>(session: &mut S, json: bool) -> Result<()> {
-    while let Some(event) = session.next_event().await {
-        emit(&event, json)?;
-    }
-    Ok(())
-}
-
-/// Stream events for a single turn of a **persistent** session (ACP), stopping
-/// at the terminal [`AgentEvent::Done`]/[`AgentEvent::Error`]. Unlike the
-/// single-shot agents, an ACP process stays alive between turns, so the headless
-/// command must stop itself after one turn rather than waiting for process EOF.
+/// Stream events for a single turn of a **persistent** ACP session, stopping at
+/// the terminal [`AgentEvent::Done`]/[`AgentEvent::Error`]. An ACP process stays
+/// alive between turns, so the headless command must stop itself after one turn
+/// rather than waiting for process EOF.
 async fn stream_until_done<S: AgentSession>(session: &mut S, json: bool) -> Result<()> {
     while let Some(event) = session.next_event().await {
         let terminal = matches!(event, AgentEvent::Done { .. } | AgentEvent::Error { .. });

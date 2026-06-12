@@ -12,13 +12,7 @@ import type { AgentEvent } from './agent-chat';
 const AGENT_EVENT = 'notesmith://agent-event';
 const AGENT_ENDED = 'notesmith://agent-ended';
 
-export type AgentKind =
-	| 'claude-code'
-	| 'codex'
-	| 'copilot-cli'
-	| 'copilot-acp'
-	| 'claude-acp'
-	| 'codex-acp';
+export type AgentKind = 'claude-code' | 'codex' | 'copilot';
 
 export interface StartSessionOptions {
 	vault: string;

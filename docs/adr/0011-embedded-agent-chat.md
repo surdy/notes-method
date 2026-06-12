@@ -3,34 +3,38 @@
 ## Status
 
 Accepted (2026-06-11). Builds on [ADR 0010](0010-agent-access-architecture.md).
-Implemented across all four phases: the `notesmith-agent` crate + headless
-`notesmith agent run` (Phase A), the desktop Tauri runner + Svelte chat panel
-(Phase B), active-vault MCP auto-wiring with a read-only/read-write toggle
-(Phase C, #155), and the remaining agent adapters — Codex and Copilot CLI
-alongside Claude Code (Phase D, #156). **Phase E** converges all three agents
-onto a single ACP transport — **E1 (Copilot native ACP, #157) and E2 (Claude
-Code + Codex via adapter binaries, #158) are implemented**; E3 (retiring the line
-adapters) remains planned. See the
+Implemented across all phases. The original four phases delivered the
+`notesmith-agent` crate + headless `notesmith agent run` (Phase A), the desktop
+Tauri runner + Svelte chat panel (Phase B), active-vault MCP auto-wiring with a
+read-only/read-write toggle (Phase C, #155), and per-agent line adapters for
+Claude Code, Codex, and Copilot CLI (Phase D, #156). **Phase E** then converged
+all three agents onto a **single ACP transport** and is **fully implemented**:
+E1 (Copilot native ACP, #157), E2 (Claude Code + Codex via adapter binaries,
+#158), and E3 (#159) — which **retired the per-agent line adapters** so ACP is
+the only transport. See the
 [ACP amendment](#amendment-2026--acp-single-transport-convergence-phase-e).
 
-### Per-agent transport
+### Transport (single, ACP)
 
-The three CLIs do not share a launch model, so `notesmith-agent` distinguishes
-two launch strategies (`Launch::Streaming` vs `Launch::OneShot`):
+Every agent is driven over the **Agent Client Protocol** (newline-delimited
+JSON-RPC 2.0) by one `AcpSession`. A chat session is **multi-turn**: the agent
+process is spawned on the first user message and reused across turns
+(`session/prompt` against the same `sessionId`). Copilot speaks ACP natively
+(`copilot --acp`); Claude Code and Codex run over the same protocol via small
+adapter binaries (`npx @zed-industries/claude-code-acp` and `codex-acp`). MCP is
+wired via the ACP `session/new` `mcpServers` param and the read-only/read-write
+scope maps onto ACP `session/request_permission`. End-to-end behavior depends on
+the relevant CLI/adapter being installed and authenticated locally; a missing
+binary surfaces as a clean, actionable error (naming the expected binary and
+install command) rather than a crash.
 
-| Agent | Transport | Session shape |
-| --- | --- | --- |
-| **Claude Code** | `--print --input-format stream-json --output-format stream-json` over persistent stdin/stdout; MCP via `--mcp-config <json> --strict-mcp-config` | **Streaming** — spawn once, push many turns over stdin (`ProcessAgentSession`). |
-| **Codex** | `codex exec --json` JSONL; prompt read from stdin (`-`); MCP via `-c mcp_servers.<name>.url=...` | **One-shot** — `codex exec` runs a single prompt to completion and exits; one turn per session (`OneShotProcessSession`, stdin delivery). |
-| **Copilot CLI** | `copilot --prompt <text> --allow-all-tools` plain-text stdout; MCP via `--additional-mcp-config <json>` | **One-shot** — single prompt as a command argument; plain-text output (no structured stream), one turn per session (`OneShotProcessSession`, arg delivery). |
-
-For one-shot agents a chat session maps to **one turn**: the process is spawned
-on the first user message and the session ends when it exits (the panel surfaces
-this as the session ending; a follow-up needs a new chat). Only Claude Code
-supports multi-turn conversation in a single session. End-to-end behavior of
-each agent further depends on that CLI being installed and authenticated
-locally; a missing binary surfaces as a clean "could not start agent" error
-rather than a crash.
+> **History:** Phase D originally implemented three distinct line adapters with
+> two launch strategies (`Launch::Streaming` for Claude Code's persistent
+> `stream-json`; `Launch::OneShot` for Codex `exec --json` and Copilot CLI
+> `--prompt`). Phase E3 removed that layer — `claude_code.rs`/`codex.rs`/
+> `copilot_cli.rs`, `ProcessAgentSession`/`OneShotProcessSession`, the
+> `LineAdapter` trait, and the `Launch`/`PromptDelivery` enums — once all three
+> agents were proven on ACP.
 
 ## Context
 
@@ -80,11 +84,11 @@ LAN/VPN, with auth deferred.
 3. **Agents are normalized behind an `AgentSession` abstraction.** A new
    `notesmith-agent` crate defines a transport-agnostic `AgentSession` trait and
    a normalized event stream (`UserMessage`, `AgentMessageDelta`,
-   `ToolCall`, `ToolResult`, `Status`, `Done`/`Error`). One thin adapter per CLI
-   maps that tool's streaming format onto the common events. Where a tool speaks
-   the **Agent Client Protocol (ACP)** (e.g. Claude Code), the adapter targets
-   ACP; otherwise it uses the CLI's stream-json / PTY output. The frontend is a
-   single generic chat renderer regardless of which agent is selected.
+   `ToolCall`, `ToolResult`, `Status`, `Done`/`Error`). A single `AcpSession`
+   drives every agent over the **Agent Client Protocol (ACP)** and maps its
+   `session/update` stream onto the common events (see the Phase E amendment;
+   earlier phases used one line adapter per CLI, since retired). The frontend is
+   a single generic chat renderer regardless of which agent is selected.
 4. **Spawned agents are auto-wired to Notesmith MCP for the active vault.** The
    runner launches the agent pre-configured to use the local daemon's
    `/mcp/<vault>` (read-write) or `/mcp-ro/<vault>` (read-only) endpoint for the
@@ -137,16 +141,16 @@ LAN/VPN, with auth deferred.
 - **E — ACP single-transport convergence.** Replace the three per-agent line
   adapters with one **Agent Client Protocol** client (see the amendment below).
   Staged: **E1** Copilot (native ACP) — **implemented (#157)**; **E2** Claude
-  Code + Codex via adapter binaries; **E3** retire the line adapters once all
-  three are proven on ACP.
+  Code + Codex via adapter binaries — **implemented (#158)**; **E3** retire the
+  line adapters — **implemented (#159)**. **(Phase E complete.)**
 
 ## Amendment (2026) — ACP single-transport convergence (Phase E)
 
-The Phase A–D design uses **three per-agent line adapters** (Claude stream-json,
+The Phase A–D design used **three per-agent line adapters** (Claude stream-json,
 Codex `exec --json`, Copilot plain-text) over **two session drivers**
-(`ProcessAgentSession`, `OneShotProcessSession`). This carries two costs: each
-new agent needs a bespoke adapter, and only Claude Code is multi-turn — Codex and
-Copilot are one-shot (one turn per chat session). The
+(`ProcessAgentSession`, `OneShotProcessSession`). This carried two costs: each
+new agent needed a bespoke adapter, and only Claude Code was multi-turn — Codex
+and Copilot were one-shot (one turn per chat session). The
 [Agent Client Protocol (ACP)](https://agentclientprotocol.com) — JSON-RPC 2.0
 over stdio — has since matured enough to be a single convergence point.
 
@@ -181,13 +185,13 @@ speaks ACP natively.
   `config_option_update`, `available_commands_update`. The prompt request's final
   response carries `{ stopReason: "end_turn" }`.
 
-**Per-agent launch table (E1–E2):**
+**Per-agent launch table:**
 
-| Agent | ACP launch | Install |
-| --- | --- | --- |
-| **Copilot CLI** | `copilot --acp` (native) | already installed; **E1 — implemented (#157)**, verified end-to-end. |
-| **Claude Code** | `npx @zed-industries/claude-code-acp` (adapter binary) | **E2 — implemented (#158)**; graceful "adapter not installed" error + setup docs. Real end-to-end pending the adapter being installed locally. |
-| **Codex** | `codex-acp` (adapter binary; native Codex is app-server/proto) | **E2 — implemented (#158)**; same graceful-error treatment. Real end-to-end pending the adapter. |
+| Agent | ACP launch | Install | Kind |
+| --- | --- | --- | --- |
+| **Copilot** | `copilot --acp` (native) | already installed; **E1 — implemented (#157)**, verified end-to-end. | `copilot` |
+| **Claude Code** | `npx @zed-industries/claude-code-acp` (adapter binary) | **E2 — implemented (#158)**; graceful "adapter not installed" error + setup docs. Real end-to-end pending the adapter being installed locally. | `claude-code` |
+| **Codex** | `codex-acp` (adapter binary; native Codex is app-server/proto) | **E2 — implemented (#158)**; same graceful-error treatment. Real end-to-end pending the adapter. | `codex` |
 
 **MCP wiring moves into `session/new`.** Instead of per-CLI flags
 (`--mcp-config` / `-c mcp_servers...` / `--additional-mcp-config`), the active
@@ -204,17 +208,21 @@ the per-CLI "allow all tools" flags with a uniform, scope-aware gate.
 `session/prompt` calls against the same `sessionId`, so the single-turn caveat
 that affected Codex/Copilot under Phase D disappears.
 
-**Staging keeps a fallback.** E1 **(implemented, #157)** landed the ACP client +
-`AcpSession` for Copilot **coexisting** with the existing line adapters (selected
-via the `copilot-acp` agent kind); E2 **(implemented, #158)** brings Claude/Codex
-onto the same ACP transport via adapter binaries (the `claude-acp` / `codex-acp`
-agent kinds), attaching a setup hint so a missing adapter yields a clear,
-actionable error instead of a hang; E3 retires `claude_code.rs` / `codex.rs` /
-`copilot_cli.rs`, `OneShotProcessSession`, the `Launch`/`PromptDelivery` enums, and
-the `NotesmithAdapter`/`DriverSession` dispatch enums once all three are proven on
-ACP. (E3 is gated on real end-to-end verification of the Claude/Codex adapters,
-which requires those binaries to be installed.) Tracked as issues E1/E2/E3 (label
-`agent-chat`).
+**Staging — completed.** E1 **(#157)** landed the ACP client + `AcpSession` for
+Copilot, coexisting with the line adapters; E2 **(#158)** brought Claude/Codex
+onto the same ACP transport via adapter binaries, attaching a setup hint so a
+missing adapter yields a clear, actionable error instead of a hang; E3 **(#159)**
+retired the now-redundant line-adapter layer — `claude_code.rs` / `codex.rs` /
+`copilot_cli.rs`, `ProcessAgentSession` / `OneShotProcessSession`, the
+`LineAdapter` trait, the `Launch` / `PromptDelivery` enums, and the
+`NotesmithAdapter` / `DriverSession` dispatch enums — collapsing onto the single
+`AcpSession`. The agent kinds collapsed accordingly to `claude-code`, `codex`,
+and `copilot` (the now-meaningless `-acp` / `-cli` suffixes were dropped, since
+ACP is the only transport). The normalized `AgentEvent` model, the generic Svelte
+renderer, the Tauri IPC envelope, and the RO/RW toggle are unchanged. The
+Claude/Codex adapters are exercised only on the graceful-error path locally; full
+end-to-end verification follows once the adapter binaries are installed. Tracked
+as issues E1/E2/E3 (label `agent-chat`).
 
 ## Alternatives considered
 

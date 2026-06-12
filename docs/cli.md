@@ -163,37 +163,33 @@ notesmith agent run <message> [--agent <kind>] [--bin <path>] [--json]
 | Flag | Description |
 |------|-------------|
 | `<message>` | The user message to send to the agent (required). |
-| `--agent <kind>` | Which agent CLI to drive: `claude-code` (default), `codex`, `copilot-cli`, `copilot-acp`, `claude-acp`, or `codex-acp`. |
-| `--bin <path>` | Override the agent binary (path or name on `PATH`). Defaults to the adapter's expected binary. |
+| `--agent <kind>` | Which agent to drive (all over ACP): `claude-code` (default), `codex`, or `copilot`. |
+| `--bin <path>` | Override the agent binary (path or name on `PATH`). Defaults to the agent's expected binary. |
 | `--json` | Emit each normalized event as a JSON line instead of human-readable text. |
 
 Events are normalized to `user_message`, `agent_message_delta`, `tool_call`,
 `tool_result`, `status`, `done`, and `error`. Malformed agent output degrades to a
 non-fatal `error` event rather than crashing the session.
 
-`claude-code` keeps a persistent streaming session; `codex` (`codex exec --json`)
-and `copilot-cli` (`copilot --prompt`) are single-shot — they run one prompt to
-completion and exit, so the command streams exactly one turn. `copilot-acp` drives
-the Copilot CLI over the **Agent Client Protocol** (`copilot --acp`), a multi-turn
-JSON-RPC transport (ADR 0011 Phase E); the headless command still streams a single
-turn (stopping at `done`).
+All agents are driven over the **Agent Client Protocol** (ADR 0011 Phase E — the
+single transport): a multi-turn JSON-RPC protocol. The headless command streams a
+single turn, stopping at `done`. Copilot speaks ACP natively (`copilot --acp`);
+Claude Code and Codex run over the same protocol via small adapter binaries that
+are not bundled — install them first:
 
-`claude-acp` and `codex-acp` drive Claude Code and Codex over the **same ACP
-transport** via small adapter binaries. They are not bundled — install them first:
-
-- **Claude (ACP):** `npx --yes @zed-industries/claude-code-acp` (the default
+- **Claude Code:** `npx --yes @zed-industries/claude-code-acp` (the default
   command; requires Node/`npx` on `PATH`).
-- **Codex (ACP):** a `codex-acp` binary on `PATH` (override with `--bin`).
+- **Codex:** a `codex-acp` binary on `PATH` (override with `--bin`).
 
-If the adapter is missing, the command fails with a clear error that names the
+If an adapter is missing, the command fails with a clear error that names the
 expected binary and the install command rather than hanging.
 
 ```bash
 notesmith agent run "Summarize today's note" --json
 notesmith agent run "List my open tasks" --agent codex
-notesmith agent run "What changed this week?" --agent copilot-acp --json
-notesmith agent run "Refactor my daily template" --agent claude-acp
-notesmith agent run "Draft a weekly review" --agent codex-acp --bin /opt/codex-acp
+notesmith agent run "What changed this week?" --agent copilot --json
+notesmith agent run "Refactor my daily template" --agent claude-code
+notesmith agent run "Draft a weekly review" --agent codex --bin /opt/codex-acp
 ```
 
 ---

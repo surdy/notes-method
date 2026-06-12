@@ -21,10 +21,7 @@
 	const AGENTS: { value: AgentKind; label: string }[] = [
 		{ value: 'claude-code', label: 'Claude Code' },
 		{ value: 'codex', label: 'Codex' },
-		{ value: 'copilot-cli', label: 'Copilot CLI' },
-		{ value: 'copilot-acp', label: 'Copilot (ACP)' },
-		{ value: 'claude-acp', label: 'Claude Code (ACP)' },
-		{ value: 'codex-acp', label: 'Codex (ACP)' }
+		{ value: 'copilot', label: 'Copilot' }
 	];
 
 	let chat = $state<ChatState>(emptyChatState());

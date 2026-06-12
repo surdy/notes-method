@@ -69,18 +69,7 @@ describe('agent-bridge', () => {
 		).rejects.toThrow(/desktop app/);
 	});
 
-	it('forwards the copilot-acp agent kind to the runner', async () => {
-		const { adapter, invoke } = fakeAdapter(vi.fn().mockResolvedValue('agent-1'));
-		await startAgentSession({ vault: 'notes', agent: 'copilot-acp' }, adapter);
-		expect(invoke).toHaveBeenCalledWith('agent_start', {
-			vault: 'notes',
-			agent: 'copilot-acp',
-			bin: null,
-			mcpUrl: null
-		});
-	});
-
-	it.each(['claude-acp', 'codex-acp'] as const)(
+	it.each(['claude-code', 'codex', 'copilot'] as const)(
 		'forwards the %s agent kind to the runner',
 		async (agent) => {
 			const { adapter, invoke } = fakeAdapter(vi.fn().mockResolvedValue('agent-1'));

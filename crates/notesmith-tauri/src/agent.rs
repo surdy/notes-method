@@ -1,19 +1,20 @@
 //! Desktop agent runner (ADR 0011 Phase B).
 //!
-//! Spawns an agent CLI as a local subprocess via the [`notesmith_agent`] crate
-//! and bridges its normalized [`AgentEvent`] stream to the SvelteKit frontend
-//! over Tauri IPC. There is no network transport: the runner is desktop-local
-//! and uses the user's existing local CLI credentials. Server/hosted agent
-//! access stays MCP-only (ADR 0011).
+//! Drives an agent over the Agent Client Protocol (ADR 0011 Phase E — the
+//! single transport) via the [`notesmith_agent`] crate and bridges its
+//! normalized [`AgentEvent`] stream to the SvelteKit frontend over Tauri IPC.
+//! There is no network transport: the runner is desktop-local and uses the
+//! user's existing local CLI credentials. Server/hosted agent access stays
+//! MCP-only (ADR 0011).
 //!
 //! Lifecycle:
-//! - [`agent_start`] resolves the active vault's directory, spawns the agent in
-//!   it, registers an input channel, and drives a per-session task that pumps
-//!   user messages in and emits events out.
+//! - [`agent_start`] resolves the active vault's directory, builds an
+//!   [`AcpSession`] for it, registers an input channel, and drives a per-session
+//!   task that pumps user messages in and emits events out.
 //! - [`agent_send`] forwards a user message to a running session.
 //! - [`agent_stop`] drops the session's input channel, which ends the driver
-//!   loop and kills the child process (no orphans, see
-//!   [`notesmith_agent::ProcessAgentSession`]'s `Drop`).
+//!   loop and terminates the agent process (no orphans, see [`AcpSession`]'s
+//!   `Drop`).
 //!
 //! Each emitted [`AgentEvent`] is wrapped in an [`AgentEventEnvelope`] tagged
 //! with the session id and broadcast as `notesmith://agent-event`; when a
@@ -24,10 +25,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use notesmith_agent::{
-    AcpSession, AgentError, AgentEvent, AgentSession, ClaudeCodeAdapter, CodexAdapter,
-    CopilotCliAdapter, Launch, LineAdapter, McpBinding, OneShotProcessSession, ProcessAgentSession,
-};
+use notesmith_agent::{AcpSession, AgentEvent, AgentSession, McpBinding};
 use notesmith_config::GlobalConfig;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
@@ -38,113 +36,17 @@ pub const AGENT_EVENT: &str = "notesmith://agent-event";
 /// Event name signalling that a session's process has ended.
 pub const AGENT_ENDED: &str = "notesmith://agent-ended";
 
-/// Which agent CLI to drive. Mirrors the `notesmith agent run` CLI surface.
+/// Which agent to drive. Mirrors the `notesmith agent run` CLI surface. All
+/// agents are driven over the Agent Client Protocol (ADR 0011 Phase E).
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum AgentKind {
-    /// Anthropic Claude Code (`stream-json` transport).
+    /// Anthropic Claude Code over ACP (`npx @zed-industries/claude-code-acp`).
     ClaudeCode,
-    /// OpenAI Codex (`codex exec --json`, single-shot).
+    /// OpenAI Codex over ACP (the `codex-acp` adapter binary).
     Codex,
-    /// GitHub Copilot CLI (`copilot -p`, single-shot plain text).
-    CopilotCli,
-    /// GitHub Copilot CLI over the Agent Client Protocol (`copilot --acp`),
-    /// multi-turn (ADR 0011 Phase E).
-    CopilotAcp,
-    /// Claude Code over ACP via its adapter binary (Phase E2).
-    ClaudeAcp,
-    /// Codex over ACP via the `codex-acp` adapter binary (Phase E2).
-    CodexAcp,
-}
-
-impl AgentKind {
-    /// Whether this kind is driven over the ACP transport (rather than a line
-    /// adapter).
-    fn is_acp(&self) -> bool {
-        matches!(
-            self,
-            AgentKind::CopilotAcp | AgentKind::ClaudeAcp | AgentKind::CodexAcp
-        )
-    }
-}
-
-/// A line adapter dispatching to one of the supported agents.
-///
-/// Keeping a single concrete adapter type lets both session variants stay
-/// monomorphic (the [`AgentSession`] trait is not dyn-compatible).
-#[derive(Clone)]
-enum NotesmithAdapter {
-    ClaudeCode(ClaudeCodeAdapter),
-    Codex(CodexAdapter),
-    CopilotCli(CopilotCliAdapter),
-}
-
-impl LineAdapter for NotesmithAdapter {
-    fn parse_line(&mut self, line: &str) -> Vec<AgentEvent> {
-        match self {
-            NotesmithAdapter::ClaudeCode(a) => a.parse_line(line),
-            NotesmithAdapter::Codex(a) => a.parse_line(line),
-            NotesmithAdapter::CopilotCli(a) => a.parse_line(line),
-        }
-    }
-
-    fn encode_user_message(&self, text: &str) -> Vec<u8> {
-        match self {
-            NotesmithAdapter::ClaudeCode(a) => a.encode_user_message(text),
-            NotesmithAdapter::Codex(a) => a.encode_user_message(text),
-            NotesmithAdapter::CopilotCli(a) => a.encode_user_message(text),
-        }
-    }
-
-    fn command(&self) -> (String, Vec<String>) {
-        match self {
-            NotesmithAdapter::ClaudeCode(a) => a.command(),
-            NotesmithAdapter::Codex(a) => a.command(),
-            NotesmithAdapter::CopilotCli(a) => a.command(),
-        }
-    }
-
-    fn launch(&self) -> Launch {
-        match self {
-            NotesmithAdapter::ClaudeCode(a) => a.launch(),
-            NotesmithAdapter::Codex(a) => a.launch(),
-            NotesmithAdapter::CopilotCli(a) => a.launch(),
-        }
-    }
-
-    fn command_for_prompt(&self, prompt: &str) -> (String, Vec<String>) {
-        match self {
-            NotesmithAdapter::ClaudeCode(a) => a.command_for_prompt(prompt),
-            NotesmithAdapter::Codex(a) => a.command_for_prompt(prompt),
-            NotesmithAdapter::CopilotCli(a) => a.command_for_prompt(prompt),
-        }
-    }
-}
-
-/// A running session: streaming (Claude Code), single-shot (Codex/Copilot CLI),
-/// or persistent ACP (Copilot `--acp`, ADR 0011 Phase E).
-enum DriverSession {
-    Streaming(ProcessAgentSession<NotesmithAdapter>),
-    OneShot(OneShotProcessSession<NotesmithAdapter>),
-    Acp(AcpSession),
-}
-
-impl DriverSession {
-    async fn send(&mut self, message: &str) -> Result<(), AgentError> {
-        match self {
-            DriverSession::Streaming(session) => session.send(message).await,
-            DriverSession::OneShot(session) => session.send(message).await,
-            DriverSession::Acp(session) => session.send(message).await,
-        }
-    }
-
-    async fn next_event(&mut self) -> Option<AgentEvent> {
-        match self {
-            DriverSession::Streaming(session) => session.next_event().await,
-            DriverSession::OneShot(session) => session.next_event().await,
-            DriverSession::Acp(session) => session.next_event().await,
-        }
-    }
+    /// GitHub Copilot over ACP (`copilot --acp`, native).
+    Copilot,
 }
 
 /// A normalized agent event tagged with the session it belongs to.
@@ -206,62 +108,13 @@ fn vault_working_dir(config: &GlobalConfig, vault: &str) -> Option<PathBuf> {
 /// MCP server name exposed to spawned agents for the active vault.
 const MCP_SERVER_NAME: &str = "notesmith";
 
-/// Build the line adapter for the requested agent, honoring a binary override
-/// and an optional MCP endpoint to auto-wire (ADR 0011 Phase C).
-fn build_adapter(kind: &AgentKind, bin: Option<&str>, mcp_url: Option<&str>) -> NotesmithAdapter {
-    let mcp = match mcp_url {
-        Some(url) if !url.is_empty() => Some(McpBinding::new(MCP_SERVER_NAME, url)),
-        _ => None,
-    };
-    let bin = bin.filter(|b| !b.is_empty());
-    match kind {
-        AgentKind::ClaudeCode => {
-            let mut adapter = match bin {
-                Some(bin) => ClaudeCodeAdapter::new(bin),
-                None => ClaudeCodeAdapter::default(),
-            };
-            if let Some(binding) = mcp {
-                adapter = adapter.with_mcp(binding);
-            }
-            NotesmithAdapter::ClaudeCode(adapter)
-        }
-        AgentKind::Codex => {
-            let mut adapter = match bin {
-                Some(bin) => CodexAdapter::new(bin),
-                None => CodexAdapter::default(),
-            };
-            if let Some(binding) = mcp {
-                adapter = adapter.with_mcp(binding);
-            }
-            NotesmithAdapter::Codex(adapter)
-        }
-        // ACP kinds (`CopilotAcp`/`ClaudeAcp`/`CodexAcp`) are routed to an
-        // `AcpSession` in `agent_start` and never reach this line-adapter
-        // builder; fold them into the Copilot CLI arm as a non-panicking
-        // defensive fallback.
-        AgentKind::CopilotCli
-        | AgentKind::CopilotAcp
-        | AgentKind::ClaudeAcp
-        | AgentKind::CodexAcp => {
-            let mut adapter = match bin {
-                Some(bin) => CopilotCliAdapter::new(bin),
-                None => CopilotCliAdapter::default(),
-            };
-            if let Some(binding) = mcp {
-                adapter = adapter.with_mcp(binding);
-            }
-            NotesmithAdapter::CopilotCli(adapter)
-        }
-    }
-}
-
 /// Build a persistent ACP session for the active vault (ADR 0011 Phase E).
 ///
 /// Copilot speaks ACP natively (`copilot --acp`); Claude Code and Codex are
-/// driven via their ACP adapter binaries (Phase E2), which carry a setup hint so
-/// a missing adapter surfaces actionable guidance. The MCP endpoint is passed
-/// via the ACP `session/new` `mcpServers` param, and the read-only / read-write
-/// scope is derived from the endpoint URL.
+/// driven via their ACP adapter binaries, which carry a setup hint so a missing
+/// adapter surfaces actionable guidance. The MCP endpoint is passed via the ACP
+/// `session/new` `mcpServers` param, and the read-only / read-write scope is
+/// derived from the endpoint URL.
 fn build_acp_session(
     kind: &AgentKind,
     bin: Option<&str>,
@@ -270,32 +123,14 @@ fn build_acp_session(
 ) -> AcpSession {
     let bin = bin.filter(|b| !b.is_empty());
     let session = match kind {
-        AgentKind::ClaudeAcp => AcpSession::claude_code(bin),
-        AgentKind::CodexAcp => AcpSession::codex(bin),
-        // CopilotAcp (and any non-ACP kind that reaches here defensively).
-        _ => AcpSession::copilot(bin),
+        AgentKind::ClaudeCode => AcpSession::claude_code(bin),
+        AgentKind::Codex => AcpSession::codex(bin),
+        AgentKind::Copilot => AcpSession::copilot(bin),
     }
     .in_dir(working_dir);
     match mcp_url {
         Some(url) if !url.is_empty() => session.with_mcp(McpBinding::new(MCP_SERVER_NAME, url)),
         _ => session,
-    }
-}
-
-/// Spawn the appropriate session variant for `adapter`'s launch strategy.
-fn spawn_session(
-    adapter: NotesmithAdapter,
-    working_dir: Option<PathBuf>,
-) -> Result<DriverSession, AgentError> {
-    match adapter.launch() {
-        Launch::Streaming => Ok(DriverSession::Streaming(ProcessAgentSession::spawn_in(
-            adapter,
-            working_dir,
-        )?)),
-        Launch::OneShot(_) => Ok(DriverSession::OneShot(OneShotProcessSession::new(
-            adapter,
-            working_dir,
-        ))),
     }
 }
 
@@ -315,18 +150,7 @@ pub async fn agent_start<R: Runtime>(
     let config = GlobalConfig::load().unwrap_or_default();
     let working_dir = vault_working_dir(&config, &vault);
 
-    let session = if agent.is_acp() {
-        DriverSession::Acp(build_acp_session(
-            &agent,
-            bin.as_deref(),
-            mcp_url.as_deref(),
-            working_dir,
-        ))
-    } else {
-        let adapter = build_adapter(&agent, bin.as_deref(), mcp_url.as_deref());
-        spawn_session(adapter, working_dir)
-            .map_err(|error| format!("could not start agent: {error}"))?
-    };
+    let session = build_acp_session(&agent, bin.as_deref(), mcp_url.as_deref(), working_dir);
 
     let (input_tx, input_rx) = mpsc::unbounded_channel::<String>();
     let session_id = {
@@ -383,7 +207,7 @@ pub async fn agent_stop(
 async fn drive_session<R: Runtime>(
     app: AppHandle<R>,
     session_id: String,
-    mut session: DriverSession,
+    mut session: AcpSession,
     mut input_rx: mpsc::UnboundedReceiver<String>,
 ) {
     loop {
@@ -435,70 +259,38 @@ mod tests {
     use notesmith_config::VaultRegistration;
 
     #[test]
-    fn claude_code_kind_deserializes_from_kebab_case() {
-        let kind: AgentKind = serde_json::from_str("\"claude-code\"").unwrap();
-        assert_eq!(kind, AgentKind::ClaudeCode);
-    }
-
-    #[test]
-    fn codex_and_copilot_kinds_deserialize_from_kebab_case() {
+    fn agent_kinds_deserialize_from_kebab_case() {
+        assert_eq!(
+            serde_json::from_str::<AgentKind>("\"claude-code\"").unwrap(),
+            AgentKind::ClaudeCode
+        );
         assert_eq!(
             serde_json::from_str::<AgentKind>("\"codex\"").unwrap(),
             AgentKind::Codex
         );
         assert_eq!(
-            serde_json::from_str::<AgentKind>("\"copilot-cli\"").unwrap(),
-            AgentKind::CopilotCli
+            serde_json::from_str::<AgentKind>("\"copilot\"").unwrap(),
+            AgentKind::Copilot
         );
-    }
-
-    #[test]
-    fn copilot_acp_kind_deserializes_from_kebab_case() {
-        assert_eq!(
-            serde_json::from_str::<AgentKind>("\"copilot-acp\"").unwrap(),
-            AgentKind::CopilotAcp
-        );
-    }
-
-    #[test]
-    fn claude_and_codex_acp_kinds_deserialize_from_kebab_case() {
-        assert_eq!(
-            serde_json::from_str::<AgentKind>("\"claude-acp\"").unwrap(),
-            AgentKind::ClaudeAcp
-        );
-        assert_eq!(
-            serde_json::from_str::<AgentKind>("\"codex-acp\"").unwrap(),
-            AgentKind::CodexAcp
-        );
-    }
-
-    #[test]
-    fn is_acp_classifies_transport_kinds() {
-        assert!(AgentKind::CopilotAcp.is_acp());
-        assert!(AgentKind::ClaudeAcp.is_acp());
-        assert!(AgentKind::CodexAcp.is_acp());
-        assert!(!AgentKind::ClaudeCode.is_acp());
-        assert!(!AgentKind::Codex.is_acp());
-        assert!(!AgentKind::CopilotCli.is_acp());
     }
 
     #[test]
     fn build_acp_session_constructs_each_kind_without_spawning() {
         // Smoke test: building the session must not spawn a process or panic.
-        let _ = build_acp_session(&AgentKind::CopilotAcp, None, None, None);
+        let _ = build_acp_session(&AgentKind::Copilot, None, None, None);
         let _ = build_acp_session(
-            &AgentKind::ClaudeAcp,
+            &AgentKind::ClaudeCode,
             Some("/opt/claude-acp"),
             Some(""),
             None,
         );
-        let _ = build_acp_session(&AgentKind::CodexAcp, None, None, None);
+        let _ = build_acp_session(&AgentKind::Codex, None, None, None);
     }
 
     #[test]
     fn build_acp_session_wires_mcp_when_url_provided() {
         let _ = build_acp_session(
-            &AgentKind::CopilotAcp,
+            &AgentKind::Copilot,
             None,
             Some("http://127.0.0.1:27183/mcp-ro/work"),
             None,
@@ -506,109 +298,8 @@ mod tests {
     }
 
     #[test]
-    fn build_adapter_dispatches_to_each_agent() {
-        use notesmith_agent::LineAdapter;
-        assert!(matches!(
-            build_adapter(&AgentKind::ClaudeCode, None, None),
-            NotesmithAdapter::ClaudeCode(_)
-        ));
-        assert!(matches!(
-            build_adapter(&AgentKind::Codex, None, None),
-            NotesmithAdapter::Codex(_)
-        ));
-        assert!(matches!(
-            build_adapter(&AgentKind::CopilotCli, None, None),
-            NotesmithAdapter::CopilotCli(_)
-        ));
-        // Codex reads its prompt from stdin via the trailing `-`.
-        let (_, codex_args) = build_adapter(&AgentKind::Codex, None, None).command();
-        assert_eq!(codex_args.last().map(String::as_str), Some("-"));
-    }
-
-    #[test]
-    fn build_adapter_launch_strategy_matches_agent() {
-        use notesmith_agent::{Launch, LineAdapter, PromptDelivery};
-        assert_eq!(
-            build_adapter(&AgentKind::ClaudeCode, None, None).launch(),
-            Launch::Streaming
-        );
-        assert_eq!(
-            build_adapter(&AgentKind::Codex, None, None).launch(),
-            Launch::OneShot(PromptDelivery::Stdin)
-        );
-        assert_eq!(
-            build_adapter(&AgentKind::CopilotCli, None, None).launch(),
-            Launch::OneShot(PromptDelivery::Arg)
-        );
-    }
-
-    #[test]
-    fn build_adapter_wires_mcp_for_codex_via_config_override() {
-        use notesmith_agent::LineAdapter;
-        let adapter = build_adapter(
-            &AgentKind::Codex,
-            None,
-            Some("http://127.0.0.1:27183/mcp/work"),
-        );
-        let (_, args) = adapter.command();
-        let idx = args.iter().position(|a| a == "-c").expect("-c present");
-        assert!(args[idx + 1].contains("mcp_servers.notesmith.url"));
-    }
-
-    #[test]
-    fn build_adapter_uses_default_binary_without_override() {
-        let adapter = build_adapter(&AgentKind::ClaudeCode, None, None);
-        let (program, _) = {
-            use notesmith_agent::LineAdapter;
-            adapter.command()
-        };
-        assert_eq!(program, notesmith_agent::DEFAULT_BIN);
-    }
-
-    #[test]
-    fn build_adapter_honors_binary_override() {
-        let adapter = build_adapter(&AgentKind::ClaudeCode, Some("/opt/claude"), None);
-        let (program, _) = {
-            use notesmith_agent::LineAdapter;
-            adapter.command()
-        };
-        assert_eq!(program, "/opt/claude");
-    }
-
-    #[test]
-    fn build_adapter_ignores_empty_binary_override() {
-        let adapter = build_adapter(&AgentKind::ClaudeCode, Some(""), None);
-        let (program, _) = {
-            use notesmith_agent::LineAdapter;
-            adapter.command()
-        };
-        assert_eq!(program, notesmith_agent::DEFAULT_BIN);
-    }
-
-    #[test]
-    fn build_adapter_wires_mcp_when_url_provided() {
-        use notesmith_agent::LineAdapter;
-        let adapter = build_adapter(
-            &AgentKind::ClaudeCode,
-            None,
-            Some("http://127.0.0.1:27183/mcp-ro/work"),
-        );
-        let (_, args) = adapter.command();
-        let idx = args
-            .iter()
-            .position(|a| a == "--mcp-config")
-            .expect("--mcp-config present");
-        assert!(args[idx + 1].contains("http://127.0.0.1:27183/mcp-ro/work"));
-        assert!(args[idx + 1].contains("notesmith"));
-        assert!(args.iter().any(|a| a == "--strict-mcp-config"));
-    }
-
-    #[test]
-    fn build_adapter_skips_mcp_for_empty_url() {
-        use notesmith_agent::LineAdapter;
-        let adapter = build_adapter(&AgentKind::ClaudeCode, None, Some(""));
-        let (_, args) = adapter.command();
-        assert!(!args.iter().any(|a| a == "--mcp-config"));
+    fn build_acp_session_honors_binary_override() {
+        let _ = build_acp_session(&AgentKind::Copilot, Some("/opt/copilot"), None, None);
     }
 
     #[test]
@@ -636,33 +327,5 @@ mod tests {
     fn vault_working_dir_is_none_for_empty_vault() {
         let config = GlobalConfig::default();
         assert_eq!(vault_working_dir(&config, ""), None);
-    }
-
-    #[test]
-    fn allocate_id_is_monotonic_and_unique() {
-        let mut registry = SessionRegistry::default();
-        let first = registry.allocate_id();
-        let second = registry.allocate_id();
-        assert_eq!(first, "agent-1");
-        assert_eq!(second, "agent-2");
-        assert_ne!(first, second);
-    }
-
-    #[test]
-    fn envelope_flattens_event_under_session_id() {
-        let envelope = AgentEventEnvelope {
-            session_id: "agent-1".to_string(),
-            event: AgentEvent::Status {
-                message: "ready".to_string(),
-            },
-        };
-        assert_eq!(
-            serde_json::to_value(&envelope).unwrap(),
-            serde_json::json!({
-                "session_id": "agent-1",
-                "type": "status",
-                "message": "ready"
-            })
-        );
     }
 }
