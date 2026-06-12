@@ -38,6 +38,35 @@ function currentLocation(): Pick<Location, 'search'> | null {
 	return typeof globalThis.location === 'undefined' ? null : globalThis.location;
 }
 
+/**
+ * Resolve the absolute daemon origin for wiring external processes — e.g. an
+ * agent's MCP endpoint (ADR 0011/0012) — that cannot use the relative URLs the
+ * in-page client relies on.
+ *
+ * Prefers the explicit `apiBase` (Embedded/remote desktop mode, where the
+ * frontend is bundled and served from the `notesmith-app://` protocol). In
+ * Daemon mode the frontend is served same-origin from the daemon, so `apiBase`
+ * is empty and the daemon origin is `window.location.origin` — but only when
+ * that origin is a real `http(s)` origin, never the custom app protocol used
+ * for bundled assets.
+ */
+export function resolveDaemonOrigin(
+	apiBase: string = API_BASE,
+	location: Pick<Location, 'origin' | 'protocol'> | null = currentLocationOrigin()
+): string {
+	if (apiBase) {
+		return apiBase;
+	}
+	if (location && (location.protocol === 'http:' || location.protocol === 'https:')) {
+		return location.origin;
+	}
+	return '';
+}
+
+function currentLocationOrigin(): Pick<Location, 'origin' | 'protocol'> | null {
+	return typeof globalThis.location === 'undefined' ? null : globalThis.location;
+}
+
 export class ApiError extends Error {
 	readonly status: number;
 	/**

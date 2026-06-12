@@ -16,7 +16,7 @@
 		stopAgentSession,
 		type AgentKind
 	} from '$lib/agent-bridge';
-	import { API_BASE } from '$lib/api/core';
+	import { resolveDaemonOrigin } from '$lib/api/core';
 	import { vaultStore } from '$lib/stores.svelte';
 
 	const AGENTS: { value: AgentKind; label: string }[] = [
@@ -36,7 +36,7 @@
 	let teardown: (() => void) | null = null;
 
 	const running = $derived(chat.running);
-	const mcpUrl = $derived(mcpEndpoint(API_BASE, vaultStore.currentVault ?? '', readOnly));
+	const mcpUrl = $derived(mcpEndpoint(resolveDaemonOrigin(), vaultStore.currentVault ?? '', readOnly));
 
 	onMount(async () => {
 		// Honor the persisted global default as the toggle's starting state
