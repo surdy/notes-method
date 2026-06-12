@@ -2,8 +2,10 @@
 
 ## Status
 
-Proposed (2026-06-11). Builds on [ADR 0010](0010-agent-access-architecture.md).
-Not yet implemented; phasing below.
+Accepted (2026-06-11). Builds on [ADR 0010](0010-agent-access-architecture.md).
+Phases A and B implemented (the `notesmith-agent` crate + headless
+`notesmith agent run`, and the desktop Tauri runner + Svelte chat panel);
+phases C and D pending.
 
 ## Context
 
@@ -95,11 +97,13 @@ LAN/VPN, with auth deferred.
 - **A — `notesmith-agent` crate.** Define the `AgentSession` trait + normalized
   event model and the first adapter. Add a headless `notesmith agent run`
   command so the adapter is exercised under TDD without any UI. Pure logic;
-  no Tauri dependency.
+  no Tauri dependency. **(Implemented.)**
 - **B — Desktop runner + chat panel.** Tauri spawns the agent (PTY/subprocess),
   bridges the normalized event stream over IPC, and a generic Svelte chat panel
   renders it in the right-rail "Context" area (message stream, collapsible
-  tool-call cards, agent picker).
+  tool-call cards, agent picker). **(Implemented — desktop-only "Agent" tab in
+  the right rail; sessions stream over `notesmith://agent-event` /
+  `notesmith://agent-ended`.)**
 - **C — MCP auto-wiring + scope toggle.** Launch the agent pre-configured with
   Notesmith MCP for the active vault; add the read-only (default) / read-write
   toggle and an "operating on `<vault>` · read-only" badge.

@@ -90,3 +90,41 @@ async fn spawning_a_missing_binary_is_a_clean_error_not_a_panic() {
     let result = ProcessAgentSession::spawn(Missing(adapter));
     assert!(result.is_err());
 }
+
+#[tokio::test]
+async fn spawn_in_runs_the_child_in_the_given_working_directory() {
+    let dir = std::env::temp_dir().join(format!("notesmith-agent-cwd-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    // Canonicalize because macOS /tmp is a symlink to /private/tmp and the
+    // child reports the resolved path.
+    let canonical = std::fs::canonicalize(&dir).expect("canonicalize temp dir");
+
+    // The fake agent prints its working directory as an assistant text block,
+    // so the parsed AgentMessageDelta lets us assert the cwd was applied.
+    let script = concat!(
+        r#"printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%s"}]}}\n' "$(pwd)"; "#,
+        r#"printf '{"type":"result","is_error":false,"result":"ok"}\n'"#,
+    );
+    let adapter = FakeAgent {
+        inner: ClaudeCodeAdapter::default(),
+        script: script.to_string(),
+    };
+
+    let mut session =
+        ProcessAgentSession::spawn_in(adapter, Some(canonical.clone())).expect("spawn in dir");
+
+    let mut texts = Vec::new();
+    while let Some(event) = session.next_event().await {
+        if let AgentEvent::AgentMessageDelta { text } = event {
+            texts.push(text);
+        }
+    }
+
+    std::fs::remove_dir_all(&dir).ok();
+    let reported = texts.join("");
+    assert_eq!(
+        reported.trim(),
+        canonical.to_string_lossy(),
+        "child should run in the requested working directory"
+    );
+}

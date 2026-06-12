@@ -529,10 +529,7 @@ pub async fn orchestrate_startup_supervised(settings: &DaemonSettings) -> Superv
     }
 
     if settings.external_url {
-        tracing::warn!(
-            "external daemon at {} is unreachable",
-            settings.daemon_url
-        );
+        tracing::warn!("external daemon at {} is unreachable", settings.daemon_url);
         return SupervisedStartup {
             state: DaemonState::Unreachable,
             child: None,

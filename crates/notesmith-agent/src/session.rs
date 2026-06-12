@@ -9,6 +9,7 @@
 //! reader so it can be unit-tested against an in-memory transcript without
 //! spawning a real process.
 
+use std::path::PathBuf;
 use std::process::Stdio;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -76,17 +77,29 @@ pub struct ProcessAgentSession<A: LineAdapter> {
 impl<A: LineAdapter + Clone + 'static> ProcessAgentSession<A> {
     /// Spawn the agent described by `adapter` and begin streaming its output.
     pub fn spawn(adapter: A) -> Result<Self, AgentError> {
+        Self::spawn_in(adapter, None)
+    }
+
+    /// Spawn the agent in `working_dir` (when given) and begin streaming output.
+    ///
+    /// The desktop runner uses this to launch the agent inside the active
+    /// vault's directory so relative paths and the agent's own config
+    /// resolution match the vault the user is viewing.
+    pub fn spawn_in(adapter: A, working_dir: Option<PathBuf>) -> Result<Self, AgentError> {
         let (program, args) = adapter.command();
-        let mut child = tokio::process::Command::new(&program)
+        let mut command = tokio::process::Command::new(&program);
+        command
             .args(&args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|source| AgentError::Spawn {
-                program: program.clone(),
-                source,
-            })?;
+            .stderr(Stdio::null());
+        if let Some(dir) = working_dir {
+            command.current_dir(dir);
+        }
+        let mut child = command.spawn().map_err(|source| AgentError::Spawn {
+            program: program.clone(),
+            source,
+        })?;
 
         let stdin = child.stdin.take().ok_or(AgentError::MissingPipe("stdin"))?;
         let stdout = child

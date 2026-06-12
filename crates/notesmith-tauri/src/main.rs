@@ -11,6 +11,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+use notesmith_tauri::agent::{self, AgentSessions};
 use notesmith_tauri::app_url::{
     APP_PROTOCOL, FrontendMode, app_asset_path, app_route_window_url, app_window_url,
     should_fallback_to_index,
@@ -346,6 +347,7 @@ fn main() {
         .manage(DaemonProcessState::default())
         .manage(VaultWindows::default())
         .manage(WindowsPersistState::default())
+        .manage(AgentSessions::default())
         .manage(InternalHtmlState(Mutex::new(InternalPages {
             fallback: None,
         })))
@@ -365,7 +367,10 @@ fn main() {
             open_folder_as_vault,
             list_open_vaults,
             close_vault_window,
-            pick_vault_folder
+            pick_vault_folder,
+            agent::agent_start,
+            agent::agent_send,
+            agent::agent_stop
         ])
         .menu(build_app_menu)
         .on_menu_event(|app, event| {
@@ -2432,7 +2437,8 @@ async fn open_folder_as_vault(
 
     let base = current_daemon_url(&app);
     let url = format!("{}/api/app/vaults", base.trim_end_matches('/'));
-    let body = serde_json::json!({ "name": validated, "path": path, "create": create.unwrap_or(false) });
+    let body =
+        serde_json::json!({ "name": validated, "path": path, "create": create.unwrap_or(false) });
 
     let client = reqwest::Client::new();
     let response = client
