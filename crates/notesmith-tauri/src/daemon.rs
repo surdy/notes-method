@@ -27,18 +27,35 @@ pub struct DaemonSettings {
 
 impl Default for DaemonSettings {
     fn default() -> Self {
-        let external = std::env::var("NOTESMITH_DESKTOP_DAEMON_URL");
-        let external_url = external.is_ok();
+        let (daemon_url, external_url) =
+            resolve_external_daemon_url(std::env::var("NOTESMITH_DESKTOP_DAEMON_URL").ok());
         Self {
-            daemon_url: external.unwrap_or_else(|_| DEFAULT_DAEMON_URL.to_string()),
+            daemon_url,
             daemon_bin: std::env::var("NOTESMITH_DESKTOP_DAEMON_BIN")
-                .unwrap_or_else(|_| DEFAULT_DAEMON_BIN.to_string()),
+                .ok()
+                .map(|bin| bin.trim().to_string())
+                .filter(|bin| !bin.is_empty())
+                .unwrap_or_else(|| DEFAULT_DAEMON_BIN.to_string()),
             sidecar_path: None,
             ping_timeout: Duration::from_secs(2),
             startup_wait: Duration::from_secs(10),
             startup_poll_interval: Duration::from_millis(500),
             external_url,
         }
+    }
+}
+
+/// Resolve the daemon URL from the optional `NOTESMITH_DESKTOP_DAEMON_URL`
+/// value. An unset variable — or one set to an empty/whitespace-only string —
+/// is treated as "not configured", falling back to the local default daemon
+/// (and `external_url = false`). Returns `(daemon_url, external_url)`.
+fn resolve_external_daemon_url(raw: Option<String>) -> (String, bool) {
+    match raw
+        .map(|url| url.trim().to_string())
+        .filter(|url| !url.is_empty())
+    {
+        Some(url) => (url, true),
+        None => (DEFAULT_DAEMON_URL.to_string(), false),
     }
 }
 
@@ -784,8 +801,8 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::{
-        DaemonSettings, DaemonState, DaemonStatus, DaemonSupervisor, DynError, StartupOrchestrator,
-        VersionStatus,
+        DEFAULT_DAEMON_URL, DaemonSettings, DaemonState, DaemonStatus, DaemonSupervisor, DynError,
+        StartupOrchestrator, VersionStatus, resolve_external_daemon_url,
     };
 
     fn test_settings() -> DaemonSettings {
@@ -815,6 +832,44 @@ mod tests {
             version: env!("CARGO_PKG_VERSION").to_string(),
             started_at: Utc::now(),
             binary_path: PathBuf::from("/Applications/Notesmith.app/Contents/MacOS/notesmith"),
+        }
+    }
+
+    #[test]
+    fn resolve_external_daemon_url_treats_set_value_as_external() {
+        let (url, external) =
+            resolve_external_daemon_url(Some("https://notesmith.example.com".into()));
+        assert_eq!(url, "https://notesmith.example.com");
+        assert!(external);
+    }
+
+    #[test]
+    fn resolve_external_daemon_url_trims_whitespace() {
+        let (url, external) =
+            resolve_external_daemon_url(Some("  https://notesmith.example.com  ".into()));
+        assert_eq!(url, "https://notesmith.example.com");
+        assert!(external);
+    }
+
+    #[test]
+    fn resolve_external_daemon_url_treats_unset_as_local_default() {
+        let (url, external) = resolve_external_daemon_url(None);
+        assert_eq!(url, DEFAULT_DAEMON_URL);
+        assert!(!external);
+    }
+
+    #[test]
+    fn resolve_external_daemon_url_treats_empty_as_unset() {
+        for raw in ["", "   ", "\t", "\n"] {
+            let (url, external) = resolve_external_daemon_url(Some(raw.into()));
+            assert_eq!(
+                url, DEFAULT_DAEMON_URL,
+                "empty value {raw:?} should be unset"
+            );
+            assert!(
+                !external,
+                "empty value {raw:?} must not be treated as external"
+            );
         }
     }
 
