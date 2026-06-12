@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use notesmith_cli::commands::{
+    agent::AgentCommand,
     capture::CaptureCommand,
     copy_html::CopyHtmlCommand,
     daemon::DaemonCommand,
@@ -80,6 +81,11 @@ enum Command {
     Mcp {
         #[command(subcommand)]
         command: McpCommand,
+    },
+    /// Drive an agent CLI (Copilot CLI, Claude Code, Codex) — desktop chat foundation
+    Agent {
+        #[command(subcommand)]
+        command: AgentCommand,
     },
     /// Vault management commands
     Vault {
@@ -162,6 +168,9 @@ async fn main() -> anyhow::Result<()> {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd)
                 .await?;
+        }
+        Command::Agent { command } => {
+            command.run().await?;
         }
         Command::Vault { command } => {
             command.run(&global_config, cli.vault.as_deref(), &cwd, format)?;

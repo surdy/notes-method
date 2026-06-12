@@ -146,6 +146,37 @@ or the local daemon. See [`docs/mcp.md`](mcp.md) for the tool/resource surface.
 
 ---
 
+## agent
+
+### `agent run`
+
+Drive an agent CLI (Phase A of [ADR 0011](adr/0011-embedded-agent-chat.md)) as a
+headless session: spawn the agent process, send one user message, and stream the
+agent's output normalized into Notesmith's common event model. This is the
+foundation the desktop chat panel builds on; on the server, agent access stays
+MCP-only (no server-side chat runner).
+
+```bash
+notesmith agent run <message> [--agent <kind>] [--bin <path>] [--json]
+```
+
+| Flag | Description |
+|------|-------------|
+| `<message>` | The user message to send to the agent (required). |
+| `--agent <kind>` | Which agent CLI to drive. Currently `claude-code` (default). |
+| `--bin <path>` | Override the agent binary (path or name on `PATH`). Defaults to the adapter's expected binary. |
+| `--json` | Emit each normalized event as a JSON line instead of human-readable text. |
+
+Events are normalized to `user_message`, `agent_message_delta`, `tool_call`,
+`tool_result`, `status`, `done`, and `error`. Malformed agent output degrades to a
+non-fatal `error` event rather than crashing the session.
+
+```bash
+notesmith agent run "Summarize today's note" --json
+```
+
+---
+
 ## vault
 
 ### `vault list`

@@ -13,6 +13,7 @@ notesmith-index = { workspace = true }
 notesmith-query = { workspace = true }
 notesmith-http = { workspace = true }
 notesmith-mcp = { workspace = true }
+notesmith-agent = { workspace = true }
 notesmith-html = { workspace = true }
 notesmith-git = { workspace = true }
 clap = { workspace = true }

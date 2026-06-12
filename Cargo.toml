@@ -14,6 +14,7 @@ members = [
     "crates/notesmith-ops",
     "crates/notesmith-http",
     "crates/notesmith-mcp",
+    "crates/notesmith-agent",
     "crates/notesmith-cli",
     "crates/theme-gen",
 ]
@@ -44,6 +45,7 @@ notesmith-config = { path = "crates/notesmith-config" }
 notesmith-ops = { path = "crates/notesmith-ops" }
 notesmith-http = { path = "crates/notesmith-http" }
 notesmith-mcp = { path = "crates/notesmith-mcp" }
+notesmith-agent = { path = "crates/notesmith-agent" }
 notesmith-cli = { path = "crates/notesmith-cli" }
 
 # External dependencies (versions pinned at workspace level)
