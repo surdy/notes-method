@@ -8,12 +8,19 @@
 
 use anyhow::Result;
 use clap::{Subcommand, ValueEnum};
-use notesmith_agent::{AgentEvent, AgentSession, ClaudeCodeAdapter, ProcessAgentSession};
+use notesmith_agent::{
+    AgentEvent, AgentSession, ClaudeCodeAdapter, CodexAdapter, CopilotCliAdapter, Launch,
+    LineAdapter, OneShotProcessSession, ProcessAgentSession,
+};
 
 #[derive(Debug, Clone, ValueEnum)]
 pub enum AgentKind {
     /// Anthropic Claude Code (`stream-json` transport).
     ClaudeCode,
+    /// OpenAI Codex (`codex exec --json`, single-shot).
+    Codex,
+    /// GitHub Copilot CLI (`copilot -p`, single-shot plain text).
+    CopilotCli,
 }
 
 #[derive(Debug, Subcommand)]
@@ -51,16 +58,53 @@ impl AgentCommand {
 }
 
 async fn cmd_run(message: &str, agent: &AgentKind, bin: Option<&str>, json: bool) -> Result<()> {
-    let adapter = match agent {
-        AgentKind::ClaudeCode => match bin {
-            Some(bin) => ClaudeCodeAdapter::new(bin),
-            None => ClaudeCodeAdapter::default(),
-        },
-    };
+    match agent {
+        AgentKind::ClaudeCode => {
+            let adapter = match bin {
+                Some(bin) => ClaudeCodeAdapter::new(bin),
+                None => ClaudeCodeAdapter::default(),
+            };
+            drive(adapter, message, json).await
+        }
+        AgentKind::Codex => {
+            let adapter = match bin {
+                Some(bin) => CodexAdapter::new(bin),
+                None => CodexAdapter::default(),
+            };
+            drive(adapter, message, json).await
+        }
+        AgentKind::CopilotCli => {
+            let adapter = match bin {
+                Some(bin) => CopilotCliAdapter::new(bin),
+                None => CopilotCliAdapter::default(),
+            };
+            drive(adapter, message, json).await
+        }
+    }
+}
 
-    let mut session = ProcessAgentSession::spawn(adapter)?;
-    session.send(message).await?;
+/// Spawn the right session variant for `adapter`, send `message`, and stream the
+/// resulting events to stdout.
+async fn drive<A: LineAdapter + Clone + 'static>(
+    adapter: A,
+    message: &str,
+    json: bool,
+) -> Result<()> {
+    match adapter.launch() {
+        Launch::Streaming => {
+            let mut session = ProcessAgentSession::spawn(adapter)?;
+            session.send(message).await?;
+            stream(&mut session, json).await
+        }
+        Launch::OneShot(_) => {
+            let mut session = OneShotProcessSession::new(adapter, None);
+            session.send(message).await?;
+            stream(&mut session, json).await
+        }
+    }
+}
 
+async fn stream<S: AgentSession>(session: &mut S, json: bool) -> Result<()> {
     while let Some(event) = session.next_event().await {
         if json {
             println!("{}", serde_json::to_string(&event)?);

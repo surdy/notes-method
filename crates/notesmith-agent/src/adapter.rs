@@ -8,6 +8,29 @@
 
 use crate::event::AgentEvent;
 
+/// How an agent receives a user prompt and produces a turn.
+///
+/// Claude Code keeps a persistent bidirectional stream; Codex (`exec`) and the
+/// Copilot CLI are single-shot — each prompt spawns a fresh process that runs
+/// one turn and exits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Launch {
+    /// Spawn once; write each user message to stdin (Claude Code).
+    Streaming,
+    /// Spawn a fresh process per prompt; the process runs one turn and exits.
+    OneShot(PromptDelivery),
+}
+
+/// How a single-shot agent's prompt is delivered to the spawned process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptDelivery {
+    /// Prompt is passed as a trailing command argument (Copilot CLI `-p`).
+    Arg,
+    /// Prompt is written to stdin which is then closed so the agent proceeds
+    /// (Codex `exec -`).
+    Stdin,
+}
+
 /// Parses an agent CLI's streaming output, one line at a time.
 ///
 /// Implementations must be **tolerant**: a malformed or unrecognized line must
@@ -28,4 +51,17 @@ pub trait LineAdapter: Send {
     /// The program name and arguments used to launch this agent in headless,
     /// stream-oriented mode.
     fn command(&self) -> (String, Vec<String>);
+
+    /// How this agent is launched and fed a prompt. Defaults to
+    /// [`Launch::Streaming`].
+    fn launch(&self) -> Launch {
+        Launch::Streaming
+    }
+
+    /// The program and arguments for a single-shot launch carrying `prompt` as
+    /// a command argument ([`PromptDelivery::Arg`]). Defaults to ignoring the
+    /// prompt and returning [`command`](LineAdapter::command).
+    fn command_for_prompt(&self, _prompt: &str) -> (String, Vec<String>) {
+        self.command()
+    }
 }

@@ -18,7 +18,11 @@
 	import { API_BASE } from '$lib/api/core';
 	import { vaultStore } from '$lib/stores.svelte';
 
-	const AGENTS: { value: AgentKind; label: string }[] = [{ value: 'claude-code', label: 'Claude Code' }];
+	const AGENTS: { value: AgentKind; label: string }[] = [
+		{ value: 'claude-code', label: 'Claude Code' },
+		{ value: 'codex', label: 'Codex' },
+		{ value: 'copilot-cli', label: 'Copilot CLI' }
+	];
 
 	let chat = $state<ChatState>(emptyChatState());
 	let sessionId = $state<string | null>(null);

@@ -15,14 +15,18 @@
 
 mod adapter;
 mod claude_code;
+mod codex;
+mod copilot_cli;
 mod error;
 mod event;
 mod mcp;
 mod session;
 
-pub use adapter::LineAdapter;
+pub use adapter::{Launch, LineAdapter, PromptDelivery};
 pub use claude_code::{ClaudeCodeAdapter, DEFAULT_BIN};
+pub use codex::CodexAdapter;
+pub use copilot_cli::CopilotCliAdapter;
 pub use error::AgentError;
 pub use event::{AgentEvent, ToolCall, ToolResult};
 pub use mcp::McpBinding;
-pub use session::{AgentSession, ProcessAgentSession, drive_lines};
+pub use session::{AgentSession, OneShotProcessSession, ProcessAgentSession, drive_lines};

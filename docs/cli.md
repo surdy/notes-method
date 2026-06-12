@@ -163,7 +163,7 @@ notesmith agent run <message> [--agent <kind>] [--bin <path>] [--json]
 | Flag | Description |
 |------|-------------|
 | `<message>` | The user message to send to the agent (required). |
-| `--agent <kind>` | Which agent CLI to drive. Currently `claude-code` (default). |
+| `--agent <kind>` | Which agent CLI to drive: `claude-code` (default), `codex`, or `copilot-cli`. |
 | `--bin <path>` | Override the agent binary (path or name on `PATH`). Defaults to the adapter's expected binary. |
 | `--json` | Emit each normalized event as a JSON line instead of human-readable text. |
 
@@ -171,8 +171,13 @@ Events are normalized to `user_message`, `agent_message_delta`, `tool_call`,
 `tool_result`, `status`, `done`, and `error`. Malformed agent output degrades to a
 non-fatal `error` event rather than crashing the session.
 
+`claude-code` keeps a persistent streaming session; `codex` (`codex exec --json`)
+and `copilot-cli` (`copilot --prompt`) are single-shot — they run one prompt to
+completion and exit, so the command streams exactly one turn.
+
 ```bash
 notesmith agent run "Summarize today's note" --json
+notesmith agent run "List my open tasks" --agent codex
 ```
 
 ---

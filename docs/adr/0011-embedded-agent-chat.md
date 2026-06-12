@@ -3,9 +3,30 @@
 ## Status
 
 Accepted (2026-06-11). Builds on [ADR 0010](0010-agent-access-architecture.md).
-Phases A and B implemented (the `notesmith-agent` crate + headless
-`notesmith agent run`, and the desktop Tauri runner + Svelte chat panel);
-phases C and D pending.
+Implemented across all four phases: the `notesmith-agent` crate + headless
+`notesmith agent run` (Phase A), the desktop Tauri runner + Svelte chat panel
+(Phase B), active-vault MCP auto-wiring with a read-only/read-write toggle
+(Phase C, #155), and the remaining agent adapters — Codex and Copilot CLI
+alongside Claude Code (Phase D, #156).
+
+### Per-agent transport
+
+The three CLIs do not share a launch model, so `notesmith-agent` distinguishes
+two launch strategies (`Launch::Streaming` vs `Launch::OneShot`):
+
+| Agent | Transport | Session shape |
+| --- | --- | --- |
+| **Claude Code** | `--print --input-format stream-json --output-format stream-json` over persistent stdin/stdout; MCP via `--mcp-config <json> --strict-mcp-config` | **Streaming** — spawn once, push many turns over stdin (`ProcessAgentSession`). |
+| **Codex** | `codex exec --json` JSONL; prompt read from stdin (`-`); MCP via `-c mcp_servers.<name>.url=...` | **One-shot** — `codex exec` runs a single prompt to completion and exits; one turn per session (`OneShotProcessSession`, stdin delivery). |
+| **Copilot CLI** | `copilot --prompt <text> --allow-all-tools` plain-text stdout; MCP via `--additional-mcp-config <json>` | **One-shot** — single prompt as a command argument; plain-text output (no structured stream), one turn per session (`OneShotProcessSession`, arg delivery). |
+
+For one-shot agents a chat session maps to **one turn**: the process is spawned
+on the first user message and the session ends when it exits (the panel surfaces
+this as the session ending; a follow-up needs a new chat). Only Claude Code
+supports multi-turn conversation in a single session. End-to-end behavior of
+each agent further depends on that CLI being installed and authenticated
+locally; a missing binary surfaces as a clean "could not start agent" error
+rather than a crash.
 
 ## Context
 

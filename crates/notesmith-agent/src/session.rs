@@ -16,7 +16,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
 use tokio::sync::mpsc;
 
-use crate::adapter::LineAdapter;
+use crate::adapter::{Launch, LineAdapter, PromptDelivery};
 use crate::error::AgentError;
 use crate::event::AgentEvent;
 
@@ -142,6 +142,121 @@ impl<A: LineAdapter> Drop for ProcessAgentSession<A> {
     fn drop(&mut self) {
         // Best-effort: don't leave an orphaned agent process behind.
         let _ = self.child.start_kill();
+    }
+}
+
+/// An [`AgentSession`] for single-shot agents (Codex `exec`, Copilot CLI).
+///
+/// Unlike [`ProcessAgentSession`], the process is spawned on the **first**
+/// [`send`](AgentSession::send): the prompt is delivered either as a command
+/// argument ([`PromptDelivery::Arg`]) or written to stdin which is then closed
+/// ([`PromptDelivery::Stdin`]). The process runs one turn and exits; when its
+/// stdout reaches EOF, [`next_event`](AgentSession::next_event) returns `None`
+/// and the session ends. A new turn requires a new session.
+pub struct OneShotProcessSession<A: LineAdapter + Clone + 'static> {
+    adapter: A,
+    working_dir: Option<PathBuf>,
+    delivery: PromptDelivery,
+    child: Option<Child>,
+    events: Option<mpsc::UnboundedReceiver<AgentEvent>>,
+    started: bool,
+}
+
+impl<A: LineAdapter + Clone + 'static> OneShotProcessSession<A> {
+    /// Build a single-shot session for `adapter`, to run in `working_dir`.
+    pub fn new(adapter: A, working_dir: Option<PathBuf>) -> Self {
+        let delivery = match adapter.launch() {
+            Launch::OneShot(delivery) => delivery,
+            // Streaming adapters should use `ProcessAgentSession`; default to
+            // stdin delivery so a misconfiguration still behaves predictably.
+            Launch::Streaming => PromptDelivery::Stdin,
+        };
+        Self {
+            adapter,
+            working_dir,
+            delivery,
+            child: None,
+            events: None,
+            started: false,
+        }
+    }
+
+    fn spawn_turn(&mut self, prompt: &str) -> Result<(), AgentError> {
+        let (program, args) = match self.delivery {
+            PromptDelivery::Arg => self.adapter.command_for_prompt(prompt),
+            PromptDelivery::Stdin => self.adapter.command(),
+        };
+        let mut command = tokio::process::Command::new(&program);
+        command
+            .args(&args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        if let Some(dir) = &self.working_dir {
+            command.current_dir(dir);
+        }
+        let mut child = command.spawn().map_err(|source| AgentError::Spawn {
+            program: program.clone(),
+            source,
+        })?;
+
+        // Deliver the prompt over stdin when required, then close stdin so the
+        // agent stops waiting for more input and runs its turn.
+        let stdin = child.stdin.take().ok_or(AgentError::MissingPipe("stdin"))?;
+        if matches!(self.delivery, PromptDelivery::Stdin) {
+            let bytes = self.adapter.encode_user_message(prompt);
+            tokio::spawn(async move {
+                let mut stdin = stdin;
+                let _ = stdin.write_all(&bytes).await;
+                let _ = stdin.flush().await;
+                // Dropping `stdin` here closes the pipe (EOF for the agent).
+            });
+        }
+        // For `Arg` delivery stdin is simply dropped (closed) immediately.
+
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or(AgentError::MissingPipe("stdout"))?;
+        let (tx, events) = mpsc::unbounded_channel();
+        let mut reader_adapter = self.adapter.clone();
+        tokio::spawn(async move {
+            drive_lines(BufReader::new(stdout), &mut reader_adapter, tx).await;
+        });
+
+        self.child = Some(child);
+        self.events = Some(events);
+        self.started = true;
+        Ok(())
+    }
+}
+
+impl<A: LineAdapter + Clone + 'static> AgentSession for OneShotProcessSession<A> {
+    async fn send(&mut self, message: &str) -> Result<(), AgentError> {
+        if self.started {
+            // Single-shot agents handle one prompt per process; ignore further
+            // input (the session ends when the turn's process exits).
+            return Ok(());
+        }
+        self.spawn_turn(message)
+    }
+
+    async fn next_event(&mut self) -> Option<AgentEvent> {
+        match self.events.as_mut() {
+            Some(events) => events.recv().await,
+            // No turn has been started yet: never resolve, so a `select!` in the
+            // runner waits for the first user message instead of ending the
+            // session. Once a turn starts, the channel drives completion.
+            None => std::future::pending().await,
+        }
+    }
+}
+
+impl<A: LineAdapter + Clone + 'static> Drop for OneShotProcessSession<A> {
+    fn drop(&mut self) {
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.start_kill();
+        }
     }
 }
 
