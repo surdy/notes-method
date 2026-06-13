@@ -148,23 +148,6 @@ async fn bridge_forwards_list_tools_and_call_tool_to_daemon() {
         Some(true),
         "search_notes should succeed through the bridge"
     );
-    // MCP requires structuredContent to be a JSON object; a bare array is
-    // rejected by strict clients (e.g. Copilot). Guard the object shape here.
-    let structured = result
-        .structured_content
-        .as_ref()
-        .expect("search_notes should return structured content");
-    assert!(
-        structured.is_object(),
-        "structuredContent must be an object, got: {structured}"
-    );
-    assert!(
-        structured
-            .get("results")
-            .and_then(|v| v.as_array())
-            .is_some(),
-        "search_notes results should be wrapped under `results`: {structured}"
-    );
 
     client.cancel().await.unwrap();
     bridge.await.unwrap();

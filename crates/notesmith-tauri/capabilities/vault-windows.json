@@ -14,9 +14,6 @@
     "allow-open-folder-as-vault",
     "allow-list-open-vaults",
     "allow-close-vault-window",
-    "allow-pick-vault-folder",
-    "allow-agent-start",
-    "allow-agent-send",
-    "allow-agent-stop"
+    "allow-pick-vault-folder"
   ]
 }

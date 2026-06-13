@@ -230,7 +230,6 @@ mod tests {
         ]);
         let new_config = GlobalConfig {
             daemon: Default::default(),
-            agent: Default::default(),
             default_vault: Some("work".to_string()),
             vaults: BTreeMap::from([
                 (
@@ -277,7 +276,6 @@ mod tests {
         let config_path = temp_dir.path().join("config").join("config.toml");
         let initial_config = GlobalConfig {
             daemon: Default::default(),
-            agent: Default::default(),
             default_vault: Some(work_name.clone()),
             vaults: BTreeMap::from([(
                 work_name.clone(),
@@ -306,7 +304,6 @@ mod tests {
 
         let updated_config = GlobalConfig {
             daemon: Default::default(),
-            agent: Default::default(),
             default_vault: Some(home_name.clone()),
             vaults: BTreeMap::from([(
                 home_name.clone(),

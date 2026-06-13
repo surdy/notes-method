@@ -325,7 +325,7 @@ impl NotesmithMcp {
         F: FnOnce(T) -> anyhow::Result<Value>,
     {
         match parse_arguments(arguments).and_then(f) {
-            Ok(value) => CallToolResult::structured(ensure_structured_object(value)),
+            Ok(value) => CallToolResult::structured(value),
             Err(error) => CallToolResult::error(vec![Content::text(error.to_string())]),
         }
     }
@@ -506,23 +506,6 @@ where
     serde_json::from_value(Value::Object(arguments.unwrap_or_default())).map_err(Into::into)
 }
 
-/// Coerce a tool result into a JSON object for `structuredContent`.
-///
-/// The MCP spec defines a tool result's `structuredContent` as "an optional
-/// JSON *object*". Several ops legitimately return a bare array (search
-/// results, note/task lists, SQL rows) or a scalar. Lenient clients accept
-/// these, but strict clients (e.g. Copilot) reject a non-object and surface it
-/// as a tool error. Wrap arrays under `results` and any other non-object under
-/// `result` so the structured payload is always a valid object; the raw value
-/// is still echoed in the result's text content.
-fn ensure_structured_object(value: Value) -> Value {
-    match value {
-        Value::Object(_) => value,
-        Value::Array(_) => json!({ "results": value }),
-        other => json!({ "result": other }),
-    }
-}
-
 fn tool_definition(name: &'static str, description: &'static str, schema: Value) -> Tool {
     Tool::new(name, description, schema_object(schema))
 }
@@ -621,22 +604,6 @@ mod tests {
         let results = results.as_array().unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["path"], "Inbox/Launch Plan.md");
-    }
-
-    #[test]
-    fn ensure_structured_object_wraps_non_objects() {
-        // MCP requires structuredContent to be a JSON object; arrays/scalars
-        // are wrapped so strict clients (e.g. Copilot) don't reject the result.
-        let array = ensure_structured_object(json!([{ "path": "a.md" }]));
-        assert!(array.is_object());
-        assert_eq!(array["results"], json!([{ "path": "a.md" }]));
-
-        let scalar = ensure_structured_object(json!(42));
-        assert!(scalar.is_object());
-        assert_eq!(scalar["result"], json!(42));
-
-        let object = ensure_structured_object(json!({ "path": "a.md" }));
-        assert_eq!(object, json!({ "path": "a.md" }));
     }
 
     #[test]

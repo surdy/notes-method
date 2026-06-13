@@ -9,8 +9,8 @@ fn main() {
     // every command here. Without this, invoke() rejects user commands with
     // "X not allowed. Plugin not found." Keep this list in sync with the
     // invoke_handler!{} list in src/main.rs.
-    let attrs =
-        tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
+    let attrs = tauri_build::Attributes::new().app_manifest(
+        tauri_build::AppManifest::new().commands(&[
             "retry_daemon_connect",
             "open_diagnostics",
             "quit_app",
@@ -24,9 +24,7 @@ fn main() {
             "list_open_vaults",
             "close_vault_window",
             "pick_vault_folder",
-            "agent_start",
-            "agent_send",
-            "agent_stop",
-        ]));
+        ]),
+    );
     tauri_build::try_build(attrs).expect("failed to run tauri-build");
 }

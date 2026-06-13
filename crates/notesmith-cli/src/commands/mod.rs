@@ -1,6 +1,5 @@
 //! CLI command modules
 
-pub mod agent;
 pub mod capture;
 pub mod copy_html;
 pub mod daemon;

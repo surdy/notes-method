@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { apiFetch, isNetworkError, resolveApiBase, resolveDaemonOrigin, versionMismatch } from './core.ts';
+import { apiFetch, isNetworkError, resolveApiBase, versionMismatch } from './core.ts';
 
 afterEach(() => {
 	versionMismatch.set(null);
@@ -61,35 +61,5 @@ describe('resolveApiBase', () => {
 		expect(resolveApiBase(new URL('notesmith-app://localhost/app/?apiBase=javascript:alert(1)'))).toBe(
 			''
 		);
-	});
-});
-
-describe('resolveDaemonOrigin', () => {
-	it('prefers an explicit apiBase (embedded/remote desktop mode)', () => {
-		expect(
-			resolveDaemonOrigin('http://100.64.0.10:27183', {
-				origin: 'notesmith-app://localhost',
-				protocol: 'notesmith-app:'
-			})
-		).toBe('http://100.64.0.10:27183');
-	});
-
-	it('falls back to the http(s) page origin in daemon mode', () => {
-		expect(
-			resolveDaemonOrigin('', { origin: 'http://127.0.0.1:27183', protocol: 'http:' })
-		).toBe('http://127.0.0.1:27183');
-		expect(
-			resolveDaemonOrigin('', { origin: 'https://notes.example', protocol: 'https:' })
-		).toBe('https://notes.example');
-	});
-
-	it('returns empty when no apiBase and the origin is the custom app protocol', () => {
-		expect(
-			resolveDaemonOrigin('', { origin: 'notesmith-app://localhost', protocol: 'notesmith-app:' })
-		).toBe('');
-	});
-
-	it('returns empty when no apiBase and no location is available', () => {
-		expect(resolveDaemonOrigin('', null)).toBe('');
 	});
 });

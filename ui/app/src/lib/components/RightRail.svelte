@@ -2,18 +2,15 @@
 	import { onMount } from 'svelte';
 	import { executeSql, getNote, type SqlQueryResult } from '$lib/api';
 	import TocPanel from '$lib/components/TocPanel.svelte';
-	import AgentPanel from '$lib/components/AgentPanel.svelte';
-	import { isAgentRunnerAvailable } from '$lib/agent-bridge';
 	import { buildBacklinksQuery, buildOutgoingLinksQuery, buildRailMetadata } from '$lib/right-rail';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
 	type RailLink = { path: string; label: string };
-	type RailTab = 'metadata' | 'links' | 'toc' | 'agent';
+	type RailTab = 'metadata' | 'links' | 'toc';
 
 	let { collapsed = false }: { collapsed?: boolean } = $props();
 	let activeTab = $state<RailTab>('metadata');
-	let agentAvailable = $state(false);
 	let backlinks = $state<SqlQueryResult>(emptySqlResult());
 	let outgoingLinks = $state<SqlQueryResult>(emptySqlResult());
 	let metadata = $state<Record<string, unknown> | null>(null);
@@ -26,7 +23,6 @@
 	const metadataEntries = $derived.by(() => Object.entries(metadata ?? {}));
 
 	onMount(() => {
-		agentAvailable = isAgentRunnerAvailable();
 		activeTab = loadTab();
 	});
 
@@ -136,9 +132,6 @@
 			if (saved === 'metadata' || saved === 'links' || saved === 'toc') {
 				return saved;
 			}
-			if (saved === 'agent' && agentAvailable) {
-				return saved;
-			}
 		} catch {}
 
 		return 'metadata';
@@ -204,22 +197,10 @@
 			>
 				TOC
 			</button>
-			{#if agentAvailable}
-				<button
-					class="rail-tab"
-					class:active={activeTab === 'agent'}
-					type="button"
-					onclick={() => setTab('agent')}
-				>
-					Agent
-				</button>
-			{/if}
 		</div>
 
 		<div class="rail-content">
-			{#if activeTab === 'agent'}
-				<AgentPanel />
-			{:else if !tabStore.selectedPath}
+			{#if !tabStore.selectedPath}
 				<div class="rail-empty">Select a note to see metadata, links, and a table of contents.</div>
 			{:else}
 				{#if error}

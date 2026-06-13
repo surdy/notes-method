@@ -2527,12 +2527,6 @@ notesmith route apply "Inbox/atlas.md"
 
 The MCP adapter exposes only existing operations such as note read/write, SQL query, routing, capture workflows, periodic note creation, and task mutation. It exists for clients that cannot run the CLI directly. It is served by the daemon as streamable-HTTP endpoints mounted per vault at `/mcp/<vault>` (full) and `/mcp-ro/<vault>` (read-only), reusing the daemon's live indexes via the shared `notesmith-ops` layer; `notesmith mcp start` is a thin stdio↔HTTP bridge to those endpoints rather than a standalone server with its own in-memory indexes.
 
-### 18.5 Embedded agent chat (implemented)
-
-The desktop app hosts agents (Claude Code, Codex, Copilot) as an in-app chat panel, driving them locally over the **Agent Client Protocol** (ACP — the single transport) and streaming to the UI over Tauri IPC. A `notesmith-agent` crate exposes one `AcpSession` behind an `AgentSession` event stream, and the agent is auto-wired to the active vault's MCP endpoint (`/mcp/<vault>`, or the default read-only `/mcp-ro/<vault>`) via the ACP `session/new` `mcpServers` param, with a read-only/read-write toggle that maps onto ACP permission requests. Copilot speaks ACP natively (`copilot --acp`); Claude Code and Codex run over the same protocol via adapter binaries (`npx @zed-industries/claude-code-acp` and `codex-acp`). Embedded chat is **desktop-only** — the hosted browser UI has no chat runner; server-hosted vaults are reached by external agents over MCP. Notesmith does not manage model credentials. See `docs/adr/0011-embedded-agent-chat.md`.
-
-Vault access is **MCP-first**: because ACP proxies an agent's filesystem and terminal through the client, every session opens with a one-time context preamble steering the agent to the vault-aware MCP tools, and by default the agent has no direct shell/filesystem access. A global `agent.local_file_access` setting (off by default) advertises and implements scoped ACP `fs/*` and `terminal/*` handlers — confined to the vault directory and refused in read-only sessions — for users who want their agent to read/write files and run commands directly. See `docs/adr/0012-agent-local-io.md`.
-
 ## 19. GUI Design
 
 ### 19.1 Core UI layout

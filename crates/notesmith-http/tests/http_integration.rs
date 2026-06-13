@@ -88,7 +88,6 @@ fn write_global_config(
 ) {
     let config = GlobalConfig {
         daemon: Default::default(),
-        agent: Default::default(),
         default_vault: default_vault.map(str::to_string),
         vaults: vaults
             .iter()

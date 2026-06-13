@@ -1836,18 +1836,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "notesmith-agent"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "notesmith-cli"
 version = "0.1.0"
 dependencies = [
@@ -1857,7 +1845,6 @@ dependencies = [
  "clap",
  "dirs",
  "libc",
- "notesmith-agent",
  "notesmith-config",
  "notesmith-core",
  "notesmith-git",

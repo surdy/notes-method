@@ -37,7 +37,6 @@ fn write_global_config(
             bind,
             auto_start: true,
         },
-        agent: Default::default(),
         default_vault: Some(vault_name.to_string()),
         vaults: BTreeMap::from([(
             vault_name.to_string(),

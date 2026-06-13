@@ -17,7 +17,6 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 notesmith-core = { path = "../notesmith-core" }
 notesmith-config = { path = "../notesmith-config" }
-notesmith-agent = { path = "../notesmith-agent" }
 
 [dev-dependencies]
 chrono = { version = "0.4", features = ["serde"] }

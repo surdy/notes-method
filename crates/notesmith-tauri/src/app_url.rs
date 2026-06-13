@@ -113,11 +113,7 @@ mod tests {
             "http://127.0.0.1:27183/app/"
         );
         assert_eq!(
-            app_window_url(
-                "http://127.0.0.1:27183/",
-                Some("work"),
-                FrontendMode::Daemon
-            ),
+            app_window_url("http://127.0.0.1:27183/", Some("work"), FrontendMode::Daemon),
             "http://127.0.0.1:27183/app/?vault=work"
         );
     }
@@ -129,11 +125,7 @@ mod tests {
             "notesmith-app://localhost/app/?apiBase=http%3A%2F%2F100.64.0.10%3A27183"
         );
         assert_eq!(
-            app_window_url(
-                "http://100.64.0.10:27183/",
-                Some("Work Vault"),
-                FrontendMode::Embedded
-            ),
+            app_window_url("http://100.64.0.10:27183/", Some("Work Vault"), FrontendMode::Embedded),
             "notesmith-app://localhost/app/?apiBase=http%3A%2F%2F100.64.0.10%3A27183&vault=Work%20Vault"
         );
     }
