@@ -3,7 +3,19 @@
 ## Status
 
 Accepted (2026-06-11). Builds on [ADR 0010](0010-agent-access-architecture.md).
-Implemented across all phases. The original four phases delivered the
+
+> **Superseded in part & reset (2026-06-13).** The Phase A–E implementation
+> described below was **reverted during the 2026-06 agent reset** and no longer
+> exists on `main`. Its **transport and MCP-wiring decisions — Decision 3,
+> Decision 4, and the entire Phase E amendment — are superseded by
+> [ADR 0012](0012-agent-transport-acp-mcp.md)**, which rebuilds the agent on the
+> Zed `agent-client-protocol` crate with a stdio (local) / HTTP (remote) MCP
+> split, per-write permission prompts, an app-level break-glass for fs/terminal,
+> and ACP-driven model selection. Decisions 1, 2, 5, and 6 (desktop-only runner,
+> hosted = MCP-only, no model-credential management, Tauri IPC) still stand. The
+> text below is retained for historical context.
+
+The original (now reverted) design implemented all phases. The original four phases delivered the
 `notesmith-agent` crate + headless `notesmith agent run` (Phase A), the desktop
 Tauri runner + Svelte chat panel (Phase B), active-vault MCP auto-wiring with a
 read-only/read-write toggle (Phase C, #155), and per-agent line adapters for
