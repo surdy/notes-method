@@ -14,6 +14,7 @@ pub mod sql;
 pub mod status;
 pub mod tasks;
 pub mod templates;
+pub mod transcripts;
 pub mod vaults;
 
 pub use admin::*;

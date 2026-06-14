@@ -199,6 +199,25 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
             get(list_periodic_notes),
         )
         .route("/api/v/{vault}/events", get(vault_events))
+        .route(
+            "/api/v/{vault}/agent/threads",
+            get(crate::routes::transcripts::list_threads)
+                .post(crate::routes::transcripts::create_thread),
+        )
+        .route(
+            "/api/v/{vault}/agent/threads/{thread_id}",
+            get(crate::routes::transcripts::get_thread)
+                .delete(crate::routes::transcripts::delete_thread),
+        )
+        .route(
+            "/api/v/{vault}/agent/threads/{thread_id}/rename",
+            post(crate::routes::transcripts::rename_thread),
+        )
+        .route(
+            "/api/v/{vault}/agent/threads/{thread_id}/messages",
+            get(crate::routes::transcripts::list_messages)
+                .post(crate::routes::transcripts::append_message),
+        )
         .route("/mcp/{vault}", any(mcp_service_handler))
         .route("/mcp-ro/{vault}", any(mcp_ro_service_handler))
         .nest_service("/app", app_service)

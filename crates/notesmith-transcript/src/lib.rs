@@ -33,7 +33,7 @@ pub enum TranscriptError {
 pub type Result<T> = std::result::Result<T, TranscriptError>;
 
 /// Who authored a transcript message.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     /// The human using Notesmith.

@@ -1489,6 +1489,56 @@ Triggers a full reindex of the vault cache and search index.
 
 ---
 
+## Agent transcripts
+
+Per-vault chat history for the agent panel, persisted in the daemon's durable
+store (separate from the rebuildable index cache, so it survives restarts and
+reindexes — see [ADR 0012](adr/0012-agent-transport-acp-mcp.md) Decision 13).
+All routes are vault-scoped: a thread created under one vault is never visible
+under another.
+
+A **thread** is `{ id, vault, title, agent, model, created_at, updated_at }`
+(`agent`/`model` are optional strings). A **message** is
+`{ id, thread_id, seq, role, content, created_at }` where `role` is one of
+`user`, `agent`, `system` and `seq` is the 1-based per-thread order.
+
+### `GET /api/v/{vault}/agent/threads`
+
+List the vault's threads, most-recently-updated first. Returns `200` with a JSON
+array of threads.
+
+### `POST /api/v/{vault}/agent/threads`
+
+Create a thread. Body: `{ "title": "…", "agent": "copilot"?, "model": "gpt-5"? }`.
+Returns `201` with the created thread. `400` if `title` is empty/blank.
+
+### `GET /api/v/{vault}/agent/threads/{thread_id}`
+
+Fetch one thread. `200` with the thread, or `404` if it does not exist in this
+vault.
+
+### `POST /api/v/{vault}/agent/threads/{thread_id}/rename`
+
+Body: `{ "title": "…" }`. Returns `200` with the updated thread. `400` for a
+blank title, `404` if the thread is not in this vault.
+
+### `DELETE /api/v/{vault}/agent/threads/{thread_id}`
+
+Delete a thread and its messages (cascade). `204` on success, `404` if absent.
+
+### `GET /api/v/{vault}/agent/threads/{thread_id}/messages`
+
+Load a thread's messages in order. `200` with a JSON array, or `404` if the
+thread is not in this vault. Corrupt stored rows are skipped, never fatal.
+
+### `POST /api/v/{vault}/agent/threads/{thread_id}/messages`
+
+Append a message. Body: `{ "role": "user"|"agent"|"system", "content": "…" }`.
+Returns `201` with the created message. `404` if the thread is not in this
+vault; an unknown `role` is a `4xx` deserialization error (never a `500`).
+
+---
+
 ## Agent access (MCP over HTTP)
 
 The daemon hosts a [Model Context Protocol](https://modelcontextprotocol.io) server for each vault using the streamable-HTTP transport (HTTP + SSE). Agents connect directly to the daemon and reuse its live per-vault indexes — there is no separate process to launch.
