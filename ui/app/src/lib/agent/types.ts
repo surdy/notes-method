@@ -84,3 +84,61 @@ export interface StartSessionResult {
 	sessionId: string;
 	models: ModelPicker | null;
 }
+
+/**
+ * On-demand agent-discovery diagnostics (ADR 0013, decision 5). Mirrors the Rust
+ * `DiagnosticsReport` (camelCase JSON) from `agent_diag.rs`.
+ */
+export interface DiagnosticsReport {
+	resolvedPath: string[];
+	agents: AgentDiagnostic[];
+}
+
+/** Per-agent discovery trace. Mirrors Rust `AgentDiagnostic`. */
+export interface AgentDiagnostic {
+	id: string;
+	displayName: string;
+	/** `"available" | "not_found" | "probe_failed"`. */
+	verdict: string;
+	candidates: CandidateDiagnostic[];
+	setupHint: string;
+	docsUrl: string;
+}
+
+/** Per-candidate discovery trace. Mirrors Rust `CandidateDiagnostic`. */
+export interface CandidateDiagnostic {
+	program: string;
+	args: string[];
+	resolvedProgram: string | null;
+	foundOnPath: boolean;
+	searchedDirs: string[];
+	probe: ProbeResult | null;
+}
+
+/** The bounded result of a version probe. Mirrors Rust `ProbeResult`. */
+export interface ProbeResult {
+	command: string;
+	exitCode: number | null;
+	stdoutSnippet: string;
+	timedOut: boolean;
+}
+
+/**
+ * A single `[agents.<id>]` entry (override or custom agent). Mirrors the Rust
+ * `AgentEntryDto` (camelCase JSON). `env` is an array of `[key, value]` pairs so
+ * the UI can edit it as ordered rows.
+ */
+export interface AgentEntryData {
+	id: string;
+	command: string | null;
+	args: string[];
+	env: [string, string][];
+	displayName: string | null;
+	enabled: boolean;
+}
+
+/** The `[agents]` config section. Mirrors the Rust `AgentsConfigDto`. */
+export interface AgentsConfigData {
+	debug: boolean;
+	entries: AgentEntryData[];
+}

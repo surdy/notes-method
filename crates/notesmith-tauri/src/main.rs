@@ -376,6 +376,8 @@ fn main() {
             close_vault_window,
             pick_vault_folder,
             agent_bridge::agent_list,
+            agent_bridge::agent_config_get,
+            agent_bridge::agent_config_set,
             agent_bridge::agent_start,
             agent_bridge::agent_prompt,
             agent_bridge::agent_select_model,

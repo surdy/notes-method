@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChatStore, type TranscriptApi } from './chat-store.svelte.ts';
 import type { AgentClient, PermissionEvent } from './agent-client.ts';
-import type { AgentEvent, AgentInfo, PermissionDecision, StartSessionResult } from './types.ts';
+import type {
+	AgentEvent,
+	AgentInfo,
+	AgentsConfigData,
+	DiagnosticsReport,
+	PermissionDecision,
+	StartSessionResult
+} from './types.ts';
 import type { Thread } from '../api/transcripts.ts';
 
 /** In-memory agent client that records calls and lets tests push events. */
@@ -42,6 +49,13 @@ class MockAgentClient implements AgentClient {
 		this.answered.push({ requestId, decision });
 	}
 	async stop(): Promise<void> {}
+	async agentDiagnostics(): Promise<DiagnosticsReport> {
+		return { resolvedPath: [], agents: [] };
+	}
+	async getAgentConfig(): Promise<AgentsConfigData> {
+		return { debug: false, entries: [] };
+	}
+	async setAgentConfig(): Promise<void> {}
 	onEvent(cb: (sessionId: string, event: AgentEvent) => void): () => void {
 		this.eventCb = cb;
 		return () => {

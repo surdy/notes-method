@@ -18,7 +18,7 @@
 //! (`/mcp/<vault>` read-write, `/mcp-ro/<vault>` read-only) pointed at the same
 //! daemon URL the rest of the app uses.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -49,6 +49,81 @@ pub struct AgentInfo {
     id: String,
     name: String,
     available: bool,
+}
+
+/// A single `[agents.<id>]` entry over the wire. Mirrors the frontend
+/// `AgentEntryData` (camelCase JSON). `env` is an array of `[key, value]` pairs
+/// so the Settings UI can edit it as ordered rows.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEntryDto {
+    pub id: String,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+    pub display_name: Option<String>,
+    pub enabled: bool,
+}
+
+/// The `[agents]` section over the wire. Mirrors the frontend `AgentsConfigData`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentsConfigDto {
+    pub debug: bool,
+    pub entries: Vec<AgentEntryDto>,
+}
+
+/// Project the in-memory [`AgentsConfig`] to its wire DTO. Entries are emitted
+/// in id order (the source `BTreeMap` is already sorted).
+fn agents_config_to_dto(cfg: &AgentsConfig) -> AgentsConfigDto {
+    let entries = cfg
+        .entries
+        .iter()
+        .map(|(id, entry)| AgentEntryDto {
+            id: id.clone(),
+            command: entry.command.clone(),
+            args: entry.args.clone(),
+            env: entry
+                .env
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+            display_name: entry.display_name.clone(),
+            enabled: entry.enabled,
+        })
+        .collect();
+    AgentsConfigDto {
+        debug: cfg.debug,
+        entries,
+    }
+}
+
+/// Fold the wire DTO back into an [`AgentsConfig`]. Entries with a blank id are
+/// skipped (the UI may carry an empty "add agent" draft row); env pairs become a
+/// `BTreeMap`, so a later duplicate key wins.
+fn dto_to_agents_config(dto: AgentsConfigDto) -> AgentsConfig {
+    let mut entries = BTreeMap::new();
+    for entry in dto.entries {
+        let id = entry.id.trim().to_string();
+        if id.is_empty() {
+            continue;
+        }
+        let env: BTreeMap<String, String> = entry.env.into_iter().collect();
+        entries.insert(
+            id,
+            AgentEntry {
+                command: entry.command,
+                args: entry.args,
+                env,
+                display_name: entry.display_name,
+                enabled: entry.enabled,
+            },
+        );
+    }
+    AgentsConfig {
+        debug: dto.debug,
+        entries,
+    }
 }
 
 /// Options for starting a chat session. Mirrors the frontend
@@ -531,6 +606,29 @@ pub async fn agent_list() -> Result<Vec<AgentInfo>, String> {
         .collect())
 }
 
+/// Read the `[agents]` section of the global config for the Settings surface
+/// (ADR 0013, decision 7). Degrades to the default (empty) config when the file
+/// is absent or unreadable (ADR 0009) rather than erroring.
+#[tauri::command]
+pub async fn agent_config_get() -> Result<AgentsConfigDto, String> {
+    let config = notesmith_config::GlobalConfig::load().unwrap_or_default();
+    Ok(agents_config_to_dto(&config.agents))
+}
+
+/// Replace the `[agents]` section of the global config from the Settings surface
+/// (ADR 0013, decision 7). Loads the current global config (defaulting when
+/// absent), swaps in the edited agents section, and persists it. A write failure
+/// surfaces to the UI as an `Err` — this is an explicit user action, not a hot
+/// path, so an error is the correct outcome (not a panic, per ADR 0009).
+#[tauri::command]
+pub async fn agent_config_set(config: AgentsConfigDto) -> Result<(), String> {
+    let path = notesmith_config::GlobalConfig::default_path()
+        .ok_or_else(|| "could not determine the config directory".to_string())?;
+    let mut global = notesmith_config::GlobalConfig::load().unwrap_or_default();
+    global.agents = dto_to_agents_config(config);
+    global.save_to(&path).map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub async fn agent_start(
     app: AppHandle,
@@ -879,5 +977,93 @@ mod tests {
             .err()
             .expect("expected an error");
         assert!(error.contains("no command"));
+    }
+
+    fn sample_agents_config() -> AgentsConfig {
+        let mut env = BTreeMap::new();
+        env.insert("FOO".to_string(), "bar".to_string());
+        env.insert("BAZ".to_string(), "qux".to_string());
+        let mut cfg = AgentsConfig {
+            debug: true,
+            ..AgentsConfig::default()
+        };
+        cfg.entries.insert(
+            "copilot".to_string(),
+            AgentEntry {
+                command: Some("/opt/copilot/bin/copilot".to_string()),
+                args: vec!["--acp".to_string()],
+                ..AgentEntry::default()
+            },
+        );
+        cfg.entries.insert(
+            "my-agent".to_string(),
+            AgentEntry {
+                command: Some("node".to_string()),
+                args: vec!["index.js".to_string(), "--acp".to_string()],
+                env,
+                display_name: Some("My Agent".to_string()),
+                enabled: false,
+            },
+        );
+        cfg
+    }
+
+    #[test]
+    fn agents_config_dto_round_trips_without_a_filesystem() {
+        let cfg = sample_agents_config();
+        let dto = agents_config_to_dto(&cfg);
+
+        // Entries are projected in id order (the BTreeMap is sorted).
+        assert!(dto.debug);
+        let ids: Vec<&str> = dto.entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, vec!["copilot", "my-agent"]);
+
+        // The disabled custom agent survives the projection verbatim.
+        let custom = dto
+            .entries
+            .iter()
+            .find(|e| e.id == "my-agent")
+            .expect("custom entry present");
+        assert_eq!(custom.display_name.as_deref(), Some("My Agent"));
+        assert!(!custom.enabled);
+        assert_eq!(
+            custom.env,
+            vec![
+                ("BAZ".to_string(), "qux".to_string()),
+                ("FOO".to_string(), "bar".to_string()),
+            ]
+        );
+
+        let back = dto_to_agents_config(dto);
+        assert_eq!(back, cfg);
+    }
+
+    #[test]
+    fn dto_to_agents_config_skips_blank_ids() {
+        let dto = AgentsConfigDto {
+            debug: false,
+            entries: vec![
+                AgentEntryDto {
+                    id: "   ".to_string(),
+                    command: Some("ignored".to_string()),
+                    args: vec![],
+                    env: vec![],
+                    display_name: None,
+                    enabled: true,
+                },
+                AgentEntryDto {
+                    id: "real".to_string(),
+                    command: Some("real-acp".to_string()),
+                    args: vec!["--acp".to_string()],
+                    env: vec![],
+                    display_name: None,
+                    enabled: true,
+                },
+            ],
+        };
+
+        let cfg = dto_to_agents_config(dto);
+        assert_eq!(cfg.entries.len(), 1);
+        assert!(cfg.entries.contains_key("real"));
     }
 }

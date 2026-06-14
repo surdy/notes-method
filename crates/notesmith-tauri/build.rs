@@ -25,6 +25,8 @@ fn main() {
             "close_vault_window",
             "pick_vault_folder",
             "agent_list",
+            "agent_config_get",
+            "agent_config_set",
             "agent_start",
             "agent_prompt",
             "agent_select_model",

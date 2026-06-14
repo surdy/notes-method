@@ -9,6 +9,8 @@
 import type {
 	AgentEvent,
 	AgentInfo,
+	AgentsConfigData,
+	DiagnosticsReport,
 	EditorContext,
 	PermissionDecision,
 	PermissionRequest,
@@ -33,6 +35,12 @@ export interface AgentClient {
 	setReadOnly(sessionId: string, readOnly: boolean): Promise<void>;
 	answerPermission(requestId: string, decision: PermissionDecision): Promise<void>;
 	stop(sessionId: string): Promise<void>;
+	/** Run on-demand agent-discovery diagnostics (ADR 0013, decision 5). */
+	agentDiagnostics(): Promise<DiagnosticsReport>;
+	/** Read the `[agents]` config section (overrides, custom agents, debug flag). */
+	getAgentConfig(): Promise<AgentsConfigData>;
+	/** Persist the `[agents]` config section. */
+	setAgentConfig(config: AgentsConfigData): Promise<void>;
 	/** Subscribe to the normalized event stream. Returns an unsubscribe fn. */
 	onEvent(cb: (sessionId: string, event: AgentEvent) => void): () => void;
 	/** Subscribe to permission prompts. Returns an unsubscribe fn. */
@@ -105,6 +113,18 @@ export class TauriAgentClient implements AgentClient {
 		await this.bridge.invoke('agent_stop', { sessionId });
 	}
 
+	async agentDiagnostics(): Promise<DiagnosticsReport> {
+		return (await this.bridge.invoke('agent_diagnostics')) as DiagnosticsReport;
+	}
+
+	async getAgentConfig(): Promise<AgentsConfigData> {
+		return (await this.bridge.invoke('agent_config_get')) as AgentsConfigData;
+	}
+
+	async setAgentConfig(config: AgentsConfigData): Promise<void> {
+		await this.bridge.invoke('agent_config_set', { config });
+	}
+
 	onEvent(cb: (sessionId: string, event: AgentEvent) => void): () => void {
 		let unlisten: (() => void) | null = null;
 		let disposed = false;
@@ -158,6 +178,15 @@ export class UnavailableAgentClient implements AgentClient {
 	async setReadOnly(): Promise<void> {}
 	async answerPermission(): Promise<void> {}
 	async stop(): Promise<void> {}
+	async agentDiagnostics(): Promise<DiagnosticsReport> {
+		throw new Error('Agent diagnostics are unavailable outside the desktop app.');
+	}
+	async getAgentConfig(): Promise<AgentsConfigData> {
+		return { debug: false, entries: [] };
+	}
+	// No-op (like the other mutating methods) so the Settings surface mounts and
+	// "saves" without error in a plain browser; persistence only happens in Tauri.
+	async setAgentConfig(): Promise<void> {}
 	onEvent(): () => void {
 		return () => {};
 	}
