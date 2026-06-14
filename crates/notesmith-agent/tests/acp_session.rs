@@ -11,7 +11,8 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use notesmith_agent::{
-    AcpSession, AgentEvent, AgentSession, PermissionDecider, PermissionDecision, PermissionRequest,
+    AcpSession, AgentEvent, AgentSession, EditorContext, PermissionDecider, PermissionDecision,
+    PermissionRequest, VaultSummary,
 };
 
 /// A fake ACP agent. Reads newline-delimited JSON-RPC requests on stdin and:
@@ -187,6 +188,122 @@ async fn read_only_scope_rejects_permission_requests() {
     assert!(events.contains(&AgentEvent::AgentMessageDelta {
         text: "CHOICE:no".to_string()
     }));
+}
+
+/// A fake agent that echoes the *full* prompt back — the joined text of every
+/// content block — as an assistant chunk, so a test can assert exactly what
+/// context the client injected into each turn.
+const ECHO_PROMPT_AGENT: &str = r#"
+import sys, json
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    msg = json.loads(line)
+    method = msg.get("method")
+    mid = msg.get("id")
+    if method == "initialize":
+        send({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": 1}})
+    elif method == "session/new":
+        send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": "fake-session"}})
+    elif method == "session/prompt":
+        joined = "\u0000".join(b.get("text", "") for b in msg["params"]["prompt"])
+        send({
+            "jsonrpc": "2.0", "method": "session/update",
+            "params": {"sessionId": "fake-session", "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": joined},
+            }},
+        })
+        send({"jsonrpc": "2.0", "id": mid, "result": {"stopReason": "end_turn"}})
+"#;
+
+fn echo_prompt_session() -> AcpSession {
+    AcpSession::new(
+        "python3",
+        vec![
+            "-u".to_string(),
+            "-c".to_string(),
+            ECHO_PROMPT_AGENT.to_string(),
+        ],
+    )
+}
+
+/// Drain to `Done` and return the single echoed prompt (joined block texts).
+async fn echoed_prompt(session: &mut AcpSession) -> String {
+    drain_until_done(session)
+        .await
+        .into_iter()
+        .find_map(|event| match event {
+            AgentEvent::AgentMessageDelta { text } => Some(text),
+            _ => None,
+        })
+        .expect("the echo agent emits one delta per turn")
+}
+
+#[tokio::test]
+async fn first_turn_injects_preamble_with_skill_and_summary() {
+    let mut session = echo_prompt_session()
+        .with_skill(Some("Always tag meeting notes with #meeting.".to_string()))
+        .with_vault_summary(VaultSummary {
+            name: "Research".to_string(),
+            note_count: 87,
+            top_tags: vec!["#idea".to_string()],
+            top_folders: vec!["daily/".to_string()],
+        });
+
+    session.send("hello there").await.expect("send");
+    let prompt = echoed_prompt(&mut session).await;
+
+    // Preamble carries the bounded vault summary and the skill body, ahead of
+    // the user's message (which is the final block).
+    assert!(prompt.contains("Vault \"Research\": 87 notes."));
+    assert!(prompt.contains("Always tag meeting notes with #meeting."));
+    assert!(prompt.contains(".notesmith/skill.md"));
+    assert!(prompt.ends_with("hello there"));
+}
+
+#[tokio::test]
+async fn preamble_is_sent_once_and_editor_context_rides_each_turn() {
+    let mut session = echo_prompt_session().with_skill(Some("SKILLDOC".to_string()));
+
+    // Turn 1: preamble + editor context + message.
+    session
+        .send_with_context(
+            "first",
+            EditorContext {
+                active_path: Some("projects/acp.md".to_string()),
+                active_title: Some("ACP".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("send 1");
+    let first = echoed_prompt(&mut session).await;
+    assert!(first.contains("SKILLDOC"), "turn 1 carries the preamble");
+    assert!(
+        first.contains("Active note: ACP (projects/acp.md)"),
+        "turn 1 carries editor context"
+    );
+    assert!(first.ends_with("first"));
+
+    // Turn 2: no preamble (sent once), no editor context this time.
+    session.send("second").await.expect("send 2");
+    let second = echoed_prompt(&mut session).await;
+    assert!(
+        !second.contains("SKILLDOC"),
+        "the preamble is injected only on the first turn"
+    );
+    assert!(
+        !second.contains("Active note"),
+        "absent editor state degrades to no context block"
+    );
+    assert!(second.ends_with("second"));
 }
 
 /// A fake agent that, on every prompt, issues an `fs/write_text_file` request

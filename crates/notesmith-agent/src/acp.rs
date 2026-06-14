@@ -50,6 +50,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::acp_client::{LocalIoHandler, await_exit};
+use crate::context::{EditorContext, VaultSummary, assemble_preamble};
 use crate::error::AgentError;
 use crate::event::{AgentEvent, ToolCall, ToolResult};
 use crate::mcp::McpBinding;
@@ -151,13 +152,21 @@ fn new_session_request(cwd: &str, mcp: Option<&McpBinding>) -> NewSessionRequest
     NewSessionRequest::new(PathBuf::from(cwd)).mcp_servers(servers)
 }
 
-/// Build the `session/prompt` content blocks for a single user turn. When
-/// `preamble` is set it is sent as a leading text block so the agent receives
-/// the Notesmith context ahead of the user's first message.
-fn prompt_blocks(preamble: Option<&str>, text: &str) -> Vec<ContentBlock> {
+/// Build the `session/prompt` content blocks for a single user turn. Blocks are
+/// ordered context-first so the agent reads steering before the user's words:
+///
+/// 1. the one-time session `preamble` (skill.md + vault summary), on the first
+///    turn only;
+/// 2. the per-turn `editor` context block (active note, selection, tabs), on
+///    every turn it is present; then
+/// 3. the user's message.
+fn prompt_blocks(preamble: Option<&str>, editor: Option<&str>, text: &str) -> Vec<ContentBlock> {
     let mut blocks = Vec::new();
     if let Some(preamble) = preamble {
         blocks.push(ContentBlock::Text(TextContent::new(preamble)));
+    }
+    if let Some(editor) = editor {
+        blocks.push(ContentBlock::Text(TextContent::new(editor)));
     }
     blocks.push(ContentBlock::Text(TextContent::new(text)));
     blocks
@@ -334,6 +343,14 @@ fn signal_ready(slot: &ReadySlot, result: HandshakeResult) {
     }
 }
 
+/// One queued user turn: the message plus the editor context captured for it.
+/// The context is carried per turn (rather than stashed on the session) so each
+/// prompt reflects the editor state at the moment it was sent.
+struct PromptTurn {
+    message: String,
+    editor: Option<EditorContext>,
+}
+
 /// An [`AgentSession`] driven over the Agent Client Protocol.
 ///
 /// The child process is spawned lazily on the first [`send`](AgentSession::send),
@@ -348,10 +365,12 @@ pub struct AcpSession {
     read_only: bool,
     local_io: bool,
     setup_hint: Option<String>,
+    skill: Option<String>,
+    vault_summary: Option<VaultSummary>,
     decider: Arc<dyn PermissionDecider>,
     permission_state: PermissionState,
     started: bool,
-    user_tx: Option<mpsc::UnboundedSender<String>>,
+    user_tx: Option<mpsc::UnboundedSender<PromptTurn>>,
     event_rx: Option<mpsc::UnboundedReceiver<AgentEvent>>,
     driver: Option<JoinHandle<()>>,
 }
@@ -367,6 +386,8 @@ impl AcpSession {
             read_only: true,
             local_io: false,
             setup_hint: None,
+            skill: None,
+            vault_summary: None,
             decider: Arc::new(DenyAll),
             permission_state: PermissionState::new(),
             started: false,
@@ -440,6 +461,23 @@ impl AcpSession {
         self
     }
 
+    /// Inject the vault's `.notesmith/skill.md` contents into the one-time
+    /// session preamble (ADR 0012, Decision 11). The caller reads the file
+    /// (e.g. via `notesmith skill print`) and passes `None` when it is absent
+    /// or unreadable, so a missing skill degrades to a summary-only preamble.
+    /// The body is bounded when assembled, keeping the preamble small.
+    pub fn with_skill(mut self, skill: Option<String>) -> Self {
+        self.skill = skill;
+        self
+    }
+
+    /// Inject a compact, caller-computed [`VaultSummary`] (name, note count, top
+    /// tags/folders) into the one-time session preamble (ADR 0012, Decision 11).
+    pub fn with_vault_summary(mut self, summary: VaultSummary) -> Self {
+        self.vault_summary = Some(summary);
+        self
+    }
+
     /// Auto-wire the active vault's MCP server into `session/new` and derive
     /// the permission scope (read-only vs read-write) from the binding.
     pub fn with_mcp(mut self, binding: McpBinding) -> Self {
@@ -495,7 +533,7 @@ impl AcpSession {
     /// has completed (or failed). The driver streams normalized events through
     /// `self.event_rx` and consumes user messages from `self.user_tx`.
     fn start_driver(&mut self) -> oneshot::Receiver<HandshakeResult> {
-        let (user_tx, mut user_rx) = mpsc::unbounded_channel::<String>();
+        let (user_tx, mut user_rx) = mpsc::unbounded_channel::<PromptTurn>();
         let (event_tx, event_rx) = mpsc::unbounded_channel::<AgentEvent>();
         let (ready_tx, ready_rx) = oneshot::channel::<HandshakeResult>();
 
@@ -517,7 +555,11 @@ impl AcpSession {
             read_only,
             PathBuf::from(&cwd),
         ));
-        let preamble = session_preamble(self.mcp.is_some(), self.local_io);
+        let preamble = assemble_preamble(
+            &session_preamble(self.mcp.is_some(), self.local_io),
+            self.vault_summary.as_ref(),
+            self.skill.as_deref(),
+        );
 
         let notif_event_tx = event_tx.clone();
         let main_event_tx = event_tx.clone();
@@ -633,12 +675,18 @@ impl AcpSession {
                     signal_ready(&ready_main, Ok(()));
 
                     // Per-turn prompt loop. The Notesmith context preamble is
-                    // sent once, ahead of the first user message. Assistant
+                    // sent once, ahead of the first user message; each turn also
+                    // carries its editor-context block (when present). Assistant
                     // deltas arrive concurrently via the notification handler
                     // while each prompt request awaits its terminal stopReason.
                     let mut preamble = Some(preamble);
-                    while let Some(message) = user_rx.recv().await {
-                        let blocks = prompt_blocks(preamble.take().as_deref(), &message);
+                    while let Some(turn) = user_rx.recv().await {
+                        let editor = turn.editor.as_ref().and_then(EditorContext::render);
+                        let blocks = prompt_blocks(
+                            preamble.take().as_deref(),
+                            editor.as_deref(),
+                            &turn.message,
+                        );
                         match cx
                             .send_request(PromptRequest::new(session_id.clone(), blocks))
                             .block_task()
@@ -683,10 +731,12 @@ impl AcpSession {
             None => error,
         }
     }
-}
 
-impl AgentSession for AcpSession {
-    async fn send(&mut self, message: &str) -> Result<(), AgentError> {
+    /// Send a turn (message + optional editor context), lazily starting the
+    /// driver and running the handshake on the first call. Both the plain
+    /// [`AgentSession::send`] and [`AcpSession::send_with_context`] funnel
+    /// through here so the start-up path is shared.
+    async fn deliver(&mut self, turn: PromptTurn) -> Result<(), AgentError> {
         if !self.started {
             self.started = true;
             let ready_rx = self.start_driver();
@@ -705,8 +755,33 @@ impl AgentSession for AcpSession {
             .as_ref()
             .ok_or_else(|| AgentError::Protocol("session is not initialized".to_string()))?;
         user_tx
-            .send(message.to_string())
+            .send(turn)
             .map_err(|_| AgentError::Protocol("agent connection closed".to_string()))
+    }
+
+    /// Send a turn carrying the desktop editor's current state (active note,
+    /// selection, open tabs), injected ahead of the message as a context block
+    /// (ADR 0012, Decision 10). An empty context degrades to no block.
+    pub async fn send_with_context(
+        &mut self,
+        message: &str,
+        editor: EditorContext,
+    ) -> Result<(), AgentError> {
+        self.deliver(PromptTurn {
+            message: message.to_string(),
+            editor: Some(editor),
+        })
+        .await
+    }
+}
+
+impl AgentSession for AcpSession {
+    async fn send(&mut self, message: &str) -> Result<(), AgentError> {
+        self.deliver(PromptTurn {
+            message: message.to_string(),
+            editor: None,
+        })
+        .await
     }
 
     async fn next_event(&mut self) -> Option<AgentEvent> {
@@ -813,7 +888,7 @@ mod tests {
 
     #[test]
     fn prompt_blocks_wrap_text_in_a_content_block() {
-        let blocks = prompt_blocks(None, "hello");
+        let blocks = prompt_blocks(None, None, "hello");
         assert_eq!(blocks.len(), 1);
         let value = serde_json::to_value(&blocks[0]).unwrap();
         assert_eq!(value, json!({ "type": "text", "text": "hello" }));
@@ -821,7 +896,7 @@ mod tests {
 
     #[test]
     fn prompt_blocks_prepend_preamble_block_when_present() {
-        let blocks = prompt_blocks(Some("context"), "hello");
+        let blocks = prompt_blocks(Some("context"), None, "hello");
         assert_eq!(blocks.len(), 2);
         assert_eq!(
             serde_json::to_value(&blocks[0]).unwrap(),
@@ -831,6 +906,35 @@ mod tests {
             serde_json::to_value(&blocks[1]).unwrap(),
             json!({ "type": "text", "text": "hello" })
         );
+    }
+
+    #[test]
+    fn prompt_blocks_order_preamble_then_editor_then_message() {
+        let blocks = prompt_blocks(Some("PRE"), Some("EDITOR"), "hello");
+        let texts: Vec<String> = blocks
+            .iter()
+            .filter_map(|b| {
+                serde_json::to_value(b).unwrap()["text"]
+                    .as_str()
+                    .map(str::to_string)
+            })
+            .collect();
+        assert_eq!(texts, vec!["PRE", "EDITOR", "hello"]);
+    }
+
+    #[test]
+    fn prompt_blocks_carry_editor_context_without_a_preamble() {
+        // Later turns: the preamble is gone but editor context still rides along.
+        let blocks = prompt_blocks(None, Some("EDITOR"), "hello");
+        let texts: Vec<String> = blocks
+            .iter()
+            .filter_map(|b| {
+                serde_json::to_value(b).unwrap()["text"]
+                    .as_str()
+                    .map(str::to_string)
+            })
+            .collect();
+        assert_eq!(texts, vec!["EDITOR", "hello"]);
     }
 
     #[test]

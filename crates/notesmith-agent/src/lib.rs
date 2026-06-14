@@ -16,6 +16,7 @@
 
 mod acp;
 mod acp_client;
+mod context;
 mod error;
 mod event;
 mod mcp;
@@ -26,6 +27,7 @@ pub use acp::{
     AcpSession, CLAUDE_ACP_PACKAGE, DEFAULT_CODEX_ACP_BIN, DEFAULT_COPILOT_BIN,
     mcp_url_is_read_only,
 };
+pub use context::{EditorContext, VaultSummary};
 pub use error::AgentError;
 pub use event::{AgentEvent, ToolCall, ToolResult};
 pub use mcp::McpBinding;
