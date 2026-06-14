@@ -359,6 +359,7 @@ mod tests {
             shutdown_tx,
             shutdown_rx,
             mcp_services: Default::default(),
+            transcripts: Default::default(),
         }
     }
 

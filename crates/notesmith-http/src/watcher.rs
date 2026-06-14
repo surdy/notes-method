@@ -928,6 +928,7 @@ mod tests {
             shutdown_tx,
             shutdown_rx,
             mcp_services: Default::default(),
+            transcripts: Default::default(),
         }));
 
         run_canary_check_once(&state, "work", &vault_root, &watcher_state)

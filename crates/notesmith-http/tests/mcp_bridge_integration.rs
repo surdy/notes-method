@@ -105,6 +105,7 @@ fn build_state(vault_name: &str, root: &Path) -> AppState {
         shutdown_tx,
         shutdown_rx,
         mcp_services: Default::default(),
+        transcripts: Default::default(),
     }
 }
 

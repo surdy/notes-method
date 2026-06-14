@@ -12,6 +12,7 @@ members = [
     "crates/notesmith-html",
     "crates/notesmith-config",
     "crates/notesmith-ops",
+    "crates/notesmith-transcript",
     "crates/notesmith-http",
     "crates/notesmith-mcp",
     "crates/notesmith-agent",
@@ -43,6 +44,7 @@ notesmith-git = { path = "crates/notesmith-git" }
 notesmith-html = { path = "crates/notesmith-html" }
 notesmith-config = { path = "crates/notesmith-config" }
 notesmith-ops = { path = "crates/notesmith-ops" }
+notesmith-transcript = { path = "crates/notesmith-transcript" }
 notesmith-http = { path = "crates/notesmith-http" }
 notesmith-mcp = { path = "crates/notesmith-mcp" }
 notesmith-cli = { path = "crates/notesmith-cli" }
@@ -80,6 +82,7 @@ regex = "1"
 globset = "0.4"
 dirs = "6"
 tempfile = "3"
+uuid = { version = "1", features = ["v4"] }
 arboard = "3"
 insta = { version = "1", features = ["yaml"] }
 pretty_assertions = "1"

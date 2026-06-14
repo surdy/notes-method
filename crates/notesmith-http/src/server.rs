@@ -22,6 +22,7 @@ use chrono::{DateTime, Utc};
 use notesmith_config::{DaemonLockfile, GlobalConfig, VaultConfig, migration};
 use notesmith_core::VaultEngine;
 use notesmith_index::{SearchIndex, VaultCache};
+use notesmith_transcript::TranscriptStore;
 use notesmith_vault::NativeVaultEngine;
 use tokio::{
     net::TcpListener,
@@ -61,6 +62,10 @@ pub struct AppState {
     pub shutdown_tx: watch::Sender<bool>,
     pub shutdown_rx: watch::Receiver<bool>,
     pub mcp_services: McpServiceCache,
+    /// Daemon-owned, durable per-vault chat transcript store (ADR 0012
+    /// Decision 13). Lives outside vaults and outside the rebuildable index
+    /// cache so chat history survives restarts and reindexes.
+    pub transcripts: Arc<TranscriptStore>,
 }
 
 impl Default for AppState {
@@ -77,6 +82,10 @@ impl Default for AppState {
             shutdown_tx,
             shutdown_rx,
             mcp_services: McpServiceCache::default(),
+            transcripts: Arc::new(
+                TranscriptStore::open_in_memory()
+                    .expect("in-memory transcript store should always open"),
+            ),
         }
     }
 }
@@ -698,6 +707,7 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
         shutdown_tx,
         shutdown_rx,
         mcp_services: McpServiceCache::default(),
+        transcripts: Arc::new(open_transcript_store()?),
     })
 }
 
@@ -709,6 +719,29 @@ pub fn cache_dir_for_vault(vault_name: &str) -> anyhow::Result<PathBuf> {
     Ok(cache_root
         .join("notesmith")
         .join(sanitize_vault_name(vault_name)))
+}
+
+/// Durable, daemon-owned data directory (distinct from the rebuildable cache
+/// dir). Honours `XDG_DATA_HOME`, falling back to the platform local-data dir.
+pub fn data_dir() -> anyhow::Result<PathBuf> {
+    let data_root = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(dirs::data_local_dir)
+        .context("could not determine data directory")?;
+    Ok(data_root.join("notesmith"))
+}
+
+/// Path to the single daemon-owned transcript database. Per ADR 0012 Decision
+/// 13 this lives in the durable data dir — not inside any vault and not in the
+/// `cache.sqlite` index DB, which is dropped on schema bumps/reindex.
+pub fn transcripts_path() -> anyhow::Result<PathBuf> {
+    Ok(data_dir()?.join("transcripts.sqlite"))
+}
+
+fn open_transcript_store() -> anyhow::Result<TranscriptStore> {
+    let path = transcripts_path()?;
+    TranscriptStore::open(&path)
+        .with_context(|| format!("opening transcript store at {}", path.display()))
 }
 
 pub fn cache_path_for_vault(vault_name: &str) -> anyhow::Result<PathBuf> {
@@ -748,6 +781,18 @@ mod tests {
         AppState, build_app_state, build_router_with_app_dir, create_vault_state,
         move_corrupt_file, open_or_repair_cache, wait_for_shutdown_trigger,
     };
+
+    #[test]
+    fn transcripts_live_outside_vault_and_cache() {
+        let tp = super::transcripts_path().expect("transcripts path");
+        // Durable data dir, not the rebuildable cache dir.
+        assert!(tp.ends_with("notesmith/transcripts.sqlite"), "{tp:?}");
+        // Distinct file from any vault's index cache.
+        let cp = super::cache_path_for_vault("anyvault").expect("cache path");
+        assert_ne!(tp, cp);
+        // Not scoped under a vault directory.
+        assert!(!tp.to_string_lossy().contains("anyvault"));
+    }
 
     #[tokio::test]
     async fn serves_app_index_for_nested_app_routes() {

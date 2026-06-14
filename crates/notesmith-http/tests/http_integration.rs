@@ -79,6 +79,7 @@ fn build_test_state_with_vaults(
         shutdown_tx,
         shutdown_rx,
         mcp_services: Default::default(),
+        transcripts: Default::default(),
     }
 }
 
