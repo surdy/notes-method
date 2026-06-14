@@ -31,6 +31,7 @@ fn main() {
             "agent_set_read_only",
             "agent_answer_permission",
             "agent_stop",
+            "agent_diagnostics",
         ]));
     tauri_build::try_build(attrs).expect("failed to run tauri-build");
 }

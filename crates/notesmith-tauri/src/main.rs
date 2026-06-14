@@ -38,6 +38,7 @@ use tokio::process::Child;
 use std::os::unix::process::ExitStatusExt;
 
 mod agent_bridge;
+mod agent_diag;
 mod agent_path;
 
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -380,7 +381,8 @@ fn main() {
             agent_bridge::agent_select_model,
             agent_bridge::agent_set_read_only,
             agent_bridge::agent_answer_permission,
-            agent_bridge::agent_stop
+            agent_bridge::agent_stop,
+            agent_diag::agent_diagnostics
         ])
         .menu(build_app_menu)
         .on_menu_event(|app, event| {

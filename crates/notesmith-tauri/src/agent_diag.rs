@@ -1,0 +1,458 @@
+//! On-demand, structured agent-discovery diagnostics (ADR 0013, decisions 3 & 5).
+//!
+//! The fast availability path ([`crate::agent_bridge::agent_list`]) is a cheap
+//! PATH-existence test that never spawns a process, so the picker populates
+//! instantly. This module is the **deep, on-demand** counterpart: it walks the
+//! declarative registry and, for every launch candidate, records a step-by-step
+//! trace explaining *what* was found and *why* — the resolved PATH entries, the
+//! directories searched, the absolute program resolved (if any), and — for a
+//! found candidate with a configured probe — a **bounded** version-probe of the
+//! CLI (exit code + a capped stdout snippet, with a hard timeout).
+//!
+//! ## Verdict semantics
+//!
+//! Each agent gets a single `verdict`, derived from its first launch candidate
+//! whose `program` resolves on the PATH:
+//! - `"available"` — a candidate resolved and either has no probe or its probe
+//!   succeeded (exit code `0`, no timeout). The binary is present and launchable.
+//! - `"probe_failed"` — a candidate resolved but its probe timed out or exited
+//!   non-zero. The binary exists (so it is still launchable), but the probe could
+//!   not confirm it; this is informational, not a hard failure.
+//! - `"not_found"` — no candidate's `program` resolved on the PATH.
+//!
+//! ## Resilience (ADR 0009)
+//!
+//! Note content is not involved here, but the same no-panic discipline applies
+//! to process and filesystem data: spawning, waiting, and decoding output never
+//! `unwrap`/`expect`. Probe time is bounded by [`PROBE_TIMEOUT`] and probe output
+//! by [`PROBE_SNIPPET_CAP`]; a hung or chatty CLI can neither block nor flood.
+
+use std::path::PathBuf;
+use std::time::Duration;
+
+use serde::Serialize;
+
+use notesmith_agent::{AgentDescriptor, builtin_registry};
+
+/// Hard wall-clock bound on a single version probe before it is abandoned.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Maximum number of stdout bytes retained from a probe (the rest is dropped so
+/// a chatty CLI can never flood the report).
+const PROBE_SNIPPET_CAP: usize = 500;
+
+/// The full diagnostics trace returned to the Settings "Run diagnostics" UI.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticsReport {
+    /// The PATH entries (in order) used for resolution and spawning.
+    pub resolved_path: Vec<String>,
+    /// One entry per registry agent, in picker order.
+    pub agents: Vec<AgentDiagnostic>,
+}
+
+/// Per-agent discovery trace: the candidates examined plus the final verdict.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentDiagnostic {
+    /// Stable agent id (e.g. `"copilot"`).
+    pub id: String,
+    /// Human-readable name shown in the picker.
+    pub display_name: String,
+    /// `"available"` | `"not_found"` | `"probe_failed"` (see module docs).
+    pub verdict: String,
+    /// One entry per launch candidate, in registry order.
+    pub candidates: Vec<CandidateDiagnostic>,
+    /// Actionable setup guidance from the registry.
+    pub setup_hint: String,
+    /// Documentation URL for installing / configuring the agent.
+    pub docs_url: String,
+}
+
+/// Per-candidate trace: where it was looked for, what resolved, and any probe.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateDiagnostic {
+    /// The program looked up on PATH (or an absolute path).
+    pub program: String,
+    /// Base launch arguments for this candidate.
+    pub args: Vec<String>,
+    /// Absolute path resolved on the PATH, if the program was found.
+    pub resolved_program: Option<String>,
+    /// Whether the program resolved on the PATH.
+    pub found_on_path: bool,
+    /// The directories checked (only populated for bare program names).
+    pub searched_dirs: Vec<String>,
+    /// The version probe, present only when the program was found and the
+    /// candidate declares `probe_args`.
+    pub probe: Option<ProbeResult>,
+}
+
+/// The bounded result of spawning a candidate's version probe.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeResult {
+    /// The command line that was run (e.g. `"/opt/homebrew/bin/gemini --version"`).
+    pub command: String,
+    /// Process exit code, or `None` if it timed out or was signal-terminated.
+    pub exit_code: Option<i32>,
+    /// First [`PROBE_SNIPPET_CAP`] bytes of stdout, lossily decoded and trimmed.
+    pub stdout_snippet: String,
+    /// Whether the probe exceeded [`PROBE_TIMEOUT`] and was abandoned.
+    pub timed_out: bool,
+}
+
+/// The current process PATH split into ordered directory entries.
+fn current_path_dirs() -> Vec<PathBuf> {
+    std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).collect())
+        .unwrap_or_default()
+}
+
+/// Resolve `program` against `path_dirs`, returning the absolute path found (if
+/// any) and the directories actually searched.
+///
+/// A `program` containing `/` is treated as an explicit (absolute or relative)
+/// path and checked directly, with no directory search. A bare program name is
+/// looked up in each dir in order; `searched_dirs` lists the dirs checked up to
+/// and including the match (or all of them when nothing is found).
+fn resolve_on_path(program: &str, path_dirs: &[PathBuf]) -> (Option<PathBuf>, Vec<PathBuf>) {
+    if program.contains('/') {
+        let candidate = PathBuf::from(program);
+        return if candidate.exists() {
+            (Some(candidate), Vec::new())
+        } else {
+            (None, Vec::new())
+        };
+    }
+    let mut searched = Vec::new();
+    for dir in path_dirs {
+        searched.push(dir.clone());
+        let candidate = dir.join(program);
+        if candidate.exists() {
+            return (Some(candidate), searched);
+        }
+    }
+    (None, searched)
+}
+
+/// Decode and bound a probe's stdout: at most `cap` bytes, lossily decoded and
+/// trimmed. Never panics on non-UTF-8 input.
+fn stdout_snippet(bytes: &[u8], cap: usize) -> String {
+    let end = bytes.len().min(cap);
+    String::from_utf8_lossy(&bytes[..end]).trim().to_string()
+}
+
+/// Spawn `program <probe_args>` with a hard timeout and bounded stdout capture.
+///
+/// Uses the threaded-channel `recv_timeout` pattern (mirroring
+/// `agent_path::query_login_shell_path`) so a hung CLI cannot block the caller.
+/// Never panics: spawn/wait failures degrade to a timed-out/empty result.
+fn run_probe(program: &str, probe_args: &[&str], timeout: Duration) -> ProbeResult {
+    let command = if probe_args.is_empty() {
+        program.to_string()
+    } else {
+        format!("{} {}", program, probe_args.join(" "))
+    };
+
+    let program_owned = program.to_string();
+    let args_owned: Vec<String> = probe_args.iter().map(|arg| arg.to_string()).collect();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let output = std::process::Command::new(&program_owned)
+            .args(&args_owned)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output();
+        let _ = tx.send(output);
+    });
+
+    match rx.recv_timeout(timeout) {
+        Ok(Ok(output)) => ProbeResult {
+            command,
+            exit_code: output.status.code(),
+            stdout_snippet: stdout_snippet(&output.stdout, PROBE_SNIPPET_CAP),
+            timed_out: false,
+        },
+        // Spawn failed (e.g. ENOENT after a TOCTOU race) — record as a failed,
+        // non-timed-out probe with no output.
+        Ok(Err(_)) => ProbeResult {
+            command,
+            exit_code: None,
+            stdout_snippet: String::new(),
+            timed_out: false,
+        },
+        // The probe did not respond within the timeout; the worker thread is
+        // detached and will exit on its own.
+        Err(_) => ProbeResult {
+            command,
+            exit_code: None,
+            stdout_snippet: String::new(),
+            timed_out: true,
+        },
+    }
+}
+
+/// Derive an agent verdict from its candidate traces (see module docs).
+fn verdict_for(candidates: &[CandidateDiagnostic]) -> &'static str {
+    match candidates.iter().find(|candidate| candidate.found_on_path) {
+        None => "not_found",
+        Some(candidate) => match &candidate.probe {
+            Some(probe) if probe.timed_out || probe.exit_code != Some(0) => "probe_failed",
+            _ => "available",
+        },
+    }
+}
+
+/// Build the full diagnostic trace for one registry agent.
+fn diagnose_agent(descriptor: &AgentDescriptor, path_dirs: &[PathBuf]) -> AgentDiagnostic {
+    let candidates: Vec<CandidateDiagnostic> = descriptor
+        .candidates
+        .iter()
+        .map(|candidate| {
+            let (resolved, searched) = resolve_on_path(candidate.program, path_dirs);
+            let probe = match (resolved.as_ref(), candidate.probe_args) {
+                (Some(program), Some(probe_args)) => Some(run_probe(
+                    &program.to_string_lossy(),
+                    probe_args,
+                    PROBE_TIMEOUT,
+                )),
+                _ => None,
+            };
+            CandidateDiagnostic {
+                program: candidate.program.to_string(),
+                args: candidate.args.iter().map(|arg| arg.to_string()).collect(),
+                found_on_path: resolved.is_some(),
+                resolved_program: resolved.map(|path| path.to_string_lossy().into_owned()),
+                searched_dirs: searched
+                    .iter()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect(),
+                probe,
+            }
+        })
+        .collect();
+
+    let verdict = verdict_for(&candidates).to_string();
+    AgentDiagnostic {
+        id: descriptor.id.to_string(),
+        display_name: descriptor.display_name.to_string(),
+        verdict,
+        candidates,
+        setup_hint: descriptor.setup_hint.to_string(),
+        docs_url: descriptor.docs_url.to_string(),
+    }
+}
+
+/// Build the on-demand diagnostics report: the resolved PATH plus a per-agent
+/// discovery trace for every registry agent.
+pub fn build_diagnostics() -> DiagnosticsReport {
+    let path_dirs = current_path_dirs();
+    let resolved_path = path_dirs
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
+    let agents = builtin_registry()
+        .iter()
+        .map(|descriptor| diagnose_agent(descriptor, &path_dirs))
+        .collect();
+    DiagnosticsReport {
+        resolved_path,
+        agents,
+    }
+}
+
+/// On-demand structured diagnostics for agent discovery (ADR 0013 decision 5).
+#[tauri::command]
+pub async fn agent_diagnostics() -> Result<DiagnosticsReport, String> {
+    Ok(build_diagnostics())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[cfg(unix)]
+    fn make_executable(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms).unwrap();
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "notesmith-diag-{}-{}-{}",
+            name,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn resolve_on_path_finds_program_in_provided_dir() {
+        let dir = temp_dir("found");
+        let bin = dir.join("faux-agent");
+        fs::write(&bin, b"#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        make_executable(&bin);
+
+        let (resolved, searched) = resolve_on_path("faux-agent", &[dir.clone()]);
+        assert_eq!(resolved.as_deref(), Some(bin.as_path()));
+        assert_eq!(searched, vec![dir.clone()]);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_on_path_reports_searched_dirs_when_absent() {
+        let a = temp_dir("absent-a");
+        let b = temp_dir("absent-b");
+        let (resolved, searched) = resolve_on_path("nope-agent", &[a.clone(), b.clone()]);
+        assert!(resolved.is_none());
+        assert_eq!(searched, vec![a.clone(), b.clone()]);
+        fs::remove_dir_all(&a).ok();
+        fs::remove_dir_all(&b).ok();
+    }
+
+    #[test]
+    fn resolve_on_path_accepts_existing_absolute_path() {
+        let dir = temp_dir("abs");
+        let bin = dir.join("agent-bin");
+        fs::write(&bin, b"#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        make_executable(&bin);
+
+        let other = temp_dir("abs-other");
+        // An explicit path is checked directly, not searched in path_dirs.
+        let (resolved, searched) = resolve_on_path(&bin.to_string_lossy(), &[other.clone()]);
+        assert_eq!(resolved.as_deref(), Some(bin.as_path()));
+        assert!(searched.is_empty());
+
+        let (missing, searched_missing) =
+            resolve_on_path("/no/such/agent/binary", &[other.clone()]);
+        assert!(missing.is_none());
+        assert!(searched_missing.is_empty());
+
+        fs::remove_dir_all(&dir).ok();
+        fs::remove_dir_all(&other).ok();
+    }
+
+    #[test]
+    fn stdout_snippet_truncates_to_cap_and_trims() {
+        let long = vec![b'x'; 2000];
+        let snippet = stdout_snippet(&long, PROBE_SNIPPET_CAP);
+        assert_eq!(snippet.len(), PROBE_SNIPPET_CAP);
+
+        let trimmed = stdout_snippet(b"   gemini 1.2.3 \n", PROBE_SNIPPET_CAP);
+        assert_eq!(trimmed, "gemini 1.2.3");
+    }
+
+    #[test]
+    fn stdout_snippet_handles_non_utf8_without_panicking() {
+        let snippet = stdout_snippet(&[0xff, 0xfe, 0x41], PROBE_SNIPPET_CAP);
+        assert!(snippet.contains('A'));
+    }
+
+    #[test]
+    fn verdict_available_when_found_and_no_probe() {
+        let candidates = vec![CandidateDiagnostic {
+            program: "x".into(),
+            args: vec![],
+            resolved_program: Some("/bin/x".into()),
+            found_on_path: true,
+            searched_dirs: vec![],
+            probe: None,
+        }];
+        assert_eq!(verdict_for(&candidates), "available");
+    }
+
+    #[test]
+    fn verdict_not_found_when_nothing_resolves() {
+        let candidates = vec![CandidateDiagnostic {
+            program: "x".into(),
+            args: vec![],
+            resolved_program: None,
+            found_on_path: false,
+            searched_dirs: vec!["/bin".into()],
+            probe: None,
+        }];
+        assert_eq!(verdict_for(&candidates), "not_found");
+    }
+
+    #[test]
+    fn verdict_probe_failed_when_probe_times_out_or_errors() {
+        let timed_out = vec![CandidateDiagnostic {
+            program: "x".into(),
+            args: vec![],
+            resolved_program: Some("/bin/x".into()),
+            found_on_path: true,
+            searched_dirs: vec![],
+            probe: Some(ProbeResult {
+                command: "x --version".into(),
+                exit_code: None,
+                stdout_snippet: String::new(),
+                timed_out: true,
+            }),
+        }];
+        assert_eq!(verdict_for(&timed_out), "probe_failed");
+
+        let nonzero = vec![CandidateDiagnostic {
+            program: "x".into(),
+            args: vec![],
+            resolved_program: Some("/bin/x".into()),
+            found_on_path: true,
+            searched_dirs: vec![],
+            probe: Some(ProbeResult {
+                command: "x --version".into(),
+                exit_code: Some(1),
+                stdout_snippet: String::new(),
+                timed_out: false,
+            }),
+        }];
+        assert_eq!(verdict_for(&nonzero), "probe_failed");
+    }
+
+    #[test]
+    fn verdict_available_when_probe_succeeds() {
+        let candidates = vec![CandidateDiagnostic {
+            program: "x".into(),
+            args: vec![],
+            resolved_program: Some("/bin/x".into()),
+            found_on_path: true,
+            searched_dirs: vec![],
+            probe: Some(ProbeResult {
+                command: "x --version".into(),
+                exit_code: Some(0),
+                stdout_snippet: "x 1.0".into(),
+                timed_out: false,
+            }),
+        }];
+        assert_eq!(verdict_for(&candidates), "available");
+    }
+
+    #[test]
+    fn build_diagnostics_covers_every_registry_agent() {
+        let report = build_diagnostics();
+        assert_eq!(report.agents.len(), builtin_registry().len());
+        assert!(!report.resolved_path.is_empty());
+
+        let ids: Vec<&str> = report.agents.iter().map(|a| a.id.as_str()).collect();
+        let expected: Vec<&str> = builtin_registry().iter().map(|d| d.id).collect();
+        assert_eq!(ids, expected);
+
+        for agent in &report.agents {
+            assert!(matches!(
+                agent.verdict.as_str(),
+                "available" | "not_found" | "probe_failed"
+            ));
+            assert!(!agent.candidates.is_empty());
+        }
+    }
+}
