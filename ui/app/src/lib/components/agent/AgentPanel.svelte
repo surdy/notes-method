@@ -42,6 +42,9 @@
 		store = next;
 		await next.loadAgents();
 		await next.loadThreads();
+		// Establish the session up front so the model picker is available before
+		// the first message (ACP exposes models only after session/new).
+		void next.prepareSession();
 	}
 
 	onDestroy(() => store?.dispose());

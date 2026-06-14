@@ -76,6 +76,7 @@ export class ChatStore {
 
 	private readonly transcripts: TranscriptApi;
 	private unsubscribers: Array<() => void> = [];
+	private sessionStartPromise: Promise<void> | null = null;
 
 	constructor(
 		private readonly vault: string,
@@ -129,10 +130,13 @@ export class ChatStore {
 	selectAgent(id: string): void {
 		if (id === this.selectedAgent) return;
 		this.selectedAgent = id;
-		// A different agent needs a fresh ACP session; re-established lazily on send.
+		// A different agent needs a fresh ACP session.
 		this.sessionId = null;
+		this.sessionStartPromise = null;
 		this.modelPicker = null;
 		this.selectedModel = null;
+		// Re-establish eagerly so the model picker reflects the new agent.
+		void this.prepareSession();
 	}
 
 	/** Begin a brand-new conversation (no persisted thread yet). */
@@ -140,6 +144,7 @@ export class ChatStore {
 		this.currentThreadId = null;
 		this.conversation = emptyConversation();
 		this.sessionId = null;
+		this.sessionStartPromise = null;
 		this.errorMessage = null;
 	}
 
@@ -147,6 +152,7 @@ export class ChatStore {
 	async openThread(threadId: string): Promise<void> {
 		this.currentThreadId = threadId;
 		this.sessionId = null;
+		this.sessionStartPromise = null;
 		this.errorMessage = null;
 		const messages = await this.transcripts.listMessages(this.vault, threadId);
 		this.conversation = fromMessages(messages);
@@ -160,16 +166,44 @@ export class ChatStore {
 
 	private async ensureSession(): Promise<void> {
 		if (this.sessionId || !this.selectedAgent) return;
-		const result = await this.client.startSession({
-			vault: this.vault,
-			agent: this.selectedAgent,
-			readOnly: this.readOnly,
-			breakGlass: this.breakGlass(),
-			threadId: this.currentThreadId
-		});
-		this.sessionId = result.sessionId;
-		this.modelPicker = result.models;
-		this.selectedModel = result.models?.current ?? this.selectedModel;
+		// Dedupe concurrent starts (eager prepareSession + a quick send) so the
+		// agent process is spawned at most once per session.
+		if (this.sessionStartPromise) return this.sessionStartPromise;
+		this.sessionStartPromise = (async () => {
+			const result = await this.client.startSession({
+				vault: this.vault,
+				agent: this.selectedAgent!,
+				readOnly: this.readOnly,
+				breakGlass: this.breakGlass(),
+				threadId: this.currentThreadId
+			});
+			this.sessionId = result.sessionId;
+			this.modelPicker = result.models;
+			this.selectedModel = result.models?.current ?? this.selectedModel;
+		})();
+		try {
+			await this.sessionStartPromise;
+		} finally {
+			this.sessionStartPromise = null;
+		}
+	}
+
+	/**
+	 * Eagerly establish the session for the selected agent so the model picker is
+	 * available before the first message. Best-effort: only attempts it for an
+	 * agent that detection marked available, and swallows failures so a missing
+	 * or slow agent never raises a scary error on panel open — `send()` still
+	 * surfaces real errors when the user actually prompts.
+	 */
+	async prepareSession(): Promise<void> {
+		if (this.sessionId) return;
+		const agent = this.agents.find((a) => a.id === this.selectedAgent);
+		if (!agent?.available) return;
+		try {
+			await this.ensureSession();
+		} catch {
+			// Leave the model picker hidden; send() will retry and surface errors.
+		}
 	}
 
 	/** Send the current input as a prompt. Persists the user message first. */
@@ -178,6 +212,10 @@ export class ChatStore {
 		if (!text || this.busy || !this.selectedAgent) return;
 		this.input = '';
 		this.errorMessage = null;
+
+		// Render the user's message immediately. ACP agents do not echo the
+		// prompt back as a session/update, so the UI owns this turn's user bubble.
+		this.conversation = reduce(this.conversation, { type: 'user_message', text });
 
 		try {
 			if (!this.currentThreadId) {

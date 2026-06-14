@@ -173,7 +173,6 @@ describe('ChatStore orchestration', () => {
 		store.input = 'hi';
 		await store.send();
 
-		client.emit('sess-1', { type: 'user_message', text: 'hi' });
 		client.emit('sess-1', { type: 'agent_message_delta', text: 'Hel' });
 		client.emit('sess-1', { type: 'agent_message_delta', text: 'lo' });
 		expect(store.busy).toBe(true);
@@ -190,6 +189,25 @@ describe('ChatStore orchestration', () => {
 		]);
 	});
 
+	it('renders the user message immediately on send, without a backend echo', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		store.start();
+
+		store.input = 'summarize my week';
+		await store.send();
+
+		// ACP agents do not echo the prompt; the store renders it locally.
+		const userMsgs = store.conversation.items.filter(
+			(i) => i.kind === 'message' && i.role === 'user'
+		);
+		expect(userMsgs).toHaveLength(1);
+		expect(userMsgs[0].kind === 'message' && userMsgs[0].text).toBe('summarize my week');
+		expect(store.busy).toBe(true);
+	});
+
 	it('ignores events from a superseded session', async () => {
 		const client = new MockAgentClient();
 		const { api } = fakeTranscripts();
@@ -197,10 +215,50 @@ describe('ChatStore orchestration', () => {
 		await store.loadAgents();
 		store.start();
 		store.input = 'hi';
-		await store.send(); // sessionId = sess-1
+		await store.send(); // sessionId = sess-1, one local user echo
 
 		client.emit('sess-OTHER', { type: 'agent_message_delta', text: 'leak' });
-		expect(store.conversation.items).toHaveLength(0);
+		// Only the local user echo remains; the leaked agent delta is dropped.
+		expect(store.conversation.items).toHaveLength(1);
+		expect(
+			store.conversation.items.some((i) => i.kind === 'message' && i.role === 'agent')
+		).toBe(false);
+	});
+
+	it('eagerly prepares the session so the model picker is ready before sending', async () => {
+		const client = new MockAgentClient();
+		client.models = {
+			current: 'gpt-5',
+			options: [
+				{ id: 'gpt-5', name: 'GPT-5' },
+				{ id: 'opus', name: 'Opus' }
+			]
+		};
+		const { api } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+
+		await store.prepareSession();
+		expect(client.startCalls).toHaveLength(1);
+		expect(store.modelPicker?.current).toBe('gpt-5');
+		expect(store.selectedModel).toBe('gpt-5');
+
+		// Sending reuses the established session rather than starting a new one.
+		store.input = 'hi';
+		await store.send();
+		expect(client.startCalls).toHaveLength(1);
+	});
+
+	it('does not eagerly start a session for an unavailable agent', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		store.selectAgent('claude'); // unavailable in the mock list
+
+		await store.prepareSession();
+		expect(client.startCalls).toHaveLength(0);
+		expect(store.modelPicker).toBeNull();
 	});
 
 	it('captures and answers a permission prompt', async () => {

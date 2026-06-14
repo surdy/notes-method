@@ -53,10 +53,8 @@ async function installFakeBridge(page: Page): Promise<void> {
 					};
 				case 'agent_prompt': {
 					calls.agent_prompt += 1;
-					const text = String(args.text ?? '');
 					const ev = (event: unknown, delay: number) =>
 						setTimeout(() => emit('notesmith://agent-event', { sessionId: SID, event }), delay);
-					ev({ type: 'user_message', text }, 10);
 					ev({ type: 'agent_message_delta', text: 'Here is ' }, 30);
 					ev({ type: 'agent_message_delta', text: 'a summary of this week.' }, 50);
 					ev({ type: 'tool_call', id: 't1', name: 'search_notes', args: { query: 'this week' } }, 70);
