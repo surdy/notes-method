@@ -189,6 +189,101 @@ async fn read_only_scope_rejects_permission_requests() {
     }));
 }
 
+/// A fake agent that, on every prompt, issues an `fs/write_text_file` request
+/// back to the client and reports whether the client answered with a result or
+/// an error. It exercises the break-glass local-I/O wiring end-to-end (the
+/// capability advertisement plus the registered fs handler).
+const BREAK_GLASS_AGENT: &str = r#"
+import sys, json
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+pending = {}
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    msg = json.loads(line)
+    method = msg.get("method")
+    mid = msg.get("id")
+    if method == "initialize":
+        send({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": 1}})
+    elif method == "session/new":
+        send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": "fake-session"}})
+    elif method == "session/prompt":
+        send({
+            "jsonrpc": "2.0", "id": 200, "method": "fs/write_text_file",
+            "params": {
+                "sessionId": "fake-session",
+                "path": "bg.md",
+                "content": "hi from agent",
+            },
+        })
+        pending[200] = mid
+    elif mid in pending:
+        prompt_id = pending.pop(mid)
+        note = "WROTE:ok" if "result" in msg else "WROTE:err"
+        send({
+            "jsonrpc": "2.0", "method": "session/update",
+            "params": {"sessionId": "fake-session", "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": note},
+            }},
+        })
+        send({"jsonrpc": "2.0", "id": prompt_id, "result": {"stopReason": "end_turn"}})
+"#;
+
+fn break_glass_session(dir: &std::path::Path) -> AcpSession {
+    AcpSession::new(
+        "python3",
+        vec![
+            "-u".to_string(),
+            "-c".to_string(),
+            BREAK_GLASS_AGENT.to_string(),
+        ],
+    )
+    .in_dir(Some(dir.to_path_buf()))
+    .read_only(false)
+}
+
+#[tokio::test]
+async fn break_glass_on_lets_the_agent_write_within_the_vault() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut session = break_glass_session(dir.path()).with_local_io(true);
+    session.send("write a note").await.expect("send");
+
+    let events = drain_until_done(&mut session).await;
+    assert!(
+        events.contains(&AgentEvent::AgentMessageDelta {
+            text: "WROTE:ok".to_string()
+        }),
+        "expected the write to succeed, got {events:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("bg.md")).unwrap(),
+        "hi from agent"
+    );
+}
+
+#[tokio::test]
+async fn break_glass_off_refuses_agent_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    // local_io defaults off: the fs handler reports method-not-found.
+    let mut session = break_glass_session(dir.path());
+    session.send("write a note").await.expect("send");
+
+    let events = drain_until_done(&mut session).await;
+    assert!(
+        events.contains(&AgentEvent::AgentMessageDelta {
+            text: "WROTE:err".to_string()
+        }),
+        "expected the write to be refused, got {events:?}"
+    );
+    assert!(!dir.path().join("bg.md").exists());
+}
+
 #[tokio::test]
 async fn missing_binary_is_a_clean_error_not_a_panic() {
     let mut session = AcpSession::new("notesmith-acp-does-not-exist", vec!["--acp".to_string()]);

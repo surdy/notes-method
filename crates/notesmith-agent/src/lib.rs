@@ -15,6 +15,7 @@
 //! headless CLI both build on this surface.
 
 mod acp;
+mod acp_client;
 mod error;
 mod event;
 mod mcp;

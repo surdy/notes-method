@@ -36,17 +36,20 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use agent_client_protocol::schema::{
-    ClientCapabilities, ContentBlock, FileSystemCapabilities, Implementation, InitializeRequest,
-    McpServer, McpServerStdio, NewSessionRequest, PermissionOption, PermissionOptionKind,
-    PromptRequest, ProtocolVersion, RequestPermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, SelectedPermissionOutcome, SessionId, SessionNotification,
-    SessionUpdate, TextContent, ToolCallContent, ToolCallStatus,
+    ClientCapabilities, ContentBlock, CreateTerminalRequest, FileSystemCapabilities,
+    Implementation, InitializeRequest, KillTerminalRequest, McpServer, McpServerStdio,
+    NewSessionRequest, PermissionOption, PermissionOptionKind, PromptRequest, ProtocolVersion,
+    ReadTextFileRequest, ReleaseTerminalRequest, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome, SessionId,
+    SessionNotification, SessionUpdate, TerminalOutputRequest, TextContent, ToolCallContent,
+    ToolCallStatus, WaitForTerminalExitRequest, WaitForTerminalExitResponse, WriteTextFileRequest,
 };
 use agent_client_protocol::{AcpAgent, Client};
 use serde_json::json;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
+use crate::acp_client::{LocalIoHandler, await_exit};
 use crate::error::AgentError;
 use crate::event::{AgentEvent, ToolCall, ToolResult};
 use crate::mcp::McpBinding;
@@ -115,18 +118,26 @@ pub(crate) fn session_preamble(has_mcp: bool, local_io: bool) -> String {
     text
 }
 
-/// Advertise filesystem/terminal client capabilities as `local_io`: when the
-/// opt-in local-I/O break-glass is off (the default), the agent reaches the
-/// vault through the Notesmith MCP tools only; when on, Notesmith proxies the
-/// agent's `fs/*` and `terminal/*` requests scoped to the vault (Phase 4).
-fn initialize_request(local_io: bool) -> InitializeRequest {
+/// Advertise the filesystem/terminal client capabilities for the break-glass
+/// matrix (ADR 0012, Decisions 7–8):
+///
+/// - break-glass **off** (`local_io = false`, the default): advertise neither —
+///   the agent reaches the vault through the Notesmith MCP tools only;
+/// - break-glass **on**, read-write: advertise `fs/read` + `fs/write` +
+///   `terminal`, all scoped to the vault directory;
+/// - break-glass **on**, read-only: advertise `fs/read` only — writes and the
+///   terminal stay blocked, matching the read-only scope.
+fn initialize_request(local_io: bool, read_only: bool) -> InitializeRequest {
+    let read = local_io;
+    let write = local_io && !read_only;
+    let terminal = local_io && !read_only;
     InitializeRequest::new(ProtocolVersion::V1)
         .client_capabilities(
             ClientCapabilities::new()
                 .fs(FileSystemCapabilities::new()
-                    .read_text_file(local_io)
-                    .write_text_file(local_io))
-                .terminal(local_io),
+                    .read_text_file(read)
+                    .write_text_file(write))
+                .terminal(terminal),
         )
         .client_info(Implementation::new(CLIENT_NAME, env!("CARGO_PKG_VERSION")))
 }
@@ -501,6 +512,11 @@ impl AcpSession {
         let read_only = self.read_only;
         let decider = self.decider.clone();
         let permission_state = self.permission_state.clone();
+        let io_handler = Arc::new(LocalIoHandler::new(
+            local_io,
+            read_only,
+            PathBuf::from(&cwd),
+        ));
         let preamble = session_preamble(self.mcp.is_some(), self.local_io);
 
         let notif_event_tx = event_tx.clone();
@@ -508,6 +524,18 @@ impl AcpSession {
         let outer_event_tx = event_tx;
 
         let driver = tokio::spawn(async move {
+            // Per-handler clones of the vault-scoped local-I/O handler. The
+            // handlers are always registered but report "method not found" when
+            // break-glass is off, so the advertised capabilities are the real
+            // gate (with these as defense in depth).
+            let h_read = io_handler.clone();
+            let h_write = io_handler.clone();
+            let h_term_create = io_handler.clone();
+            let h_term_output = io_handler.clone();
+            let h_term_kill = io_handler.clone();
+            let h_term_release = io_handler.clone();
+            let h_term_wait = io_handler;
+
             let result = Client
                 .builder()
                 .name(CLIENT_NAME)
@@ -528,11 +556,63 @@ impl AcpSession {
                     },
                     agent_client_protocol::on_receive_request!(),
                 )
+                .on_receive_request(
+                    async move |req: ReadTextFileRequest, responder, _cx| {
+                        responder.respond_with_result(h_read.fs_read(&req))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |req: WriteTextFileRequest, responder, _cx| {
+                        responder.respond_with_result(h_write.fs_write(&req))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |req: CreateTerminalRequest, responder, _cx| {
+                        responder.respond_with_result(h_term_create.terminal_create(&req).await)
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |req: TerminalOutputRequest, responder, _cx| {
+                        responder.respond_with_result(h_term_output.terminal_output(&req).await)
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |req: KillTerminalRequest, responder, _cx| {
+                        responder.respond_with_result(h_term_kill.terminal_kill(&req).await)
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |req: ReleaseTerminalRequest, responder, _cx| {
+                        responder.respond_with_result(h_term_release.terminal_release(&req).await)
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |req: WaitForTerminalExitRequest, responder, cx| {
+                        // The wait runs off the dispatch loop so a long-running
+                        // command never blocks the connection.
+                        match h_term_wait.terminal_wait_handles(&req).await {
+                            Ok((exit, done)) => cx.spawn(async move {
+                                let exit = await_exit(exit, done).await;
+                                responder.respond(WaitForTerminalExitResponse::new(
+                                    exit.to_exit_status(),
+                                ))
+                            }),
+                            Err(error) => responder.respond_with_error(error),
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
                 .connect_with(agent, async move |cx| {
                     // Handshake. block_task() is safe here: main_fn runs
                     // alongside (not inside) the inbound dispatch loop.
                     if let Err(error) = cx
-                        .send_request(initialize_request(local_io))
+                        .send_request(initialize_request(local_io, read_only))
                         .block_task()
                         .await
                     {
@@ -672,17 +752,33 @@ mod tests {
     }
 
     #[test]
-    fn initialize_request_advertises_capabilities_by_local_io() {
-        let off = serde_json::to_value(initialize_request(false)).unwrap();
+    fn initialize_request_capability_matrix() {
+        // Break-glass off: advertise neither fs nor terminal.
+        let off = serde_json::to_value(initialize_request(false, false)).unwrap();
         assert_eq!(
             off["clientCapabilities"]["fs"]["readTextFile"],
             json!(false)
         );
+        assert_eq!(
+            off["clientCapabilities"]["fs"]["writeTextFile"],
+            json!(false)
+        );
         assert_eq!(off["clientCapabilities"]["terminal"], json!(false));
 
-        let on = serde_json::to_value(initialize_request(true)).unwrap();
-        assert_eq!(on["clientCapabilities"]["fs"]["writeTextFile"], json!(true));
-        assert_eq!(on["clientCapabilities"]["terminal"], json!(true));
+        // Break-glass on, read-write: advertise read + write + terminal.
+        let rw = serde_json::to_value(initialize_request(true, false)).unwrap();
+        assert_eq!(rw["clientCapabilities"]["fs"]["readTextFile"], json!(true));
+        assert_eq!(rw["clientCapabilities"]["fs"]["writeTextFile"], json!(true));
+        assert_eq!(rw["clientCapabilities"]["terminal"], json!(true));
+
+        // Break-glass on, read-only: read only — writes and terminal blocked.
+        let ro = serde_json::to_value(initialize_request(true, true)).unwrap();
+        assert_eq!(ro["clientCapabilities"]["fs"]["readTextFile"], json!(true));
+        assert_eq!(
+            ro["clientCapabilities"]["fs"]["writeTextFile"],
+            json!(false)
+        );
+        assert_eq!(ro["clientCapabilities"]["terminal"], json!(false));
     }
 
     #[test]
