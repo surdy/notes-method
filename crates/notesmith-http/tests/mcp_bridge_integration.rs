@@ -194,3 +194,90 @@ async fn read_only_bridge_rejects_write_tools() {
     bridge.await.unwrap();
     fixture.server.abort();
 }
+
+#[tokio::test]
+async fn bridge_round_trips_write_then_read_tools() {
+    let fixture = BridgeFixture::start().await;
+    let endpoint = fixture.endpoint("/mcp/test-vault");
+
+    let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+    let bridge = tokio::spawn(async move {
+        notesmith_mcp::run_bridge(endpoint, server_io)
+            .await
+            .unwrap();
+    });
+
+    let client = ().serve(client_io).await.unwrap();
+
+    // Write a note through the read-write bridge.
+    let created = client
+        .call_tool(CallToolRequestParams {
+            name: "create_note".into(),
+            arguments: Some(
+                serde_json::json!({ "title": "Bridge Roundtrip", "content": "hello from bridge" })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+            meta: None,
+            task: None,
+        })
+        .await
+        .unwrap();
+    assert_ne!(
+        created.is_error,
+        Some(true),
+        "create_note should succeed through the read-write bridge"
+    );
+    let path = created
+        .structured_content
+        .as_ref()
+        .and_then(|value| value.get("path"))
+        .and_then(|value| value.as_str())
+        .expect("create_note must return the new note path")
+        .to_string();
+
+    // Read it back through the same bridge.
+    let fetched = client
+        .call_tool(CallToolRequestParams {
+            name: "get_note".into(),
+            arguments: Some(
+                serde_json::json!({ "path": path })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+            meta: None,
+            task: None,
+        })
+        .await
+        .unwrap();
+    assert_ne!(fetched.is_error, Some(true), "get_note should succeed");
+    let body = serde_json::to_string(&fetched.structured_content).unwrap();
+    assert!(
+        body.contains("hello from bridge"),
+        "round-tripped note content should be readable, got: {body}"
+    );
+
+    client.cancel().await.unwrap();
+    bridge.await.unwrap();
+    fixture.server.abort();
+}
+
+#[tokio::test]
+async fn bridge_errors_promptly_when_daemon_unreachable() {
+    // Port 1 is reserved and refuses connections, so the bridge's initial MCP
+    // handshake fails fast instead of hanging or panicking.
+    let (_client_io, server_io) = tokio::io::duplex(64 * 1024);
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        notesmith_mcp::run_bridge("http://127.0.0.1:1/mcp/test-vault".to_string(), server_io),
+    )
+    .await;
+
+    let bridge_result = result.expect("bridge must not hang when the daemon is unreachable");
+    assert!(
+        bridge_result.is_err(),
+        "bridge should surface an error when the daemon endpoint is unreachable"
+    );
+}
