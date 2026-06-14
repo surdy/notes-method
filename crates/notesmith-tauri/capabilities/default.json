@@ -23,6 +23,16 @@
     "allow-list-open-vaults",
     "allow-close-vault-window",
     "allow-pick-vault-folder",
+    "allow-agent-list",
+    "allow-agent-start",
+    "allow-agent-prompt",
+    "allow-agent-select-model",
+    "allow-agent-set-read-only",
+    "allow-agent-answer-permission",
+    "allow-agent-stop",
+    "allow-agent-config-get",
+    "allow-agent-config-set",
+    "allow-agent-diagnostics",
     {
       "identifier": "shell:allow-spawn",
       "allow": [
