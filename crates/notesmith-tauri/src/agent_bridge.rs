@@ -13,10 +13,12 @@
 //! are emitted on `notesmith://agent-permission` and answered back through
 //! [`agent_answer_permission`].
 //!
-//! MCP transport: the desktop talks to its bundled **local** daemon over HTTP,
-//! so the active vault is exposed to the agent as an HTTP MCP server
-//! (`/mcp/<vault>` read-write, `/mcp-ro/<vault>` read-only) pointed at the same
-//! daemon URL the rest of the app uses.
+//! MCP transport: the active vault is exposed to the agent as an MCP server.
+//! For a **local** daemon the desktop launches the `notesmith mcp start` stdio
+//! bridge (broadest agent support; the bridge forwards to the daemon over HTTP);
+//! for a **remote** daemon the agent connects directly to the daemon's
+//! Streamable HTTP MCP endpoint (`/mcp/<vault>` read-write, `/mcp-ro/<vault>`
+//! read-only).
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -488,13 +490,24 @@ fn build_session(
         session = session.in_dir(Some(path));
     }
 
-    // Expose the active vault over HTTP MCP against the local daemon, choosing
-    // the read-only or read-write endpoint to match the requested scope.
-    let base = crate::current_daemon_url(app);
-    let base = base.trim_end_matches('/');
-    let scope = if opts.read_only { "mcp-ro" } else { "mcp" };
-    let url = format!("{base}/{scope}/{}", opts.vault);
-    session = session.with_mcp(McpBinding::http("notesmith", url));
+    // Expose the active vault to the agent as an MCP server. Per ADR 0012 the
+    // transport depends on where the daemon runs:
+    //   - **local** daemon: launch the `notesmith mcp start` stdio bridge.
+    //     Spawned stdio MCP servers are the most broadly supported transport
+    //     across ACP agents (Copilot's ACP client, in particular, cannot reach
+    //     the Streamable HTTP endpoint), and the bridge forwards to the same
+    //     daemon over HTTP so it shares the live indexes (ADR 0010 Phase 3).
+    //   - **remote** daemon: connect directly to the daemon's Streamable HTTP
+    //     MCP endpoint.
+    // Read-only vs read-write scope is carried on the binding either way.
+    let local = crate::should_use_local_vault_state(&crate::DaemonSettings::default());
+    let sidecar = if local {
+        crate::resolve_sidecar_path()
+    } else {
+        None
+    };
+    let binding = mcp_binding_for(local, sidecar, &crate::current_daemon_url(app), opts);
+    session = session.with_mcp(binding);
 
     let decider = Arc::new(BridgeDecider {
         app: app.clone(),
@@ -506,6 +519,29 @@ fn build_session(
         .read_only(opts.read_only)
         .with_local_io(opts.break_glass)
         .with_permission_decider(decider))
+}
+
+/// Select the MCP transport binding for a session. A `local` daemon uses the
+/// `notesmith mcp start` stdio bridge (falling back to the PATH-resolved
+/// `notesmith` binary when no bundled sidecar is found); a remote daemon
+/// connects to the Streamable HTTP endpoint at `daemon_url`.
+fn mcp_binding_for(
+    local: bool,
+    sidecar: Option<PathBuf>,
+    daemon_url: &str,
+    opts: &StartSessionOptions,
+) -> McpBinding {
+    if local {
+        let bin = sidecar
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "notesmith".to_string());
+        McpBinding::local_bridge(bin, &opts.vault, opts.read_only)
+    } else {
+        let base = daemon_url.trim_end_matches('/');
+        let scope = if opts.read_only { "mcp-ro" } else { "mcp" };
+        let url = format!("{base}/{scope}/{}", opts.vault);
+        McpBinding::http("notesmith", url)
+    }
 }
 
 fn vault_root(vault: &str) -> Option<PathBuf> {
@@ -1065,5 +1101,80 @@ mod tests {
         let cfg = dto_to_agents_config(dto);
         assert_eq!(cfg.entries.len(), 1);
         assert!(cfg.entries.contains_key("real"));
+    }
+
+    fn session_opts(vault: &str, read_only: bool) -> StartSessionOptions {
+        StartSessionOptions {
+            vault: vault.to_string(),
+            agent: "copilot".to_string(),
+            read_only,
+            break_glass: false,
+        }
+    }
+
+    #[test]
+    fn local_session_uses_the_stdio_bridge_with_the_bundled_sidecar() {
+        let opts = session_opts("work", false);
+        let sidecar = PathBuf::from("/Apps/Notesmith.app/notesmith-aarch64-apple-darwin");
+        let binding = mcp_binding_for(true, Some(sidecar.clone()), "http://127.0.0.1:27183", &opts);
+
+        match binding {
+            McpBinding::Stdio {
+                command,
+                args,
+                read_only,
+                ..
+            } => {
+                assert_eq!(command, sidecar.to_string_lossy());
+                assert_eq!(args, ["--vault", "work", "mcp", "start"]);
+                assert!(!read_only);
+            }
+            other => panic!("expected a stdio binding for the local daemon, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn local_session_falls_back_to_path_resolved_notesmith_when_no_sidecar() {
+        let opts = session_opts("journal", true);
+        let binding = mcp_binding_for(true, None, "http://127.0.0.1:27183", &opts);
+
+        match binding {
+            McpBinding::Stdio { command, args, .. } => {
+                assert_eq!(command, "notesmith");
+                assert_eq!(args, ["--vault", "journal", "mcp", "start", "--read-only"]);
+            }
+            other => panic!("expected a stdio binding, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn remote_session_uses_the_streamable_http_endpoint() {
+        let rw = mcp_binding_for(
+            false,
+            None,
+            "https://notes.example.com/",
+            &session_opts("work", false),
+        );
+        match rw {
+            McpBinding::Http { url, read_only, .. } => {
+                assert_eq!(url, "https://notes.example.com/mcp/work");
+                assert!(!read_only);
+            }
+            other => panic!("expected an http binding for the remote daemon, got {other:?}"),
+        }
+
+        let ro = mcp_binding_for(
+            false,
+            None,
+            "https://notes.example.com",
+            &session_opts("work", true),
+        );
+        match ro {
+            McpBinding::Http { url, read_only, .. } => {
+                assert_eq!(url, "https://notes.example.com/mcp-ro/work");
+                assert!(read_only);
+            }
+            other => panic!("expected an http binding, got {other:?}"),
+        }
     }
 }
