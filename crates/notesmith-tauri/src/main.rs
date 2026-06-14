@@ -38,6 +38,7 @@ use tokio::process::Child;
 use std::os::unix::process::ExitStatusExt;
 
 mod agent_bridge;
+mod agent_path;
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const SETTINGS_WINDOW_LABEL: &str = "settings";
@@ -338,6 +339,10 @@ impl WindowsPersistState {
 }
 
 fn main() {
+    // Resolve the real PATH before anything spawns an agent CLI: macOS GUI
+    // launches inherit a minimal launchd PATH without Homebrew/nvm/etc. (ADR 0013).
+    agent_path::apply_resolved_path();
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
