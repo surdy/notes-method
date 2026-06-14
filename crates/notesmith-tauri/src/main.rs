@@ -501,9 +501,11 @@ fn initialize_app(app: &tauri::App) -> Result<(), DynError> {
 
 /// Resolve the bundled notesmith sidecar binary path.
 ///
-/// In a packaged app, the sidecar lives next to the main executable with a
-/// target-triple suffix (e.g. `notesmith-aarch64-apple-darwin`). In dev mode
-/// the sidecar won't exist, so we return `None` and fall back to `PATH`.
+/// Tauri **strips the target-triple suffix** when bundling `externalBin`, so the
+/// packaged sidecar lives next to the main executable as plain `notesmith`
+/// (e.g. `Notesmith.app/Contents/MacOS/notesmith`). Some contexts (e.g. the
+/// source `binaries/` dir) keep the triple-suffixed name, so we accept both. In
+/// dev mode no sidecar exists, so we return `None` and fall back to `PATH`.
 fn resolve_sidecar_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let exe_dir = exe.parent()?;
@@ -512,19 +514,32 @@ fn resolve_sidecar_path() -> Option<PathBuf> {
         .or(option_env!("TARGET"))
         .unwrap_or(env!("TARGET_TRIPLE"));
 
-    let extension = if cfg!(windows) { ".exe" } else { "" };
-    let sidecar = exe_dir.join(format!("notesmith-{target_triple}{extension}"));
-
-    if sidecar.exists() {
-        tracing::info!("resolved sidecar: {}", sidecar.display());
-        Some(sidecar)
-    } else {
-        tracing::info!(
-            "sidecar not found at {}; falling back to PATH",
-            sidecar.display()
-        );
-        None
+    match find_sidecar_in(exe_dir, target_triple) {
+        Some(sidecar) => {
+            tracing::info!("resolved sidecar: {}", sidecar.display());
+            Some(sidecar)
+        }
+        None => {
+            tracing::info!(
+                "no notesmith sidecar next to {}; falling back to PATH",
+                exe_dir.display()
+            );
+            None
+        }
     }
+}
+
+/// Find the notesmith sidecar in `dir`, preferring the triple-stripped name that
+/// Tauri produces when bundling and falling back to the triple-suffixed source
+/// name. Returns the first candidate that exists on disk.
+fn find_sidecar_in(dir: &std::path::Path, target_triple: &str) -> Option<PathBuf> {
+    let extension = if cfg!(windows) { ".exe" } else { "" };
+    [
+        dir.join(format!("notesmith{extension}")),
+        dir.join(format!("notesmith-{target_triple}{extension}")),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.exists())
 }
 
 fn setup_deep_links<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
@@ -2612,8 +2627,40 @@ mod tests {
 
     use super::{
         CrashAction, CrashTracker, DaemonSettings, QuitRequestAction, admin_route_url,
-        daemon_error_detail, evaluate_quit_request, should_use_local_vault_state,
+        daemon_error_detail, evaluate_quit_request, find_sidecar_in, should_use_local_vault_state,
     };
+
+    #[test]
+    fn find_sidecar_prefers_the_triple_stripped_bundle_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let triple = "aarch64-apple-darwin";
+        // Tauri ships the sidecar with the triple stripped.
+        std::fs::write(dir.path().join("notesmith"), b"bin").unwrap();
+        std::fs::write(dir.path().join(format!("notesmith-{triple}")), b"bin").unwrap();
+
+        assert_eq!(
+            find_sidecar_in(dir.path(), triple),
+            Some(dir.path().join("notesmith"))
+        );
+    }
+
+    #[test]
+    fn find_sidecar_falls_back_to_the_triple_suffixed_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let triple = "aarch64-apple-darwin";
+        std::fs::write(dir.path().join(format!("notesmith-{triple}")), b"bin").unwrap();
+
+        assert_eq!(
+            find_sidecar_in(dir.path(), triple),
+            Some(dir.path().join(format!("notesmith-{triple}")))
+        );
+    }
+
+    #[test]
+    fn find_sidecar_returns_none_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(find_sidecar_in(dir.path(), "aarch64-apple-darwin"), None);
+    }
 
     #[test]
     fn first_crash_restarts_daemon() {
