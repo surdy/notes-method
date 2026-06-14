@@ -7,7 +7,12 @@
 //! callback — so the spawn → handshake → prompt → stream → terminal pipeline is
 //! exercised end-to-end without depending on a real agent binary.
 
-use notesmith_agent::{AcpSession, AgentEvent, AgentSession};
+use std::sync::Arc;
+
+use futures::future::BoxFuture;
+use notesmith_agent::{
+    AcpSession, AgentEvent, AgentSession, PermissionDecider, PermissionDecision, PermissionRequest,
+};
 
 /// A fake ACP agent. Reads newline-delimited JSON-RPC requests on stdin and:
 /// - answers `initialize` and `session/new` (returning `sessionId`),
@@ -45,7 +50,7 @@ for line in sys.stdin:
                 "jsonrpc": "2.0", "id": 100, "method": "session/request_permission",
                 "params": {
                     "sessionId": "fake-session",
-                    "toolCall": {"toolCallId": "perm-1"},
+                    "toolCall": {"toolCallId": "perm-1", "title": "create_note"},
                     "options": [
                         {"optionId": "yes", "name": "Allow", "kind": "allow_once"},
                         {"optionId": "no", "name": "Reject", "kind": "reject_once"},
@@ -82,6 +87,20 @@ fn fake_agent_session(read_only: bool) -> AcpSession {
         vec!["-u".to_string(), "-c".to_string(), FAKE_AGENT.to_string()],
     );
     session.read_only(read_only)
+}
+
+/// A decider that always returns a fixed decision, standing in for the desktop
+/// chat UI's permission prompt (Phase 8).
+struct FixedDecider(PermissionDecision);
+impl PermissionDecider for FixedDecider {
+    fn decide(&self, _request: PermissionRequest) -> BoxFuture<'static, PermissionDecision> {
+        let decision = self.0;
+        Box::pin(async move { decision })
+    }
+}
+
+fn fake_agent_session_with_decider(read_only: bool, decision: PermissionDecision) -> AcpSession {
+    fake_agent_session(read_only).with_permission_decider(Arc::new(FixedDecider(decision)))
 }
 
 async fn drain_until_done(session: &mut AcpSession) -> Vec<AgentEvent> {
@@ -133,8 +152,10 @@ async fn acp_session_is_multi_turn_on_one_session_id() {
 }
 
 #[tokio::test]
-async fn read_write_scope_approves_permission_requests() {
-    let mut session = fake_agent_session(false);
+async fn read_write_with_allow_decider_approves_a_write() {
+    // A read-write session prompts per write; an "allow once" decision lets the
+    // write through (CHOICE:yes).
+    let mut session = fake_agent_session_with_decider(false, PermissionDecision::AllowOnce);
     session.send("please PERMISSION").await.expect("send");
 
     let events = drain_until_done(&mut session).await;
@@ -144,8 +165,22 @@ async fn read_write_scope_approves_permission_requests() {
 }
 
 #[tokio::test]
+async fn read_write_denies_writes_without_an_explicit_grant() {
+    // The default decider denies, so a read-write write is refused until the
+    // user explicitly approves it (CHOICE:no).
+    let mut session = fake_agent_session(false);
+    session.send("please PERMISSION").await.expect("send");
+
+    let events = drain_until_done(&mut session).await;
+    assert!(events.contains(&AgentEvent::AgentMessageDelta {
+        text: "CHOICE:no".to_string()
+    }));
+}
+
+#[tokio::test]
 async fn read_only_scope_rejects_permission_requests() {
-    let mut session = fake_agent_session(true);
+    // A read-only session hard-denies writes even when a decider would allow.
+    let mut session = fake_agent_session_with_decider(true, PermissionDecision::AllowAlways);
     session.send("please PERMISSION").await.expect("send");
 
     let events = drain_until_done(&mut session).await;

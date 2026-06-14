@@ -18,6 +18,7 @@ mod acp;
 mod error;
 mod event;
 mod mcp;
+mod permission;
 mod session;
 
 pub use acp::{
@@ -27,4 +28,7 @@ pub use acp::{
 pub use error::AgentError;
 pub use event::{AgentEvent, ToolCall, ToolResult};
 pub use mcp::McpBinding;
+pub use permission::{
+    DenyAll, PermissionDecider, PermissionDecision, PermissionRequest, PermissionState,
+};
 pub use session::AgentSession;

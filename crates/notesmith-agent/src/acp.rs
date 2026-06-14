@@ -50,6 +50,9 @@ use tokio::task::JoinHandle;
 use crate::error::AgentError;
 use crate::event::{AgentEvent, ToolCall, ToolResult};
 use crate::mcp::McpBinding;
+use crate::permission::{
+    DenyAll, PermissionDecider, PermissionRequest, PermissionState, resolve_permission,
+};
 use crate::session::AgentSession;
 
 /// Client name advertised to the agent during `initialize`.
@@ -218,34 +221,86 @@ fn map_session_update(update: SessionUpdate) -> Vec<AgentEvent> {
 }
 
 /// Decide how to answer a `session/request_permission` callback given the
-/// session scope. Read-write selects an allow option; read-only selects a
-/// reject option, preferring the "once" polarity. Falls back to cancelling when
-/// no suitable option is offered.
-pub(crate) fn permission_outcome(
+/// resolved allow/deny outcome. `allow` selects an allow option (preferring the
+/// "always" polarity when `prefer_always`, otherwise "once"); a deny selects a
+/// reject option, preferring "once". Falls back to cancelling when the agent
+/// offered no matching option.
+pub(crate) fn select_permission_option(
     options: &[PermissionOption],
-    read_only: bool,
+    allow: bool,
+    prefer_always: bool,
 ) -> RequestPermissionOutcome {
-    let (once, always) = if read_only {
-        (
-            PermissionOptionKind::RejectOnce,
-            PermissionOptionKind::RejectAlways,
-        )
-    } else {
-        (
+    let order: [PermissionOptionKind; 2] = match (allow, prefer_always) {
+        (true, true) => [
+            PermissionOptionKind::AllowAlways,
+            PermissionOptionKind::AllowOnce,
+        ],
+        (true, false) => [
             PermissionOptionKind::AllowOnce,
             PermissionOptionKind::AllowAlways,
-        )
+        ],
+        (false, _) => [
+            PermissionOptionKind::RejectOnce,
+            PermissionOptionKind::RejectAlways,
+        ],
     };
-    let pick = options
+    let pick = order
         .iter()
-        .find(|option| option.kind == once)
-        .or_else(|| options.iter().find(|option| option.kind == always));
+        .find_map(|kind| options.iter().find(|option| option.kind == *kind));
     match pick {
         Some(option) => RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
             option.option_id.clone(),
         )),
         None => RequestPermissionOutcome::Cancelled,
     }
+}
+
+/// Extract the prompt context (tool name + kind) from an inbound
+/// `session/request_permission` request. The tool name is the per-tool "allow
+/// always" key, so a missing/empty title falls back to the tool kind and then a
+/// stable placeholder.
+fn permission_request_info(req: &RequestPermissionRequest) -> PermissionRequest {
+    let kind = req.tool_call.fields.kind.as_ref().map(|kind| {
+        serde_json::to_value(kind)
+            .ok()
+            .and_then(|value| value.as_str().map(str::to_string))
+            .unwrap_or_else(|| "other".to_string())
+    });
+    let tool = req
+        .tool_call
+        .fields
+        .title
+        .as_deref()
+        .filter(|title| !title.is_empty())
+        .map(str::to_string)
+        .or_else(|| kind.clone())
+        .unwrap_or_else(|| "tool".to_string());
+    PermissionRequest { tool, kind }
+}
+
+/// Answer a `session/request_permission` callback using the session permission
+/// policy: read-only hard-denies; an already-granted tool is allowed silently;
+/// anything else is delegated to the `decider` (allow once / allow always /
+/// deny), with "allow always" remembered on `state` for the rest of the
+/// session.
+async fn answer_permission(
+    req: &RequestPermissionRequest,
+    read_only: bool,
+    state: &PermissionState,
+    decider: &Arc<dyn PermissionDecider>,
+) -> RequestPermissionOutcome {
+    let info = permission_request_info(req);
+    let already_always = !read_only && state.is_always(&info.tool);
+    let decision = if read_only || already_always {
+        None
+    } else {
+        Some(decider.decide(info.clone()).await)
+    };
+    let resolution = resolve_permission(read_only, already_always, decision);
+    if resolution.remember {
+        state.remember(&info.tool);
+    }
+    select_permission_option(&req.options, resolution.allow, resolution.remember)
 }
 
 /// Whether an MCP endpoint URL denotes the read-only scope (`/mcp-ro/`).
@@ -282,6 +337,8 @@ pub struct AcpSession {
     read_only: bool,
     local_io: bool,
     setup_hint: Option<String>,
+    decider: Arc<dyn PermissionDecider>,
+    permission_state: PermissionState,
     started: bool,
     user_tx: Option<mpsc::UnboundedSender<String>>,
     event_rx: Option<mpsc::UnboundedReceiver<AgentEvent>>,
@@ -299,6 +356,8 @@ impl AcpSession {
             read_only: true,
             local_io: false,
             setup_hint: None,
+            decider: Arc::new(DenyAll),
+            permission_state: PermissionState::new(),
             started: false,
             user_tx: None,
             event_rx: None,
@@ -385,6 +444,15 @@ impl AcpSession {
         self
     }
 
+    /// Inject the decider consulted for write-permission prompts the session
+    /// cannot resolve from its own state (read-write writes that are not yet
+    /// "allow always"). Defaults to [`DenyAll`] so writes can never slip
+    /// through unprompted; the desktop chat UI injects a real prompt (Phase 8).
+    pub fn with_permission_decider(mut self, decider: Arc<dyn PermissionDecider>) -> Self {
+        self.decider = decider;
+        self
+    }
+
     /// Resolve the session working directory as an **absolute** path. ACP
     /// agents reject relative `cwd` values, so a missing or relative working
     /// directory is resolved against the process's current directory.
@@ -431,6 +499,8 @@ impl AcpSession {
         let mcp = self.mcp.clone();
         let local_io = self.local_io;
         let read_only = self.read_only;
+        let decider = self.decider.clone();
+        let permission_state = self.permission_state.clone();
         let preamble = session_preamble(self.mcp.is_some(), self.local_io);
 
         let notif_event_tx = event_tx.clone();
@@ -452,7 +522,8 @@ impl AcpSession {
                 )
                 .on_receive_request(
                     async move |req: RequestPermissionRequest, responder, _cx| {
-                        let outcome = permission_outcome(&req.options, read_only);
+                        let outcome =
+                            answer_permission(&req, read_only, &permission_state, &decider).await;
                         responder.respond(RequestPermissionResponse::new(outcome))
                     },
                     agent_client_protocol::on_receive_request!(),
@@ -581,8 +652,20 @@ impl Drop for AcpSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::permission::PermissionDecision;
     use agent_client_protocol::schema::PermissionOptionId;
+    use futures::future::BoxFuture;
     use serde_json::Value;
+
+    /// A decider that always returns a fixed decision, for exercising the
+    /// permission policy without a UI prompt.
+    struct FixedDecider(PermissionDecision);
+    impl PermissionDecider for FixedDecider {
+        fn decide(&self, _request: PermissionRequest) -> BoxFuture<'static, PermissionDecision> {
+            let decision = self.0;
+            Box::pin(async move { decision })
+        }
+    }
 
     fn update_from(json: Value) -> SessionUpdate {
         serde_json::from_value(json).expect("valid session update")
@@ -772,9 +855,9 @@ mod tests {
     }
 
     #[test]
-    fn read_write_permission_selects_an_allow_option() {
+    fn allow_outcome_selects_an_allow_option() {
         let options = vec![option("yes", "allow_once"), option("no", "reject_once")];
-        let outcome = permission_outcome(&options, false);
+        let outcome = select_permission_option(&options, true, false);
         assert_eq!(
             selected_id(&outcome).map(|id| id.0.to_string()),
             Some("yes".to_string())
@@ -782,9 +865,9 @@ mod tests {
     }
 
     #[test]
-    fn read_only_permission_selects_a_reject_option() {
+    fn deny_outcome_selects_a_reject_option() {
         let options = vec![option("yes", "allow_once"), option("no", "reject_once")];
-        let outcome = permission_outcome(&options, true);
+        let outcome = select_permission_option(&options, false, false);
         assert_eq!(
             selected_id(&outcome).map(|id| id.0.to_string()),
             Some("no".to_string())
@@ -792,9 +875,9 @@ mod tests {
     }
 
     #[test]
-    fn permission_prefers_once_then_always() {
+    fn option_selection_prefers_once_then_always() {
         let options = vec![option("a", "allow_always"), option("b", "allow_once")];
-        let outcome = permission_outcome(&options, false);
+        let outcome = select_permission_option(&options, true, false);
         assert_eq!(
             selected_id(&outcome).map(|id| id.0.to_string()),
             Some("b".to_string())
@@ -802,10 +885,108 @@ mod tests {
     }
 
     #[test]
-    fn permission_with_no_matching_option_is_cancelled() {
+    fn option_selection_prefers_always_when_remembering() {
+        let options = vec![option("b", "allow_once"), option("a", "allow_always")];
+        let outcome = select_permission_option(&options, true, true);
+        assert_eq!(
+            selected_id(&outcome).map(|id| id.0.to_string()),
+            Some("a".to_string())
+        );
+    }
+
+    #[test]
+    fn option_selection_with_no_matching_option_is_cancelled() {
         let options = vec![option("yes", "allow_once")];
-        let outcome = permission_outcome(&options, true);
+        let outcome = select_permission_option(&options, false, false);
         assert!(matches!(outcome, RequestPermissionOutcome::Cancelled));
+    }
+
+    fn permission_req(json: Value) -> RequestPermissionRequest {
+        serde_json::from_value(json).expect("valid permission request")
+    }
+
+    #[test]
+    fn permission_request_info_keys_on_the_tool_title() {
+        let req = permission_req(json!({
+            "sessionId": "s",
+            "toolCall": { "toolCallId": "t1", "title": "create_note", "kind": "edit" },
+            "options": [],
+        }));
+        let info = permission_request_info(&req);
+        assert_eq!(info.tool, "create_note");
+        assert_eq!(info.kind.as_deref(), Some("edit"));
+    }
+
+    #[test]
+    fn permission_request_info_falls_back_to_kind_then_placeholder() {
+        let by_kind = permission_req(json!({
+            "sessionId": "s",
+            "toolCall": { "toolCallId": "t1", "kind": "execute" },
+            "options": [],
+        }));
+        assert_eq!(permission_request_info(&by_kind).tool, "execute");
+
+        let placeholder = permission_req(json!({
+            "sessionId": "s",
+            "toolCall": { "toolCallId": "t1" },
+            "options": [],
+        }));
+        assert_eq!(permission_request_info(&placeholder).tool, "tool");
+    }
+
+    #[tokio::test]
+    async fn answer_permission_hard_denies_in_read_only() {
+        let req = permission_req(json!({
+            "sessionId": "s",
+            "toolCall": { "toolCallId": "t1", "title": "create_note" },
+            "options": [
+                { "optionId": "yes", "name": "Allow", "kind": "allow_once" },
+                { "optionId": "no", "name": "Reject", "kind": "reject_once" },
+            ],
+        }));
+        let state = PermissionState::new();
+        // A decider that would allow must NOT be consulted in read-only mode.
+        let decider: Arc<dyn PermissionDecider> =
+            Arc::new(FixedDecider(PermissionDecision::AllowAlways));
+        let outcome = answer_permission(&req, true, &state, &decider).await;
+        assert_eq!(
+            selected_id(&outcome).map(|id| id.0.to_string()),
+            Some("no".to_string())
+        );
+        assert!(!state.is_always("create_note"));
+    }
+
+    #[tokio::test]
+    async fn answer_permission_remembers_allow_always_per_tool() {
+        let req = permission_req(json!({
+            "sessionId": "s",
+            "toolCall": { "toolCallId": "t1", "title": "create_note" },
+            "options": [
+                { "optionId": "yes", "name": "Allow", "kind": "allow_once" },
+                { "optionId": "always", "name": "Always", "kind": "allow_always" },
+                { "optionId": "no", "name": "Reject", "kind": "reject_once" },
+            ],
+        }));
+        let state = PermissionState::new();
+        let decider: Arc<dyn PermissionDecider> =
+            Arc::new(FixedDecider(PermissionDecision::AllowAlways));
+
+        let first = answer_permission(&req, false, &state, &decider).await;
+        assert_eq!(
+            selected_id(&first).map(|id| id.0.to_string()),
+            Some("always".to_string())
+        );
+        assert!(state.is_always("create_note"));
+
+        // A later prompt for the same tool is allowed silently — the decider
+        // (which here would still allow) is bypassed, and "once" is selected
+        // because the grant is already recorded.
+        let deny: Arc<dyn PermissionDecider> = Arc::new(FixedDecider(PermissionDecision::Deny));
+        let second = answer_permission(&req, false, &state, &deny).await;
+        assert_eq!(
+            selected_id(&second).map(|id| id.0.to_string()),
+            Some("yes".to_string())
+        );
     }
 
     #[test]
