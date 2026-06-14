@@ -9,6 +9,7 @@
 	import { registerHotkeys } from '$lib/hotkeys';
 	import SidebarSettings from '$lib/components/SidebarSettings.svelte';
 	import VaultsSettings from '$lib/components/VaultsSettings.svelte';
+	import AgentSettings from '$lib/components/settings/AgentSettings.svelte';
 	import AppearanceSettings from '$lib/components/settings/AppearanceSettings.svelte';
 	import DailySettings from '$lib/components/settings/DailySettings.svelte';
 	import EditorSettings from '$lib/components/settings/EditorSettings.svelte';
@@ -25,7 +26,8 @@
 		| 'git'
 		| 'hooks'
 		| 'appearance'
-		| 'vaults';
+		| 'vaults'
+		| 'agent';
 
 	let selectedSection = $state<Section>('general');
 	let vault = $derived(vaultStore.currentVault);
@@ -49,6 +51,7 @@
 	];
 
 	const appSections: { id: Section; label: string }[] = [
+		{ id: 'agent', label: 'AI Agent' },
 		{ id: 'vaults', label: 'Vaults' }
 	];
 
@@ -207,6 +210,10 @@
 		{#if selectedSection === 'vaults'}
 			<div class="settings-body">
 				<VaultsSettings capabilities={caps} />
+			</div>
+		{:else if selectedSection === 'agent'}
+			<div class="settings-body">
+				<AgentSettings />
 			</div>
 		{:else if cfg}
 			<div class="settings-body">

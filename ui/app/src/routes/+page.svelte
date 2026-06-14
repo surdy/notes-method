@@ -13,6 +13,7 @@
 	import NoteToolbar from '$lib/components/NoteToolbar.svelte';
 	import NoteViewer from '$lib/components/NoteViewer.svelte';
 	import RightRail from '$lib/components/RightRail.svelte';
+	import AgentPanel from '$lib/components/agent/AgentPanel.svelte';
 	import SidebarViews from '$lib/components/SidebarViews.svelte';
 	import StatusBar from '$lib/components/StatusBar.svelte';
 	import TabBar from '$lib/components/TabBar.svelte';
@@ -33,6 +34,7 @@
 	let paletteMode = $state<'files' | 'commands' | null>(null);
 	let leftSidebarCollapsed = $state(false);
 	let rightRailCollapsed = $state(false);
+	let agentPanelOpen = $state(false);
 	let sidebarViewsRef = $state<{ refresh: () => void; reloadConfig: () => void } | null>(null);
 	let noteEditorRef = $state<
 		| {
@@ -65,6 +67,10 @@
 
 	function toggleRightRail() {
 		rightRailCollapsed = !rightRailCollapsed;
+	}
+
+	function toggleAgentPanel() {
+		agentPanelOpen = !agentPanelOpen;
 	}
 
 	const chromeLayout = $derived(
@@ -198,6 +204,17 @@
 <button
 	class="chrome-icon-btn"
 	type="button"
+	onclick={toggleAgentPanel}
+	aria-label={agentPanelOpen ? 'Close AI agent' : 'Open AI agent'}
+	aria-expanded={agentPanelOpen}
+	aria-controls="agent-panel"
+	title={agentPanelOpen ? 'Close AI agent' : 'Open AI agent'}
+>
+	<span class="agent-toggle-glyph" aria-hidden="true">✦</span>
+</button>
+<button
+	class="chrome-icon-btn"
+	type="button"
 	onclick={toggleRightRail}
 	aria-label={chromeLayout.rightToggleLabel}
 	aria-expanded={!rightRailCollapsed}
@@ -251,6 +268,12 @@ onClose={() => (activeMiddlePaneItem = null)}
 >
 <RightRail bind:this={rightRailRef} collapsed={rightRailCollapsed} />
 </aside>
+
+{#if agentPanelOpen}
+<aside id="agent-panel" class="agent-panel-shell" aria-label="AI agent">
+<AgentPanel />
+</aside>
+{/if}
 </div>
 
 <StatusBar
@@ -475,6 +498,20 @@ overflow: hidden;
 transition:
 	flex-basis 180ms ease,
 	width 180ms ease;
+}
+
+.agent-panel-shell {
+position: relative;
+display: flex;
+width: 340px;
+flex: 0 0 340px;
+overflow: hidden;
+}
+
+.agent-toggle-glyph {
+font-size: 14px;
+line-height: 1;
+color: var(--accent);
 }
 
 @media (max-width: 768px) {
