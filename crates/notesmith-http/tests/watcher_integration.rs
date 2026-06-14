@@ -66,6 +66,7 @@ async fn watcher_indexes_new_markdown_files() {
         sse_connection_count: Arc::new(AtomicUsize::new(0)),
         shutdown_tx,
         shutdown_rx,
+        mcp_services: Default::default(),
     }));
 
     let _watcher = watch_vault(state.clone(), "test-vault".to_string())

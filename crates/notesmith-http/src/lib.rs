@@ -21,7 +21,7 @@ pub use scheduler::{
 pub use server::{
     AppState, SharedAppState, VaultState, build_app_state, build_router, cache_dir_for_vault,
     cache_path_for_vault, create_vault_state, search_index_path_for_vault, serve,
-    serve_configured_vaults, serve_with_listener,
+    serve_configured_vaults, serve_shared_with_listener, serve_with_listener,
 };
 pub use watcher::{VaultWatcher, watch_all_vaults, watch_vault};
 pub use write_guard::WriteGuard;

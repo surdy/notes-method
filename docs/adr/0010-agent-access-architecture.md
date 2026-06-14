@@ -125,8 +125,10 @@ boundary, structured 4xx (not 500) on malformed request bodies.
 2. **Host MCP in the daemon.** Add `/mcp/<vault>` and `/mcp-ro/<vault>`
    HTTP/SSE endpoints (rmcp streamable transport) backed by `LocalOps` /
    `ReadOnlyOps` and the daemon's live per-vault indexes. Endpoints are
-   mounted for vaults known at daemon start; new vaults need a restart.
-   *(Done.)*
+   resolved dynamically per request, so vaults registered after the daemon
+   starts are reachable without a restart (the per-vault service is built
+   lazily on first request and evicted when the vault is removed).
+   *(Done; dynamic mounting added under ADR 0012 Phase 1.)*
 3. **Bridge replaces embedded MCP.** `notesmith mcp start` becomes a
    stdio↔HTTP bridge that connects to the daemon's `/mcp/<vault>` (or
    `/mcp-ro/<vault>`) endpoint and forwards every request; the embedded

@@ -152,6 +152,10 @@ async fn reconcile_vaults(
         {
             let mut state = state.write().await;
             state.vaults.remove(vault_name);
+            if let Ok(mut services) = state.mcp_services.lock() {
+                services.remove(&(vault_name.clone(), true));
+                services.remove(&(vault_name.clone(), false));
+            }
         }
         vault_watchers.lock().await.remove(vault_name);
     }

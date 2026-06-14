@@ -3,18 +3,20 @@ use std::{
     future::Future,
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize},
     },
 };
 
 use anyhow::{Context, anyhow};
 use arc_swap::ArcSwap;
-use axum::http::header;
+use axum::extract::{Path as AxumPath, Request, State};
+use axum::http::{StatusCode, header};
 use axum::middleware;
+use axum::response::{IntoResponse, Response};
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{any, get, post},
 };
 use chrono::{DateTime, Utc};
 use notesmith_config::{DaemonLockfile, GlobalConfig, VaultConfig, migration};
@@ -58,6 +60,7 @@ pub struct AppState {
     pub sse_connection_count: Arc<AtomicUsize>,
     pub shutdown_tx: watch::Sender<bool>,
     pub shutdown_rx: watch::Receiver<bool>,
+    pub mcp_services: McpServiceCache,
 }
 
 impl Default for AppState {
@@ -73,11 +76,21 @@ impl Default for AppState {
             sse_connection_count: Arc::new(AtomicUsize::new(0)),
             shutdown_tx,
             shutdown_rx,
+            mcp_services: McpServiceCache::default(),
         }
     }
 }
 
 pub type SharedAppState = Arc<RwLock<AppState>>;
+
+/// Cache of per-vault MCP-over-HTTP services, keyed by `(vault_name, read_only)`.
+///
+/// rmcp's [`notesmith_mcp::NotesmithHttpService`] holds per-session state, so a
+/// single instance must be reused across requests for a given vault/mode rather
+/// than rebuilt per request. Services are created lazily on first request (so
+/// vaults added after the daemon starts are reachable without a restart) and
+/// evicted when a vault is removed or its path changes.
+pub type McpServiceCache = Arc<Mutex<HashMap<(String, bool), notesmith_mcp::NotesmithHttpService>>>;
 
 pub fn build_router(state: AppState) -> Router {
     build_router_with_app_dir(state, app_build_dir())
@@ -177,6 +190,8 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
             get(list_periodic_notes),
         )
         .route("/api/v/{vault}/events", get(vault_events))
+        .route("/mcp/{vault}", any(mcp_service_handler))
+        .route("/mcp-ro/{vault}", any(mcp_ro_service_handler))
         .nest_service("/app", app_service)
         .layer(middleware::map_response(set_version_headers))
         .layer(middleware::map_response(set_cache_headers))
@@ -288,7 +303,7 @@ async fn wait_for_shutdown_signal(shutdown_rx: watch::Receiver<bool>) -> anyhow:
     Ok(())
 }
 
-async fn serve_shared_with_listener(
+pub async fn serve_shared_with_listener(
     listener: TcpListener,
     state: SharedAppState,
     remove_lockfile_on_shutdown: bool,
@@ -299,10 +314,6 @@ async fn serve_shared_with_listener(
     };
 
     let router = build_router_with_shared_state(state.clone());
-    let router = {
-        let app_state = state.read().await;
-        nest_mcp_routes(router, &app_state)
-    };
 
     axum::serve(listener, router)
         .with_graceful_shutdown(async move {
@@ -324,29 +335,75 @@ pub async fn serve_with_listener(listener: TcpListener, state: AppState) -> anyh
     serve_shared_with_listener(listener, Arc::new(RwLock::new(state)), false).await
 }
 
-/// Mount the per-vault MCP-over-HTTP endpoints onto a built router.
+/// Resolve (lazily building and caching) the per-vault MCP-over-HTTP service.
 ///
-/// For every vault known at serve time, registers a read-write endpoint at
-/// `/mcp/<name>` and a read-only endpoint at `/mcp-ro/<name>`. Each endpoint
-/// shares the daemon's live per-vault indexes via [`notesmith_ops::LocalOps::from_shared`].
-/// Vaults added after the daemon starts only gain an MCP endpoint after a
-/// restart.
-fn nest_mcp_routes(mut router: Router, state: &AppState) -> Router {
-    for (name, vault) in &state.vaults {
-        let read_write: Arc<dyn notesmith_ops::Ops> = Arc::new(local_ops_for(name, vault));
-        let read_only: Arc<dyn notesmith_ops::Ops> =
-            Arc::new(notesmith_ops::ReadOnlyOps::new(local_ops_for(name, vault)));
-        router = router
-            .nest_service(
-                &format!("/mcp/{name}"),
-                notesmith_mcp::streamable_http_service(read_write),
-            )
-            .nest_service(
-                &format!("/mcp-ro/{name}"),
-                notesmith_mcp::streamable_http_service(read_only),
-            );
+/// Returns `None` when the vault is unknown. The service is created on first
+/// request — so vaults added after the daemon starts are reachable without a
+/// restart — and reused on subsequent requests so MCP session state persists.
+async fn resolve_mcp_service(
+    state: &SharedAppState,
+    vault: &str,
+    read_only: bool,
+) -> Option<notesmith_mcp::NotesmithHttpService> {
+    let key = (vault.to_string(), read_only);
+
+    {
+        let cache = state.read().await.mcp_services.clone();
+        let guard = cache.lock().expect("mcp service cache poisoned");
+        if let Some(service) = guard.get(&key) {
+            return Some(service.clone());
+        }
     }
-    router
+
+    // Build outside the cache lock; constructing the service is synchronous and
+    // must not hold the std mutex across the state read.
+    let (service, cache) = {
+        let app_state = state.read().await;
+        let vault_state = app_state.vaults.get(vault)?;
+        let ops: Arc<dyn notesmith_ops::Ops> = if read_only {
+            Arc::new(notesmith_ops::ReadOnlyOps::new(local_ops_for(
+                vault,
+                vault_state,
+            )))
+        } else {
+            Arc::new(local_ops_for(vault, vault_state))
+        };
+        (
+            notesmith_mcp::streamable_http_service(ops),
+            app_state.mcp_services.clone(),
+        )
+    };
+
+    let mut guard = cache.lock().expect("mcp service cache poisoned");
+    Some(guard.entry(key).or_insert(service).clone())
+}
+
+async fn dispatch_mcp(
+    state: SharedAppState,
+    vault: String,
+    read_only: bool,
+    request: Request,
+) -> Response {
+    match resolve_mcp_service(&state, &vault, read_only).await {
+        Some(service) => service.handle(request).await.map(axum::body::Body::new),
+        None => (StatusCode::NOT_FOUND, format!("unknown vault: {vault}")).into_response(),
+    }
+}
+
+async fn mcp_service_handler(
+    State(state): State<SharedAppState>,
+    AxumPath(vault): AxumPath<String>,
+    request: Request,
+) -> Response {
+    dispatch_mcp(state, vault, false, request).await
+}
+
+async fn mcp_ro_service_handler(
+    State(state): State<SharedAppState>,
+    AxumPath(vault): AxumPath<String>,
+    request: Request,
+) -> Response {
+    dispatch_mcp(state, vault, true, request).await
 }
 
 fn local_ops_for(name: &str, vault: &VaultState) -> notesmith_ops::LocalOps {
@@ -640,6 +697,7 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
         sse_connection_count: Arc::new(AtomicUsize::new(0)),
         shutdown_tx,
         shutdown_rx,
+        mcp_services: McpServiceCache::default(),
     })
 }
 

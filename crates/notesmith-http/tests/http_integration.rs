@@ -78,6 +78,7 @@ fn build_test_state_with_vaults(
         sse_connection_count: Arc::new(AtomicUsize::new(0)),
         shutdown_tx,
         shutdown_rx,
+        mcp_services: Default::default(),
     }
 }
 

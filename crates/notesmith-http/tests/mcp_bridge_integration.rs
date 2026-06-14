@@ -104,6 +104,7 @@ fn build_state(vault_name: &str, root: &Path) -> AppState {
         sse_connection_count: Arc::new(AtomicUsize::new(0)),
         shutdown_tx,
         shutdown_rx,
+        mcp_services: Default::default(),
     }
 }
 

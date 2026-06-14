@@ -927,6 +927,7 @@ mod tests {
             sse_connection_count: Arc::new(AtomicUsize::new(0)),
             shutdown_tx,
             shutdown_rx,
+            mcp_services: Default::default(),
         }));
 
         run_canary_check_once(&state, "work", &vault_root, &watcher_state)

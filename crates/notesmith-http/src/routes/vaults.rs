@@ -377,6 +377,7 @@ mod tests {
             sse_connection_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             shutdown_tx,
             shutdown_rx,
+            mcp_services: Default::default(),
         }))
     }
 
@@ -497,6 +498,7 @@ mod tests {
             sse_connection_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             shutdown_tx,
             shutdown_rx,
+            mcp_services: Default::default(),
         }));
 
         fs::write(
