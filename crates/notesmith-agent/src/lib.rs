@@ -22,10 +22,11 @@ mod event;
 mod mcp;
 mod model;
 mod permission;
+mod registry;
 mod session;
 
 pub use acp::{
-    AcpSession, CLAUDE_ACP_PACKAGE, DEFAULT_CODEX_ACP_BIN, DEFAULT_COPILOT_BIN,
+    AcpSession, CLAUDE_ACP_PACKAGE, DEFAULT_CODEX_ACP_BIN, DEFAULT_COPILOT_BIN, DEFAULT_GEMINI_BIN,
     mcp_url_is_read_only,
 };
 pub use context::{EditorContext, VaultSummary};
@@ -36,4 +37,5 @@ pub use model::{ModelOption, ModelPicker};
 pub use permission::{
     DenyAll, PermissionDecider, PermissionDecision, PermissionRequest, PermissionState,
 };
+pub use registry::{AgentDescriptor, LaunchCandidate, builtin_registry, descriptor};
 pub use session::AgentSession;

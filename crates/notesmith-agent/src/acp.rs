@@ -76,6 +76,10 @@ pub const CLAUDE_ACP_PACKAGE: &str = "@zed-industries/claude-code-acp";
 /// Default binary providing the Codex ACP adapter.
 pub const DEFAULT_CODEX_ACP_BIN: &str = "codex-acp";
 
+/// Default binary for the Gemini CLI, which speaks ACP behind
+/// `--experimental-acp`.
+pub const DEFAULT_GEMINI_BIN: &str = "gemini";
+
 /// The result the driver reports back to the first [`AcpSession::send`] so a
 /// spawn/handshake failure surfaces as a synchronous error rather than only on
 /// the event stream.
@@ -377,13 +381,13 @@ type ModelSlot = Arc<Mutex<Option<ModelPicker>>>;
 /// first `session/prompt`. Subsequent sends reuse the same session id, so ACP
 /// sessions are **multi-turn**.
 pub struct AcpSession {
-    program: String,
-    args: Vec<String>,
+    pub(crate) program: String,
+    pub(crate) args: Vec<String>,
     working_dir: Option<PathBuf>,
     mcp: Option<McpBinding>,
     read_only: bool,
     local_io: bool,
-    setup_hint: Option<String>,
+    pub(crate) setup_hint: Option<String>,
     skill: Option<String>,
     vault_summary: Option<VaultSummary>,
     decider: Arc<dyn PermissionDecider>,
@@ -459,6 +463,19 @@ impl AcpSession {
             "Codex over ACP needs the `{DEFAULT_CODEX_ACP_BIN}` adapter on your \
              PATH (see https://github.com/zed-industries/codex-acp)."
         ))
+    }
+
+    /// Build an ACP session for the Gemini CLI (`gemini --experimental-acp`).
+    ///
+    /// The Gemini CLI exposes an ACP server behind its `--experimental-acp`
+    /// flag. `bin` overrides the binary (path or name); `None` uses
+    /// [`DEFAULT_GEMINI_BIN`].
+    pub fn gemini(bin: Option<&str>) -> Self {
+        let program = bin.filter(|b| !b.is_empty()).unwrap_or(DEFAULT_GEMINI_BIN);
+        Self::new(program, vec!["--experimental-acp".to_string()]).with_setup_hint(
+            "Gemini over ACP needs the Gemini CLI on your PATH; launch it with \
+             `gemini --experimental-acp` (see https://github.com/google-gemini/gemini-cli).",
+        )
     }
 
     /// Run the agent in `working_dir` (the active vault's directory).
@@ -1374,6 +1391,21 @@ mod tests {
     fn codex_honors_binary_override() {
         let session = AcpSession::codex(Some("/opt/codex-acp"));
         assert_eq!(session.program, "/opt/codex-acp");
+    }
+
+    #[test]
+    fn gemini_launches_with_experimental_acp() {
+        let session = AcpSession::gemini(None);
+        assert_eq!(session.program, "gemini");
+        assert_eq!(session.args, vec!["--experimental-acp".to_string()]);
+        assert!(session.setup_hint.is_some());
+    }
+
+    #[test]
+    fn gemini_honors_binary_override() {
+        let session = AcpSession::gemini(Some("/opt/gemini"));
+        assert_eq!(session.program, "/opt/gemini");
+        assert_eq!(session.args, vec!["--experimental-acp".to_string()]);
     }
 
     #[test]

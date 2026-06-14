@@ -282,25 +282,16 @@ fn binary_on_path(program: &str) -> bool {
 }
 
 fn agent_catalog() -> Vec<(&'static str, &'static str, String)> {
-    vec![
-        (
-            "copilot",
-            "GitHub Copilot",
-            notesmith_agent::DEFAULT_COPILOT_BIN.to_string(),
-        ),
-        (
-            "claude",
-            "Claude Code",
-            // Claude is driven via an npx-launched ACP adapter; treat the node
-            // package manager presence as the availability signal.
-            "npx".to_string(),
-        ),
-        (
-            "codex",
-            "Codex",
-            notesmith_agent::DEFAULT_CODEX_ACP_BIN.to_string(),
-        ),
-    ]
+    notesmith_agent::builtin_registry()
+        .iter()
+        .map(|descriptor| {
+            (
+                descriptor.id,
+                descriptor.display_name,
+                descriptor.availability_program().to_string(),
+            )
+        })
+        .collect()
 }
 
 /// Build (but do not start) an [`AcpSession`] for `opts`, wired to the local
@@ -311,12 +302,9 @@ fn build_session(
     session_id: &str,
     pending: Arc<PendingPermissions>,
 ) -> Result<AcpSession, String> {
-    let mut session = match opts.agent.as_str() {
-        "copilot" => AcpSession::copilot(None),
-        "claude" => AcpSession::claude_code(None),
-        "codex" => AcpSession::codex(None),
-        other => return Err(format!("unknown agent '{other}'")),
-    };
+    let descriptor = notesmith_agent::descriptor(opts.agent.as_str())
+        .ok_or_else(|| format!("unknown agent '{}'", opts.agent))?;
+    let mut session = descriptor.session(None);
 
     // Scope the working directory (and any break-glass fs access) to the vault.
     if let Some(path) = vault_root(&opts.vault) {
