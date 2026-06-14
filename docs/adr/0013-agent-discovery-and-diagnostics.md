@@ -146,16 +146,24 @@ a clear manual fallback and opt-in diagnostics when auto-detection misses.
 
 ## Suggested phasing
 
+All seven phases are **implemented** (issues #169–#175, closed). Each was
+delivered TDD with its own validation gate and commit.
+
 1. **PATH resolution** — login-shell + curated dirs; spawn agents with it; used
    by detection. (Rust, TDD.) Root-cause fix; unblocks GUI launches immediately.
+   *(#169 — `crates/notesmith-tauri/src/agent_path.rs`.)*
 2. **Declarative registry** incl. **Gemini** + OpenCode. (Rust, TDD.)
+   *(#170 — `crates/notesmith-agent/src/registry.rs`.)*
 3. **Detection pipeline + structured diagnostics trace.** (Rust, TDD.)
+   *(#171 — `crates/notesmith-tauri/src/agent_diag.rs`, `agent_diagnostics`.)*
 4. **`config.toml` `[agents]`** manual overrides + custom agents + `debug`.
-   (Rust, TDD.)
+   (Rust, TDD.) *(#172 — `notesmith-config` `AgentsConfig` + bridge merge.)*
 5. **Settings UI**: agent list + availability/reasons, custom-agent form, debug
    toggle, "Run diagnostics". (Svelte + Playwright.)
+   *(#173 — `AgentSettings.svelte`, `agent_config_get`/`agent_config_set`.)*
 6. **Picker empty-state / blank-select fix.** (Svelte + Playwright.)
-7. **Docs sync** (CONTEXT, README, `docs/cli.md`/config docs, this ADR).
+   *(#174 — `AgentPanel.svelte`, never-disabled selected option + empty-state.)*
+7. **Docs sync** (CONTEXT, README, config docs, this ADR). *(#175.)*
 
 ## Alternatives considered
 

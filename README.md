@@ -77,6 +77,7 @@ ui/app/                  # SvelteKit frontend
 - **Folder notes** — Same-name markdown folder notes with create/open/rename support in the file tree
 - **Quick switcher** — Fuzzy note search (⌘O)
 - **Tabbed editor** — Source, Live Preview, and Reading View modes with persistence
+- **AI agent chat** — Embedded ACP chat panel that auto-discovers external agent CLIs (Copilot, Claude, Codex, Gemini, OpenCode), with manual `[agents]` config overrides, custom agents, and Settings-driven discovery diagnostics
 
 ## Golden Vault
 

@@ -46,6 +46,43 @@ Fields:
 - `daemon.auto_start` — whether CLI commands auto-start the daemon (default: `true`)
 - `vaults.<name>.path` — filesystem path to each vault root
 
+### AI agent discovery (`[agents]`)
+
+The desktop app auto-detects external agent CLIs (Copilot, Claude, Codex,
+Gemini, OpenCode) on your `PATH`. The optional `[agents]` section is the manual
+escape hatch — override a built-in's launch command, add a custom ACP agent, or
+turn on discovery diagnostics. Everything here is optional; omit the section to
+rely purely on auto-detection.
+
+```toml
+[agents]
+debug = false                          # opt-in discovery diagnostics (default off)
+
+[agents.copilot]                       # override a built-in agent's binary
+command = "/opt/copilot/bin/copilot"
+args = ["--acp"]
+
+[agents.my-agent]                      # add a custom ACP agent
+display_name = "My Agent"
+command = "node"
+args = ["~/projects/agent/index.js", "--acp"]
+enabled = true
+[agents.my-agent.env]
+FOO = "bar"
+```
+
+- `agents.debug` — when `true`, the discovery pipeline records a step-by-step
+  trace surfaced by **Settings → AI Agent → Run diagnostics** (default `false`)
+- `agents.<id>.command` — launch program; overrides a built-in or defines a
+  custom agent. `~` and `$VAR`/`${VAR}` are expanded
+- `agents.<id>.args` — arguments passed to `command`
+- `agents.<id>.env` — extra environment variables for the agent process
+- `agents.<id>.display_name` — label shown in the picker (defaults to the id)
+- `agents.<id>.enabled` — set `false` to hide a built-in agent (default `true`)
+
+A user entry always wins over auto-detection; these settings are also editable
+from **Settings → AI Agent** without hand-editing the file.
+
 ---
 ## Per-Vault Configuration
 All per-vault config lives in the `.notesmith/` directory at the vault root.
