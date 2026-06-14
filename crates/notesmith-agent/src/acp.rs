@@ -41,8 +41,9 @@ use agent_client_protocol::schema::{
     NewSessionRequest, PermissionOption, PermissionOptionKind, PromptRequest, ProtocolVersion,
     ReadTextFileRequest, ReleaseTerminalRequest, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome, SessionId,
-    SessionNotification, SessionUpdate, TerminalOutputRequest, TextContent, ToolCallContent,
-    ToolCallStatus, WaitForTerminalExitRequest, WaitForTerminalExitResponse, WriteTextFileRequest,
+    SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, SetSessionModeRequest,
+    TerminalOutputRequest, TextContent, ToolCallContent, ToolCallStatus,
+    WaitForTerminalExitRequest, WaitForTerminalExitResponse, WriteTextFileRequest,
 };
 use agent_client_protocol::{AcpAgent, Client};
 use serde_json::json;
@@ -54,6 +55,7 @@ use crate::context::{EditorContext, VaultSummary, assemble_preamble};
 use crate::error::AgentError;
 use crate::event::{AgentEvent, ToolCall, ToolResult};
 use crate::mcp::McpBinding;
+use crate::model::{ModelPicker, parse_model_picker};
 use crate::permission::{
     DenyAll, PermissionDecider, PermissionRequest, PermissionState, resolve_permission,
 };
@@ -351,6 +353,23 @@ struct PromptTurn {
     editor: Option<EditorContext>,
 }
 
+/// A command sent from the public [`AcpSession`] handle to the driver task that
+/// owns the ACP connection. Prompts and model changes share one ordered channel
+/// so they are applied in the order the caller issued them.
+enum DriverCommand {
+    /// Send a user turn (`session/prompt`).
+    Prompt(PromptTurn),
+    /// Apply a model selection, replying once the agent confirms (or rejects).
+    SetModel {
+        value: String,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
+}
+
+/// Shared slot holding the model picker parsed from the `session/new` result,
+/// populated by the driver after the handshake and read by the public handle.
+type ModelSlot = Arc<Mutex<Option<ModelPicker>>>;
+
 /// An [`AgentSession`] driven over the Agent Client Protocol.
 ///
 /// The child process is spawned lazily on the first [`send`](AgentSession::send),
@@ -369,8 +388,9 @@ pub struct AcpSession {
     vault_summary: Option<VaultSummary>,
     decider: Arc<dyn PermissionDecider>,
     permission_state: PermissionState,
+    model_picker: ModelSlot,
     started: bool,
-    user_tx: Option<mpsc::UnboundedSender<PromptTurn>>,
+    user_tx: Option<mpsc::UnboundedSender<DriverCommand>>,
     event_rx: Option<mpsc::UnboundedReceiver<AgentEvent>>,
     driver: Option<JoinHandle<()>>,
 }
@@ -390,6 +410,7 @@ impl AcpSession {
             vault_summary: None,
             decider: Arc::new(DenyAll),
             permission_state: PermissionState::new(),
+            model_picker: Arc::new(Mutex::new(None)),
             started: false,
             user_tx: None,
             event_rx: None,
@@ -533,7 +554,7 @@ impl AcpSession {
     /// has completed (or failed). The driver streams normalized events through
     /// `self.event_rx` and consumes user messages from `self.user_tx`.
     fn start_driver(&mut self) -> oneshot::Receiver<HandshakeResult> {
-        let (user_tx, mut user_rx) = mpsc::unbounded_channel::<PromptTurn>();
+        let (user_tx, mut user_rx) = mpsc::unbounded_channel::<DriverCommand>();
         let (event_tx, event_rx) = mpsc::unbounded_channel::<AgentEvent>();
         let (ready_tx, ready_rx) = oneshot::channel::<HandshakeResult>();
 
@@ -550,6 +571,7 @@ impl AcpSession {
         let read_only = self.read_only;
         let decider = self.decider.clone();
         let permission_state = self.permission_state.clone();
+        let model_slot = self.model_picker.clone();
         let io_handler = Arc::new(LocalIoHandler::new(
             local_io,
             read_only,
@@ -666,7 +688,21 @@ impl AcpSession {
                         .block_task()
                         .await
                     {
-                        Ok(response) => response.session_id,
+                        Ok(response) => {
+                            // Capture the agent's advertised model selector (a
+                            // `model` config option, else the deprecated modes)
+                            // so the caller can render a picker and apply a
+                            // choice. Absent → no picker, no error.
+                            if let Some(picker) = parse_model_picker(
+                                response.config_options.as_deref(),
+                                response.modes.as_ref(),
+                            ) {
+                                if let Ok(mut slot) = model_slot.lock() {
+                                    *slot = Some(picker);
+                                }
+                            }
+                            response.session_id
+                        }
                         Err(error) => {
                             signal_ready(&ready_main, Err(error.to_string()));
                             return Err(error);
@@ -674,32 +710,82 @@ impl AcpSession {
                     };
                     signal_ready(&ready_main, Ok(()));
 
-                    // Per-turn prompt loop. The Notesmith context preamble is
-                    // sent once, ahead of the first user message; each turn also
-                    // carries its editor-context block (when present). Assistant
-                    // deltas arrive concurrently via the notification handler
-                    // while each prompt request awaits its terminal stopReason.
+                    // Command loop. Prompts and model changes share one ordered
+                    // channel. The Notesmith context preamble is sent once,
+                    // ahead of the first user message; each turn also carries
+                    // its editor-context block (when present). Assistant deltas
+                    // arrive concurrently via the notification handler while
+                    // each prompt request awaits its terminal stopReason.
                     let mut preamble = Some(preamble);
-                    while let Some(turn) = user_rx.recv().await {
-                        let editor = turn.editor.as_ref().and_then(EditorContext::render);
-                        let blocks = prompt_blocks(
-                            preamble.take().as_deref(),
-                            editor.as_deref(),
-                            &turn.message,
-                        );
-                        match cx
-                            .send_request(PromptRequest::new(session_id.clone(), blocks))
-                            .block_task()
-                            .await
-                        {
-                            Ok(_response) => {
-                                let _ = main_event_tx.send(AgentEvent::Done { result: None });
+                    while let Some(command) = user_rx.recv().await {
+                        match command {
+                            DriverCommand::Prompt(turn) => {
+                                let editor = turn.editor.as_ref().and_then(EditorContext::render);
+                                let blocks = prompt_blocks(
+                                    preamble.take().as_deref(),
+                                    editor.as_deref(),
+                                    &turn.message,
+                                );
+                                match cx
+                                    .send_request(PromptRequest::new(session_id.clone(), blocks))
+                                    .block_task()
+                                    .await
+                                {
+                                    Ok(_response) => {
+                                        let _ =
+                                            main_event_tx.send(AgentEvent::Done { result: None });
+                                    }
+                                    Err(error) => {
+                                        let _ = main_event_tx.send(AgentEvent::Error {
+                                            message: error.to_string(),
+                                        });
+                                        break;
+                                    }
+                                }
                             }
-                            Err(error) => {
-                                let _ = main_event_tx.send(AgentEvent::Error {
-                                    message: error.to_string(),
-                                });
-                                break;
+                            DriverCommand::SetModel { value, reply } => {
+                                // Validate against the advertised picker and
+                                // route to the matching setter. The mutex guard
+                                // is dropped before any await (it is not Send).
+                                let routing: Result<Option<String>, String> =
+                                    match model_slot.lock() {
+                                        Ok(slot) => match slot.as_ref() {
+                                            None => Err("the agent advertises no model selector"
+                                                .to_string()),
+                                            Some(picker) if !picker.contains(&value) => {
+                                                Err(format!("unknown model `{value}`"))
+                                            }
+                                            Some(picker) => {
+                                                Ok(picker.config_id().map(str::to_string))
+                                            }
+                                        },
+                                        Err(_) => Err("model selector unavailable".to_string()),
+                                    };
+                                let outcome = match routing {
+                                    Err(message) => Err(message),
+                                    // `configOptions` selector → set_config_option.
+                                    Ok(Some(config_id)) => cx
+                                        .send_request(SetSessionConfigOptionRequest::new(
+                                            session_id.clone(),
+                                            config_id,
+                                            value,
+                                        ))
+                                        .block_task()
+                                        .await
+                                        .map(|_| ())
+                                        .map_err(|error| error.to_string()),
+                                    // deprecated `modes` fallback → set_mode.
+                                    Ok(None) => cx
+                                        .send_request(SetSessionModeRequest::new(
+                                            session_id.clone(),
+                                            value,
+                                        ))
+                                        .block_task()
+                                        .await
+                                        .map(|_| ())
+                                        .map_err(|error| error.to_string()),
+                                };
+                                let _ = reply.send(outcome);
                             }
                         }
                     }
@@ -732,31 +818,72 @@ impl AcpSession {
         }
     }
 
+    /// Lazily start the driver and run the `initialize` + `session/new`
+    /// handshake on the first call; subsequent calls are no-ops. After this
+    /// resolves `Ok`, the model picker (if any) has been captured.
+    async fn ensure_started(&mut self) -> Result<(), AgentError> {
+        if self.started {
+            return Ok(());
+        }
+        self.started = true;
+        let ready_rx = self.start_driver();
+        match ready_rx.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(message)) => Err(self.explain(AgentError::Protocol(message))),
+            Err(_) => Err(self.explain(AgentError::Protocol(
+                "agent connection closed during handshake".to_string(),
+            ))),
+        }
+    }
+
     /// Send a turn (message + optional editor context), lazily starting the
     /// driver and running the handshake on the first call. Both the plain
     /// [`AgentSession::send`] and [`AcpSession::send_with_context`] funnel
     /// through here so the start-up path is shared.
     async fn deliver(&mut self, turn: PromptTurn) -> Result<(), AgentError> {
-        if !self.started {
-            self.started = true;
-            let ready_rx = self.start_driver();
-            match ready_rx.await {
-                Ok(Ok(())) => {}
-                Ok(Err(message)) => return Err(self.explain(AgentError::Protocol(message))),
-                Err(_) => {
-                    return Err(self.explain(AgentError::Protocol(
-                        "agent connection closed during handshake".to_string(),
-                    )));
-                }
-            }
-        }
+        self.ensure_started().await?;
         let user_tx = self
             .user_tx
             .as_ref()
             .ok_or_else(|| AgentError::Protocol("session is not initialized".to_string()))?;
         user_tx
-            .send(turn)
+            .send(DriverCommand::Prompt(turn))
             .map_err(|_| AgentError::Protocol("agent connection closed".to_string()))
+    }
+
+    /// The model selector the agent advertised for this session, or `None` when
+    /// it advertised neither a `model` config option nor session `modes` (ADR
+    /// 0012, Decision 12). Available once the session has started; callers
+    /// render a picker from it and apply a choice via [`select_model`].
+    ///
+    /// [`select_model`]: AcpSession::select_model
+    pub fn model_picker(&self) -> Option<ModelPicker> {
+        self.model_picker.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    /// Apply a model selection to the running session, routing to
+    /// `session/set_config_option` or the deprecated `session/set_mode`
+    /// depending on how the agent advertised its models. Starts the session if
+    /// needed, then resolves once the agent confirms (or rejects) the change.
+    /// `value` must be one of the advertised option ids.
+    pub async fn select_model(&mut self, value: &str) -> Result<(), AgentError> {
+        self.ensure_started().await?;
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let user_tx = self
+            .user_tx
+            .as_ref()
+            .ok_or_else(|| AgentError::Protocol("session is not initialized".to_string()))?;
+        user_tx
+            .send(DriverCommand::SetModel {
+                value: value.to_string(),
+                reply: reply_tx,
+            })
+            .map_err(|_| AgentError::Protocol("agent connection closed".to_string()))?;
+        match reply_rx.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(message)) => Err(AgentError::Protocol(message)),
+            Err(_) => Err(AgentError::Protocol("agent connection closed".to_string())),
+        }
     }
 
     /// Send a turn carrying the desktop editor's current state (active note,

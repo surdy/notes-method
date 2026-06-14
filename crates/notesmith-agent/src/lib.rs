@@ -20,6 +20,7 @@ mod context;
 mod error;
 mod event;
 mod mcp;
+mod model;
 mod permission;
 mod session;
 
@@ -31,6 +32,7 @@ pub use context::{EditorContext, VaultSummary};
 pub use error::AgentError;
 pub use event::{AgentEvent, ToolCall, ToolResult};
 pub use mcp::McpBinding;
+pub use model::{ModelOption, ModelPicker};
 pub use permission::{
     DenyAll, PermissionDecider, PermissionDecision, PermissionRequest, PermissionState,
 };

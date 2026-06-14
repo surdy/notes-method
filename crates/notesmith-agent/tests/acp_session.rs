@@ -401,6 +401,118 @@ async fn break_glass_off_refuses_agent_writes() {
     assert!(!dir.path().join("bg.md").exists());
 }
 
+/// A fake agent that advertises a `model` config option on `session/new` and,
+/// when the client applies a selection via `session/set_config_option`, echoes
+/// the chosen value back so a test can assert the selection round-tripped.
+const MODEL_AGENT: &str = r#"
+import sys, json
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    msg = json.loads(line)
+    method = msg.get("method")
+    mid = msg.get("id")
+    if method == "initialize":
+        send({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": 1}})
+    elif method == "session/new":
+        send({"jsonrpc": "2.0", "id": mid, "result": {
+            "sessionId": "fake-session",
+            "configOptions": [{
+                "id": "model",
+                "name": "Model",
+                "category": "model",
+                "type": "select",
+                "currentValue": "gpt-5",
+                "options": [
+                    {"value": "gpt-5", "name": "GPT-5"},
+                    {"value": "sonnet", "name": "Sonnet"},
+                ],
+            }],
+        }})
+    elif method == "session/set_config_option":
+        # Confirm the change and report the new configOptions current value.
+        chosen = msg["params"]["value"]
+        send({"jsonrpc": "2.0", "id": mid, "result": {"configOptions": [{
+            "id": "model", "name": "Model", "category": "model",
+            "type": "select", "currentValue": chosen,
+            "options": [
+                {"value": "gpt-5", "name": "GPT-5"},
+                {"value": "sonnet", "name": "Sonnet"},
+            ],
+        }]}})
+        send({"jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": "fake-session", "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "MODEL:" + chosen},
+            }}})
+    elif method == "session/prompt":
+        send({"jsonrpc": "2.0", "id": mid, "result": {"stopReason": "end_turn"}})
+"#;
+
+fn model_agent_session() -> AcpSession {
+    AcpSession::new(
+        "python3",
+        vec!["-u".to_string(), "-c".to_string(), MODEL_AGENT.to_string()],
+    )
+}
+
+#[tokio::test]
+async fn model_picker_is_parsed_from_config_options() {
+    let mut session = model_agent_session();
+    // Selecting starts the session, after which the picker is available.
+    session.select_model("sonnet").await.expect("select model");
+
+    let picker = session
+        .model_picker()
+        .expect("agent advertised a model picker");
+    assert_eq!(picker.current(), "gpt-5");
+    let ids: Vec<&str> = picker.options().iter().map(|o| o.id.as_str()).collect();
+    assert_eq!(ids, vec!["gpt-5", "sonnet"]);
+}
+
+#[tokio::test]
+async fn selecting_a_model_round_trips_to_the_agent() {
+    let mut session = model_agent_session();
+    session
+        .select_model("sonnet")
+        .await
+        .expect("select succeeds");
+    // A follow-up prompt gives the drain a terminating `Done`; the model
+    // confirmation chunk emitted by the set arrives ahead of it.
+    session.send("ping").await.expect("ping");
+
+    let events = drain_until_done(&mut session).await;
+    assert!(
+        events.contains(&AgentEvent::AgentMessageDelta {
+            text: "MODEL:sonnet".to_string()
+        }),
+        "the agent should confirm the applied model, got {events:?}"
+    );
+}
+
+#[tokio::test]
+async fn selecting_an_unknown_model_is_rejected_locally() {
+    let mut session = model_agent_session();
+    // The picker has no such option, so the client rejects without asking.
+    let result = session.select_model("does-not-exist").await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn no_picker_when_the_agent_advertises_no_models() {
+    // The default fake agent advertises neither configOptions nor modes.
+    let mut session = fake_agent_session(true);
+    session.send("hello").await.expect("send");
+    let _ = drain_until_done(&mut session).await;
+    assert!(session.model_picker().is_none());
+}
+
 #[tokio::test]
 async fn missing_binary_is_a_clean_error_not_a_panic() {
     let mut session = AcpSession::new("notesmith-acp-does-not-exist", vec!["--acp".to_string()]);
