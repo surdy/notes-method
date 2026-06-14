@@ -36,7 +36,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use agent_client_protocol::schema::{
-    ClientCapabilities, ContentBlock, CreateTerminalRequest, FileSystemCapabilities,
+    ClientCapabilities, ContentBlock, CreateTerminalRequest, EnvVariable, FileSystemCapabilities,
     Implementation, InitializeRequest, KillTerminalRequest, McpServer, McpServerStdio,
     NewSessionRequest, PermissionOption, PermissionOptionKind, PromptRequest, ProtocolVersion,
     ReadTextFileRequest, ReleaseTerminalRequest, RequestPermissionOutcome,
@@ -383,6 +383,7 @@ type ModelSlot = Arc<Mutex<Option<ModelPicker>>>;
 pub struct AcpSession {
     pub(crate) program: String,
     pub(crate) args: Vec<String>,
+    pub(crate) env: Vec<(String, String)>,
     working_dir: Option<PathBuf>,
     mcp: Option<McpBinding>,
     read_only: bool,
@@ -405,6 +406,7 @@ impl AcpSession {
         Self {
             program: program.into(),
             args,
+            env: Vec::new(),
             working_dir: None,
             mcp: None,
             read_only: true,
@@ -540,6 +542,34 @@ impl AcpSession {
         self
     }
 
+    /// Set environment variables applied to the spawned agent process. Used by
+    /// the desktop bridge to honor a custom agent's `[agents.<id>].env` block
+    /// (ADR 0013, decision 4). Replaces any previously-set env.
+    pub fn with_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.env = env;
+        self
+    }
+
+    /// The program this session launches (path or PATH-resolved name).
+    pub fn program(&self) -> &str {
+        &self.program
+    }
+
+    /// The base launch arguments this session spawns the program with.
+    pub fn args(&self) -> &[String] {
+        &self.args
+    }
+
+    /// The environment variables applied to the spawned agent process.
+    pub fn env(&self) -> &[(String, String)] {
+        &self.env
+    }
+
+    /// The setup hint appended to start/handshake failures, when present.
+    pub fn setup_hint(&self) -> Option<&str> {
+        self.setup_hint.as_deref()
+    }
+
     /// Resolve the session working directory as an **absolute** path. ACP
     /// agents reject relative `cwd` values, so a missing or relative working
     /// directory is resolved against the process's current directory.
@@ -561,8 +591,16 @@ impl AcpSession {
 
     /// Build the ACP subprocess transport from the launch table entry.
     fn build_agent(&self) -> AcpAgent {
-        let stdio =
+        let mut stdio =
             McpServerStdio::new(AGENT_SERVER_NAME, self.program.clone()).args(self.args.clone());
+        if !self.env.is_empty() {
+            stdio = stdio.env(
+                self.env
+                    .iter()
+                    .map(|(name, value)| EnvVariable::new(name.clone(), value.clone()))
+                    .collect(),
+            );
+        }
         AcpAgent::new(McpServer::Stdio(stdio))
     }
 
@@ -1445,5 +1483,26 @@ mod tests {
     fn absolute_cwd_is_always_absolute() {
         let session = AcpSession::new("x", Vec::new()).in_dir(Some(PathBuf::from(".")));
         assert!(PathBuf::from(session.absolute_cwd()).is_absolute());
+    }
+
+    #[test]
+    fn with_env_stores_environment_variables() {
+        let session = AcpSession::new("x", Vec::new()).with_env(vec![
+            ("FOO".to_string(), "bar".to_string()),
+            ("BAZ".to_string(), "qux".to_string()),
+        ]);
+        assert_eq!(
+            session.env,
+            vec![
+                ("FOO".to_string(), "bar".to_string()),
+                ("BAZ".to_string(), "qux".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn with_env_defaults_to_empty() {
+        let session = AcpSession::new("x", Vec::new());
+        assert!(session.env.is_empty());
     }
 }

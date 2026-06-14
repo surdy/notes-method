@@ -50,6 +50,7 @@ fn write_global_config(
                 path: vault_root.to_path_buf(),
             },
         )]),
+        agents: Default::default(),
     };
     if let Some(bind) = bind {
         config.daemon.bind = bind;

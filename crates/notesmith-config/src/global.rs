@@ -11,6 +11,143 @@ pub struct GlobalConfig {
     pub default_vault: Option<String>,
     #[serde(default)]
     pub vaults: BTreeMap<String, VaultRegistration>,
+    #[serde(default)]
+    pub agents: AgentsConfig,
+}
+
+/// The `[agents]` section (ADR 0013, decision 4): the manual escape hatch for
+/// agent discovery. `debug` is an opt-in diagnostics flag that lives directly
+/// under `[agents]`; every other key is an agent id whose value is an
+/// [`AgentEntry`] subtable (e.g. `[agents.copilot]`). The agent ids are
+/// flattened so they sit as siblings of `debug`, matching the schema in the ADR.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct AgentsConfig {
+    /// Opt-in structured diagnostics flag (default `false`).
+    #[serde(default)]
+    pub debug: bool,
+    /// Per-agent overrides / custom agents, keyed by agent id. Flattened so each
+    /// id is a subtable directly under `[agents]` (`[agents.<id>]`).
+    #[serde(default, flatten)]
+    pub entries: BTreeMap<String, AgentEntry>,
+}
+
+/// A single `[agents.<id>]` entry: either an override of a built-in agent (when
+/// `<id>` matches a registry id) or a brand-new custom ACP agent. A user entry
+/// always wins over auto-detection for the same id; a custom id is launched
+/// verbatim; `enabled = false` hides a built-in.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentEntry {
+    /// Program to launch (path or PATH-resolved name). Tilde / `$VAR` allowed.
+    #[serde(default)]
+    pub command: Option<String>,
+    /// Base launch arguments. Tilde / `$VAR` allowed per element.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Environment variables applied to the spawned agent process.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    /// Display name shown in the picker for a custom agent (falls back to id).
+    #[serde(default)]
+    pub display_name: Option<String>,
+    /// Whether the agent is enabled. `false` hides a built-in. Defaults to true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for AgentEntry {
+    fn default() -> Self {
+        Self {
+            command: None,
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            display_name: None,
+            enabled: true,
+        }
+    }
+}
+
+/// Expand a leading `~` (to `$HOME`) and `$VAR` / `${VAR}` references in `s`
+/// against the process environment. Unknown variables are left verbatim; an
+/// empty or garbage input never panics. Kept dependency-light (manual scan).
+pub fn expand_path_vars(s: &str) -> String {
+    // Expand a leading `~` (only when it stands alone or precedes a `/`).
+    let mut out = String::with_capacity(s.len());
+    let rest = if let Some(after) = s.strip_prefix('~') {
+        if after.is_empty() || after.starts_with('/') {
+            match std::env::var("HOME") {
+                Ok(home) => out.push_str(&home),
+                Err(_) => out.push('~'),
+            }
+            after
+        } else {
+            s
+        }
+    } else {
+        s
+    };
+
+    // Expand `$VAR` and `${VAR}` against the environment.
+    let mut chars = rest.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '$' {
+            out.push(c);
+            continue;
+        }
+        match chars.peek() {
+            Some('{') => {
+                chars.next();
+                let mut name = String::new();
+                let mut closed = false;
+                for nc in chars.by_ref() {
+                    if nc == '}' {
+                        closed = true;
+                        break;
+                    }
+                    name.push(nc);
+                }
+                if closed {
+                    match std::env::var(&name) {
+                        Ok(value) => out.push_str(&value),
+                        Err(_) => {
+                            out.push_str("${");
+                            out.push_str(&name);
+                            out.push('}');
+                        }
+                    }
+                } else {
+                    // Unterminated `${…` — emit verbatim.
+                    out.push_str("${");
+                    out.push_str(&name);
+                }
+            }
+            Some(p) if p.is_ascii_alphabetic() || *p == '_' => {
+                let mut name = String::new();
+                while let Some(p) = chars.peek() {
+                    if p.is_ascii_alphanumeric() || *p == '_' {
+                        name.push(*p);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                match std::env::var(&name) {
+                    Ok(value) => out.push_str(&value),
+                    Err(_) => {
+                        out.push('$');
+                        out.push_str(&name);
+                    }
+                }
+            }
+            // Lone `$` (end of string or non-name char) — emit verbatim.
+            _ => out.push('$'),
+        }
+    }
+
+    out
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -120,6 +257,7 @@ mod tests {
             },
             default_vault: Some("work".to_string()),
             vaults: BTreeMap::new(),
+            agents: AgentsConfig::default(),
         };
         config.vaults.insert(
             "work".to_string(),
@@ -244,5 +382,174 @@ path = "/vaults/personal"
             },
         );
         assert_eq!(multiple.effective_default(), None);
+    }
+
+    #[test]
+    fn agents_config_round_trips_through_disk() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[agents]
+debug = true
+
+[agents.copilot]
+command = "/opt/copilot/bin/copilot"
+args = ["--acp"]
+
+[agents.my-agent]
+display_name = "My Agent"
+command = "node"
+args = ["~/projects/agent/index.js", "--acp"]
+enabled = true
+
+[agents.my-agent.env]
+FOO = "bar"
+"#,
+        )
+        .unwrap();
+
+        let config = GlobalConfig::load_from(&path).unwrap();
+
+        assert!(config.agents.debug);
+
+        let copilot = &config.agents.entries["copilot"];
+        assert_eq!(copilot.command.as_deref(), Some("/opt/copilot/bin/copilot"));
+        assert_eq!(copilot.args, vec!["--acp".to_string()]);
+        assert!(copilot.enabled);
+
+        let custom = &config.agents.entries["my-agent"];
+        assert_eq!(custom.display_name.as_deref(), Some("My Agent"));
+        assert_eq!(custom.command.as_deref(), Some("node"));
+        assert_eq!(
+            custom.args,
+            vec!["~/projects/agent/index.js".to_string(), "--acp".to_string()]
+        );
+        assert!(custom.enabled);
+        assert_eq!(custom.env["FOO"], "bar");
+
+        // Re-serialize to disk and re-load: all fields survive intact.
+        let round_trip_path = temp_dir.path().join("round-trip.toml");
+        config.save_to(&round_trip_path).unwrap();
+        let reloaded = GlobalConfig::load_from(&round_trip_path).unwrap();
+        assert_eq!(reloaded, config);
+    }
+
+    #[test]
+    fn agent_entry_enabled_defaults_to_true_when_omitted() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[agents.codex]
+command = "/usr/local/bin/codex-acp"
+"#,
+        )
+        .unwrap();
+
+        let config = GlobalConfig::load_from(&path).unwrap();
+        assert!(config.agents.entries["codex"].enabled);
+    }
+
+    #[test]
+    fn missing_agents_section_yields_default_agents_config() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+default_vault = "work"
+
+[vaults.work]
+path = "/vaults/work"
+"#,
+        )
+        .unwrap();
+
+        let config = GlobalConfig::load_from(&path).unwrap();
+        assert_eq!(config.agents, AgentsConfig::default());
+        assert!(!config.agents.debug);
+        assert!(config.agents.entries.is_empty());
+    }
+
+    #[test]
+    fn malformed_agent_entry_returns_parse_error_without_panicking() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        // `args` should be an array of strings; a bare integer is a type error.
+        fs::write(
+            &path,
+            r#"
+[agents.copilot]
+args = 42
+"#,
+        )
+        .unwrap();
+
+        let error = GlobalConfig::load_from(&path).unwrap_err();
+        assert!(matches!(error, ConfigError::ParseError { .. }));
+    }
+
+    #[test]
+    fn expand_path_vars_expands_tilde_to_home() {
+        if let Ok(home) = std::env::var("HOME") {
+            assert_eq!(
+                expand_path_vars("~/projects/agent"),
+                format!("{home}/projects/agent")
+            );
+            assert_eq!(expand_path_vars("~"), home);
+        }
+        // A tilde that is not a path prefix (e.g. `~user`) is left untouched.
+        assert_eq!(expand_path_vars("~user/x"), "~user/x");
+    }
+
+    #[test]
+    fn expand_path_vars_expands_named_variables() {
+        // SAFETY: a uniquely-named variable avoids collisions with parallel tests.
+        let var = "NOTESMITH_TEST_EXPAND_VAR";
+        unsafe {
+            std::env::set_var(var, "expanded");
+        }
+        assert_eq!(
+            expand_path_vars(&format!("/bin/${var}/x")),
+            "/bin/expanded/x"
+        );
+        assert_eq!(
+            expand_path_vars(&format!("/bin/${{{var}}}/x")),
+            "/bin/expanded/x"
+        );
+        unsafe {
+            std::env::remove_var(var);
+        }
+    }
+
+    #[test]
+    fn expand_path_vars_leaves_unknown_variables_verbatim() {
+        let missing = "NOTESMITH_TEST_DEFINITELY_UNSET_VAR";
+        unsafe {
+            std::env::remove_var(missing);
+        }
+        assert_eq!(
+            expand_path_vars(&format!("${missing}/x")),
+            format!("${missing}/x")
+        );
+        assert_eq!(
+            expand_path_vars(&format!("${{{missing}}}/x")),
+            format!("${{{missing}}}/x")
+        );
+    }
+
+    #[test]
+    fn expand_path_vars_does_not_panic_on_empty_or_garbage() {
+        assert_eq!(expand_path_vars(""), "");
+        assert_eq!(expand_path_vars("$"), "$");
+        assert_eq!(expand_path_vars("${"), "${");
+        assert_eq!(expand_path_vars("${unterminated"), "${unterminated");
+        assert_eq!(expand_path_vars("$$$"), "$$$");
+        assert_eq!(expand_path_vars("plain/path"), "plain/path");
+        // Non-ASCII content is preserved without panicking.
+        assert_eq!(expand_path_vars("café/ünïcode"), "café/ünïcode");
     }
 }

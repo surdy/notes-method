@@ -942,6 +942,7 @@ mod tests {
                     path: vault_root.clone(),
                 },
             )]),
+            agents: Default::default(),
         };
         let state = build_app_state(&config).unwrap();
         let mut event_rx = state.event_tx.subscribe();

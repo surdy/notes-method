@@ -29,9 +29,10 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 use notesmith_agent::{
-    AcpSession, AgentEvent, AgentSession, EditorContext, McpBinding, ModelPicker,
+    AcpSession, AgentDescriptor, AgentEvent, AgentSession, EditorContext, McpBinding, ModelPicker,
     PermissionDecider, PermissionDecision, PermissionRequest,
 };
+use notesmith_config::{AgentEntry, AgentsConfig, expand_path_vars};
 
 /// Event channel carrying normalized [`AgentEvent`]s to the chat panel.
 pub const AGENT_EVENT: &str = "notesmith://agent-event";
@@ -281,17 +282,120 @@ fn binary_on_path(program: &str) -> bool {
     std::env::split_paths(&paths).any(|dir| dir.join(program).exists())
 }
 
-fn agent_catalog() -> Vec<(&'static str, &'static str, String)> {
-    notesmith_agent::builtin_registry()
-        .iter()
-        .map(|descriptor| {
-            (
-                descriptor.id,
-                descriptor.display_name,
+/// Load the `[agents]` config section, degrading to defaults (never panicking)
+/// when the global config is missing or unreadable (ADR 0009).
+fn load_agents_config() -> AgentsConfig {
+    notesmith_config::GlobalConfig::load()
+        .map(|config| config.agents)
+        .unwrap_or_default()
+}
+
+/// Merge the built-in registry with the user's `[agents]` config to produce the
+/// effective agent list (ADR 0013, decision 4): `(id, display_name,
+/// availability_program)` per agent. A user override of a built-in replaces its
+/// availability program; `enabled = false` hides a built-in; custom ids not in
+/// the registry are appended. Tilde / `$VAR` in commands are expanded.
+fn effective_agents(
+    registry: &[AgentDescriptor],
+    cfg: &AgentsConfig,
+) -> Vec<(String, String, String)> {
+    let mut agents = Vec::new();
+
+    // Built-ins, honoring overrides and omitting disabled ones.
+    for descriptor in registry {
+        match cfg.entries.get(descriptor.id) {
+            Some(entry) if !entry.enabled => continue,
+            Some(entry) => {
+                let program = match entry.command.as_deref().filter(|c| !c.is_empty()) {
+                    Some(command) => expand_path_vars(command),
+                    None => descriptor.availability_program().to_string(),
+                };
+                agents.push((
+                    descriptor.id.to_string(),
+                    descriptor.display_name.to_string(),
+                    program,
+                ));
+            }
+            None => agents.push((
+                descriptor.id.to_string(),
+                descriptor.display_name.to_string(),
                 descriptor.availability_program().to_string(),
-            )
-        })
-        .collect()
+            )),
+        }
+    }
+
+    // Custom agents: configured ids that are not built-ins (enabled, with a
+    // command). A command-less custom entry is not launchable, so it is omitted.
+    for (id, entry) in &cfg.entries {
+        if registry.iter().any(|descriptor| descriptor.id == *id) || !entry.enabled {
+            continue;
+        }
+        let Some(command) = entry.command.as_deref().filter(|c| !c.is_empty()) else {
+            continue;
+        };
+        let display_name = entry.display_name.clone().unwrap_or_else(|| id.clone());
+        agents.push((id.clone(), display_name, expand_path_vars(command)));
+    }
+
+    agents
+}
+
+fn agent_catalog() -> Vec<(String, String, String)> {
+    effective_agents(notesmith_agent::builtin_registry(), &load_agents_config())
+}
+
+/// Build an [`AcpSession`] for a custom or overridden agent command: expand
+/// `~`/`$VAR` in the command and each arg, and apply the configured env.
+fn custom_session(entry: &AgentEntry, command: &str) -> AcpSession {
+    let program = expand_path_vars(command);
+    let args: Vec<String> = entry.args.iter().map(|arg| expand_path_vars(arg)).collect();
+    let env: Vec<(String, String)> = entry
+        .env
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    AcpSession::new(program, args).with_env(env)
+}
+
+/// Resolve the base [`AcpSession`] for `agent`, merging the built-in registry
+/// with the user's `[agents]` config (ADR 0013, decision 4): a user entry with a
+/// `command` wins (custom command/args/env, keeping a built-in's setup hint); a
+/// built-in with no override uses its declarative defaults; a disabled built-in
+/// or an unknown id is rejected.
+fn resolve_session(agent: &str, cfg: &AgentsConfig) -> Result<AcpSession, String> {
+    let descriptor = notesmith_agent::descriptor(agent);
+    let entry = cfg.entries.get(agent);
+
+    match (descriptor, entry) {
+        (Some(descriptor), Some(entry)) => {
+            if !entry.enabled {
+                return Err(format!("agent '{agent}' is disabled"));
+            }
+            match entry.command.as_deref().filter(|c| !c.is_empty()) {
+                Some(command) => {
+                    let mut session = custom_session(entry, command);
+                    if !descriptor.setup_hint.is_empty() {
+                        session = session.with_setup_hint(descriptor.setup_hint);
+                    }
+                    Ok(session)
+                }
+                None => Ok(descriptor.session(None)),
+            }
+        }
+        (Some(descriptor), None) => Ok(descriptor.session(None)),
+        (None, Some(entry)) => {
+            if !entry.enabled {
+                return Err(format!("agent '{agent}' is disabled"));
+            }
+            let command = entry
+                .command
+                .as_deref()
+                .filter(|c| !c.is_empty())
+                .ok_or_else(|| format!("agent '{agent}' has no command configured"))?;
+            Ok(custom_session(entry, command))
+        }
+        (None, None) => Err(format!("unknown agent '{agent}'")),
+    }
 }
 
 /// Build (but do not start) an [`AcpSession`] for `opts`, wired to the local
@@ -302,9 +406,7 @@ fn build_session(
     session_id: &str,
     pending: Arc<PendingPermissions>,
 ) -> Result<AcpSession, String> {
-    let descriptor = notesmith_agent::descriptor(opts.agent.as_str())
-        .ok_or_else(|| format!("unknown agent '{}'", opts.agent))?;
-    let mut session = descriptor.session(None);
+    let mut session = resolve_session(opts.agent.as_str(), &load_agents_config())?;
 
     // Scope the working directory (and any break-glass fs access) to the vault.
     if let Some(path) = vault_root(&opts.vault) {
@@ -549,4 +651,233 @@ pub async fn agent_stop(
         let _ = entry.commands.send(SessionCommand::Stop);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notesmith_config::AgentEntry;
+    use std::collections::BTreeMap;
+
+    fn registry() -> &'static [AgentDescriptor] {
+        notesmith_agent::builtin_registry()
+    }
+
+    fn find<'a>(
+        agents: &'a [(String, String, String)],
+        id: &str,
+    ) -> Option<&'a (String, String, String)> {
+        agents.iter().find(|(agent_id, _, _)| agent_id == id)
+    }
+
+    #[test]
+    fn no_config_matches_registry_derived_list() {
+        let agents = effective_agents(registry(), &AgentsConfig::default());
+
+        let expected: Vec<(String, String, String)> = registry()
+            .iter()
+            .map(|descriptor| {
+                (
+                    descriptor.id.to_string(),
+                    descriptor.display_name.to_string(),
+                    descriptor.availability_program().to_string(),
+                )
+            })
+            .collect();
+
+        assert_eq!(agents, expected);
+    }
+
+    #[test]
+    fn override_changes_a_builtin_availability_program() {
+        let mut cfg = AgentsConfig::default();
+        cfg.entries.insert(
+            "copilot".to_string(),
+            AgentEntry {
+                command: Some("/opt/copilot/bin/copilot".to_string()),
+                args: vec!["--acp".to_string()],
+                ..AgentEntry::default()
+            },
+        );
+
+        let agents = effective_agents(registry(), &cfg);
+        let copilot = find(&agents, "copilot").expect("copilot present");
+        assert_eq!(copilot.2, "/opt/copilot/bin/copilot");
+        // The display name is still the registry's.
+        assert_eq!(copilot.1, "GitHub Copilot");
+        // The count is unchanged (override, not addition).
+        assert_eq!(agents.len(), registry().len());
+    }
+
+    #[test]
+    fn disabled_builtin_is_removed() {
+        let mut cfg = AgentsConfig::default();
+        cfg.entries.insert(
+            "claude".to_string(),
+            AgentEntry {
+                enabled: false,
+                ..AgentEntry::default()
+            },
+        );
+
+        let agents = effective_agents(registry(), &cfg);
+        assert!(find(&agents, "claude").is_none());
+        assert_eq!(agents.len(), registry().len() - 1);
+    }
+
+    #[test]
+    fn custom_entry_is_appended_with_display_name_and_command() {
+        let mut env = BTreeMap::new();
+        env.insert("FOO".to_string(), "bar".to_string());
+        let mut cfg = AgentsConfig::default();
+        cfg.entries.insert(
+            "my-agent".to_string(),
+            AgentEntry {
+                command: Some("/usr/local/bin/my-agent".to_string()),
+                args: vec!["--acp".to_string()],
+                env,
+                display_name: Some("My Agent".to_string()),
+                enabled: true,
+            },
+        );
+
+        let agents = effective_agents(registry(), &cfg);
+        assert_eq!(agents.len(), registry().len() + 1);
+        let custom = find(&agents, "my-agent").expect("custom agent appended");
+        assert_eq!(custom.1, "My Agent");
+        assert_eq!(custom.2, "/usr/local/bin/my-agent");
+    }
+
+    #[test]
+    fn custom_entry_falls_back_to_id_for_display_name() {
+        let mut cfg = AgentsConfig::default();
+        cfg.entries.insert(
+            "bespoke".to_string(),
+            AgentEntry {
+                command: Some("bespoke-acp".to_string()),
+                ..AgentEntry::default()
+            },
+        );
+
+        let agents = effective_agents(registry(), &cfg);
+        let custom = find(&agents, "bespoke").expect("custom agent appended");
+        assert_eq!(custom.1, "bespoke");
+        assert_eq!(custom.2, "bespoke-acp");
+    }
+
+    #[test]
+    fn disabled_custom_entry_is_not_appended() {
+        let mut cfg = AgentsConfig::default();
+        cfg.entries.insert(
+            "off-agent".to_string(),
+            AgentEntry {
+                command: Some("off-agent".to_string()),
+                enabled: false,
+                ..AgentEntry::default()
+            },
+        );
+
+        let agents = effective_agents(registry(), &cfg);
+        assert!(find(&agents, "off-agent").is_none());
+        assert_eq!(agents.len(), registry().len());
+    }
+
+    #[test]
+    fn command_less_custom_entry_is_omitted() {
+        let mut cfg = AgentsConfig::default();
+        cfg.entries
+            .insert("no-command".to_string(), AgentEntry::default());
+
+        let agents = effective_agents(registry(), &cfg);
+        assert!(find(&agents, "no-command").is_none());
+        assert_eq!(agents.len(), registry().len());
+    }
+
+    #[test]
+    fn resolve_session_errors_for_unknown_agent() {
+        let cfg = AgentsConfig::default();
+        let error = resolve_session("nope", &cfg)
+            .err()
+            .expect("expected an error");
+        assert!(error.contains("unknown agent"));
+    }
+
+    #[test]
+    fn resolve_session_errors_for_disabled_builtin() {
+        let mut cfg = AgentsConfig::default();
+        cfg.entries.insert(
+            "copilot".to_string(),
+            AgentEntry {
+                enabled: false,
+                ..AgentEntry::default()
+            },
+        );
+        let error = resolve_session("copilot", &cfg)
+            .err()
+            .expect("expected an error");
+        assert!(error.contains("disabled"));
+    }
+
+    #[test]
+    fn resolve_session_uses_builtin_default_without_override() {
+        let cfg = AgentsConfig::default();
+        let session = resolve_session("copilot", &cfg).expect("copilot resolves");
+        assert_eq!(session.program(), "copilot");
+        assert_eq!(session.args(), vec!["--acp".to_string()]);
+    }
+
+    #[test]
+    fn resolve_session_applies_override_command_args_and_env() {
+        let mut env = BTreeMap::new();
+        env.insert("FOO".to_string(), "bar".to_string());
+        let mut cfg = AgentsConfig::default();
+        cfg.entries.insert(
+            "copilot".to_string(),
+            AgentEntry {
+                command: Some("/opt/copilot".to_string()),
+                args: vec!["--acp".to_string(), "--verbose".to_string()],
+                env,
+                ..AgentEntry::default()
+            },
+        );
+        let session = resolve_session("copilot", &cfg).expect("override resolves");
+        assert_eq!(session.program(), "/opt/copilot");
+        assert_eq!(
+            session.args(),
+            vec!["--acp".to_string(), "--verbose".to_string()]
+        );
+        assert_eq!(session.env(), vec![("FOO".to_string(), "bar".to_string())]);
+        // The descriptor's setup hint is preserved on an override.
+        assert!(session.setup_hint().is_some());
+    }
+
+    #[test]
+    fn resolve_session_builds_custom_agent_verbatim() {
+        let mut cfg = AgentsConfig::default();
+        cfg.entries.insert(
+            "my-agent".to_string(),
+            AgentEntry {
+                command: Some("node".to_string()),
+                args: vec!["index.js".to_string(), "--acp".to_string()],
+                ..AgentEntry::default()
+            },
+        );
+        let session = resolve_session("my-agent", &cfg).expect("custom resolves");
+        assert_eq!(session.program(), "node");
+        assert_eq!(
+            session.args(),
+            vec!["index.js".to_string(), "--acp".to_string()]
+        );
+    }
+
+    #[test]
+    fn resolve_session_errors_for_custom_agent_without_command() {
+        let mut cfg = AgentsConfig::default();
+        cfg.entries
+            .insert("my-agent".to_string(), AgentEntry::default());
+        let error = resolve_session("my-agent", &cfg)
+            .err()
+            .expect("expected an error");
+        assert!(error.contains("no command"));
+    }
 }

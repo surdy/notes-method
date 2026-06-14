@@ -12,7 +12,9 @@ pub use detection::{
     walk_up_for_vault,
 };
 pub use error::ConfigError;
-pub use global::{DaemonConfig, GlobalConfig, VaultRegistration};
+pub use global::{
+    AgentEntry, AgentsConfig, DaemonConfig, GlobalConfig, VaultRegistration, expand_path_vars,
+};
 pub use lockfile::DaemonLockfile;
 pub use vault::{
     AppearanceConfig, CURRENT_SCHEMA_VERSION, CaptureConfig, DailyConfig, EditorConfig, GitConfig,

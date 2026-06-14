@@ -48,6 +48,7 @@ fn write_global_config(
                 path: vault_root.to_path_buf(),
             },
         )]),
+        agents: Default::default(),
     };
 
     config

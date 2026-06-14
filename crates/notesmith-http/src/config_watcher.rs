@@ -249,6 +249,7 @@ mod tests {
                     },
                 ),
             ]),
+            agents: Default::default(),
         };
 
         let plan = plan_vault_changes(&current_vaults, &new_config);
@@ -287,6 +288,7 @@ mod tests {
                     path: work_root.clone(),
                 },
             )]),
+            agents: Default::default(),
         };
         initial_config.save_to(&config_path).unwrap();
 
@@ -315,6 +317,7 @@ mod tests {
                     path: home_root.clone(),
                 },
             )]),
+            agents: Default::default(),
         };
         updated_config.save_to(&config_path).unwrap();
 
