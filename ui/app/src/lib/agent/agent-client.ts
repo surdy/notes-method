@@ -44,7 +44,15 @@ const AGENT_PERMISSION = 'notesmith://agent-permission';
 
 interface TauriBridge {
 	invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
-	listen: (event: string, handler: (payload: unknown) => void) => Promise<() => void>;
+	listen: (event: string, handler: (event: unknown) => void) => Promise<() => void>;
+}
+
+/** Unwrap a Tauri event object (`{ payload }`) to its payload, tolerating a raw payload. */
+function eventPayload(event: unknown): unknown {
+	if (event && typeof event === 'object' && 'payload' in event) {
+		return (event as { payload: unknown }).payload;
+	}
+	return event;
 }
 
 /** Resolve the global Tauri bridge, or `null` when not running inside Tauri. */
@@ -101,8 +109,8 @@ export class TauriAgentClient implements AgentClient {
 		let unlisten: (() => void) | null = null;
 		let disposed = false;
 		void this.bridge
-			.listen(AGENT_EVENT, (payload) => {
-				const p = payload as { sessionId: string; event: AgentEvent } | undefined;
+			.listen(AGENT_EVENT, (event) => {
+				const p = eventPayload(event) as { sessionId: string; event: AgentEvent } | undefined;
 				if (p) cb(p.sessionId, p.event);
 			})
 			.then((fn) => {
@@ -119,8 +127,8 @@ export class TauriAgentClient implements AgentClient {
 		let unlisten: (() => void) | null = null;
 		let disposed = false;
 		void this.bridge
-			.listen(AGENT_PERMISSION, (payload) => {
-				const p = payload as PermissionEvent | undefined;
+			.listen(AGENT_PERMISSION, (event) => {
+				const p = eventPayload(event) as PermissionEvent | undefined;
 				if (p) cb(p);
 			})
 			.then((fn) => {
