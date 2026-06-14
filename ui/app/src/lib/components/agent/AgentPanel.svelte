@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import { ChatStore } from '$lib/agent/chat-store.svelte';
 	import { createAgentClient } from '$lib/agent/agent-client';
 	import { breakGlassStore } from '$lib/agent/break-glass.svelte';
+	import { settingsRoute } from '$lib/vault-menu';
 	import { vaultStore } from '$lib/stores.svelte';
 	import ChatMessage from './ChatMessage.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
@@ -63,6 +66,18 @@
 			void store?.send();
 		}
 	}
+
+	// Available agents first so the picker defaults to something launchable;
+	// unavailable ones follow, shown disabled and labelled "(not found)".
+	const sortedAgents = $derived(
+		store
+			? [...store.agents].sort((a, b) => Number(b.available) - Number(a.available))
+			: []
+	);
+
+	function openSettings() {
+		void goto(settingsRoute(base, vaultStore.currentVault));
+	}
 </script>
 
 <div class="agent-shell" class:collapsed>
@@ -76,18 +91,33 @@
 		{:else}
 			<header class="bar">
 				<div class="controls">
-					<select
-						class="picker"
-						aria-label="Agent"
-						value={store.selectedAgent ?? ''}
-						onchange={(e) => store?.selectAgent(e.currentTarget.value)}
-					>
-						{#each store.agents as agent (agent.id)}
-							<option value={agent.id} disabled={!agent.available}>
-								{agent.name}{agent.available ? '' : ' (unavailable)'}
-							</option>
-						{/each}
-					</select>
+					{#if store.agents.length === 0}
+						<div class="no-agents">
+							<span class="no-agents-text">
+								No agent CLI found — install Copilot, Claude, Codex, or Gemini, or
+								configure one in Settings.
+							</span>
+							<button type="button" class="link-btn" onclick={openSettings}>
+								Open AI Agent settings
+							</button>
+						</div>
+					{:else}
+						<select
+							class="picker"
+							aria-label="Agent"
+							value={store.selectedAgent ?? ''}
+							onchange={(e) => store?.selectAgent(e.currentTarget.value)}
+						>
+							{#each sortedAgents as agent (agent.id)}
+								<option
+									value={agent.id}
+									disabled={!agent.available && agent.id !== store.selectedAgent}
+								>
+									{agent.name}{agent.available ? '' : ' (not found)'}
+								</option>
+							{/each}
+						</select>
+					{/if}
 
 					{#if store.modelPicker}
 						<select
@@ -250,6 +280,35 @@
 	.picker:focus {
 		outline: none;
 		border-color: var(--accent-bg);
+	}
+
+	.no-agents {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		max-width: 320px;
+	}
+
+	.no-agents-text {
+		font-size: 12px;
+		color: var(--text-muted);
+		line-height: 1.4;
+	}
+
+	.link-btn {
+		align-self: flex-start;
+		padding: 0;
+		border: none;
+		background: none;
+		color: var(--accent-bg);
+		font-size: 12px;
+		cursor: pointer;
+		text-decoration: underline;
+	}
+
+	.link-btn:hover {
+		color: var(--accent-bg);
+		text-decoration: none;
 	}
 
 	.mode-toggle,
