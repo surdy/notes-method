@@ -37,10 +37,10 @@ use std::sync::{Arc, Mutex};
 
 use agent_client_protocol::schema::{
     ClientCapabilities, ContentBlock, FileSystemCapabilities, Implementation, InitializeRequest,
-    McpServer, McpServerHttp, McpServerStdio, NewSessionRequest, PermissionOption,
-    PermissionOptionKind, PromptRequest, ProtocolVersion, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome, SessionId,
-    SessionNotification, SessionUpdate, TextContent, ToolCallContent, ToolCallStatus,
+    McpServer, McpServerStdio, NewSessionRequest, PermissionOption, PermissionOptionKind,
+    PromptRequest, ProtocolVersion, RequestPermissionOutcome, RequestPermissionRequest,
+    RequestPermissionResponse, SelectedPermissionOutcome, SessionId, SessionNotification,
+    SessionUpdate, TextContent, ToolCallContent, ToolCallStatus,
 };
 use agent_client_protocol::{AcpAgent, Client};
 use serde_json::json;
@@ -129,16 +129,11 @@ fn initialize_request(local_io: bool) -> InitializeRequest {
 }
 
 /// Build the `session/new` request for `cwd`, wiring the active vault's MCP
-/// endpoint (when present) into the `mcpServers` array as an HTTP transport.
+/// server (when present) into the `mcpServers` array. The binding selects the
+/// transport: a stdio bridge subprocess for local sessions, or an HTTP(S)
+/// endpoint for remote daemons.
 fn new_session_request(cwd: &str, mcp: Option<&McpBinding>) -> NewSessionRequest {
-    let servers: Vec<McpServer> = mcp
-        .map(|m| {
-            vec![McpServer::Http(McpServerHttp::new(
-                m.name.clone(),
-                m.url.clone(),
-            ))]
-        })
-        .unwrap_or_default();
+    let servers: Vec<McpServer> = mcp.map(|m| vec![m.to_mcp_server()]).unwrap_or_default();
     NewSessionRequest::new(PathBuf::from(cwd)).mcp_servers(servers)
 }
 
@@ -375,10 +370,10 @@ impl AcpSession {
         self
     }
 
-    /// Auto-wire the active vault's MCP endpoint into `session/new` and derive
-    /// the permission scope (read-only vs read-write) from the endpoint URL.
+    /// Auto-wire the active vault's MCP server into `session/new` and derive
+    /// the permission scope (read-only vs read-write) from the binding.
     pub fn with_mcp(mut self, binding: McpBinding) -> Self {
-        self.read_only = binding.url.contains("/mcp-ro/");
+        self.read_only = binding.read_only();
         self.mcp = Some(binding);
         self
     }
@@ -609,13 +604,26 @@ mod tests {
 
     #[test]
     fn new_session_request_includes_mcp_server_when_bound() {
-        let binding = McpBinding::new("notesmith", "http://127.0.0.1:27183/mcp/work");
+        let binding = McpBinding::http("notesmith", "http://127.0.0.1:27183/mcp/work");
         let value = serde_json::to_value(new_session_request("/vault", Some(&binding))).unwrap();
         let servers = value["mcpServers"].as_array().unwrap();
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0]["type"], json!("http"));
         assert_eq!(servers[0]["url"], json!("http://127.0.0.1:27183/mcp/work"));
         assert_eq!(value["cwd"], json!("/vault"));
+    }
+
+    #[test]
+    fn new_session_request_uses_a_stdio_transport_for_local_bridges() {
+        let binding = McpBinding::local_bridge("notesmith", "work", false);
+        let value = serde_json::to_value(new_session_request("/vault", Some(&binding))).unwrap();
+        let servers = value["mcpServers"].as_array().unwrap();
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0]["command"], json!("notesmith"));
+        assert_eq!(
+            servers[0]["args"],
+            json!(["--vault", "work", "mcp", "start"])
+        );
     }
 
     #[test]
@@ -868,14 +876,21 @@ mod tests {
     }
 
     #[test]
-    fn with_mcp_derives_scope_from_url() {
+    fn with_mcp_derives_scope_from_binding() {
         let read_only = AcpSession::new("x", Vec::new())
-            .with_mcp(McpBinding::new("notesmith", "http://x/mcp-ro/work"));
+            .with_mcp(McpBinding::http("notesmith", "http://x/mcp-ro/work"));
         assert!(read_only.read_only);
 
         let read_write = AcpSession::new("x", Vec::new())
-            .with_mcp(McpBinding::new("notesmith", "http://x/mcp/work"));
+            .with_mcp(McpBinding::http("notesmith", "http://x/mcp/work"));
         assert!(!read_write.read_only);
+
+        let local = AcpSession::new("x", Vec::new()).with_mcp(McpBinding::local_bridge(
+            "notesmith",
+            "work",
+            true,
+        ));
+        assert!(local.read_only);
     }
 
     #[test]

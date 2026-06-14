@@ -1,114 +1,188 @@
-//! MCP wiring for spawned agents (ADR 0012).
+//! MCP wiring for ACP sessions (ADR 0012).
 //!
-//! A spawned agent is auto-wired to Notesmith's per-vault MCP endpoint so it
-//! can read (and, when read-write, edit) the vault the user is viewing. The
-//! daemon serves Streamable HTTP MCP at `/mcp/<vault>` (read-write) and
-//! `/mcp-ro/<vault>` (read-only); the scope is encoded in the URL, so this type
-//! only needs the resolved endpoint URL plus the server name to expose to the
-//! agent.
+//! The active vault is exposed to a spawned agent as a `session/new`
+//! `mcpServers` entry so it can read (and, when read-write, edit) the vault the
+//! user is viewing. Two transports carry the same per-vault MCP server:
 //!
-//! Each adapter translates a [`McpBinding`] into its CLI's own MCP-config
-//! surface (e.g. Claude Code's `--mcp-config`, Codex's `-c mcp_servers.*`).
+//! - **stdio** for **local** sessions: Notesmith launches the
+//!   `notesmith mcp start` bridge as a child process; the bridge forwards every
+//!   request to the daemon's HTTP MCP endpoint, so stdio and HTTP clients share
+//!   the daemon's live indexes (ADR 0010 Phase 3).
+//! - **HTTP(S)** for **remote** sessions: the agent connects to the daemon's
+//!   Streamable HTTP MCP endpoint (`/mcp/<vault>` or `/mcp-ro/<vault>`)
+//!   directly.
+//!
+//! Read-only vs read-write scope is carried explicitly on the binding so the
+//! permission gate matches the endpoint the agent actually talks to (the
+//! daemon encodes the scope in the HTTP path and in the bridge's `--read-only`
+//! flag).
 
-use serde_json::{Map, Value, json};
+use std::path::PathBuf;
 
-/// A single MCP server to expose to an agent.
+use agent_client_protocol::schema::{McpServer, McpServerHttp, McpServerStdio};
+
+/// Server name surfaced to the agent for the vault's MCP server.
+pub const MCP_SERVER_NAME: &str = "notesmith";
+
+/// How a spawned agent reaches the active vault's MCP server.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct McpBinding {
-    /// Server name surfaced to the agent (e.g. `notesmith`).
-    pub name: String,
-    /// Streamable HTTP MCP endpoint URL (already scope-resolved).
-    pub url: String,
+pub enum McpBinding {
+    /// Local sessions: launch a stdio bridge subprocess (`command args...`,
+    /// typically `notesmith --vault <vault> mcp start [--read-only]`).
+    Stdio {
+        /// Server name surfaced to the agent.
+        name: String,
+        /// Executable to launch (path or PATH-resolved name).
+        command: String,
+        /// Arguments passed to `command`.
+        args: Vec<String>,
+        /// Whether the bridge targets the read-only scope.
+        read_only: bool,
+    },
+    /// Remote sessions: connect to a Streamable HTTP(S) MCP endpoint.
+    Http {
+        /// Server name surfaced to the agent.
+        name: String,
+        /// Streamable HTTP MCP endpoint URL (already scope-resolved).
+        url: String,
+        /// Whether the endpoint targets the read-only scope.
+        read_only: bool,
+    },
 }
 
 impl McpBinding {
-    /// Build a binding for `name` pointing at the HTTP MCP endpoint `url`.
-    pub fn new(name: impl Into<String>, url: impl Into<String>) -> Self {
-        Self {
+    /// Build a remote HTTP(S) binding for `name` at `url`. The read-only scope
+    /// is derived from the endpoint path: `/mcp-ro/` denotes read-only.
+    pub fn http(name: impl Into<String>, url: impl Into<String>) -> Self {
+        let url = url.into();
+        let read_only = url.contains("/mcp-ro/");
+        Self::Http {
             name: name.into(),
-            url: url.into(),
+            url,
+            read_only,
         }
     }
 
-    /// JSON for Claude Code's `--mcp-config` flag (Streamable HTTP transport):
-    /// `{"mcpServers":{"<name>":{"type":"http","url":"<url>"}}}`.
-    pub fn claude_config_json(&self) -> String {
-        let mut server = Map::new();
-        server.insert("type".to_string(), json!("http"));
-        server.insert("url".to_string(), json!(self.url));
-
-        let mut servers = Map::new();
-        servers.insert(self.name.clone(), Value::Object(server));
-
-        let mut root = Map::new();
-        root.insert("mcpServers".to_string(), Value::Object(servers));
-        Value::Object(root).to_string()
+    /// Build a local stdio binding that launches `command` with `args`.
+    pub fn stdio(
+        name: impl Into<String>,
+        command: impl Into<String>,
+        args: Vec<String>,
+        read_only: bool,
+    ) -> Self {
+        Self::Stdio {
+            name: name.into(),
+            command: command.into(),
+            args,
+            read_only,
+        }
     }
 
-    /// `-c key=value` config overrides registering this server with Codex as a
-    /// Streamable HTTP MCP server.
-    pub fn codex_config_overrides(&self) -> Vec<String> {
-        vec![format!("mcp_servers.{}.url=\"{}\"", self.name, self.url)]
-    }
-
-    /// An entry for an ACP `session/new` `mcpServers` array, describing this
-    /// server as an HTTP MCP transport:
-    /// `{"type":"http","name":"<name>","url":"<url>","headers":[]}`.
+    /// Build the local `notesmith mcp start` stdio bridge for `vault`.
     ///
-    /// The agent advertises `mcpCapabilities.http` during `initialize`; this is
-    /// the single MCP-wiring path shared by every ACP agent (ADR 0012).
-    pub fn acp_server_json(&self) -> Value {
-        json!({
-            "type": "http",
-            "name": self.name,
-            "url": self.url,
-            "headers": [],
-        })
+    /// Equivalent to `notesmith --vault <vault> mcp start [--read-only]`, run
+    /// through the resolved `notesmith` binary (`notesmith_bin`). The bridge
+    /// resolves the daemon endpoint itself and forwards MCP traffic to it.
+    pub fn local_bridge(notesmith_bin: impl Into<String>, vault: &str, read_only: bool) -> Self {
+        let mut args = vec![
+            "--vault".to_string(),
+            vault.to_string(),
+            "mcp".to_string(),
+            "start".to_string(),
+        ];
+        if read_only {
+            args.push("--read-only".to_string());
+        }
+        Self::stdio(MCP_SERVER_NAME, notesmith_bin, args, read_only)
+    }
+
+    /// The server name surfaced to the agent.
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Stdio { name, .. } | Self::Http { name, .. } => name,
+        }
+    }
+
+    /// Whether this binding targets the read-only scope.
+    pub fn read_only(&self) -> bool {
+        match self {
+            Self::Stdio { read_only, .. } | Self::Http { read_only, .. } => *read_only,
+        }
+    }
+
+    /// Convert to a typed ACP `session/new` `mcpServers` entry.
+    pub fn to_mcp_server(&self) -> McpServer {
+        match self {
+            Self::Stdio {
+                name,
+                command,
+                args,
+                ..
+            } => McpServer::Stdio(
+                McpServerStdio::new(name.clone(), PathBuf::from(command)).args(args.clone()),
+            ),
+            Self::Http { name, url, .. } => {
+                McpServer::Http(McpServerHttp::new(name.clone(), url.clone()))
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::Value;
+    use serde_json::json;
 
     #[test]
-    fn claude_config_json_uses_http_transport() {
-        let binding = McpBinding::new("notesmith", "http://127.0.0.1:27183/mcp-ro/work");
-        let value: Value = serde_json::from_str(&binding.claude_config_json()).unwrap();
-        assert_eq!(
-            value,
-            json!({
-                "mcpServers": {
-                    "notesmith": {
-                        "type": "http",
-                        "url": "http://127.0.0.1:27183/mcp-ro/work"
-                    }
-                }
-            })
-        );
+    fn http_binding_derives_read_only_from_the_endpoint_path() {
+        assert!(!McpBinding::http("notesmith", "http://h/mcp/work").read_only());
+        assert!(McpBinding::http("notesmith", "http://h/mcp-ro/work").read_only());
     }
 
     #[test]
-    fn codex_overrides_target_the_named_server_url() {
-        let binding = McpBinding::new("notesmith", "http://127.0.0.1:27183/mcp/work");
-        assert_eq!(
-            binding.codex_config_overrides(),
-            vec!["mcp_servers.notesmith.url=\"http://127.0.0.1:27183/mcp/work\"".to_string()]
-        );
+    fn http_binding_serializes_as_an_http_transport() {
+        let server = McpBinding::http("notesmith", "https://h/mcp/work").to_mcp_server();
+        let value = serde_json::to_value(server).unwrap();
+        assert_eq!(value["type"], json!("http"));
+        assert_eq!(value["name"], json!("notesmith"));
+        assert_eq!(value["url"], json!("https://h/mcp/work"));
     }
 
     #[test]
-    fn acp_server_json_describes_an_http_transport() {
-        let binding = McpBinding::new("notesmith", "http://127.0.0.1:27183/mcp-ro/work");
-        assert_eq!(
-            binding.acp_server_json(),
-            json!({
-                "type": "http",
-                "name": "notesmith",
-                "url": "http://127.0.0.1:27183/mcp-ro/work",
-                "headers": [],
-            })
-        );
+    fn local_bridge_builds_the_read_write_mcp_start_command() {
+        let binding = McpBinding::local_bridge("notesmith", "work", false);
+        assert!(!binding.read_only());
+        assert_eq!(binding.name(), "notesmith");
+        match &binding {
+            McpBinding::Stdio { command, args, .. } => {
+                assert_eq!(command, "notesmith");
+                assert_eq!(args, &["--vault", "work", "mcp", "start"]);
+            }
+            other => panic!("expected a stdio binding, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn local_bridge_appends_read_only_flag_for_the_read_only_scope() {
+        let binding = McpBinding::local_bridge("/usr/bin/notesmith", "journal", true);
+        assert!(binding.read_only());
+        match &binding {
+            McpBinding::Stdio { command, args, .. } => {
+                assert_eq!(command, "/usr/bin/notesmith");
+                assert_eq!(args, &["--vault", "journal", "mcp", "start", "--read-only"]);
+            }
+            other => panic!("expected a stdio binding, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stdio_binding_serializes_as_a_stdio_transport() {
+        let binding = McpBinding::local_bridge("notesmith", "work", false);
+        let value = serde_json::to_value(binding.to_mcp_server()).unwrap();
+        assert_eq!(value["name"], json!("notesmith"));
+        assert_eq!(value["command"], json!("notesmith"));
+        assert_eq!(value["args"], json!(["--vault", "work", "mcp", "start"]));
+        // The stdio variant is untagged: it carries no `type` discriminator.
+        assert!(value.get("type").is_none());
     }
 }
