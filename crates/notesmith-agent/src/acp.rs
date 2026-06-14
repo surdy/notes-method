@@ -818,6 +818,14 @@ impl AcpSession {
         }
     }
 
+    /// Eagerly run the `initialize` + `session/new` handshake without sending a
+    /// prompt, so callers can read [`model_picker`](AcpSession::model_picker)
+    /// up front (e.g. to populate a picker the moment a chat session opens).
+    /// Idempotent: a no-op once the session has started.
+    pub async fn start(&mut self) -> Result<(), AgentError> {
+        self.ensure_started().await
+    }
+
     /// Lazily start the driver and run the `initialize` + `session/new`
     /// handshake on the first call; subsequent calls are no-ops. After this
     /// resolves `Ok`, the model picker (if any) has been captured.
