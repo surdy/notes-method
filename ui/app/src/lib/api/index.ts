@@ -79,3 +79,14 @@ export type { RouteApplyResponse, RouteResult } from './routing.ts';
 
 export { executeSql } from './sql.ts';
 export type { SqlQueryResult } from './sql.ts';
+
+export {
+	appendMessage,
+	createThread,
+	deleteThread,
+	getThread,
+	listMessages,
+	listThreads,
+	renameThread
+} from './transcripts.ts';
+export type { Message, Role, Thread } from './transcripts.ts';
