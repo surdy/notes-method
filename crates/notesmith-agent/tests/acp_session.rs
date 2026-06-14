@@ -245,3 +245,37 @@ async fn malformed_agent_output_degrades_without_panicking() {
         "session should reach a terminal event, got {events:?}"
     );
 }
+
+/// End-to-end smoke test against a real `copilot --acp` process.
+///
+/// Ignored by default: it requires the GitHub Copilot CLI to be installed and
+/// authenticated, and it makes a network round-trip. Run on demand with:
+///
+/// ```text
+/// cargo test -p notesmith-agent --test acp_session -- --ignored real_copilot
+/// ```
+#[tokio::test]
+#[ignore = "requires an installed, authenticated `copilot` CLI and network access"]
+async fn real_copilot_round_trips_a_turn() {
+    let mut session = AcpSession::copilot(None);
+    session
+        .send("Reply with exactly the word: pong")
+        .await
+        .expect("copilot handshake + prompt");
+
+    let mut saw_delta = false;
+    let mut saw_terminal = false;
+    while let Some(event) = session.next_event().await {
+        match event {
+            AgentEvent::AgentMessageDelta { .. } => saw_delta = true,
+            AgentEvent::Done { .. } => {
+                saw_terminal = true;
+                break;
+            }
+            AgentEvent::Error { message } => panic!("copilot turn errored: {message}"),
+            _ => {}
+        }
+    }
+    assert!(saw_delta, "expected at least one assistant delta");
+    assert!(saw_terminal, "expected a clean turn end");
+}
