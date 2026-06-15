@@ -321,6 +321,15 @@ impl VaultWindows {
         guard.remove(&vault);
         Some(vault)
     }
+
+    /// The vault associated with the given window label, if any (non-removing).
+    fn vault_for_label(&self, label: &str) -> Option<String> {
+        self.0
+            .lock()
+            .expect("vault windows state poisoned")
+            .iter()
+            .find_map(|(k, v)| (v == label).then(|| k.clone()))
+    }
 }
 
 /// Tracks the path to `windows.json` plus a debounced timestamp for the next
@@ -434,6 +443,7 @@ fn main() {
             connection_add,
             connection_update,
             connection_remove,
+            connection_set_active,
             connection_test
         ])
         .menu(build_app_menu)
@@ -1002,7 +1012,7 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
         return Ok(());
     }
 
-    if !should_use_local_vault_state(&startup_settings()) {
+    if !should_use_local_vault_state(&effective_settings(app)) {
         ensure_main_window(app)?;
         if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
             let _ = window.show();
@@ -1548,6 +1558,39 @@ fn all_app_window_labels<R: Runtime>(app: &AppHandle<R>) -> Vec<String> {
     labels
 }
 
+/// Re-point every open app window at the current daemon URL + frontend mode.
+///
+/// Called after a connection switch so each webview reloads with the new
+/// `apiBase` (remote) or local daemon origin. Each window keeps its own route:
+/// vault windows reopen their vault, the settings window stays on `/settings`,
+/// and the onboarding main window reloads at the root.
+fn renavigate_app_windows<R: Runtime>(app: &AppHandle<R>) {
+    for label in all_app_window_labels(app) {
+        let target = if label == SETTINGS_WINDOW_LABEL {
+            current_settings_app_url(app)
+        } else if label == MAIN_WINDOW_LABEL {
+            current_app_url(app)
+        } else if let Some(vault) = app.state::<VaultWindows>().vault_for_label(&label) {
+            current_vault_app_url(app, &vault)
+        } else {
+            current_app_url(app)
+        };
+
+        match target {
+            Ok(url) => {
+                if let Some(window) = app.get_webview_window(&label)
+                    && let Err(error) = window.navigate(url)
+                {
+                    tracing::warn!(%label, %error, "failed to re-navigate window on connection switch");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%label, %error, "failed to build app url on connection switch")
+            }
+        }
+    }
+}
+
 fn show_main_app_window<R: Runtime>(
     app: &AppHandle<R>,
     settings: &DaemonSettings,
@@ -1613,7 +1656,7 @@ async fn run_startup_flow<R: Runtime>(app: &AppHandle<R>) -> Result<String, DynE
     show_splash_window(app)?;
     close_window(app, FALLBACK_WINDOW_LABEL)?;
 
-    let settings = startup_settings();
+    let settings = effective_settings(app);
     let outcome = daemon::orchestrate_startup_supervised(&settings).await;
     handle_startup_state(app, &settings, outcome).await
 }
@@ -1769,7 +1812,7 @@ fn current_settings_app_url<R: Runtime>(app: &AppHandle<R>) -> Result<Url, DynEr
         &current_daemon_url(app),
         "/settings",
         None,
-        frontend_mode(),
+        frontend_mode(app),
     ))
     .map_err(Into::into)
 }
@@ -1781,16 +1824,39 @@ fn current_app_url_for_vault<R: Runtime>(
     Url::parse(&app_window_url(
         &current_daemon_url(app),
         vault,
-        frontend_mode(),
+        frontend_mode(app),
     ))
     .map_err(Into::into)
 }
 
-fn frontend_mode() -> FrontendMode {
-    if DaemonSettings::default().external_url {
+fn frontend_mode<R: Runtime>(app: &AppHandle<R>) -> FrontendMode {
+    if effective_settings(app).external_url {
         FrontendMode::Embedded
     } else {
         FrontendMode::Daemon
+    }
+}
+
+/// Daemon settings for the **active connection**, layering the persisted
+/// server list over the env-derived defaults. A stored remote server wins
+/// (`external_url = true`, its URL); otherwise we fall back to the env-derived
+/// settings so the legacy `NOTESMITH_DESKTOP_DAEMON_URL` keeps working until the
+/// migration (#182) seeds the store. This is the single source of truth for
+/// whether the desktop runs local (Daemon mode) or remote (Embedded mode).
+fn effective_settings<R: Runtime>(app: &AppHandle<R>) -> DaemonSettings {
+    let base = startup_settings();
+    let (url, remote) = app
+        .state::<ServersState>()
+        .snapshot()
+        .active_target(&base.daemon_url);
+    if remote {
+        DaemonSettings {
+            daemon_url: url,
+            external_url: true,
+            ..base
+        }
+    } else {
+        base
     }
 }
 
@@ -1837,7 +1903,7 @@ fn register_supervised_child<R: Runtime + 'static>(app: AppHandle<R>, child: Chi
 async fn start_and_track_supervised_daemon<R: Runtime + 'static>(
     app: AppHandle<R>,
 ) -> Result<(), DynError> {
-    let settings = startup_settings();
+    let settings = effective_settings(&app);
     let mut child = daemon::launch_daemon_supervised(settings.clone()).await?;
 
     if !daemon::wait_for_daemon_status(&settings).await {
@@ -2430,7 +2496,7 @@ async fn restart_daemon_anyway(app: tauri::AppHandle) -> Result<String, String> 
 async fn open_vault_window(app: tauri::AppHandle, vault: String) -> Result<(), String> {
     // Validate the vault is registered so we don't create a window pointing
     // at a non-existent vault (the frontend would surface a confusing error).
-    if should_use_local_vault_state(&startup_settings()) {
+    if should_use_local_vault_state(&effective_settings(&app)) {
         let config = notesmith_config::GlobalConfig::load().map_err(|error| error.to_string())?;
         if config.vault(&vault).is_none() {
             return Err(format!("Vault '{vault}' is not registered"));
@@ -2505,7 +2571,7 @@ async fn open_folder_as_vault(
     display_name: String,
     create: Option<bool>,
 ) -> Result<(), String> {
-    let existing: Vec<String> = if should_use_local_vault_state(&startup_settings()) {
+    let existing: Vec<String> = if should_use_local_vault_state(&effective_settings(&app)) {
         notesmith_config::GlobalConfig::load()
             .map_err(|error| error.to_string())?
             .vaults
@@ -2719,6 +2785,46 @@ fn connection_remove(app: tauri::AppHandle, id: String) -> Result<(), String> {
     app.state::<ServersState>()
         .mutate(|file| file.remove(&id).map_err(|error| error.to_string()))
 }
+
+/// Switch the active connection at runtime. Persists the selection, retargets
+/// the daemon URL, re-navigates open windows, and emits `connection-changed`.
+///
+/// Pass `id = None` (or `"local"`) for the local daemon, or a stored server id
+/// for a remote daemon. When switching to local the local daemon is started if
+/// it isn't already running; switching to remote never spawns one.
+#[tauri::command]
+async fn connection_set_active(
+    app: tauri::AppHandle,
+    id: Option<String>,
+) -> Result<ConnectionList, String> {
+    app.state::<ServersState>().mutate(|file| {
+        file.set_active(id.as_deref())
+            .map_err(|error| error.to_string())
+    })?;
+
+    let settings = effective_settings(&app);
+    let target_url = daemon::resolve_daemon_url(&settings);
+
+    // Switching to the local daemon: make sure it's up before we point at it.
+    if !settings.external_url && !daemon::wait_for_daemon_status(&settings).await {
+        start_and_track_supervised_daemon(app.clone())
+            .await
+            .map_err(|error| format!("Failed to start the local daemon: {error}"))?;
+    }
+
+    set_current_daemon_url(&app, target_url);
+    renavigate_app_windows(&app);
+
+    let list = app.state::<ServersState>().snapshot().connection_list();
+    if let Err(error) = app.emit(CONNECTION_CHANGED_EVENT, &list) {
+        tracing::warn!(%error, "failed to emit connection-changed event");
+    }
+    Ok(list)
+}
+
+/// Event emitted to the frontend when the active connection changes so the
+/// status-bar switcher can update without a full reload.
+const CONNECTION_CHANGED_EVENT: &str = "notesmith://connection-changed";
 
 /// Probe a candidate daemon URL for reachability without saving it. Never
 /// fails the command — unreachable hosts return `reachable: false` with a

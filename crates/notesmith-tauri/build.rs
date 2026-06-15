@@ -38,6 +38,7 @@ fn main() {
             "connection_add",
             "connection_update",
             "connection_remove",
+            "connection_set_active",
             "connection_test",
         ]));
     tauri_build::try_build(attrs).expect("failed to run tauri-build");

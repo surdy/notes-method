@@ -37,6 +37,7 @@
     "allow-connection-add",
     "allow-connection-update",
     "allow-connection-remove",
+    "allow-connection-set-active",
     "allow-connection-test",
     {
       "identifier": "shell:allow-spawn",

@@ -256,6 +256,19 @@ impl ServersFile {
         matches!(self.active(), Active::Local)
     }
 
+    /// Resolve the active connection's target daemon URL and whether it is
+    /// remote. `local_url` is the URL to use when the local daemon is active.
+    ///
+    /// This is the pure decision the desktop uses to retarget the webview on a
+    /// connection switch or on relaunch: local → (`local_url`, false),
+    /// remote → (`entry.url`, true).
+    pub fn active_target(&self, local_url: &str) -> (String, bool) {
+        match self.active() {
+            Active::Local => (local_url.to_string(), false),
+            Active::Remote(entry) => (entry.url.clone(), true),
+        }
+    }
+
     pub fn get(&self, id: &str) -> Option<&ServerEntry> {
         self.servers.iter().find(|s| s.id == id)
     }
@@ -688,5 +701,32 @@ mod tests {
         assert_eq!(parse_vault_count(br#"{"vaults":[1,2,3]}"#), Some(3));
         assert_eq!(parse_vault_count(br#"{"unexpected":true}"#), None);
         assert_eq!(parse_vault_count(b"not json"), None);
+    }
+
+    #[test]
+    fn active_target_resolves_local_and_remote() {
+        let mut file = ServersFile::default();
+        // Local active by default → the supplied local URL, not remote.
+        assert_eq!(
+            file.active_target("http://127.0.0.1:27183"),
+            ("http://127.0.0.1:27183".to_string(), false)
+        );
+
+        let id = file
+            .add(input("Home", "https://notes.example.com"))
+            .unwrap();
+        file.set_active(Some(&id)).unwrap();
+        // Remote active → the entry URL, flagged remote (local URL ignored).
+        assert_eq!(
+            file.active_target("http://127.0.0.1:27183"),
+            ("https://notes.example.com".to_string(), true)
+        );
+
+        // Switching back to local restores the local target.
+        file.set_active(Some(LOCAL_ID)).unwrap();
+        assert_eq!(
+            file.active_target("http://127.0.0.1:27183"),
+            ("http://127.0.0.1:27183".to_string(), false)
+        );
     }
 }
