@@ -158,6 +158,23 @@ fn new_session_request(cwd: &str, mcp: Option<&McpBinding>) -> NewSessionRequest
     NewSessionRequest::new(PathBuf::from(cwd)).mcp_servers(servers)
 }
 
+/// Choose the MCP binding to advertise based on the agent's declared transport
+/// support. The `primary` binding (typically the daemon's HTTP endpoint) is
+/// used whenever the agent supports HTTP MCP; otherwise the stdio `fallback`
+/// (a local-daemon bridge) is used. When neither applies the primary is kept so
+/// behaviour degrades to "advertise the binding we have".
+fn select_mcp_binding<'a>(
+    agent_supports_http: bool,
+    primary: Option<&'a McpBinding>,
+    fallback: Option<&'a McpBinding>,
+) -> Option<&'a McpBinding> {
+    if agent_supports_http {
+        primary.or(fallback)
+    } else {
+        fallback.or(primary)
+    }
+}
+
 /// Build the `session/prompt` content blocks for a single user turn. Blocks are
 /// ordered context-first so the agent reads steering before the user's words:
 ///
@@ -386,6 +403,9 @@ pub struct AcpSession {
     pub(crate) env: Vec<(String, String)>,
     working_dir: Option<PathBuf>,
     mcp: Option<McpBinding>,
+    /// Stdio bridge used only when the agent does not advertise HTTP MCP
+    /// support (a local-daemon fallback for HTTP-incapable agents).
+    mcp_stdio_fallback: Option<McpBinding>,
     read_only: bool,
     local_io: bool,
     pub(crate) setup_hint: Option<String>,
@@ -409,6 +429,7 @@ impl AcpSession {
             env: Vec::new(),
             working_dir: None,
             mcp: None,
+            mcp_stdio_fallback: None,
             read_only: true,
             local_io: false,
             setup_hint: None,
@@ -520,9 +541,25 @@ impl AcpSession {
 
     /// Auto-wire the active vault's MCP server into `session/new` and derive
     /// the permission scope (read-only vs read-write) from the binding.
+    ///
+    /// This is the **preferred** binding, used whenever the agent advertises
+    /// HTTP MCP support during `initialize`. For a local daemon this is the
+    /// daemon's Streamable HTTP endpoint, which every HTTP-capable agent (e.g.
+    /// GitHub Copilot, which supports *only* HTTP/SSE) can reach. Pair it with
+    /// [`with_mcp_stdio_fallback`](Self::with_mcp_stdio_fallback) so
+    /// HTTP-incapable agents still get the vault over a stdio bridge.
     pub fn with_mcp(mut self, binding: McpBinding) -> Self {
         self.read_only = binding.read_only();
         self.mcp = Some(binding);
+        self
+    }
+
+    /// Provide a stdio MCP bridge used only when the agent does **not**
+    /// advertise HTTP MCP support (`mcpCapabilities.http == false`). This is a
+    /// local-daemon fallback for agents that speak only stdio MCP; remote
+    /// sessions leave it unset and always use the HTTP binding.
+    pub fn with_mcp_stdio_fallback(mut self, binding: McpBinding) -> Self {
+        self.mcp_stdio_fallback = Some(binding);
         self
     }
 
@@ -622,6 +659,7 @@ impl AcpSession {
         let agent = self.build_agent();
         let cwd = self.absolute_cwd();
         let mcp = self.mcp.clone();
+        let mcp_stdio_fallback = self.mcp_stdio_fallback.clone();
         let local_io = self.local_io;
         let read_only = self.read_only;
         let decider = self.decider.clone();
@@ -633,7 +671,10 @@ impl AcpSession {
             PathBuf::from(&cwd),
         ));
         let preamble = assemble_preamble(
-            &session_preamble(self.mcp.is_some(), self.local_io),
+            &session_preamble(
+                self.mcp.is_some() || self.mcp_stdio_fallback.is_some(),
+                self.local_io,
+            ),
             self.vault_summary.as_ref(),
             self.skill.as_deref(),
         );
@@ -730,16 +771,29 @@ impl AcpSession {
                 .connect_with(agent, async move |cx| {
                     // Handshake. block_task() is safe here: main_fn runs
                     // alongside (not inside) the inbound dispatch loop.
-                    if let Err(error) = cx
+                    let init = match cx
                         .send_request(initialize_request(local_io, read_only))
                         .block_task()
                         .await
                     {
-                        signal_ready(&ready_main, Err(error.to_string()));
-                        return Err(error);
-                    }
+                        Ok(response) => response,
+                        Err(error) => {
+                            signal_ready(&ready_main, Err(error.to_string()));
+                            return Err(error);
+                        }
+                    };
+                    // Pick the MCP transport the agent can actually use. Some
+                    // agents (e.g. GitHub Copilot) support only HTTP/SSE MCP and
+                    // silently ignore stdio servers, so honour the advertised
+                    // `mcpCapabilities` rather than assuming a transport.
+                    let agent_supports_http = init.agent_capabilities.mcp_capabilities.http;
+                    let chosen_mcp = select_mcp_binding(
+                        agent_supports_http,
+                        mcp.as_ref(),
+                        mcp_stdio_fallback.as_ref(),
+                    );
                     let session_id: SessionId = match cx
-                        .send_request(new_session_request(&cwd, mcp.as_ref()))
+                        .send_request(new_session_request(&cwd, chosen_mcp))
                         .block_task()
                         .await
                     {
@@ -1044,6 +1098,34 @@ mod tests {
             json!(false)
         );
         assert_eq!(ro["clientCapabilities"]["terminal"], json!(false));
+    }
+
+    #[test]
+    fn select_mcp_prefers_http_primary_when_agent_supports_http() {
+        let http = McpBinding::http("notesmith", "http://127.0.0.1:27183/mcp/work");
+        let stdio = McpBinding::local_bridge("notesmith", "work", false);
+        let chosen = select_mcp_binding(true, Some(&http), Some(&stdio));
+        assert_eq!(chosen, Some(&http));
+    }
+
+    #[test]
+    fn select_mcp_falls_back_to_stdio_when_agent_lacks_http() {
+        let http = McpBinding::http("notesmith", "http://127.0.0.1:27183/mcp/work");
+        let stdio = McpBinding::local_bridge("notesmith", "work", false);
+        let chosen = select_mcp_binding(false, Some(&http), Some(&stdio));
+        assert_eq!(chosen, Some(&stdio));
+    }
+
+    #[test]
+    fn select_mcp_keeps_http_when_no_stdio_fallback_exists() {
+        let http = McpBinding::http("notesmith", "http://127.0.0.1:27183/mcp/work");
+        // Remote daemon: no stdio fallback, agent lacks http → keep what we have.
+        assert_eq!(select_mcp_binding(false, Some(&http), None), Some(&http));
+    }
+
+    #[test]
+    fn select_mcp_returns_none_without_any_binding() {
+        assert_eq!(select_mcp_binding(true, None, None), None);
     }
 
     #[test]

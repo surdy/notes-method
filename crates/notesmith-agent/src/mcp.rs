@@ -2,15 +2,19 @@
 //!
 //! The active vault is exposed to a spawned agent as a `session/new`
 //! `mcpServers` entry so it can read (and, when read-write, edit) the vault the
-//! user is viewing. Two transports carry the same per-vault MCP server:
+//! user is viewing. Two transports carry the same per-vault MCP server, and the
+//! one advertised to a given agent is chosen from its declared
+//! `mcpCapabilities` during the ACP handshake (see [`crate::acp::AcpSession`]):
 //!
-//! - **stdio** for **local** sessions: Notesmith launches the
-//!   `notesmith mcp start` bridge as a child process; the bridge forwards every
-//!   request to the daemon's HTTP MCP endpoint, so stdio and HTTP clients share
-//!   the daemon's live indexes (ADR 0010 Phase 3).
-//! - **HTTP(S)** for **remote** sessions: the agent connects to the daemon's
-//!   Streamable HTTP MCP endpoint (`/mcp/<vault>` or `/mcp-ro/<vault>`)
-//!   directly.
+//! - **HTTP(S)** (preferred): the agent connects to the daemon's Streamable
+//!   HTTP MCP endpoint (`/mcp/<vault>` or `/mcp-ro/<vault>`) directly. Every
+//!   HTTP-capable agent uses this — including GitHub Copilot, whose ACP client
+//!   supports *only* HTTP/SSE MCP and silently ignores stdio servers.
+//! - **stdio** (local fallback): Notesmith launches the `notesmith mcp start`
+//!   bridge as a child process; the bridge forwards every request to the
+//!   daemon's HTTP MCP endpoint, so stdio and HTTP clients share the daemon's
+//!   live indexes (ADR 0010 Phase 3). Supplied only for a **local** daemon and
+//!   used only when the agent does not advertise HTTP MCP support.
 //!
 //! Read-only vs read-write scope is carried explicitly on the binding so the
 //! permission gate matches the endpoint the agent actually talks to (the

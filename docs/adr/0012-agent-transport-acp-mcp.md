@@ -56,11 +56,16 @@ injected into the prompt) is portable: route **everything through `Ops`**, and
    ACP **`Client`** trait; external binaries are the agents. The hand-rolled
    JSON-RPC transport is retired. (Supersedes ADR 0011 Decision 3 + Phase E
    transport.)
-2. **MCP transport is split by locality.** **Local:** the agent talks MCP over
-   **stdio** to a bridge that forwards to the **local daemon**; **remote:** the
-   agent connects MCP over **HTTPS directly to the remote daemon**. In both
-   cases the **daemon remains the single owner** of the SQLite + Tantivy index
-   (no second in-process index writer). (Supersedes ADR 0011 Decision 4.)
+2. **MCP transport is chosen per agent from its declared `mcpCapabilities`.**
+   The **HTTP** Streamable endpoint is preferred whenever the agent advertises
+   HTTP MCP support — it works for both the local and remote daemon, and some
+   agents (notably **GitHub Copilot**, whose ACP client supports *only* HTTP/SSE
+   and silently ignores stdio servers) can use **nothing else**. A **stdio**
+   bridge to the local daemon is supplied only as a **fallback** for a local
+   daemon when the agent does *not* advertise HTTP MCP. In every case the
+   **daemon remains the single owner** of the SQLite + Tantivy index (no second
+   in-process index writer). (Supersedes ADR 0011 Decision 4; refines the
+   original "stdio-local / HTTP-remote" split, which broke Copilot.)
 3. **The local stdio bridge is a thin stdio↔HTTP forwarder** to the daemon's one
    MCP server — the *same* server remote uses — so there is a single MCP
    code/test surface. This bridge **already exists** from
@@ -135,8 +140,9 @@ injected into the prompt) is portable: route **everything through `Ops`**, and
 
 ## Consequences
 
-- ✅ **Kills the bug classes that broke the first build.** stdio-local removes
-  the URL-in-config, the network exposure, and (with dynamic mounting) the
+- ✅ **Kills the bug classes that broke the first build.** Routing every agent
+  through the daemon's MCP server (HTTP, with the local stdio bridge as a
+  fallback) removes the URL-in-config and (with dynamic mounting) the
   startup-only endpoint problem. The strict `structuredContent`-must-be-an-object
   fix is **still required** at the MCP server and is re-applied in Phase 1.
 - ✅ **One MCP server, one ACP client.** A single MCP implementation serves local
