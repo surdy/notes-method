@@ -292,6 +292,42 @@ describe('ChatStore orchestration', () => {
 		expect(client.readOnlyCalls).toEqual([{ sessionId: 'sess-1', readOnly: false }]);
 	});
 
+	it('reconciles read-write toggled while an eager session start is still in flight', async () => {
+		// Repro: opening the panel eagerly starts a read-only session. If the user
+		// flips to read-write before that (slow) start resolves, the toggle sees a
+		// null session id and cannot rebuild — so the store must reconcile once the
+		// session lands, or writes hit the read-only `/mcp-ro/` endpoint.
+		const client = new MockAgentClient();
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const startSession = client.startSession.bind(client);
+		client.startSession = async (opts: unknown) => {
+			await gate;
+			return startSession(opts);
+		};
+		const { api } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		store.start();
+
+		// Eager start begins (readOnly defaults true) but is gated mid-flight.
+		const prepare = store.prepareSession();
+		await store.toggleReadOnly();
+		expect(store.readOnly).toBe(false);
+		// No backend rebuild yet — the session id is still null.
+		expect(client.readOnlyCalls).toEqual([]);
+
+		release();
+		await prepare;
+
+		expect(store.sessionId).toBe('sess-1');
+		expect(client.startCalls[0]).toMatchObject({ readOnly: true });
+		// The store reconciled the scope to match the visible toggle.
+		expect(client.readOnlyCalls).toEqual([{ sessionId: 'sess-1', readOnly: false }]);
+	});
+
 	it('selects a model and forwards to a live session', async () => {
 		const client = new MockAgentClient();
 		client.models = {

@@ -170,16 +170,25 @@ export class ChatStore {
 		// agent process is spawned at most once per session.
 		if (this.sessionStartPromise) return this.sessionStartPromise;
 		this.sessionStartPromise = (async () => {
+			const startedReadOnly = this.readOnly;
 			const result = await this.client.startSession({
 				vault: this.vault,
 				agent: this.selectedAgent!,
-				readOnly: this.readOnly,
+				readOnly: startedReadOnly,
 				breakGlass: this.breakGlass(),
 				threadId: this.currentThreadId
 			});
 			this.sessionId = result.sessionId;
 			this.modelPicker = result.models;
 			this.selectedModel = result.models?.current ?? this.selectedModel;
+			// The session binds its MCP scope (read-only `/mcp-ro/` vs read-write
+			// `/mcp/`) at start. If the user flipped the toggle while this slow
+			// start was in flight, `toggleReadOnly` no-opped on the still-null
+			// session id — so reconcile now, or writes would hit the read-only
+			// endpoint despite the UI showing read-write.
+			if (this.readOnly !== startedReadOnly) {
+				await this.client.setReadOnly(this.sessionId, this.readOnly);
+			}
 		})();
 		try {
 			await this.sessionStartPromise;
