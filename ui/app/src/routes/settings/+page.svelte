@@ -11,6 +11,7 @@
 	import VaultsSettings from '$lib/components/VaultsSettings.svelte';
 	import AgentSettings from '$lib/components/settings/AgentSettings.svelte';
 	import AppearanceSettings from '$lib/components/settings/AppearanceSettings.svelte';
+	import ConnectionSettings from '$lib/components/settings/ConnectionSettings.svelte';
 	import DailySettings from '$lib/components/settings/DailySettings.svelte';
 	import EditorSettings from '$lib/components/settings/EditorSettings.svelte';
 	import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte';
@@ -27,6 +28,7 @@
 		| 'hooks'
 		| 'appearance'
 		| 'vaults'
+		| 'connection'
 		| 'agent';
 
 	let selectedSection = $state<Section>('general');
@@ -52,6 +54,7 @@
 
 	const appSections: { id: Section; label: string }[] = [
 		{ id: 'agent', label: 'AI Agent' },
+		{ id: 'connection', label: 'Connection' },
 		{ id: 'vaults', label: 'Vaults' }
 	];
 
@@ -214,6 +217,10 @@
 		{:else if selectedSection === 'agent'}
 			<div class="settings-body">
 				<AgentSettings />
+			</div>
+		{:else if selectedSection === 'connection'}
+			<div class="settings-body">
+				<ConnectionSettings />
 			</div>
 		{:else if cfg}
 			<div class="settings-body">
