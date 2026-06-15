@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
+	import ConnectionSwitcher from '$lib/components/ConnectionSwitcher.svelte';
 	import SaveIndicator from '$lib/components/SaveIndicator.svelte';
 	import { editorStatus } from '$lib/editor-status.svelte';
 	import { saveQueue, saveState } from '$lib/save-queue';
@@ -21,6 +22,7 @@
 
 <div class="status-bar">
 	<div class="status-left">
+		<ConnectionSwitcher {currentVault} />
 		<ConnectionStatus
 			{currentVault}
 			{onToast}

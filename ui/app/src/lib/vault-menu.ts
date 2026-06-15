@@ -46,11 +46,15 @@ export function vaultSwitchUrl(currentHref: string, vault: string): string {
 
 /**
  * Build the settings route under the SvelteKit base path, scoped to the given
- * vault when one is selected.
+ * vault when one is selected. An optional `section` deep-links to a specific
+ * settings section (e.g. `connection`).
  */
-export function settingsRoute(base: string, vault: string): string {
+export function settingsRoute(base: string, vault: string, section?: string): string {
   const route = `${base}/settings`;
-  return vault ? `${route}?vault=${encodeURIComponent(vault)}` : route;
+  const params: string[] = [];
+  if (vault) params.push(`vault=${encodeURIComponent(vault)}`);
+  if (section) params.push(`section=${encodeURIComponent(section)}`);
+  return params.length > 0 ? `${route}?${params.join('&')}` : route;
 }
 
 export interface DropdownAnchor {

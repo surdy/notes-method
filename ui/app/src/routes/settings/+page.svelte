@@ -114,6 +114,7 @@
 	async function initializeSettings() {
 		const url = new URL(window.location.href);
 		const requestedVault = url.searchParams.get('vault');
+		const requestedSection = url.searchParams.get('section');
 		let selectedVault = vaultStore.currentVault;
 		try {
 			const registrations = await listVaults();
@@ -136,9 +137,21 @@
 			// empty-state CTA is what they see first.
 			selectedSection = 'vaults';
 		}
+		// A `section` query param deep-links to an app-level section (e.g. the
+		// status bar's "Manage servers…" → Connection). It wins over the
+		// no-vault default above.
+		if (requestedSection && isSection(requestedSection)) {
+			selectedSection = requestedSection;
+		}
 		if (!settingsStore.capabilities) {
 			void settingsStore.loadCapabilities();
 		}
+	}
+
+	function isSection(value: string): value is Section {
+		return (
+			vaultSections.some((s) => s.id === value) || appSections.some((s) => s.id === value)
+		);
 	}
 </script>
 
