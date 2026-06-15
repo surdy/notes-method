@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Notesmith — Connect to a Server (Hybrid: configure in Settings, switch in status bar)</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d12;
+      --panel: #121620;
+      --panel-2: #151a24;
+      --panel-3: #1b2230;
+      --line: rgba(148, 163, 184, 0.16);
+      --line-strong: rgba(148, 163, 184, 0.30);
+      --text: #e5edf8;
+      --muted: #93a4ba;
+      --faint: #5f6f84;
+      --accent: #8b5cf6;
+      --accent-2: #38bdf8;
+      --good: #34d399;
+      --warn: #fbbf24;
+      --danger: #fb7185;
+      --shadow: 0 24px 70px rgba(0, 0, 0, .38);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0; font-family: var(--sans); color: var(--text); line-height: 1.5;
+      background:
+        radial-gradient(circle at 16% 4%, rgba(139, 92, 246, .22), transparent 30%),
+        radial-gradient(circle at 84% 8%, rgba(56, 189, 248, .14), transparent 28%),
+        linear-gradient(135deg, #080a0f 0%, #10131b 48%, #090b10 100%);
+      background-attachment: fixed;
+    }
+
+    .topbar {
+      position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 16px;
+      padding: 14px 28px; background: rgba(9, 12, 18, .82); border-bottom: 1px solid var(--line); backdrop-filter: blur(14px);
+    }
+    .brand { display: flex; align-items: center; gap: 11px; }
+    .logo { width: 30px; height: 30px; border-radius: 9px; background: conic-gradient(from 140deg, var(--accent), var(--accent-2), var(--good), var(--accent)); box-shadow: 0 0 22px rgba(139, 92, 246, .4); }
+    .brand b { letter-spacing: -.02em; } .brand span { color: var(--muted); font-size: 12px; }
+
+    .wrap { max-width: 1320px; margin: 0 auto; padding: 34px 28px 90px; }
+    .lede { max-width: 880px; }
+    .lede h1 { font-size: 30px; letter-spacing: -.035em; margin: 0 0 10px; }
+    .lede p { color: var(--muted); margin: 0 0 8px; }
+    .lede code { font-family: var(--mono); font-size: .86em; background: rgba(148, 163, 184, .14); padding: 1px 6px; border-radius: 6px; }
+    .lede b { color: var(--text); }
+
+    /* relationship diagram */
+    .rel { display: flex; align-items: stretch; gap: 14px; margin: 26px 0 8px; flex-wrap: wrap; }
+    .rel-card { flex: 1; min-width: 240px; border: 1px solid var(--line); border-radius: 14px; padding: 16px; background: rgba(255, 255, 255, .025); }
+    .rel-card.shared { border-color: rgba(139, 92, 246, .35); background: linear-gradient(135deg, rgba(139, 92, 246, .12), rgba(56, 189, 248, .06)); }
+    .rel-card h4 { margin: 0 0 6px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+    .rel-card p { margin: 0; font-size: 12.5px; color: var(--muted); }
+    .rel-card .pin { font-size: 11px; color: var(--faint); margin-top: 8px; }
+    .rel-arrow { align-self: center; color: var(--accent); font-size: 24px; }
+
+    .section-h { display: flex; align-items: flex-start; gap: 14px; margin: 56px 0 6px; }
+    .num { flex: none; width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; font-weight: 800; font-size: 17px; background: linear-gradient(135deg, rgba(139, 92, 246, .3), rgba(56, 189, 248, .16)); border: 1px solid rgba(139, 92, 246, .35); }
+    .section-h h2 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
+    .section-h .tag { color: var(--muted); font-size: 13.5px; margin-top: 3px; max-width: 760px; }
+
+    .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 12px; margin-top: 20px; }
+    .step { display: flex; flex-direction: column; width: 430px; max-width: 100%; }
+    .step-cap { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+    .step-num { flex: none; width: 20px; height: 20px; border-radius: 999px; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: var(--bg); background: var(--accent-2); }
+    .step-cap b { color: var(--text); font-weight: 600; }
+    .arrow { align-self: center; color: var(--faint); font-size: 24px; }
+
+    .frame { flex: 1; border: 1px solid var(--line-strong); border-radius: 14px; overflow: hidden; background: var(--panel); box-shadow: var(--shadow); display: flex; flex-direction: column; }
+    .chrome { display: flex; align-items: center; gap: 7px; padding: 9px 12px; background: rgba(255, 255, 255, .03); border-bottom: 1px solid var(--line); }
+    .tl { width: 10px; height: 10px; border-radius: 999px; background: #404a5c; }
+    .tl.r { background: #fb7185; } .tl.y { background: #fbbf24; } .tl.g { background: #34d399; }
+    .chrome .title { margin-left: 8px; font-size: 11.5px; color: var(--faint); }
+    .canvas { flex: 1; min-height: 260px; display: flex; }
+
+    /* settings layout */
+    .s-nav { width: 116px; flex: none; border-right: 1px solid var(--line); padding: 12px 8px; background: rgba(255, 255, 255, .02); font-size: 11.5px; }
+    .s-nav .grp { color: var(--faint); text-transform: uppercase; letter-spacing: .08em; font-size: 9.5px; font-weight: 800; margin: 8px 6px 5px; }
+    .s-item { padding: 6px 8px; border-radius: 8px; color: var(--muted); margin-bottom: 2px; }
+    .s-item.active { color: var(--text); background: linear-gradient(135deg, rgba(139, 92, 246, .26), rgba(56, 189, 248, .12)); border: 1px solid rgba(139, 92, 246, .3); }
+    .s-body { flex: 1; padding: 16px; overflow: hidden; }
+    .s-body h4 { margin: 0 0 4px; font-size: 15px; }
+    .s-body .sub { color: var(--muted); font-size: 11.5px; margin: 0 0 14px; }
+
+    /* server list rows */
+    .srv-list { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    .srv { display: flex; align-items: center; gap: 11px; padding: 11px 12px; border-bottom: 1px solid var(--line); }
+    .srv:last-child { border-bottom: 0; }
+    .srv .ic { width: 18px; text-align: center; color: var(--muted); flex: none; }
+    .srv .info { min-width: 0; }
+    .srv .nm { font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+    .srv .url { font-size: 10.5px; color: var(--faint); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .srv .right { margin-left: auto; display: flex; align-items: center; gap: 9px; flex: none; }
+    .srv.active { background: rgba(52, 211, 153, .06); }
+    .tagpill { font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--muted); }
+    .tagpill.active { color: var(--good); border-color: rgba(52, 211, 153, .35); background: rgba(52, 211, 153, .1); }
+    .tagpill.local { color: var(--accent-2); border-color: rgba(56, 189, 248, .3); }
+    .mini-stat { font-size: 10.5px; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+    .lnk { font-size: 11px; color: var(--accent-2); }
+
+    .addbtn { margin-top: 12px; display: inline-flex; align-items: center; gap: 7px; padding: 9px 13px; border-radius: 10px; border: 1px dashed var(--line-strong); color: var(--accent-2); font-size: 12px; font-weight: 600; background: rgba(56, 189, 248, .05); }
+    .switch-note { margin-top: 13px; padding: 10px 12px; border-radius: 10px; font-size: 11px; color: var(--muted); border: 1px solid var(--line); background: rgba(255, 255, 255, .02); display: flex; align-items: center; gap: 8px; }
+    .switch-note b { color: var(--text); }
+
+    /* form fields */
+    .field { margin-top: 13px; }
+    .field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+    .input { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--panel-3); font-size: 12px; color: var(--text); font-family: var(--mono); }
+    .input.sans { font-family: var(--sans); }
+    .input .ph { color: var(--faint); }
+    .input.focus { border-color: var(--accent-2); box-shadow: 0 0 0 3px rgba(56, 189, 248, .18); }
+    .row { display: flex; gap: 10px; margin-top: 14px; align-items: center; }
+    .btn { padding: 9px 14px; border-radius: 10px; font-size: 12px; font-weight: 700; border: 1px solid var(--line-strong); background: var(--panel-3); color: var(--text); cursor: default; }
+    .btn.primary { border: 0; background: linear-gradient(135deg, var(--accent), #4f46e5); box-shadow: 0 10px 26px rgba(79, 70, 229, .28); }
+    .btn.ghost { background: rgba(255, 255, 255, .03); color: var(--muted); }
+    .btn.danger { color: var(--danger); border-color: rgba(251, 113, 133, .3); background: rgba(251, 113, 133, .06); }
+
+    .status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line-strong); }
+    .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--faint); }
+    .dot.g { background: var(--good); box-shadow: 0 0 0 3px rgba(52, 211, 153, .18); }
+    .dot.c { background: var(--accent-2); box-shadow: 0 0 0 3px rgba(56, 189, 248, .2); }
+    .dot.r { background: var(--danger); box-shadow: 0 0 0 3px rgba(251, 113, 133, .2); }
+    .status.ok { color: var(--good); border-color: rgba(52, 211, 153, .3); background: rgba(52, 211, 153, .08); }
+    .status.test { color: var(--accent-2); border-color: rgba(56, 189, 248, .3); background: rgba(56, 189, 248, .08); }
+
+    /* three-pane skeleton */
+    .pane { display: flex; flex-direction: column; flex: 1; min-height: 260px; }
+    .pane-main { display: flex; flex: 1; position: relative; }
+    .p-side { width: 96px; border-right: 1px solid var(--line); padding: 12px 8px; background: rgba(255, 255, 255, .02); }
+    .p-center { flex: 1; padding: 14px; }
+    .ln { height: 8px; border-radius: 5px; background: rgba(148, 163, 184, .16); margin-bottom: 9px; }
+    .ln.s { width: 60%; } .ln.m { width: 82%; } .ln.t { width: 40%; }
+    .ln.title { height: 13px; width: 55%; background: rgba(148, 163, 184, .3); margin-bottom: 14px; }
+    .statusbar { display: flex; align-items: center; gap: 10px; padding: 7px 11px; border-top: 1px solid var(--line); background: rgba(255, 255, 255, .03); font-size: 11px; color: var(--muted); }
+    .sb-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel-3); }
+    .sb-pill.active { border-color: rgba(56, 189, 248, .4); color: var(--accent-2); }
+
+    /* popover menu anchored above status bar */
+    .menu-pop { position: absolute; left: 10px; bottom: 10px; width: 240px; border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; background: var(--panel-2); box-shadow: var(--shadow); }
+    .menu-h { padding: 8px 12px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); border-bottom: 1px solid var(--line); }
+    .menu-i { display: flex; align-items: center; gap: 9px; padding: 9px 12px; font-size: 12.5px; color: var(--muted); }
+    .menu-i .ic { width: 16px; text-align: center; }
+    .menu-i.sel { color: var(--text); background: rgba(56, 189, 248, .1); }
+    .menu-i.sel .ic { color: var(--good); }
+    .menu-i .meta { margin-left: auto; font-size: 10px; color: var(--faint); }
+    .menu-i.manage { color: var(--accent-2); border-top: 1px solid var(--line); }
+
+    .deeplink { margin-top: 18px; display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); padding: 12px 14px; border: 1px solid rgba(56, 189, 248, .25); border-radius: 12px; background: rgba(56, 189, 248, .06); }
+    .deeplink b { color: var(--text); }
+    @media (max-width: 900px) { .arrow, .rel-arrow { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><div class="logo"></div><b>Notesmith</b><span>Hybrid — configure in Settings, switch in the status bar</span></div>
+  </div>
+
+  <div class="wrap">
+    <section class="lede">
+      <h1>Configure servers once, switch with one click</h1>
+      <p>
+        Servers are added and managed in <b>Settings → Connection</b>. Day-to-day switching between
+        <b>This Mac</b> and any saved server happens from the <b>status-bar pill</b> (bottom-left).
+        Both surfaces read and write the same saved-server list, which drives the existing
+        <code>NOTESMITH_DESKTOP_DAEMON_URL</code> switch under the hood.
+      </p>
+
+      <div class="rel">
+        <div class="rel-card">
+          <h4>⚙ Settings → Connection</h4>
+          <p>Add, edit, test, remove servers. URL, optional token, set a default. The system of record.</p>
+          <div class="pin">Heavy, infrequent · do it once</div>
+        </div>
+        <div class="rel-arrow">→</div>
+        <div class="rel-card shared">
+          <h4>🗄 Saved servers</h4>
+          <p>One persisted list: <code>This Mac</code> (always present) + your servers. Backs both surfaces.</p>
+          <div class="pin">Single source of truth</div>
+        </div>
+        <div class="rel-arrow">←</div>
+        <div class="rel-card">
+          <h4>🔀 Status-bar pill</h4>
+          <p>Glanceable current connection. Click → pick another. “Manage…” deep-links back to Settings.</p>
+          <div class="pin">Light, frequent · every day</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 1. CONFIGURE IN SETTINGS ===== -->
+    <section>
+      <div class="section-h">
+        <div class="num">1</div>
+        <div>
+          <h2>Configure — in Settings</h2>
+          <div class="tag">A <b>Connection</b> section lists every saved server. <code>This Mac</code> is always there and can't be removed. Add / edit / test servers here.</div>
+        </div>
+      </div>
+
+      <div class="flow">
+        <!-- 1a: list -->
+        <div class="step">
+          <div class="step-cap"><span class="step-num">a</span><b>Server list</b> — manage everything in one place</div>
+          <div class="frame">
+            <div class="chrome"><i class="tl r"></i><i class="tl y"></i><i class="tl g"></i><span class="title">Notesmith — Settings</span></div>
+            <div class="canvas">
+              <div class="s-nav">
+                <div class="grp">App</div>
+                <div class="s-item active">Connection</div>
+                <div class="s-item">AI Agent</div>
+                <div class="s-item">Vaults</div>
+                <div class="grp">Vault</div>
+                <div class="s-item">General</div>
+                <div class="s-item">Appearance</div>
+              </div>
+              <div class="s-body">
+                <h4>Connection</h4>
+                <p class="sub">Servers Notesmith can connect to. Switch between them from the status bar.</p>
+                <div class="srv-list">
+                  <div class="srv active">
+                    <span class="ic">💻</span>
+                    <div class="info"><div class="nm">This Mac <span class="tagpill active">Active</span></div><div class="url">127.0.0.1:27183 · local daemon</div></div>
+                    <div class="right"><span class="tagpill local">built-in</span></div>
+                  </div>
+                  <div class="srv">
+                    <span class="ic">☁</span>
+                    <div class="info"><div class="nm">home-server</div><div class="url">http://100.92.14.7:27183</div></div>
+                    <div class="right"><span class="mini-stat"><i class="dot g"></i> 24 ms</span><span class="lnk">Edit</span></div>
+                  </div>
+                  <div class="srv">
+                    <span class="ic">☁</span>
+                    <div class="info"><div class="nm">work-vps</div><div class="url">http://vps.tailnet.ts.net:27183</div></div>
+                    <div class="right"><span class="mini-stat" style="color:var(--faint)">2d ago</span><span class="lnk">Edit</span></div>
+                  </div>
+                </div>
+                <span class="addbtn">＋ Add server</span>
+                <div class="switch-note">🔀 <span><b>Switch</b> between these from the status-bar pill, bottom-left.</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="arrow">→</div>
+
+        <!-- 1b: add / edit -->
+        <div class="step">
+          <div class="step-cap"><span class="step-num">b</span><b>Add / edit a server</b> — validate before saving</div>
+          <div class="frame">
+            <div class="chrome"><i class="tl r"></i><i class="tl y"></i><i class="tl g"></i><span class="title">Notesmith — Settings</span></div>
+            <div class="canvas">
+              <div class="s-nav">
+                <div class="grp">App</div>
+                <div class="s-item active">Connection</div>
+                <div class="s-item">AI Agent</div>
+                <div class="s-item">Vaults</div>
+                <div class="grp">Vault</div>
+                <div class="s-item">General</div>
+                <div class="s-item">Appearance</div>
+              </div>
+              <div class="s-body">
+                <h4 style="display:flex;align-items:center;gap:8px"><span class="lnk">← Connection</span> / Edit server</h4>
+                <div class="field"><label>Name</label><div class="input sans">home-server</div></div>
+                <div class="field"><label>Server URL</label><div class="input focus">http://100.92.14.7:27183</div></div>
+                <div class="field"><label>Access token <span style="color:var(--faint)">· optional</span></label><div class="input"><span class="ph">only if your server requires auth</span></div></div>
+                <div class="row"><span class="status ok"><i class="dot g"></i> Reachable · 24 ms · 3 vaults</span></div>
+                <div class="row" style="justify-content:space-between">
+                  <span class="btn danger">Remove</span>
+                  <span style="display:flex;gap:10px"><span class="btn ghost">Test</span><span class="btn primary">Save</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 2. SWITCH FROM STATUS BAR ===== -->
+    <section>
+      <div class="section-h">
+        <div class="num">2</div>
+        <div>
+          <h2>Switch — from the status bar</h2>
+          <div class="tag">The bottom-left pill always shows where you're connected. Click it to pick another. The menu mirrors the saved-server list; <b>Manage servers…</b> jumps straight to Settings → Connection.</div>
+        </div>
+      </div>
+
+      <div class="flow">
+        <!-- 2a: pill local -->
+        <div class="step">
+          <div class="step-cap"><span class="step-num">a</span><b>Local</b> — the everyday default</div>
+          <div class="frame">
+            <div class="chrome"><i class="tl r"></i><i class="tl y"></i><i class="tl g"></i><span class="title">Notesmith</span></div>
+            <div class="pane">
+              <div class="pane-main">
+                <div class="p-side"><div class="ln t"></div><div class="ln s"></div><div class="ln m"></div><div class="ln s"></div><div class="ln m"></div></div>
+                <div class="p-center"><div class="ln title"></div><div class="ln m"></div><div class="ln s"></div><div class="ln m"></div><div class="ln t"></div></div>
+              </div>
+              <div class="statusbar">
+                <span class="sb-pill"><i class="dot g"></i> 💻 This Mac</span>
+                <span style="margin-left:auto">main · 3 notes</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="arrow">→</div>
+
+        <!-- 2b: dropdown -->
+        <div class="step">
+          <div class="step-cap"><span class="step-num">b</span><b>Click the pill</b> — same servers, quick pick</div>
+          <div class="frame">
+            <div class="chrome"><i class="tl r"></i><i class="tl y"></i><i class="tl g"></i><span class="title">Notesmith</span></div>
+            <div class="pane">
+              <div class="pane-main">
+                <div class="p-side"><div class="ln t"></div><div class="ln s"></div><div class="ln m"></div></div>
+                <div class="p-center"><div class="ln title"></div><div class="ln m"></div><div class="ln s"></div></div>
+                <div class="menu-pop">
+                  <div class="menu-h">Connect to</div>
+                  <div class="menu-i sel"><span class="ic">✓</span> This Mac <span class="meta">local</span></div>
+                  <div class="menu-i"><span class="ic">☁</span> home-server <span class="meta">24 ms</span></div>
+                  <div class="menu-i"><span class="ic">☁</span> work-vps <span class="meta">2d ago</span></div>
+                  <div class="menu-i manage"><span class="ic">⚙</span> Manage servers…</div>
+                </div>
+              </div>
+              <div class="statusbar">
+                <span class="sb-pill active"><i class="dot g"></i> 💻 This Mac ▴</span>
+                <span style="margin-left:auto">main · 3 notes</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="arrow">→</div>
+
+        <!-- 2c: connected -->
+        <div class="step">
+          <div class="step-cap"><span class="step-num">c</span><b>Switched</b> — connecting, then on the server</div>
+          <div class="frame">
+            <div class="chrome"><i class="tl r"></i><i class="tl y"></i><i class="tl g"></i><span class="title">Notesmith</span></div>
+            <div class="pane">
+              <div class="pane-main">
+                <div class="p-side"><div class="ln t"></div><div class="ln m"></div><div class="ln s"></div><div class="ln m"></div><div class="ln s"></div></div>
+                <div class="p-center"><div class="ln title"></div><div class="ln s"></div><div class="ln m"></div><div class="ln m"></div><div class="ln t"></div></div>
+              </div>
+              <div class="statusbar">
+                <span class="sb-pill active"><i class="dot c"></i> ☁ home-server · 24 ms</span>
+                <span style="margin-left:auto">vaults from server</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="deeplink">
+        🔗 <span><b>The two surfaces stay in sync.</b> “Manage servers…” opens Settings → Connection; saving or removing a server there immediately updates the status-bar menu. Selecting a server in the menu sets it Active in Settings.</span>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
