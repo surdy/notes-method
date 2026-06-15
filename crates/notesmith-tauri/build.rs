@@ -34,6 +34,11 @@ fn main() {
             "agent_answer_permission",
             "agent_stop",
             "agent_diagnostics",
+            "connection_list",
+            "connection_add",
+            "connection_update",
+            "connection_remove",
+            "connection_test",
         ]));
     tauri_build::try_build(attrs).expect("failed to run tauri-build");
 }

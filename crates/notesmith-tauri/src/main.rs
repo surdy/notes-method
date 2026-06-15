@@ -16,6 +16,9 @@ use notesmith_tauri::app_url::{
     should_fallback_to_index,
 };
 use notesmith_tauri::daemon::{self, DaemonSettings, DaemonState, DynError};
+use notesmith_tauri::servers::{
+    self, ConnectionList, ConnectionTestResult, ServerInput, ServerView, ServersFile,
+};
 use notesmith_tauri::vault_menu::{
     OPEN_FOLDER_AS_VAULT_ID, decode_open_vault_id, encode_open_vault_id,
     validate_vault_display_name,
@@ -243,6 +246,47 @@ impl Default for DaemonUrlState {
     }
 }
 
+/// Loaded saved-server list plus its on-disk path. The desktop's source of
+/// truth for connections, shared by the Settings → Connection UI and the
+/// status-bar switcher. Mutations persist immediately to `servers.json`.
+#[derive(Default)]
+struct ServersState(Mutex<ServersStateInner>);
+
+#[derive(Default)]
+struct ServersStateInner {
+    file: ServersFile,
+    path: Option<PathBuf>,
+}
+
+impl ServersState {
+    /// Point the state at `servers.json` and load it (tolerant of a missing or
+    /// corrupt file — see [`servers::load`]).
+    fn set_path_and_load(&self, path: PathBuf) {
+        let file = servers::load(&path);
+        let mut guard = self.0.lock().expect("servers state poisoned");
+        guard.file = file;
+        guard.path = Some(path);
+    }
+
+    /// A cloned snapshot of the current server set.
+    fn snapshot(&self) -> ServersFile {
+        self.0.lock().expect("servers state poisoned").file.clone()
+    }
+
+    /// Apply `f` to the server set, persist the result to disk, and return
+    /// whatever `f` produced. A failed write is logged but not fatal.
+    fn mutate<T>(&self, f: impl FnOnce(&mut ServersFile) -> T) -> T {
+        let mut guard = self.0.lock().expect("servers state poisoned");
+        let out = f(&mut guard.file);
+        if let Some(path) = guard.path.clone()
+            && let Err(error) = servers::save(&path, &guard.file)
+        {
+            tracing::warn!(%error, "failed to persist servers.json");
+        }
+        out
+    }
+}
+
 /// Map of vault-name → window-label for currently-known vault windows.
 ///
 /// Used to implement focus-existing: opening a vault that already has a window
@@ -352,6 +396,7 @@ fn main() {
         .manage(LastQuitAttempt::default())
         .manage(DaemonUrlState::default())
         .manage(DaemonProcessState::default())
+        .manage(ServersState::default())
         .manage(VaultWindows::default())
         .manage(WindowsPersistState::default())
         .manage(agent_bridge::AgentBridge::default())
@@ -384,7 +429,12 @@ fn main() {
             agent_bridge::agent_set_read_only,
             agent_bridge::agent_answer_permission,
             agent_bridge::agent_stop,
-            agent_diag::agent_diagnostics
+            agent_diag::agent_diagnostics,
+            connection_list,
+            connection_add,
+            connection_update,
+            connection_remove,
+            connection_test
         ])
         .menu(build_app_menu)
         .on_menu_event(|app, event| {
@@ -481,6 +531,9 @@ fn initialize_app(app: &tauri::App) -> Result<(), DynError> {
         handle
             .state::<WindowsPersistState>()
             .set_path(windows_persist::windows_file_path(&config_dir));
+        handle
+            .state::<ServersState>()
+            .set_path_and_load(servers::servers_file_path(&config_dir));
     } else {
         tracing::warn!("app config dir unavailable; windows.json will not be persisted");
     }
@@ -2619,6 +2672,126 @@ async fn pick_vault_folder(app: tauri::AppHandle) -> Result<Option<String>, Stri
         .ok_or_else(|| "Selected path contains invalid UTF-8".to_string())?
         .to_string();
     Ok(Some(path_str))
+}
+
+/// Return the saved-server list (token-less) and the active connection id.
+#[tauri::command]
+fn connection_list(app: tauri::AppHandle) -> ConnectionList {
+    app.state::<ServersState>().snapshot().connection_list()
+}
+
+/// Add a new server. Validates the name and URL; returns the created entry.
+#[tauri::command]
+fn connection_add(
+    app: tauri::AppHandle,
+    name: String,
+    url: String,
+    token: Option<String>,
+) -> Result<ServerView, String> {
+    app.state::<ServersState>().mutate(|file| {
+        let id = file
+            .add(ServerInput { name, url, token })
+            .map_err(|error| error.to_string())?;
+        Ok(file.get(&id).expect("entry was just added").view())
+    })
+}
+
+/// Update an existing server. Omitted fields are left unchanged; a blank
+/// `token` clears the stored credential.
+#[tauri::command]
+fn connection_update(
+    app: tauri::AppHandle,
+    id: String,
+    name: Option<String>,
+    url: Option<String>,
+    token: Option<String>,
+) -> Result<ServerView, String> {
+    app.state::<ServersState>().mutate(|file| {
+        file.update(&id, name, url, token)
+            .map_err(|error| error.to_string())?;
+        Ok(file.get(&id).expect("entry exists after update").view())
+    })
+}
+
+/// Remove a server. If it was active, the connection falls back to local.
+#[tauri::command]
+fn connection_remove(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    app.state::<ServersState>()
+        .mutate(|file| file.remove(&id).map_err(|error| error.to_string()))
+}
+
+/// Probe a candidate daemon URL for reachability without saving it. Never
+/// fails the command — unreachable hosts return `reachable: false` with a
+/// reason so the UI can show inline feedback.
+#[tauri::command]
+async fn connection_test(url: String, token: Option<String>) -> ConnectionTestResult {
+    probe_daemon(&url, token.as_deref()).await
+}
+
+const CONNECTION_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
+
+async fn probe_daemon(url: &str, token: Option<&str>) -> ConnectionTestResult {
+    let base = url.trim().trim_end_matches('/');
+    if base.is_empty() {
+        return ConnectionTestResult::unreachable("Enter a server URL");
+    }
+    let client = match reqwest::Client::builder()
+        .timeout(CONNECTION_PROBE_TIMEOUT)
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => return ConnectionTestResult::unreachable(error.to_string()),
+    };
+
+    let started = Instant::now();
+    let mut request = client.get(format!("{base}/ping"));
+    if let Some(token) = token {
+        request = request.bearer_auth(token);
+    }
+    match request.send().await {
+        Ok(response) if response.status().is_success() => {
+            let latency_ms = started.elapsed().as_millis() as u64;
+            let vault_count = probe_vault_count(&client, base, token).await;
+            ConnectionTestResult {
+                reachable: true,
+                latency_ms: Some(latency_ms),
+                vault_count,
+                error: None,
+            }
+        }
+        Ok(response) => {
+            ConnectionTestResult::unreachable(format!("Server returned {}", response.status()))
+        }
+        Err(error) => ConnectionTestResult::unreachable(friendly_probe_error(&error)),
+    }
+}
+
+/// Best-effort vault count from `/api/app/vaults`; `None` on any failure.
+async fn probe_vault_count(
+    client: &reqwest::Client,
+    base: &str,
+    token: Option<&str>,
+) -> Option<u32> {
+    let mut request = client.get(format!("{base}/api/app/vaults"));
+    if let Some(token) = token {
+        request = request.bearer_auth(token);
+    }
+    let response = request.send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let body = response.bytes().await.ok()?;
+    servers::parse_vault_count(&body)
+}
+
+fn friendly_probe_error(error: &reqwest::Error) -> String {
+    if error.is_timeout() {
+        "No response (timed out). Check the daemon is running and reachable.".to_string()
+    } else if error.is_connect() {
+        "Couldn't connect. Check the URL and that Tailscale is up on both machines.".to_string()
+    } else {
+        error.to_string()
+    }
 }
 
 #[cfg(test)]

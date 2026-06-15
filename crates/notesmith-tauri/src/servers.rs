@@ -38,6 +38,18 @@ pub struct ServerEntry {
     pub token: Option<String>,
 }
 
+impl ServerEntry {
+    /// Project to a token-less [`ServerView`] for the UI.
+    pub fn view(&self) -> ServerView {
+        ServerView {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            url: self.url.clone(),
+            has_token: self.token.is_some(),
+        }
+    }
+}
+
 /// On-disk representation of the saved-server set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServersFile {
@@ -73,6 +85,62 @@ pub struct ServerInput {
 pub enum Active<'a> {
     Local,
     Remote(&'a ServerEntry),
+}
+
+/// Token-less projection of a [`ServerEntry`] for the UI. Tokens are never
+/// returned to the frontend; `has_token` indicates whether one is set.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ServerView {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub has_token: bool,
+}
+
+/// Connection list returned to the UI: the active id (`"local"` for the local
+/// daemon) plus a token-less view of every stored server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ConnectionList {
+    pub active_id: String,
+    pub servers: Vec<ServerView>,
+}
+
+/// Result of probing a candidate daemon URL for reachability.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ConnectionTestResult {
+    pub reachable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vault_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl ConnectionTestResult {
+    /// An unreachable result carrying a human-readable reason.
+    pub fn unreachable(error: impl Into<String>) -> Self {
+        Self {
+            reachable: false,
+            latency_ms: None,
+            vault_count: None,
+            error: Some(error.into()),
+        }
+    }
+}
+
+/// Best-effort vault count from a `/api/app/vaults` response body. The daemon
+/// returns a bare JSON array; an object with a `vaults` array is also accepted
+/// for forward-compatibility. Any other shape yields `None`.
+pub fn parse_vault_count(body: &[u8]) -> Option<u32> {
+    match serde_json::from_slice::<serde_json::Value>(body).ok()? {
+        serde_json::Value::Array(items) => u32::try_from(items.len()).ok(),
+        serde_json::Value::Object(map) => match map.get("vaults") {
+            Some(serde_json::Value::Array(items)) => u32::try_from(items.len()).ok(),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// Errors from mutating the server set.
@@ -190,6 +258,18 @@ impl ServersFile {
 
     pub fn get(&self, id: &str) -> Option<&ServerEntry> {
         self.servers.iter().find(|s| s.id == id)
+    }
+
+    /// Token-less connection list for the UI. `active_id` is `"local"` when the
+    /// local daemon is active.
+    pub fn connection_list(&self) -> ConnectionList {
+        ConnectionList {
+            active_id: self
+                .active_id
+                .clone()
+                .unwrap_or_else(|| LOCAL_ID.to_string()),
+            servers: self.servers.iter().map(ServerEntry::view).collect(),
+        }
     }
 
     /// Add a new server. Validates the input, assigns a unique id, and returns
@@ -573,5 +653,40 @@ mod tests {
         assert_eq!(slugify("  work / vps  "), "work-vps");
         assert_eq!(slugify("a@@@b"), "a-b");
         assert_eq!(slugify("***"), "");
+    }
+
+    #[test]
+    fn connection_list_marks_local_and_omits_tokens() {
+        let mut file = ServersFile::default();
+        let id = file
+            .add(ServerInput {
+                name: "Home".into(),
+                url: "http://host:27183".into(),
+                token: Some("secret".into()),
+            })
+            .unwrap();
+        // Local active by default.
+        let list = file.connection_list();
+        assert_eq!(list.active_id, LOCAL_ID);
+        assert_eq!(list.servers.len(), 1);
+        assert!(list.servers[0].has_token);
+        // The token value never appears in the serialized view.
+        let json = serde_json::to_string(&list).unwrap();
+        assert!(!json.contains("secret"), "token leaked into view: {json}");
+
+        file.set_active(Some(&id)).unwrap();
+        assert_eq!(file.connection_list().active_id, id);
+    }
+
+    #[test]
+    fn parse_vault_count_handles_array_object_and_garbage() {
+        assert_eq!(
+            parse_vault_count(br#"[{"name":"a"},{"name":"b"}]"#),
+            Some(2)
+        );
+        assert_eq!(parse_vault_count(br#"[]"#), Some(0));
+        assert_eq!(parse_vault_count(br#"{"vaults":[1,2,3]}"#), Some(3));
+        assert_eq!(parse_vault_count(br#"{"unexpected":true}"#), None);
+        assert_eq!(parse_vault_count(b"not json"), None);
     }
 }
