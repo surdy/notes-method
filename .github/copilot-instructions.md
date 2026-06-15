@@ -6,6 +6,32 @@
 - Make a commit for each logical change. Do not leave changes uncommitted at the end of a task.
 - Use clear, descriptive commit messages.
 
+## Build, Test & Validation
+
+- **Rust workspace gates** (run after every change): `cargo fmt --all`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace`.
+- **`notesmith-tauri` is excluded from the workspace** (`Cargo.toml`: `exclude = ["crates/notesmith-tauri", ...]`). The `--workspace` gates **do not** cover it. When you touch `notesmith-tauri` (or `notesmith-agent`, which it depends on), validate it separately: `cd crates/notesmith-tauri && cargo clippy -- -D warnings && cargo test && cargo fmt --all`.
+- **Run a single test** with `cargo test -p <crate> <test_name>` (e.g. `cargo test -p notesmith-agent select_mcp`). Per-crate suites: `cargo test -p notesmith-vault`, `-p notesmith-index`, `-p notesmith-query`, `-p notesmith-config`.
+- **Frontend (`ui/app`)**: `npm run check` (svelte-check), `npx vitest run` (unit), `npm run build` (adapter-static). Theme tokens: `bash scripts/check-theme-tokens.sh`.
+
+## Tauri Desktop App
+
+The desktop shell (`crates/notesmith-tauri`) spawns the daemon as a sidecar; the daemon serves the SvelteKit frontend, and the webview loads it from the **daemon URL** (e.g. `http://127.0.0.1:27183/`), not a local asset.
+
+- **Dev loop / which rebuild applies:**
+  - Frontend-only change → `cd ui/app && npm run build`, then ⌘R in the running app.
+  - Rust change in `notesmith-tauri` **or** `notesmith-agent` → `cargo tauri build` and **relaunch `Notesmith.app`**. The already-running daemon/app will **not** pick up Rust changes — a stale running daemon is a common source of "my fix didn't apply" confusion.
+  - For local dev, launch via `crates/notesmith-tauri/dev-launch.sh` — it builds the frontend bundle and pins `NOTESMITH_APP_DIR`. A missing bundle / unset `NOTESMITH_APP_DIR` produces a **blank window** (the daemon resolves the wrong frontend dir).
+- **IPC commands (`#[tauri::command]`):**
+  - Use the **concrete `tauri::AppHandle`** — a generic `<R: Runtime>` parameter makes the proc-macro silently skip registration, surfacing as `"<cmd> not allowed. Plugin not found"` at runtime.
+  - Every new command must be granted in **both** capability files — `crates/notesmith-tauri/capabilities/default.json` **and** `capabilities/vault-windows.json` — and under the **`remote` URL context** (the webview is on the daemon URL). A missing remote grant surfaces as `"<cmd> not allowed on window ... URL: http://127.0.0.1:...""`.
+
+## Agent MCP Transport (ADR 0012)
+
+- The desktop exposes the active vault to ACP agents over MCP with **capability-aware** transport: prefer an **HTTP** binding (`/mcp/<vault>` rw, `/mcp-ro/<vault>` ro) when the agent advertises `mcpCapabilities.http` at `initialize`; supply a local **stdio bridge** (`notesmith mcp start`) only as a fallback. **Copilot is HTTP/SSE-only** — it silently ignores stdio `mcpServers`.
+- **Read-only sessions allow their (read-only) permission requests silently** — they can only ever expose safe reads. Do not reintroduce a read-only "hard-deny". Read-write writes prompt per-call.
+- Tauri **strips the target-triple** from bundled `externalBin`, so the sidecar resolves as `notesmith` (not `notesmith-<triple>`) at runtime; resolvers must check both names.
+- See `docs/adr/0012-agent-transport-acp-mcp.md` for the full transport/permission policy.
+
 ## Keeping `notes-method.md` Up to Date
 
 - `notes-method.md` is the source of truth for the notes organization method/plan.
