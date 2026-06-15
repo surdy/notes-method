@@ -20,7 +20,7 @@ Reference for Notesmith keyboard shortcuts in the macOS-first desktop app.
 | ⌘⇧T | Reopen Tab | Reopen the last closed tab |
 | **View** | — | — |
 | ⌘E | Toggle View Mode | Cycle: Source → Live Preview → Reading → Source |
-| ⌘\\ | Toggle Right Rail | Show/hide the right sidebar context panel |
+| ⌘\\ | Toggle Right Dock | Show/hide the right dock (Context / Chat) |
 | **Table Editing (Source Mode)** | — | — |
 | Tab | Next Cell | Move to the next table cell (auto-formats the table) |
 | Shift+Tab | Previous Cell | Move to the previous table cell |

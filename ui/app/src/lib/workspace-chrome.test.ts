@@ -6,7 +6,7 @@ describe('workspaceChromeLayout', () => {
 	it('aligns expanded side chrome with expanded sidebars', () => {
 		expect(workspaceChromeLayout({ leftSidebarCollapsed: false, rightRailCollapsed: false })).toEqual({
 			leftChromeWidth: '280px',
-			rightChromeWidth: '260px',
+			rightChromeWidth: '320px',
 			leftToggleLabel: 'Collapse left sidebar',
 			rightToggleLabel: 'Collapse right sidebar',
 			leftToggleIcon: 'panel-left-open',

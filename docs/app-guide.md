@@ -10,7 +10,7 @@ Notesmith uses a three-pane layout:
 
 - **Sidebar (left):** note navigation, file tree, and smart views
 - **Editor area (center):** tabs, note toolbar, editing, and reading
-- **Right rail (right):** context for the selected note
+- **Right dock (right):** a collapsible panel that switches between **Context** for the selected note and **Chat** with the AI agent
 
 The desktop app connects to the live Notesmith daemon discovered from the Notesmith lockfile. By default that is `http://127.0.0.1:27183`, but the desktop shell follows the daemon's active port when it changes. If `NOTESMITH_DESKTOP_DAEMON_URL` is set, the shell uses that daemon for API/SSE traffic and serves its own embedded UI locally.
 
@@ -22,7 +22,7 @@ In practice, that means:
 
 - the daemon provides notes, search, SQL results, and rendered HTML
 - the desktop shell gives you a native macOS window around that app
-- most note work happens in the center pane, with the sidebar and right rail supporting navigation and context
+- most note work happens in the center pane, with the sidebar and right dock supporting navigation, context, and AI chat
 
 ## 2. Sidebar
 
@@ -277,23 +277,29 @@ Example searches:
 - `daily 2026-05`
 - `blocked tasks`
 
-## 10. Right Rail (Context Panel)
+## 10. Right Dock (Context & Chat)
 
-The right rail is a collapsible context panel on the right side of the app.
+The right dock is a collapsible panel on the right side of the app with a segmented control at the top that switches between **Context** and **Chat**. Your last-used segment is remembered per vault.
 
-Toggle it with **⌘\\**.
+Toggle the whole dock with **⌘\\**. The **✦** button in the workspace chrome opens the dock straight to the Chat segment.
 
-It follows the currently selected note and shows contextual information such as:
+### Context
+
+The Context segment follows the currently selected note and shows contextual information such as:
 
 - **Backlinks** — notes that link to the current note
 - **Metadata** — frontmatter and note-level fields
 - **Heading outline / table of contents** — a quick map of the current note
 
-Use the right rail when you want to answer questions like:
+Use it when you want to answer questions like:
 
 - "What links here?"
 - "What metadata is on this note?"
 - "Where is the section I want inside this long note?"
+
+### Chat
+
+The Chat segment hosts the embedded AI agent (Copilot, Claude, Codex, Gemini, and others). It shares the dock column with Context, so opening chat never adds a fourth column or squeezes the editor. The agent process only starts the first time you open Chat, and the conversation stays alive when you switch back to Context. See the AI agent documentation for agent discovery and read-only/read-write controls.
 
 ## 11. Reading View
 

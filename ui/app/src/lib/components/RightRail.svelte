@@ -160,17 +160,16 @@
 
 <div class="rail-shell" class:collapsed>
 	<div class="rail-panel">
-		<div class="rail-header">
-			<div>
-				<h2>Context</h2>
+		{#if tabStore.selectedPath || loading}
+			<div class="rail-header">
 				{#if tabStore.selectedPath}
-					<p>{tabStore.selectedPath}</p>
+					<p class="rail-path">{tabStore.selectedPath}</p>
+				{/if}
+				{#if loading}
+					<span class="rail-status">Refreshing…</span>
 				{/if}
 			</div>
-			{#if loading}
-				<span class="rail-status">Refreshing…</span>
-			{/if}
-		</div>
+		{/if}
 
 		<div class="rail-tab-bar">
 			<button
@@ -300,18 +299,14 @@
 	.rail-header {
 		display: flex;
 		justify-content: space-between;
+		align-items: baseline;
 		gap: 12px;
-		padding: 14px 16px 12px;
+		padding: 10px 16px;
 		border-bottom: 1px solid var(--border-default);
 	}
 
-	.rail-header h2 {
+	.rail-path {
 		margin: 0;
-		font-size: 14px;
-	}
-
-	.rail-header p {
-		margin: 4px 0 0;
 		color: var(--text-muted);
 		font-size: 12px;
 		word-break: break-word;

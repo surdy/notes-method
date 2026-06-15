@@ -12,8 +12,7 @@
 	import NoteEditor from '$lib/components/NoteEditor.svelte';
 	import NoteToolbar from '$lib/components/NoteToolbar.svelte';
 	import NoteViewer from '$lib/components/NoteViewer.svelte';
-	import RightRail from '$lib/components/RightRail.svelte';
-	import AgentPanel from '$lib/components/agent/AgentPanel.svelte';
+	import RightDock from '$lib/components/RightDock.svelte';
 	import SidebarViews from '$lib/components/SidebarViews.svelte';
 	import StatusBar from '$lib/components/StatusBar.svelte';
 	import TabBar from '$lib/components/TabBar.svelte';
@@ -28,13 +27,14 @@
 	import { vaultStore } from '$lib/stores.svelte';
 	import { settingsStore } from '$lib/settings.svelte';
 	import { workspaceChromeLayout } from '$lib/workspace-chrome';
+	import { loadDockSegment, saveDockSegment, type DockSegment } from '$lib/right-dock';
 	import { pushWindowTitle } from '$lib/window-title';
 
 	let vaults = $state<string[]>([]);
 	let paletteMode = $state<'files' | 'commands' | null>(null);
 	let leftSidebarCollapsed = $state(false);
 	let rightRailCollapsed = $state(false);
-	let agentPanelOpen = $state(false);
+	let dockSegment = $state<DockSegment>('context');
 	let sidebarViewsRef = $state<{ refresh: () => void; reloadConfig: () => void } | null>(null);
 	let noteEditorRef = $state<
 		| {
@@ -70,7 +70,19 @@
 	}
 
 	function toggleAgentPanel() {
-		agentPanelOpen = !agentPanelOpen;
+		// The ✦ chrome affordance is a shortcut: open the dock on the Chat segment.
+		// If chat is already the visible segment, toggle the whole dock closed.
+		if (!rightRailCollapsed && dockSegment === 'chat') {
+			rightRailCollapsed = true;
+			return;
+		}
+		rightRailCollapsed = false;
+		setDockSegment('chat');
+	}
+
+	function setDockSegment(segment: DockSegment) {
+		dockSegment = segment;
+		saveDockSegment(vaultStore.currentVault, segment);
 	}
 
 	const chromeLayout = $derived(
@@ -151,6 +163,15 @@
 		};
 	});
 
+	let dockSegmentVault = '';
+	$effect(() => {
+		const vault = vaultStore.currentVault;
+		if (vault && vault !== dockSegmentVault) {
+			dockSegmentVault = vault;
+			dockSegment = loadDockSegment(vault);
+		}
+	});
+
 	$effect(() => {
 		const vault = vaultStore.currentVault;
 		if (vault) {
@@ -199,16 +220,16 @@
 
 <section class="workspace-chrome-right" class:collapsed={rightRailCollapsed} aria-label="Right sidebar controls">
 {#if !rightRailCollapsed}
-<span class="chrome-section-title">Context</span>
+<span class="chrome-section-title">Panels</span>
 {/if}
 <button
 	class="chrome-icon-btn"
 	type="button"
 	onclick={toggleAgentPanel}
-	aria-label={agentPanelOpen ? 'Close AI agent' : 'Open AI agent'}
-	aria-expanded={agentPanelOpen}
-	aria-controls="agent-panel"
-	title={agentPanelOpen ? 'Close AI agent' : 'Open AI agent'}
+	aria-label={!rightRailCollapsed && dockSegment === 'chat' ? 'Close AI agent' : 'Open AI agent'}
+	aria-expanded={!rightRailCollapsed && dockSegment === 'chat'}
+	aria-controls="right-dock"
+	title={!rightRailCollapsed && dockSegment === 'chat' ? 'Close AI agent' : 'Open AI agent'}
 >
 	<span class="agent-toggle-glyph" aria-hidden="true">✦</span>
 </button>
@@ -261,19 +282,18 @@ onClose={() => (activeMiddlePaneItem = null)}
 </main>
 
 <aside
-	id="right-rail"
+	id="right-dock"
 	class="right-rail-shell"
 	class:collapsed={rightRailCollapsed}
 	aria-hidden={rightRailCollapsed}
 >
-<RightRail bind:this={rightRailRef} collapsed={rightRailCollapsed} />
+<RightDock
+	bind:this={rightRailRef}
+	collapsed={rightRailCollapsed}
+	segment={dockSegment}
+	onSegmentChange={setDockSegment}
+/>
 </aside>
-
-{#if agentPanelOpen}
-<aside id="agent-panel" class="agent-panel-shell" aria-label="AI agent">
-<AgentPanel />
-</aside>
-{/if}
 </div>
 
 <StatusBar
@@ -498,14 +518,6 @@ overflow: hidden;
 transition:
 	flex-basis 180ms ease,
 	width 180ms ease;
-}
-
-.agent-panel-shell {
-position: relative;
-display: flex;
-width: 340px;
-flex: 0 0 340px;
-overflow: hidden;
 }
 
 .agent-toggle-glyph {

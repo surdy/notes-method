@@ -13,7 +13,7 @@ export type WorkspaceChromeLayout = {
 };
 
 const LEFT_SIDEBAR_WIDTH = '280px';
-const RIGHT_RAIL_WIDTH = '260px';
+const RIGHT_RAIL_WIDTH = '320px';
 const COLLAPSED_SIDE_WIDTH = '44px';
 
 export function workspaceChromeLayout({

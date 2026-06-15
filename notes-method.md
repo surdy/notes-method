@@ -64,7 +64,7 @@ For an example of a complete customer-facing work workflow, see `docs/example-wo
 - Views support an optional `badge_query` for tab-level badge counts (SQL-driven).
 - Folder-backed items in the middle pane default to `modified_at DESC` sort, configurable via YAML.
 - When `.notesmith/sidebar.yaml` does not exist, the app behaves as a plain Files-only notes app.
-- The main note workspace should also include a contextual, collapsible **right rail** with tabbed **Metadata**, **Links**, and **TOC** modes for the active note.
+- The main note workspace should also include a contextual, collapsible **right dock** on the right. The dock has a top-level segmented control switching between a **Context** surface (tabbed **Metadata**, **Links**, and **TOC** modes for the active note) and a **Chat** surface (the embedded AI agent). Both share one column so opening chat never squeezes the editor with a second panel, and the last-used segment is remembered per vault.
 - Notes can set `_icon:` in frontmatter to override their emoji in file trees, quick switchers, and editor tabs. Frontmatter keys prefixed with `_` are reserved for system/UI use and should stay hidden from metadata panels.
 - The **TOC** tab should be driven from live editor headings so it can highlight the current section and jump the editor to a selected heading.
 
@@ -94,8 +94,8 @@ For an example of a complete customer-facing work workflow, see `docs/example-wo
 
 ## Desktop App UX
 
-- The primary desktop experience should be a three-pane app: sidebar on the left, tabbed editor workspace in the center, and a collapsible contextual right rail on the right.
-- The top workspace chrome should be a single Obsidian-like bar spanning the left sidebar, editor tabs, and right rail. Sidebar show/hide controls belong in that bar, not as floating affordances that overlap the editor, and should use panel-left/panel-right icons instead of directional arrow glyphs.
+- The primary desktop experience should be a three-pane app: sidebar on the left, tabbed editor workspace in the center, and a collapsible right dock (Context + AI Chat) on the right.
+- The top workspace chrome should be a single Obsidian-like bar spanning the left sidebar, editor tabs, and right dock. Sidebar show/hide controls belong in that bar, not as floating affordances that overlap the editor, and should use panel-left/panel-right icons instead of directional arrow glyphs.
 - The note workspace should use tabs that persist across launches and remember each tab's current view mode.
 - Each open tab should support three modes: **Source**, **Live Preview**, and **Reading View**, with a breadcrumb toolbar and a simple mode toggle in the header.
 - Folder notes should follow the same-name markdown convention: a folder note for `Customers/Acme/` is `Customers/Acme/Acme.md`. Matching is exact and markdown-only; dot-prefixed folders such as `.notesmith/` are excluded, and there is no vault-root folder-note concept.

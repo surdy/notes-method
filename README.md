@@ -72,7 +72,7 @@ ui/app/                  # SvelteKit frontend
 - **Input palette** — Sequential multi-step inputs for note creation and templates
 - **Toast notifications** — Non-blocking success/error/warning alerts
 - **Status bar** — Connection status, vault name, cursor position, word count, save state
-- **Tabbed right rail** — Metadata, Links, and live TOC with click-to-scroll (⌘\\)
+- **Unified right dock** — One collapsible right panel (⌘\\) that switches between **Context** (Metadata, Links, and live TOC with click-to-scroll) and **Chat** (the AI agent), persisted per vault
 - **Per-note icons** — `_icon` frontmatter for custom emoji in file tree and tabs
 - **Folder notes** — Same-name markdown folder notes with create/open/rename support in the file tree
 - **Quick switcher** — Fuzzy note search (⌘O)

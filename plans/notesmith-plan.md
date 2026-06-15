@@ -2624,9 +2624,11 @@ Implementation stance:
 - Read mode uses the same tab shell, not a separate pane system.
 - Metadata panels expose fields and tags from the unified generic model.
 
-### 19.4 Right rail
+### 19.4 Right dock (Context & Chat)
 
-The right rail is contextual and collapsible. Core tabs:
+The right dock is a single collapsible right-side panel with a top-level segmented control switching between two surfaces: **Context** and **Chat**. Both share one column so opening chat never adds a second panel beside the editor, and the active segment is remembered per vault.
+
+The **Context** surface is contextual to the active note, with core tabs:
 
 - **Metadata** — resolved fields and tags for the active note,
 - **Links** — outgoing links and backlinks,
@@ -2638,6 +2640,8 @@ Metadata tab behavior:
 - repeated values shown explicitly,
 - tags rendered separately from fields,
 - `_`-prefixed system/UI keys hidden by default.
+
+The **Chat** surface hosts the embedded AI agent (see §ADR 0012). It is mounted lazily on first use — the external agent process is not started until chat is first opened — and then stays mounted so the conversation survives switching back to Context.
 
 ### 19.5 Default hotkeys
 
