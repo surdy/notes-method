@@ -101,4 +101,30 @@ describe('transcripts api client', () => {
 
 		await expect(listThreads('work')).rejects.toMatchObject({ status: 500 });
 	});
+
+	it('explains an outdated server when createThread hits a missing route (404)', async () => {
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response('Not Found', { status: 404 }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await expect(createThread('work', 'Plan')).rejects.toMatchObject({
+			status: 404,
+			code: 'transcript_api_unavailable',
+			message: expect.stringContaining('too old')
+		});
+	});
+
+	it('explains an outdated server when listThreads hits a missing route (404)', async () => {
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response('Not Found', { status: 404 }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await expect(listThreads('work')).rejects.toMatchObject({
+			status: 404,
+			code: 'transcript_api_unavailable',
+			message: expect.stringContaining('too old')
+		});
+	});
 });

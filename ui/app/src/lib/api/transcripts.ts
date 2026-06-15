@@ -33,8 +33,22 @@ async function fail(res: Response, fallback: string): Promise<never> {
 	throw new ApiError(message ?? `${fallback}: ${res.status}`, res.status, code);
 }
 
+/**
+ * A 404 on a thread *collection* route (no thread id) means the daemon predates
+ * the agent transcript API — a version-skew, not a missing thread. Surface a
+ * clear, actionable message instead of a bare "404" (see `ApiError.code`).
+ */
+function outdatedServerError(): ApiError {
+	return new ApiError(
+		"Agent chat history isn't available: this Notesmith server is too old (missing the agent transcript API). Update the daemon to the latest version.",
+		404,
+		'transcript_api_unavailable'
+	);
+}
+
 export async function listThreads(vault: string): Promise<Thread[]> {
 	const res = await apiFetch(base(vault));
+	if (res.status === 404) throw outdatedServerError();
 	if (!res.ok) return fail(res, 'Failed to list threads');
 	return res.json();
 }
@@ -50,6 +64,7 @@ export async function createThread(
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ title, agent: agent ?? null, model: model ?? null })
 	});
+	if (res.status === 404) throw outdatedServerError();
 	if (!res.ok) return fail(res, 'Failed to create thread');
 	return res.json();
 }
