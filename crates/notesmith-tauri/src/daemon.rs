@@ -5,7 +5,7 @@ use tokio::time::Instant;
 
 pub type DynError = Box<dyn std::error::Error + Send + Sync>;
 
-const DEFAULT_DAEMON_URL: &str = "http://127.0.0.1:27183";
+pub const DEFAULT_DAEMON_URL: &str = "http://127.0.0.1:27183";
 const DEFAULT_DAEMON_BIN: &str = "notesmith";
 const START_COMMAND: [&str; 2] = ["daemon", "start"];
 

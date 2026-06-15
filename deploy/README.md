@@ -35,7 +35,8 @@ Two flavors are published from the same `Containerfile`:
 > **Browser access:** Use the `app` flavor if you want to open
 > `http://server:27183/app/` directly in a browser. The `api` flavor has no
 > daemon-served frontend, but the Tauri desktop app supplies its own embedded
-> frontend when `NOTESMITH_DESKTOP_DAEMON_URL` points at the server.
+> frontend when connected to the server (see
+> [§4](#4-point-the-desktop-app-at-the-remote-daemon)).
 
 ## Image tags
 
@@ -177,12 +178,23 @@ podman volume inspect notesmith-logs
 
 ## 4. Point the desktop app at the remote daemon
 
-The Tauri desktop app reads `NOTESMITH_DESKTOP_DAEMON_URL` to find the daemon.
-When this variable is set, the desktop shell serves its embedded frontend
-locally and sends API/SSE traffic to that daemon URL, so either image flavor
-works for desktop access.
+The recommended way is **in the app**: open **Settings → Connection**, add a
+server with your daemon's URL (e.g. `http://100.x.x.x:27183`) and optional
+token, then **Test** it and switch to it. You can also switch between **This
+Mac** and any saved server at runtime from the **status-bar pill** (bottom-left)
+— no restart needed. The selection persists across launches. Either image flavor
+works for desktop access, because the shell serves its embedded frontend locally
+and sends only API/SSE traffic to the daemon.
 
-### macOS (launchd)
+### Legacy / scripted seed: `NOTESMITH_DESKTOP_DAEMON_URL`
+
+Setting `NOTESMITH_DESKTOP_DAEMON_URL` is **optional** and now acts as a
+**one-time seed**: on first launch the URL is added to your server list and
+marked active. After that, your in-app selection wins (switching to **This Mac**
+goes local even if the variable is still set). Use this only to pre-provision a
+server non-interactively.
+
+#### macOS (launchd)
 
 Create `~/Library/LaunchAgents/com.notesmith.env.plist`:
 
@@ -212,7 +224,7 @@ Create `~/Library/LaunchAgents/com.notesmith.env.plist`:
 launchctl load ~/Library/LaunchAgents/com.notesmith.env.plist
 ```
 
-### Or set it in your shell profile
+#### Or set it in your shell profile
 
 ```bash
 # ~/.zshrc or ~/.bashrc — only needed if launching Notesmith from terminal

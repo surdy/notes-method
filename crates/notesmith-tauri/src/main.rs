@@ -544,6 +544,7 @@ fn initialize_app(app: &tauri::App) -> Result<(), DynError> {
         handle
             .state::<ServersState>()
             .set_path_and_load(servers::servers_file_path(&config_dir));
+        seed_servers_from_env(&handle.state::<ServersState>());
     } else {
         tracing::warn!("app config dir unavailable; windows.json will not be persisted");
     }
@@ -1837,26 +1838,51 @@ fn frontend_mode<R: Runtime>(app: &AppHandle<R>) -> FrontendMode {
     }
 }
 
-/// Daemon settings for the **active connection**, layering the persisted
-/// server list over the env-derived defaults. A stored remote server wins
-/// (`external_url = true`, its URL); otherwise we fall back to the env-derived
-/// settings so the legacy `NOTESMITH_DESKTOP_DAEMON_URL` keeps working until the
-/// migration (#182) seeds the store. This is the single source of truth for
-/// whether the desktop runs local (Daemon mode) or remote (Embedded mode).
+/// Seed the persisted server list from a legacy `NOTESMITH_DESKTOP_DAEMON_URL`
+/// value on first run, then leave the in-app selection authoritative. Only
+/// touches disk when the env var is set, so pure-local users never get a
+/// `servers.json` written behind their back.
+fn seed_servers_from_env(state: &ServersState) {
+    let Some(raw) = std::env::var("NOTESMITH_DESKTOP_DAEMON_URL")
+        .ok()
+        .map(|url| url.trim().to_string())
+        .filter(|url| !url.is_empty())
+    else {
+        return;
+    };
+    let name = friendly_server_name(&raw);
+    if state.mutate(|file| servers::seed_from_env_url(file, Some(&raw), &name)) {
+        tracing::info!(url = %raw, "seeded server list from NOTESMITH_DESKTOP_DAEMON_URL");
+    }
+}
+
+/// Best-effort display name for a seeded server: its host, falling back to a
+/// generic label when the URL can't be parsed.
+fn friendly_server_name(raw: &str) -> String {
+    reqwest::Url::parse(raw)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_string))
+        .filter(|host| !host.is_empty())
+        .unwrap_or_else(|| "Remote server".to_string())
+}
+
+/// Daemon settings for the **active connection**. The persisted server list is
+/// authoritative: a remote server yields `external_url = true` + its URL, and
+/// the local daemon yields `external_url = false` + the default local URL. The
+/// legacy `NOTESMITH_DESKTOP_DAEMON_URL` no longer drives this decision — it is
+/// only a one-time seed for the store (see [`servers::seed_from_env_url`]), so
+/// switching to "This Mac" truly goes local even when the env var is still set.
+/// `daemon_bin`/sidecar and timeouts continue to come from the env-derived base.
 fn effective_settings<R: Runtime>(app: &AppHandle<R>) -> DaemonSettings {
     let base = startup_settings();
     let (url, remote) = app
         .state::<ServersState>()
         .snapshot()
-        .active_target(&base.daemon_url);
-    if remote {
-        DaemonSettings {
-            daemon_url: url,
-            external_url: true,
-            ..base
-        }
-    } else {
-        base
+        .active_target(daemon::DEFAULT_DAEMON_URL);
+    DaemonSettings {
+        daemon_url: url,
+        external_url: remote,
+        ..base
     }
 }
 

@@ -127,7 +127,8 @@ docker pull ghcr.io/surdy/notesmith:latest
 `latest` includes the `notesmith` binary plus the built SvelteKit frontend so the
 daemon can serve `/app/` to browsers. The `api-latest` flavor is binary-only for
 CLI, MCP, API-only deployments, and Tauri desktop clients that provide their own
-embedded frontend while `NOTESMITH_DESKTOP_DAEMON_URL` points at the server.
+embedded frontend when connected to the server (configured in the desktop app's
+**Settings → Connection**; see [deploy/README.md](deploy/README.md) §4).
 
 A local `notesmith` CLI can drive such a remote daemon by setting the global
 `--url` flag or the `NOTESMITH_URL` environment variable (e.g.
