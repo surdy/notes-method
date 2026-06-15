@@ -27,7 +27,6 @@ mod session;
 
 pub use acp::{
     AcpSession, CLAUDE_ACP_PACKAGE, DEFAULT_CODEX_ACP_BIN, DEFAULT_COPILOT_BIN, DEFAULT_GEMINI_BIN,
-    mcp_url_is_read_only,
 };
 pub use context::{EditorContext, VaultSummary};
 pub use error::AgentError;

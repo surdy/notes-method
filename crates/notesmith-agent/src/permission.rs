@@ -46,7 +46,7 @@ pub struct PermissionRequest {
 }
 
 /// Decides how to answer a write-permission prompt that the session cannot
-/// resolve from its own state (i.e. not hard-blocked by read-only and not
+/// resolve from its own state (i.e. not auto-allowed by read-only and not
 /// already granted "allow always" this session).
 pub trait PermissionDecider: Send + Sync + 'static {
     /// Resolve the prompt for `request` to a [`PermissionDecision`].

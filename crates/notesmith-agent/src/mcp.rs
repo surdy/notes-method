@@ -31,8 +31,9 @@ pub const MCP_SERVER_NAME: &str = "notesmith";
 /// How a spawned agent reaches the active vault's MCP server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McpBinding {
-    /// Local sessions: launch a stdio bridge subprocess (`command args...`,
-    /// typically `notesmith --vault <vault> mcp start [--read-only]`).
+    /// A stdio bridge subprocess (`command args...`, typically
+    /// `notesmith --vault <vault> mcp start [--read-only]`). Used as the local
+    /// fallback for agents that do not support HTTP MCP.
     Stdio {
         /// Server name surfaced to the agent.
         name: String,
@@ -43,7 +44,8 @@ pub enum McpBinding {
         /// Whether the bridge targets the read-only scope.
         read_only: bool,
     },
-    /// Remote sessions: connect to a Streamable HTTP(S) MCP endpoint.
+    /// A Streamable HTTP(S) MCP endpoint. Preferred when the agent advertises
+    /// `mcpCapabilities.http`.
     Http {
         /// Server name surfaced to the agent.
         name: String,
@@ -55,7 +57,7 @@ pub enum McpBinding {
 }
 
 impl McpBinding {
-    /// Build a remote HTTP(S) binding for `name` at `url`. The read-only scope
+    /// Build an HTTP(S) binding for `name` at `url`. The read-only scope
     /// is derived from the endpoint path: `/mcp-ro/` denotes read-only.
     pub fn http(name: impl Into<String>, url: impl Into<String>) -> Self {
         let url = url.into();

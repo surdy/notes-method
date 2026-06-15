@@ -20,9 +20,10 @@
 //!    answers the request with a `stopReason`.
 //!
 //! While a prompt is in flight the agent may call back with
-//! `session/request_permission`; the session answers it from the read-only /
-//! read-write scope (read-only rejects, read-write approves) — the full
-//! per-write prompt flow lands in Phase 4.
+//! `session/request_permission`. A read-only session only ever exposes safe
+//! reads, so it allows those callbacks silently; a read-write session resolves
+//! each prompt through the per-write permission policy (allow once / allow
+//! always-session / deny).
 //!
 //! Per ADR 0009 the mapping is tolerant: unrecognized updates are ignored and a
 //! malformed turn becomes an [`AgentEvent::Error`] on the stream rather than a
@@ -344,17 +345,6 @@ async fn answer_permission(
         state.remember(&info.tool);
     }
     select_permission_option(&req.options, resolution.allow, resolution.remember)
-}
-
-/// Whether an MCP endpoint URL denotes the read-only scope (`/mcp-ro/`).
-///
-/// The daemon encodes scope in the path; an absent endpoint defaults to
-/// read-only so the permission gate stays safe by default.
-pub fn mcp_url_is_read_only(mcp_url: Option<&str>) -> bool {
-    match mcp_url {
-        Some(url) if !url.is_empty() => url.contains("/mcp-ro/"),
-        _ => true,
-    }
 }
 
 /// Report the handshake outcome through the ready slot, at most once.
@@ -1459,14 +1449,6 @@ mod tests {
             selected_id(&second).map(|id| id.0.to_string()),
             Some("yes".to_string())
         );
-    }
-
-    #[test]
-    fn mcp_url_scope_detection() {
-        assert!(mcp_url_is_read_only(Some("http://x/mcp-ro/work")));
-        assert!(!mcp_url_is_read_only(Some("http://x/mcp/work")));
-        assert!(mcp_url_is_read_only(None));
-        assert!(mcp_url_is_read_only(Some("")));
     }
 
     #[test]

@@ -9,8 +9,9 @@ Accepted (2026-06-11). Builds on [ADR 0010](0010-agent-access-architecture.md).
 > exists on `main`. Its **transport and MCP-wiring decisions — Decision 3,
 > Decision 4, and the entire Phase E amendment — are superseded by
 > [ADR 0012](0012-agent-transport-acp-mcp.md)**, which rebuilds the agent on the
-> Zed `agent-client-protocol` crate with a stdio (local) / HTTP (remote) MCP
-> split, per-write permission prompts, an app-level break-glass for fs/terminal,
+> Zed `agent-client-protocol` crate with capability-aware MCP transport (HTTP
+> preferred per the agent's `mcpCapabilities`, local stdio bridge as fallback),
+> per-write permission prompts, an app-level break-glass for fs/terminal,
 > and ACP-driven model selection. Decisions 1, 2, 5, and 6 (desktop-only runner,
 > hosted = MCP-only, no model-credential management, Tauri IPC) still stand. The
 > text below is retained for historical context.

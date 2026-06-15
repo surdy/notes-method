@@ -14,11 +14,13 @@
 //! [`agent_answer_permission`].
 //!
 //! MCP transport: the active vault is exposed to the agent as an MCP server.
-//! For a **local** daemon the desktop launches the `notesmith mcp start` stdio
-//! bridge (broadest agent support; the bridge forwards to the daemon over HTTP);
-//! for a **remote** daemon the agent connects directly to the daemon's
-//! Streamable HTTP MCP endpoint (`/mcp/<vault>` read-write, `/mcp-ro/<vault>`
-//! read-only).
+//! Selection is capability-aware (ADR 0012, Decision 2): an HTTP binding to the
+//! daemon's Streamable HTTP MCP endpoint (`/mcp/<vault>` read-write,
+//! `/mcp-ro/<vault>` read-only) is preferred when the agent advertises
+//! `mcpCapabilities.http` at `initialize` (e.g. Copilot is HTTP/SSE-only). For a
+//! **local** daemon a `notesmith mcp start` stdio bridge (which itself forwards
+//! to the daemon over HTTP) is supplied as a fallback for agents that do not
+//! support HTTP MCP; a **remote** daemon only offers the HTTP binding.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;

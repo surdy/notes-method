@@ -185,7 +185,8 @@ injected into the prompt) is portable: route **everything through `Ops`**, and
   normalized events), session lifecycle, the three-agent launch table +
   availability detection. **Copilot verified end-to-end.**
 - **4 — MCP wiring + scope.** Pass the active vault as a `session/new`
-  `mcpServers` entry (stdio local / HTTP remote); read-only vs read-write via
+  `mcpServers` entry (HTTP preferred per agent `mcpCapabilities.http`, local
+  stdio bridge as fallback — Decision 2); read-only vs read-write via
   endpoint choice; per-write permission prompts (allow once / allow always
   session-scoped / deny); the app-level break-glass setting (fs + terminal).
 - **5 — Context injection.** Per-turn editor context block; session-start
@@ -201,9 +202,10 @@ injected into the prompt) is portable: route **everything through `Ops`**, and
 
 ## Alternatives considered
 
-- **HTTP MCP for local too.** Rejected: reintroduces URL-in-config, network
-  exposure, and the endpoint-mounting bug class. stdio for local is the whole
-  point.
+- **HTTP MCP for local only (no stdio fallback).** Rejected: not every agent
+  supports HTTP MCP, so a local stdio bridge is retained as a fallback. The
+  bridge still forwards to the daemon over HTTP, so it adds no second in-process
+  index writer.
 - **Embed `LocalOps` directly in the bridge.** Rejected: a second in-process
   index writer alongside the running desktop daemon risks SQLite/Tantivy
   corruption.
