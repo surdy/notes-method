@@ -1562,7 +1562,7 @@ Streamable-HTTP MCP session endpoint. Send JSON-RPC 2.0 messages (`initialize`, 
 The `initialize` response returns an `mcp-session-id` header; include it on subsequent requests. `GET` on the same path opens the server-sent-event stream for the session.
 
 **Errors:**
-- `404` — unknown vault (only vaults known at daemon start are mounted; adding a vault requires a daemon restart to gain its MCP endpoints)
+- `404` — unknown vault (the vault path segment does not resolve against the daemon's loaded vaults; vaults added after startup resolve dynamically, no restart required)
 
 ### Reverse proxy / TLS
 
