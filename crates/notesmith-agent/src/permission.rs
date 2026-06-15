@@ -4,8 +4,10 @@
 //! `session/request_permission` callback. The session resolves each prompt from
 //! three inputs, in order:
 //!
-//! 1. **Read-only scope** — a read-only session hard-denies every write; the
-//!    user is never prompted.
+//! 1. **Read-only scope** — a read-only session allows reads silently (it can
+//!    only ever request safe reads) and the user is never prompted; the daemon
+//!    rejects any write server-side and no fs-write/terminal capability is
+//!    advertised.
 //! 2. **Session-scoped "allow always" grants** — once the user picks "allow
 //!    always" for a tool, later uses of that same tool are allowed silently for
 //!    the rest of the chat session (and only that session — nothing is
@@ -103,8 +105,8 @@ pub struct PermissionResolution {
 
 /// Resolve a permission prompt without performing any I/O (the pure policy).
 ///
-/// - read-only sessions hard-deny (the `decision` is ignored — the decider is
-///   never consulted);
+/// - read-only sessions allow silently (the `decision` is ignored — the decider
+///   is never consulted; a read-only session can only ever request safe reads);
 /// - an already-granted "allow always" tool is allowed silently;
 /// - otherwise the user's `decision` selects the outcome.
 ///
@@ -116,8 +118,13 @@ pub fn resolve_permission(
     decision: Option<PermissionDecision>,
 ) -> PermissionResolution {
     if read_only {
+        // A read-only session only ever exposes read tools: the agent binds the
+        // `/mcp-ro/` endpoint, the daemon rejects writes server-side, and no fs
+        // write / terminal capability is advertised. Any permission the agent
+        // asks for is therefore a safe read — allow it silently rather than
+        // denying (which would make the agent unable to read the vault at all).
         return PermissionResolution {
-            allow: false,
+            allow: true,
             remember: false,
         };
     }
@@ -149,7 +156,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn read_only_hard_denies_regardless_of_decision() {
+    fn read_only_allows_silently_regardless_of_decision() {
         for decision in [
             None,
             Some(PermissionDecision::AllowOnce),
@@ -157,7 +164,7 @@ mod tests {
             Some(PermissionDecision::Deny),
         ] {
             let resolution = resolve_permission(true, false, decision);
-            assert!(!resolution.allow, "read-only must deny for {decision:?}");
+            assert!(resolution.allow, "read-only must allow for {decision:?}");
             assert!(!resolution.remember);
         }
     }

@@ -322,10 +322,10 @@ fn permission_request_info(req: &RequestPermissionRequest) -> PermissionRequest 
 }
 
 /// Answer a `session/request_permission` callback using the session permission
-/// policy: read-only hard-denies; an already-granted tool is allowed silently;
-/// anything else is delegated to the `decider` (allow once / allow always /
-/// deny), with "allow always" remembered on `state` for the rest of the
-/// session.
+/// policy: read-only allows silently (it can only request safe reads); an
+/// already-granted tool is allowed silently; anything else is delegated to the
+/// `decider` (allow once / allow always / deny), with "allow always" remembered
+/// on `state` for the rest of the session.
 async fn answer_permission(
     req: &RequestPermissionRequest,
     read_only: bool,
@@ -1407,25 +1407,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn answer_permission_hard_denies_in_read_only() {
+    async fn answer_permission_allows_silently_in_read_only() {
         let req = permission_req(json!({
             "sessionId": "s",
-            "toolCall": { "toolCallId": "t1", "title": "create_note" },
+            "toolCall": { "toolCallId": "t1", "title": "list_notes" },
             "options": [
                 { "optionId": "yes", "name": "Allow", "kind": "allow_once" },
                 { "optionId": "no", "name": "Reject", "kind": "reject_once" },
             ],
         }));
         let state = PermissionState::new();
-        // A decider that would allow must NOT be consulted in read-only mode.
-        let decider: Arc<dyn PermissionDecider> =
-            Arc::new(FixedDecider(PermissionDecision::AllowAlways));
+        // A read-only session only ever requests safe reads: it is allowed
+        // without consulting the decider and without prompting the user.
+        let decider: Arc<dyn PermissionDecider> = Arc::new(FixedDecider(PermissionDecision::Deny));
         let outcome = answer_permission(&req, true, &state, &decider).await;
         assert_eq!(
             selected_id(&outcome).map(|id| id.0.to_string()),
-            Some("no".to_string())
+            Some("yes".to_string())
         );
-        assert!(!state.is_always("create_note"));
+        assert!(!state.is_always("list_notes"));
     }
 
     #[tokio::test]

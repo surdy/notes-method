@@ -179,14 +179,15 @@ async fn read_write_denies_writes_without_an_explicit_grant() {
 }
 
 #[tokio::test]
-async fn read_only_scope_rejects_permission_requests() {
-    // A read-only session hard-denies writes even when a decider would allow.
-    let mut session = fake_agent_session_with_decider(true, PermissionDecision::AllowAlways);
+async fn read_only_scope_allows_reads_without_prompting() {
+    // A read-only session only ever requests safe reads, so the permission is
+    // allowed silently even when the decider would deny (CHOICE:yes).
+    let mut session = fake_agent_session_with_decider(true, PermissionDecision::Deny);
     session.send("please PERMISSION").await.expect("send");
 
     let events = drain_until_done(&mut session).await;
     assert!(events.contains(&AgentEvent::AgentMessageDelta {
-        text: "CHOICE:no".to_string()
+        text: "CHOICE:yes".to_string()
     }));
 }
 

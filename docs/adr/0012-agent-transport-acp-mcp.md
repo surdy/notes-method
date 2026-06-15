@@ -89,7 +89,11 @@ injected into the prompt) is portable: route **everything through `Ops`**, and
    chat session only** — no standing cross-session write grants.
 6. **A hard read-only mode** swaps the session to the **`/mcp-ro/<vault>`**
    (`ReadOnlyOps`) server, which exposes no write tools at all — a guarantee, not
-   a prompt.
+   a prompt. Because the read-only scope can only ever surface safe reads (the
+   daemon rejects writes server-side and no fs-write/terminal capability is
+   advertised), the session **allows read-only permission requests silently**
+   rather than prompting or denying — otherwise the agent could not read the
+   vault at all.
 7. **Filesystem and terminal capabilities are OFF by default.** The client
    advertises **neither** `fs/read_text_file`/`fs/write_text_file` **nor**
    `terminal`, so all vault I/O flows through MCP tools over `Ops` (single access
