@@ -338,8 +338,7 @@ fn diagnose_agent(descriptor: &AgentDescriptor, path_dirs: &[PathBuf]) -> AgentD
         .collect();
 
     let verdict = verdict_for(&candidates).to_string();
-    let (detected_version, version_warning) =
-        detect_version(&candidates, descriptor.min_version);
+    let (detected_version, version_warning) = detect_version(&candidates, descriptor.min_version);
     AgentDiagnostic {
         id: descriptor.id.to_string(),
         display_name: descriptor.display_name.to_string(),
