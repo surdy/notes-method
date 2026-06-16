@@ -10,14 +10,11 @@
 		type VaultStatus
 	} from '$lib/api/status';
 	import { queuedCount } from '$lib/save-queue';
-
-	type StatusVisualState =
-		| 'live'
-		| 'no-vault'
-		| 'reconnecting'
-		| 'offline'
-		| 'restart-required'
-		| 'rebuilding';
+	import {
+		connectionPillLabel,
+		connectionVisualState,
+		type StatusVisualState
+	} from '$lib/connection/status-visual';
 
 	const STATUS_POLL_MS = 30_000;
 
@@ -44,6 +41,7 @@
 	let loadingLogs = $state(false);
 	let lastStatusCheckAt = $state<number | null>(null);
 	let statusError = $state('');
+	let firstStatusResolved = $state(false);
 	let pollTimer = $state<number | null>(null);
 	let reindexing = $state(false);
 	let restarting = $state(false);
@@ -56,33 +54,23 @@
 	let hasRecentStatus = $derived.by(
 		() => lastStatusCheckAt !== null && Date.now() - lastStatusCheckAt < STATUS_POLL_MS
 	);
-	let visualState = $derived.by<StatusVisualState>(() => {
-		if (isRebuilding) return 'rebuilding';
-		if (restartRequired) return 'restart-required';
-		// No vault selected: SSE is not open, derive state from daemon status poll only.
-		if (!currentVault) return hasRecentStatus ? 'no-vault' : 'offline';
-		if ($connectionState === 'reconnecting') return 'reconnecting';
-		if ($connectionState !== 'connected' || !hasRecentStatus) return 'offline';
-		return 'live';
-	});
-	let pillLabel = $derived.by(() => {
-		if (isRebuilding) return 'Rebuilding index';
-		if (restarting || $daemonShuttingDown) return 'Restarting…';
-		switch (visualState) {
-			case 'live':
-				return 'Live';
-			case 'no-vault':
-				return 'No vault open';
-			case 'reconnecting':
-				return 'Reconnecting';
-			case 'restart-required':
-				return 'Restart required';
-			case 'rebuilding':
-				return 'Rebuilding index';
-			default:
-				return 'Offline';
-		}
-	});
+	let visualState = $derived.by<StatusVisualState>(() =>
+		connectionVisualState({
+			isRebuilding,
+			restartRequired,
+			currentVault,
+			connectionState: $connectionState,
+			hasRecentStatus,
+			firstStatusResolved
+		})
+	);
+	let pillLabel = $derived.by(() =>
+		connectionPillLabel(visualState, {
+			isRebuilding,
+			restarting,
+			daemonShuttingDown: $daemonShuttingDown
+		})
+	);
 
 	$effect(() => {
 		if (!showPopover) {
@@ -105,6 +93,8 @@
 		} catch (error) {
 			lastStatusCheckAt = null;
 			statusError = error instanceof Error ? error.message : 'Status check failed';
+		} finally {
+			firstStatusResolved = true;
 		}
 	}
 
@@ -389,11 +379,16 @@
 	}
 
 	.status-dot.live {
-		background: var(--ns-status-connected);
+		background: var(--status-connected);
 	}
 
 	.status-dot.no-vault {
-		background: var(--ns-status-idle);
+		background: var(--status-idle);
+	}
+
+	.status-dot.connecting {
+		background: var(--status-reconnecting);
+		animation: pulse 1.5s infinite;
 	}
 
 	.status-dot.reconnecting {
@@ -402,7 +397,7 @@
 	}
 
 	.status-dot.offline {
-		background: var(--ns-status-disconnected);
+		background: var(--status-disconnected);
 	}
 
 	.status-dot.restart-required {
