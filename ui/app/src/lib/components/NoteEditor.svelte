@@ -36,6 +36,7 @@ import {
 	setDuplicateH1TitleEffect
 } from '$lib/editor/duplicate-h1-extension';
 import { activeEditorStore } from '$lib/editor/active-editor.svelte';
+import EditorContextMenu from '$lib/components/agent/EditorContextMenu.svelte';
 import { createOFMDecorations } from '$lib/editor/ofm-decorations';
 import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-blocks';
 import { headingHighlightOverride, notesmithTheme } from '$lib/editor/theme';
@@ -59,6 +60,7 @@ onAction?: () => void;
 };
 
 let editorContainer = $state<HTMLDivElement | undefined>();
+let contextMenu = $state<{ x: number; y: number } | null>(null);
 let view: EditorView | null = null;
 let currentPath: string | null = null;
 let loadingPath = $state<string | null>(null);
@@ -211,6 +213,7 @@ headingStore.clear();
 editorStatus.clear();
 if (view) {
 activeEditorStore.unregister(view);
+view.dom.removeEventListener('contextmenu', handleContextMenu);
 view.destroy();
 view = null;
 }
@@ -371,6 +374,7 @@ EditorView.updateListener.of((update) => {
 });
 
 view = new EditorView({ state, parent: editorContainer });
+view.dom.addEventListener('contextmenu', handleContextMenu);
 activeEditorStore.register(view);
 syncDuplicateH1Title();
 updateEditorWordCount(state);
@@ -597,7 +601,23 @@ autoSave.cancel();
 destroyEditor();
 };
 });
+
+// Right-click on a non-empty selection opens the inline AI command menu
+// (issue 195). With no selection we let the native context menu through.
+function handleContextMenu(event: MouseEvent) {
+	const sel = view?.state.selection.main;
+	if (!view || !sel || sel.empty) {
+		contextMenu = null;
+		return;
+	}
+	event.preventDefault();
+	contextMenu = { x: event.clientX, y: event.clientY };
+}
 </script>
+
+{#if contextMenu}
+<EditorContextMenu x={contextMenu.x} y={contextMenu.y} onClose={() => (contextMenu = null)} />
+{/if}
 
 <div class="note-editor">
 {#if !tabStore.selectedPath}

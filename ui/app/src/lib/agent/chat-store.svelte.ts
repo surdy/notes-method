@@ -13,6 +13,7 @@
 
 import * as transcriptApi from '../api/transcripts.ts';
 import type { Thread } from '../api/transcripts.ts';
+import type { ApplyMode } from '../editor/apply-output.ts';
 import type { AgentClient, PermissionEvent } from './agent-client.ts';
 import {
 	emptyConversation,
@@ -57,6 +58,12 @@ export interface ChatStoreDeps {
 	transcripts?: TranscriptApi;
 	/** Reads the current break-glass setting at session start. */
 	breakGlass?: () => boolean;
+	/**
+	 * Applies an inline command's result to the active editor (issue #195).
+	 * Injected so the store stays DOM-free and testable; defaults to a no-op that
+	 * reports "no editor".
+	 */
+	applyToEditor?: (mode: ApplyMode, text: string) => boolean;
 }
 
 export class ChatStore {
@@ -75,6 +82,8 @@ export class ChatStore {
 	errorMessage = $state<string | null>(null);
 
 	private readonly transcripts: TranscriptApi;
+	private readonly applyToEditor: (mode: ApplyMode, text: string) => boolean;
+	private pendingInlineApply: ApplyMode | null = null;
 	private unsubscribers: Array<() => void> = [];
 	private sessionStartPromise: Promise<void> | null = null;
 
@@ -85,6 +94,7 @@ export class ChatStore {
 	) {
 		this.transcripts = deps?.transcripts ?? (transcriptApi as TranscriptApi);
 		this.breakGlass = deps?.breakGlass ?? (() => false);
+		this.applyToEditor = deps?.applyToEditor ?? (() => false);
 	}
 
 	private breakGlass: () => boolean;
@@ -258,6 +268,25 @@ export class ChatStore {
 		}
 	}
 
+	/**
+	 * Run an inline editor command (issue #195) as a normal chat turn: the short
+	 * instruction becomes the user message, the editor selection rides via
+	 * {@link EditorContext.selection}, and the agent's final reply is applied back
+	 * to the active editor when `done` fires. Reuses {@link send} so the turn is
+	 * persisted and rendered like any other.
+	 */
+	async runInlineCommand(opts: {
+		instruction: string;
+		selection: string;
+		applyMode?: ApplyMode;
+		activeNote?: string | null;
+	}): Promise<void> {
+		if (this.busy || !this.selectedAgent) return;
+		this.pendingInlineApply = opts.applyMode ?? 'replace';
+		this.input = opts.instruction;
+		await this.send({ activeNote: opts.activeNote ?? null, selection: opts.selection });
+	}
+
 	async selectModel(value: string): Promise<void> {
 		this.selectedModel = value;
 		if (this.sessionId) await this.client.selectModel(this.sessionId, value);
@@ -275,6 +304,12 @@ export class ChatStore {
 		await this.client.answerPermission(pending.requestId, decision);
 	}
 
+	private lastAgentMessage(): MessageItem | undefined {
+		return [...this.conversation.items]
+			.reverse()
+			.find((i): i is MessageItem => i.kind === 'message' && i.role === 'agent');
+	}
+
 	private handleEvent(sessionId: string, event: AgentEvent): void {
 		// Ignore events from a superseded session.
 		if (this.sessionId && sessionId !== this.sessionId) return;
@@ -283,14 +318,20 @@ export class ChatStore {
 			this.errorMessage = event.message;
 		}
 		if (event.type === 'done' && this.currentThreadId) {
-			const finalAgent = [...this.conversation.items]
-				.reverse()
-				.find((i): i is MessageItem => i.kind === 'message' && i.role === 'agent');
+			const finalAgent = this.lastAgentMessage();
 			if (finalAgent && finalAgent.text) {
 				void this.transcripts
 					.appendMessage(this.vault, this.currentThreadId, 'agent', finalAgent.text)
 					.catch(() => {});
 			}
+		}
+		// Apply an inline command's result to the editor. NOT gated on
+		// `currentThreadId` — an inline command may run on a fresh conversation.
+		if (event.type === 'done' && this.pendingInlineApply) {
+			const mode = this.pendingInlineApply;
+			this.pendingInlineApply = null;
+			const finalAgent = this.lastAgentMessage();
+			if (finalAgent && finalAgent.text) this.applyToEditor(mode, finalAgent.text);
 		}
 	}
 }

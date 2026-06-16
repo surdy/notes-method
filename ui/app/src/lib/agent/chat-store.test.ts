@@ -15,7 +15,7 @@ import type { Thread } from '../api/transcripts.ts';
 /** In-memory agent client that records calls and lets tests push events. */
 class MockAgentClient implements AgentClient {
 	startCalls: unknown[] = [];
-	prompts: Array<{ sessionId: string; text: string }> = [];
+	prompts: Array<{ sessionId: string; text: string; editor?: unknown }> = [];
 	modelCalls: Array<{ sessionId: string; value: string }> = [];
 	readOnlyCalls: Array<{ sessionId: string; readOnly: boolean }> = [];
 	answered: Array<{ requestId: string; decision: PermissionDecision }> = [];
@@ -36,8 +36,8 @@ class MockAgentClient implements AgentClient {
 		this.startCalls.push(opts);
 		return { sessionId: `sess-${this.startCalls.length}`, models: this.models };
 	}
-	async sendPrompt(sessionId: string, text: string): Promise<void> {
-		this.prompts.push({ sessionId, text });
+	async sendPrompt(sessionId: string, text: string, editor?: unknown): Promise<void> {
+		this.prompts.push({ sessionId, text, editor });
 	}
 	async selectModel(sessionId: string, value: string): Promise<void> {
 		this.modelCalls.push({ sessionId, value });
@@ -389,6 +389,80 @@ describe('ChatStore orchestration', () => {
 
 		store.input = '   ';
 		await store.send();
+		expect(client.prompts).toHaveLength(0);
+	});
+});
+
+describe('ChatStore inline commands', () => {
+	it('runs an inline command and applies the final agent text on done', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const applyToEditor = vi.fn(() => true);
+		const store = new ChatStore('work', client, { transcripts: api, applyToEditor });
+		await store.loadAgents();
+		store.start();
+
+		await store.runInlineCommand({
+			instruction: 'Rewrite the selected text.',
+			selection: 'foo bar',
+			applyMode: 'replace',
+			activeNote: 'Notes/a.md'
+		});
+
+		// The instruction becomes the user turn; the selection rides via EditorContext.
+		expect(client.prompts[0]).toMatchObject({
+			sessionId: 'sess-1',
+			text: 'Rewrite the selected text.',
+			editor: { activeNote: 'Notes/a.md', selection: 'foo bar' }
+		});
+
+		client.emit('sess-1', { type: 'agent_message_delta', text: 'Foo ' });
+		client.emit('sess-1', { type: 'agent_message_delta', text: 'Bar' });
+		expect(applyToEditor).not.toHaveBeenCalled();
+		client.emit('sess-1', { type: 'done', result: null });
+
+		expect(applyToEditor).toHaveBeenCalledTimes(1);
+		expect(applyToEditor).toHaveBeenCalledWith('replace', 'Foo Bar');
+	});
+
+	it('defaults the apply mode to replace', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const applyToEditor = vi.fn(() => true);
+		const store = new ChatStore('work', client, { transcripts: api, applyToEditor });
+		await store.loadAgents();
+		store.start();
+
+		await store.runInlineCommand({ instruction: 'Fix it.', selection: 'teh' });
+		client.emit('sess-1', { type: 'agent_message_delta', text: 'the' });
+		client.emit('sess-1', { type: 'done', result: null });
+
+		expect(applyToEditor).toHaveBeenCalledWith('replace', 'the');
+	});
+
+	it('does not apply to the editor for an ordinary send', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const applyToEditor = vi.fn(() => true);
+		const store = new ChatStore('work', client, { transcripts: api, applyToEditor });
+		await store.loadAgents();
+		store.start();
+
+		store.input = 'just chatting';
+		await store.send();
+		client.emit('sess-1', { type: 'agent_message_delta', text: 'hi' });
+		client.emit('sess-1', { type: 'done', result: null });
+
+		expect(applyToEditor).not.toHaveBeenCalled();
+	});
+
+	it('ignores an inline command while busy or with no agent', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		store.start();
+		// No agent selected yet.
+		await store.runInlineCommand({ instruction: 'Rewrite.', selection: 'x' });
 		expect(client.prompts).toHaveLength(0);
 	});
 });

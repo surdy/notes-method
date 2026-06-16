@@ -31,6 +31,7 @@
 	import type { EditorContext } from '$lib/agent/types';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { activeEditorStore } from '$lib/editor/active-editor.svelte';
+	import { activeSession } from '$lib/agent/active-session.svelte';
 	import { listFolderPickerItems } from '$lib/folder-notes';
 
 	let { collapsed = false }: { collapsed?: boolean } = $props();
@@ -214,11 +215,14 @@
 		if (!vault) return;
 		currentVault = vault;
 		store?.dispose();
+		activeSession.set(null);
 		const next = new ChatStore(vault, createAgentClient(), {
-			breakGlass: () => breakGlassStore.enabled
+			breakGlass: () => breakGlassStore.enabled,
+			applyToEditor: (mode, text) => activeEditorStore.applyOutput(mode, text)
 		});
 		next.start();
 		store = next;
+		activeSession.set(next);
 		await next.loadAgents();
 		await next.loadThreads();
 		// Establish the session up front so the model picker is available before
@@ -226,7 +230,10 @@
 		void next.prepareSession();
 	}
 
-	onDestroy(() => store?.dispose());
+	onDestroy(() => {
+		store?.dispose();
+		activeSession.set(null);
+	});
 
 	// Autoscroll on new items.
 	$effect(() => {

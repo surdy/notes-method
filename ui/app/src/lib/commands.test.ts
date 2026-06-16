@@ -24,6 +24,18 @@ vi.mock('./input-palette.svelte', () => ({
 	}
 }));
 
+vi.mock('./editor/active-editor.svelte', () => ({
+	activeEditorStore: {
+		view: null
+	}
+}));
+
+vi.mock('./agent/active-session.svelte', () => ({
+	activeSession: {
+		current: null
+	}
+}));
+
 vi.mock('./toast-store.svelte', () => ({
 	toastStore: {
 		add: toastAdd
@@ -189,5 +201,37 @@ describe('buildCommands', () => {
 		expect(toastAdd).toHaveBeenCalledWith('Folder note already exists.', 'success');
 		expect(loadNotes).toHaveBeenCalledOnce();
 		expect(onNavigate).toHaveBeenCalledWith('Customers/Acme/Acme.md');
+	});
+
+	it('registers the six inline AI commands under the AI category', async () => {
+		const { buildCommands } = await import('./commands.ts');
+		const commands = buildCommands('vault-a', vi.fn());
+		const ai = commands.filter((command) => command.category === 'AI');
+
+		expect(ai.map((command) => command.id)).toEqual([
+			'ai-rewrite',
+			'ai-summarize',
+			'ai-expand',
+			'ai-fix',
+			'ai-continue',
+			'ai-custom'
+		]);
+		expect(ai.map((command) => command.label)).toEqual([
+			'Rewrite',
+			'Summarize',
+			'Expand',
+			'Fix',
+			'Continue writing',
+			'Custom prompt…'
+		]);
+	});
+
+	it('warns when an AI command runs without an active editor', async () => {
+		const { buildCommands } = await import('./commands.ts');
+		const commands = buildCommands('vault-a', vi.fn());
+
+		await commands.find((command) => command.id === 'ai-rewrite')?.execute();
+
+		expect(toastAdd).toHaveBeenCalledWith('Open a note first.', 'warning');
 	});
 });

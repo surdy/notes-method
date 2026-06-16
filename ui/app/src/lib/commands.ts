@@ -10,6 +10,14 @@ import {
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
 import { createOrOpenFolderNote, listFolderPickerItems } from './folder-notes';
+import { activeEditorStore } from './editor/active-editor.svelte';
+import { activeSession } from './agent/active-session.svelte';
+import {
+	applyModeFor,
+	instructionFor,
+	INLINE_COMMANDS,
+	type InlineCommandId
+} from './agent/inline-commands';
 import { inputPalette } from './input-palette.svelte';
 import { tabStore } from './tab-store.svelte';
 import { toastStore } from './toast-store.svelte';
@@ -18,7 +26,15 @@ import { vaultStore } from './stores.svelte';
 export interface Command {
 id: string;
 label: string;
-category: 'Notes' | 'Tasks' | 'Templates' | 'Navigation' | 'Vault' | 'Settings' | 'Appearance';
+category:
+	| 'Notes'
+	| 'Tasks'
+	| 'Templates'
+	| 'Navigation'
+	| 'Vault'
+	| 'Settings'
+	| 'Appearance'
+	| 'AI';
 shortcut?: string;
 execute: () => void | Promise<void>;
 }
@@ -26,6 +42,65 @@ execute: () => void | Promise<void>;
 function notifyError(message: string, cause: unknown) {
 console.error(message, cause);
 toastStore.add(message, 'error');
+}
+
+/**
+ * Run an inline editor command (issue #195) against the active note's selection.
+ * Reads the selection from the active editor and dispatches it to the shared
+ * chat agent session — no chat panel expansion required. Missing editor,
+ * selection, or agent degrade to a warning toast rather than throwing.
+ *
+ * The `custom` command first opens the input palette to collect a free-form
+ * instruction. Shared by the command palette and the editor's right-click menu.
+ */
+export async function runInlineEditorCommand(id: InlineCommandId): Promise<void> {
+if (id === 'custom') {
+	inputPalette.open({
+		steps: [
+			{
+				mode: 'text',
+				label: 'Instruction',
+				placeholder: 'e.g. Make this more formal',
+				required: true
+			}
+		],
+		onComplete: async ([prompt]) => {
+			if (!prompt?.trim()) return;
+			await dispatchInlineCommand('custom', prompt.trim());
+		}
+	});
+	return;
+}
+await dispatchInlineCommand(id);
+}
+
+async function dispatchInlineCommand(id: InlineCommandId, customPrompt?: string): Promise<void> {
+const view = activeEditorStore.view;
+if (!view) {
+	toastStore.add('Open a note first.', 'warning');
+	return;
+}
+const sel = view.state.selection.main;
+const selection = view.state.sliceDoc(sel.from, sel.to);
+if (!selection.trim()) {
+	toastStore.add('Select some text first.', 'warning');
+	return;
+}
+const store = activeSession.current;
+if (!store || !store.selectedAgent) {
+	toastStore.add('Start the agent panel first.', 'warning');
+	return;
+}
+try {
+	await store.runInlineCommand({
+		instruction: instructionFor(id, customPrompt),
+		selection,
+		applyMode: applyModeFor(id),
+		activeNote: tabStore.selectedPath
+	});
+} catch (cause) {
+	notifyError('Failed to run the AI command.', cause);
+}
 }
 
 async function reloadAndNavigate(path?: string, onNavigate?: (path: string) => void) {
@@ -359,6 +434,14 @@ shortcut: '⌘,',
 execute: () => {
 void goto(`${base}/settings?vault=${encodeURIComponent(vault)}`);
 }
-}
+},
+...INLINE_COMMANDS.map(
+(cmd): Command => ({
+id: `ai-${cmd.id}`,
+label: cmd.label,
+category: 'AI',
+execute: () => runInlineEditorCommand(cmd.id)
+})
+)
 ];
 }
