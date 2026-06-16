@@ -10,6 +10,14 @@
 	import ChatMessage from './ChatMessage.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
 	import PermissionPrompt from './PermissionPrompt.svelte';
+	import SlashCommandPalette from './SlashCommandPalette.svelte';
+	import { listPrompts } from '$lib/api/prompts';
+	import {
+		filterSlashCommands,
+		parseSlashQuery,
+		slashCommandsFromPrompts,
+		type SlashCommand
+	} from '$lib/agent/slash-commands';
 
 	let { collapsed = false }: { collapsed?: boolean } = $props();
 
@@ -17,6 +25,57 @@
 	let showThreads = $state(false);
 	let listEl = $state<HTMLDivElement | null>(null);
 	let currentVault = $state('');
+
+	// Slash-command palette state. Commands are fetched lazily from the merged
+	// prompt store (defaults + vault `_prompts/`) the first time the palette
+	// opens, then cached per vault so the dropdown is instant on subsequent `/`.
+	let slashCommands = $state<SlashCommand[]>([]);
+	let slashLoadedVault = $state<string | null>(null);
+	let slashSelected = $state(0);
+
+	const slashQuery = $derived(store ? parseSlashQuery(store.input) : { active: false, query: '' });
+	const slashFiltered = $derived(
+		slashQuery.active ? filterSlashCommands(slashCommands, slashQuery.query) : []
+	);
+	const slashOpen = $derived(slashQuery.active && slashFiltered.length > 0);
+
+	// Load the command set lazily when the palette becomes active. Degrades to an
+	// empty list on failure so a missing daemon never throws into the composer.
+	$effect(() => {
+		if (!slashQuery.active) return;
+		const vault = currentVault;
+		if (!vault || slashLoadedVault === vault) return;
+		slashLoadedVault = vault;
+		void listPrompts(vault)
+			.then((prompts) => {
+				slashCommands = slashCommandsFromPrompts(prompts);
+			})
+			.catch(() => {
+				slashCommands = [];
+			});
+	});
+
+	// Keep the highlighted item within bounds as the filtered list changes.
+	$effect(() => {
+		if (slashSelected >= slashFiltered.length) slashSelected = 0;
+	});
+
+	// A fresh vault invalidates the cached command set.
+	$effect(() => {
+		const vault = vaultStore.currentVault;
+		if (vault && slashLoadedVault && vault !== slashLoadedVault) {
+			slashLoadedVault = null;
+			slashCommands = [];
+		}
+	});
+
+	// Insert (not auto-send): replace the `/token` with the prompt body so the
+	// user can add detail before pressing Send. The AC allows "sends/inserts".
+	function selectSlashCommand(command: SlashCommand) {
+		if (!store) return;
+		store.input = command.body;
+		slashSelected = 0;
+	}
 
 	onMount(() => {
 		breakGlassStore.load();
@@ -64,6 +123,30 @@
 	}
 
 	function onKeydown(e: KeyboardEvent) {
+		if (slashOpen) {
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				slashSelected = (slashSelected + 1) % slashFiltered.length;
+				return;
+			}
+			if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				slashSelected = (slashSelected - 1 + slashFiltered.length) % slashFiltered.length;
+				return;
+			}
+			if (e.key === 'Enter' && !e.shiftKey) {
+				e.preventDefault();
+				const command = slashFiltered[slashSelected];
+				if (command) selectSlashCommand(command);
+				return;
+			}
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				// Drop the leading `/` so the palette closes without losing other text.
+				if (store) store.input = store.input.replace(/^\/\S*/, '');
+				return;
+			}
+		}
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
 			void store?.send();
@@ -220,6 +303,16 @@
 			{/if}
 
 			<form class="composer" onsubmit={onSubmit}>
+				{#if slashOpen}
+					<div class="slash-anchor">
+						<SlashCommandPalette
+							commands={slashFiltered}
+							selected={slashSelected}
+							onselect={selectSlashCommand}
+							onhover={(i) => (slashSelected = i)}
+						/>
+					</div>
+				{/if}
 				<textarea
 					class="input"
 					rows="2"
@@ -463,6 +556,15 @@
 		gap: 8px;
 		padding: 10px 12px;
 		border-top: 1px solid var(--border-default);
+		position: relative;
+	}
+
+	.slash-anchor {
+		position: absolute;
+		left: 12px;
+		right: 12px;
+		bottom: calc(100% - 4px);
+		z-index: 10;
 	}
 
 	.input {
