@@ -898,6 +898,47 @@ Render a template and create the note at the computed output path. The save pipe
 
 ---
 
+## Prompts
+
+Static custom prompts are named, saved instruction strings sent verbatim to the
+chat agent. The merged set is built from two sources:
+
+- **Defaults** — built-in prompts seeded into the daemon config dir
+  (`<config>/notesmith/prompts/*.md`) on first run; users may edit them.
+- **Vault overrides** — markdown files in the vault's `_prompts/` folder.
+
+The two sets are merged by `name`; a vault entry overrides a default of the same
+name. Each prompt file is markdown with YAML frontmatter (`name`, optional
+`description`) and a body. Variable substitution is not yet supported; the format
+reserves a `variables` frontmatter field for future `{{variable}}` interpolation.
+
+### `GET /api/v/{vault}/prompts`
+
+List the merged static prompts for a vault.
+
+**Response:** `200 OK`
+```json
+{
+  "prompts": [
+    {
+      "name": "summarize",
+      "description": "Concise summary of the current note.",
+      "body": "Provide a concise summary of the current note...",
+      "source": "default"
+    }
+  ]
+}
+```
+
+`source` is `"default"` (config-dir default) or `"vault"` (vault `_prompts/`
+override). Malformed prompt files are skipped (logged at `WARN`), so the endpoint
+always returns `200` with a possibly-empty list, never a `500`.
+
+**Errors:**
+- `404` — vault not found
+
+---
+
 ## Routing
 
 ### `POST /api/v/{vault}/route/preview`

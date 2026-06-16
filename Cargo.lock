@@ -2252,6 +2252,7 @@ dependencies = [
  "notesmith-index",
  "notesmith-mcp",
  "notesmith-ops",
+ "notesmith-prompts",
  "notesmith-query",
  "notesmith-routing",
  "notesmith-tasks",
@@ -2337,6 +2338,19 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tempfile",
+]
+
+[[package]]
+name = "notesmith-prompts"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "notesmith-core",
+ "notesmith-vault",
+ "serde",
+ "serde_yaml",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]

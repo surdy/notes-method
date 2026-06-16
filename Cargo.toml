@@ -11,6 +11,7 @@ members = [
     "crates/notesmith-git",
     "crates/notesmith-html",
     "crates/notesmith-config",
+    "crates/notesmith-prompts",
     "crates/notesmith-ops",
     "crates/notesmith-transcript",
     "crates/notesmith-http",
@@ -43,6 +44,7 @@ notesmith-hooks = { path = "crates/notesmith-hooks" }
 notesmith-git = { path = "crates/notesmith-git" }
 notesmith-html = { path = "crates/notesmith-html" }
 notesmith-config = { path = "crates/notesmith-config" }
+notesmith-prompts = { path = "crates/notesmith-prompts" }
 notesmith-ops = { path = "crates/notesmith-ops" }
 notesmith-transcript = { path = "crates/notesmith-transcript" }
 notesmith-http = { path = "crates/notesmith-http" }

@@ -178,6 +178,10 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
             "/api/v/{vault}/templates/{name}/instantiate",
             post(instantiate_template),
         )
+        .route(
+            "/api/v/{vault}/prompts",
+            get(crate::routes::prompts::list_prompts),
+        )
         .route("/api/v/{vault}/route/preview", post(route_preview))
         .route("/api/v/{vault}/route/apply", post(route_apply))
         .route("/api/v/{vault}/git/status", get(git_status))
@@ -516,6 +520,20 @@ pub async fn serve_configured_vaults(
 
     let bind = bind_override.unwrap_or(&config.daemon.bind);
     let state = Arc::new(RwLock::new(build_app_state(config)?));
+
+    // Seed built-in default prompts into the daemon config dir on first run
+    // (issue #193). Best-effort: a write failure here must never block startup.
+    if let Some(prompts_dir) = notesmith_prompts::default_prompts_dir() {
+        match notesmith_prompts::seed_default_prompts(&prompts_dir) {
+            Ok(written) if written > 0 => {
+                tracing::info!(dir = %prompts_dir.display(), count = written, "seeded default prompts");
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(dir = %prompts_dir.display(), reason = %error, "could not seed default prompts");
+            }
+        }
+    }
     let vault_watchers: SharedVaultWatchers = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
     let vault_names = {
         let state = state.read().await;
