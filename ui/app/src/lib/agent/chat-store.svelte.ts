@@ -13,7 +13,9 @@
 
 import * as transcriptApi from '../api/transcripts.ts';
 import type { Thread } from '../api/transcripts.ts';
+import { createNote as createVaultNote } from '../api/notes.ts';
 import type { ApplyMode } from '../editor/apply-output.ts';
+import { formatTranscriptMarkdown } from './transcript-format.ts';
 import type { AgentClient, PermissionEvent } from './agent-client.ts';
 import {
 	emptyConversation,
@@ -42,7 +44,7 @@ export interface TranscriptApi {
 	listMessages(
 		vault: string,
 		threadId: string
-	): Promise<Array<{ role: 'user' | 'agent' | 'system'; content: string }>>;
+	): Promise<Array<{ role: 'user' | 'agent' | 'system'; content: string; created_at?: string }>>;
 	appendMessage(
 		vault: string,
 		threadId: string,
@@ -64,6 +66,16 @@ export interface ChatStoreDeps {
 	 * reports "no editor".
 	 */
 	applyToEditor?: (mode: ApplyMode, text: string) => boolean;
+	/**
+	 * Creates a vault note (issue #190 export). Injected so the store stays
+	 * API-agnostic and testable; defaults to the real notes client.
+	 */
+	createNote?: (
+		vault: string,
+		title: string,
+		content: string,
+		folder?: string
+	) => Promise<{ path: string }>;
 }
 
 export class ChatStore {
@@ -83,6 +95,12 @@ export class ChatStore {
 
 	private readonly transcripts: TranscriptApi;
 	private readonly applyToEditor: (mode: ApplyMode, text: string) => boolean;
+	private readonly createNote: (
+		vault: string,
+		title: string,
+		content: string,
+		folder?: string
+	) => Promise<{ path: string }>;
 	private pendingInlineApply: ApplyMode | null = null;
 	private unsubscribers: Array<() => void> = [];
 	private sessionStartPromise: Promise<void> | null = null;
@@ -95,6 +113,7 @@ export class ChatStore {
 		this.transcripts = deps?.transcripts ?? (transcriptApi as TranscriptApi);
 		this.breakGlass = deps?.breakGlass ?? (() => false);
 		this.applyToEditor = deps?.applyToEditor ?? (() => false);
+		this.createNote = deps?.createNote ?? createVaultNote;
 	}
 
 	private breakGlass: () => boolean;
@@ -172,6 +191,51 @@ export class ChatStore {
 		await this.transcripts.deleteThread(this.vault, threadId);
 		this.threads = this.threads.filter((t) => t.id !== threadId);
 		if (this.currentThreadId === threadId) this.newThread();
+	}
+
+	/**
+	 * Fork a saved thread into a new, independently continuable thread (issue
+	 * #190). Copies every prior message in order; the new thread inherits the
+	 * source agent/model so the conversation can resume with the same context.
+	 */
+	async forkThread(threadId: string): Promise<string> {
+		const source = this.threads.find((t) => t.id === threadId);
+		const messages = await this.transcripts.listMessages(this.vault, threadId);
+		const title = `${source?.title ?? 'Conversation'} (fork)`;
+		const created = await this.transcripts.createThread(
+			this.vault,
+			title,
+			source?.agent ?? this.selectedAgent,
+			source?.model ?? this.selectedModel
+		);
+		for (const m of messages) {
+			await this.transcripts.appendMessage(this.vault, created.id, m.role, m.content);
+		}
+		await this.loadThreads();
+		await this.openThread(created.id);
+		return created.id;
+	}
+
+	/**
+	 * Export a saved thread to a markdown note in the vault (issue #190). The note
+	 * carries agent/model/timestamp metadata and role-labelled messages.
+	 */
+	async exportThread(threadId: string): Promise<string> {
+		const source = this.threads.find((t) => t.id === threadId);
+		const messages = await this.transcripts.listMessages(this.vault, threadId);
+		const title = source?.title?.trim() || 'Chat transcript';
+		const markdown = formatTranscriptMarkdown(
+			{
+				title,
+				agent: source?.agent ?? null,
+				model: source?.model ?? null,
+				created_at: source?.created_at ?? null,
+				updated_at: source?.updated_at ?? null
+			},
+			messages
+		);
+		const result = await this.createNote(this.vault, title, markdown);
+		return result.path;
 	}
 
 	private async ensureSession(): Promise<void> {

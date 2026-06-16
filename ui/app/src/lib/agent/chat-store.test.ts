@@ -231,6 +231,53 @@ describe('ChatStore orchestration', () => {
 		expect(userMsgs).toHaveLength(2);
 	});
 
+	it('forks a saved thread, copying prior messages into a new continuable thread', async () => {
+		const client = new MockAgentClient();
+		const { api, appended } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		await store.loadThreads();
+
+		const newId = await store.forkThread('t-existing');
+
+		expect(api.createThread).toHaveBeenCalledWith(
+			'work',
+			'Old chat (fork)',
+			'copilot',
+			null
+		);
+		expect(appended.filter((a) => a.threadId === newId)).toEqual([
+			{ threadId: newId, role: 'user', content: 'previous q' },
+			{ threadId: newId, role: 'agent', content: 'previous a' }
+		]);
+		expect(store.currentThreadId).toBe(newId);
+	});
+
+	it('exports a saved thread to a markdown note with metadata and roles', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const created: Array<{ title: string; content: string }> = [];
+		const store = new ChatStore('work', client, {
+			transcripts: api,
+			createNote: async (_v, title, content) => {
+				created.push({ title, content });
+				return { path: 'inbox/Old chat.md' };
+			}
+		});
+		await store.loadThreads();
+
+		const path = await store.exportThread('t-existing');
+
+		expect(path).toBe('inbox/Old chat.md');
+		expect(created).toHaveLength(1);
+		expect(created[0].title).toBe('Old chat');
+		expect(created[0].content).toContain('type: chat-transcript');
+		expect(created[0].content).toContain('**User:**');
+		expect(created[0].content).toContain('previous q');
+		expect(created[0].content).toContain('**Agent:**');
+		expect(created[0].content).toContain('previous a');
+	});
+
 	it('renders the user message immediately on send, without a backend echo', async () => {
 		const client = new MockAgentClient();
 		const { api } = fakeTranscripts();

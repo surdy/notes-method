@@ -33,6 +33,7 @@
 	import { activeEditorStore } from '$lib/editor/active-editor.svelte';
 	import { activeSession } from '$lib/agent/active-session.svelte';
 	import { listFolderPickerItems } from '$lib/folder-notes';
+	import { toastStore } from '$lib/toast-store.svelte';
 
 	let { collapsed = false }: { collapsed?: boolean } = $props();
 
@@ -196,6 +197,30 @@
 		const preamble = assembleContextText(attachments);
 		await store.send(editor, preamble);
 		attachments = [];
+	}
+
+	async function forkThread(threadId: string) {
+		if (!store) return;
+		try {
+			await store.forkThread(threadId);
+			showThreads = false;
+			toastStore.add('Conversation forked', 'success');
+		} catch (err) {
+			toastStore.add(err instanceof Error ? err.message : 'Failed to fork conversation', 'error');
+		}
+	}
+
+	async function exportThread(threadId: string) {
+		if (!store) return;
+		try {
+			const path = await store.exportThread(threadId);
+			toastStore.add(`Exported to ${path}`, 'success');
+		} catch (err) {
+			toastStore.add(
+				err instanceof Error ? err.message : 'Failed to export conversation',
+				'error'
+			);
+		}
 	}
 
 	onMount(() => {
@@ -409,6 +434,24 @@
 								onclick={() => { void store?.openThread(thread.id); showThreads = false; }}
 							>
 								{thread.title}
+							</button>
+							<button
+								class="thread-act"
+								type="button"
+								aria-label="Fork conversation"
+								title="Fork conversation"
+								onclick={() => { void forkThread(thread.id); }}
+							>
+								⑂
+							</button>
+							<button
+								class="thread-act"
+								type="button"
+								aria-label="Export conversation to note"
+								title="Export conversation to note"
+								onclick={() => { void exportThread(thread.id); }}
+							>
+								↗
 							</button>
 							<button
 								class="thread-del"
@@ -702,6 +745,20 @@
 
 	.thread-del:hover {
 		color: var(--danger-text);
+	}
+
+	.thread-act {
+		padding: 8px 8px;
+		border: none;
+		background: transparent;
+		color: var(--text-muted);
+		font-size: 12px;
+		cursor: pointer;
+	}
+
+	.thread-act:hover {
+		color: var(--text-default);
+		background: var(--bg-hover);
 	}
 
 	.thread-empty {
