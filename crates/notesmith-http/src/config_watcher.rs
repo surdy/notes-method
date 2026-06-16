@@ -250,6 +250,7 @@ mod tests {
                 ),
             ]),
             agents: Default::default(),
+            mcp: Default::default(),
         };
 
         let plan = plan_vault_changes(&current_vaults, &new_config);
@@ -289,6 +290,7 @@ mod tests {
                 },
             )]),
             agents: Default::default(),
+            mcp: Default::default(),
         };
         initial_config.save_to(&config_path).unwrap();
 
@@ -318,6 +320,7 @@ mod tests {
                 },
             )]),
             agents: Default::default(),
+            mcp: Default::default(),
         };
         updated_config.save_to(&config_path).unwrap();
 

@@ -13,7 +13,8 @@ pub use detection::{
 };
 pub use error::ConfigError;
 pub use global::{
-    AgentEntry, AgentsConfig, DaemonConfig, GlobalConfig, VaultRegistration, expand_path_vars,
+    AgentEntry, AgentsConfig, DaemonConfig, GlobalConfig, McpConfig, McpServerEntry,
+    VaultRegistration, expand_path_vars,
 };
 pub use lockfile::DaemonLockfile;
 pub use vault::{

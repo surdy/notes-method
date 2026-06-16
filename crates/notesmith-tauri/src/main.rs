@@ -432,6 +432,8 @@ fn main() {
             agent_bridge::agent_list,
             agent_bridge::agent_config_get,
             agent_bridge::agent_config_set,
+            agent_bridge::mcp_servers_get,
+            agent_bridge::mcp_servers_set,
             agent_bridge::agent_start,
             agent_bridge::agent_prompt,
             agent_bridge::agent_select_model,

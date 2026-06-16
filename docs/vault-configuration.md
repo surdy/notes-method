@@ -84,6 +84,45 @@ FOO = "bar"
 A user entry always wins over auto-detection; these settings are also editable
 from **Settings → AI Agent** without hand-editing the file.
 
+### External MCP servers (`[mcp]`)
+
+Every chat session always exposes the **active vault's notes** to the agent over
+the daemon's built-in MCP endpoint (read-only vs read-write follows the chat
+panel's scope toggle); those built-in tools are always on and cannot be removed.
+The optional `[mcp]` section adds **external** MCP servers the agent can use
+alongside the vault tools. It lives in the **global** config so a server list is
+reusable across vaults.
+
+```toml
+[[mcp.servers]]                        # a stdio (command) MCP server
+id = "filesystem"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "~/notes"]
+display_name = "Files"
+enabled = true
+[mcp.servers.env]
+TOKEN = "secret"
+
+[[mcp.servers]]                        # an HTTP(S) MCP server
+id = "remote-tools"
+url = "https://tools.example.com/mcp"
+enabled = false
+```
+
+- `mcp.servers[].id` — stable identifier and the server name surfaced to the
+  agent (required)
+- `mcp.servers[].command` — program for a **stdio** server; `~` and
+  `$VAR`/`${VAR}` are expanded. Mutually exclusive with `url` (command wins)
+- `mcp.servers[].args` — arguments passed to `command`
+- `mcp.servers[].env` — extra environment variables for a stdio server
+- `mcp.servers[].url` — endpoint for an **HTTP(S)** server
+- `mcp.servers[].display_name` — label shown in Settings (defaults to the id)
+- `mcp.servers[].enabled` — set `false` to keep an entry configured but hide it
+  from agent sessions (default `true`)
+
+These servers are editable from **Settings → MCP Servers** without hand-editing
+the file. Scope is global today; per-vault overrides are deferred (ADR 0016).
+
 ---
 ## Per-Vault Configuration
 All per-vault config lives in the `.notesmith/` directory at the vault root.

@@ -10,3 +10,6 @@ auto_start = true
 
 [agents]
 debug = false
+
+[mcp]
+servers = []

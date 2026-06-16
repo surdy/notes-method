@@ -49,6 +49,7 @@ fn write_global_config(
             },
         )]),
         agents: Default::default(),
+        mcp: Default::default(),
     };
 
     config

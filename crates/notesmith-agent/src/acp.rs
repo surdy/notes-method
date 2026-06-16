@@ -154,9 +154,15 @@ fn initialize_request(local_io: bool, read_only: bool) -> InitializeRequest {
 /// Build the `session/new` request for `cwd`, wiring the active vault's MCP
 /// server (when present) into the `mcpServers` array. The binding selects the
 /// transport: a stdio bridge subprocess for local sessions, or an HTTP(S)
-/// endpoint for remote daemons.
-fn new_session_request(cwd: &str, mcp: Option<&McpBinding>) -> NewSessionRequest {
-    let servers: Vec<McpServer> = mcp.map(|m| vec![m.to_mcp_server()]).unwrap_or_default();
+/// endpoint for remote daemons. Any `extra` bindings (user-configured external
+/// MCP servers, ADR 0016 / #211) are appended after the built-in vault server.
+fn new_session_request(
+    cwd: &str,
+    mcp: Option<&McpBinding>,
+    extra: &[McpBinding],
+) -> NewSessionRequest {
+    let mut servers: Vec<McpServer> = mcp.map(|m| vec![m.to_mcp_server()]).unwrap_or_default();
+    servers.extend(extra.iter().map(|m| m.to_mcp_server()));
     NewSessionRequest::new(PathBuf::from(cwd)).mcp_servers(servers)
 }
 
@@ -514,6 +520,9 @@ pub struct AcpSession {
     /// Stdio bridge used only when the agent does not advertise HTTP MCP
     /// support (a local-daemon fallback for HTTP-incapable agents).
     mcp_stdio_fallback: Option<McpBinding>,
+    /// Additional user-configured external MCP servers (ADR 0016 / #211),
+    /// advertised alongside the built-in vault binding on every transport.
+    extra_mcp: Vec<McpBinding>,
     read_only: bool,
     local_io: bool,
     pub(crate) setup_hint: Option<String>,
@@ -540,6 +549,7 @@ impl AcpSession {
             working_dir: None,
             mcp: None,
             mcp_stdio_fallback: None,
+            extra_mcp: Vec::new(),
             read_only: true,
             local_io: false,
             setup_hint: None,
@@ -674,6 +684,15 @@ impl AcpSession {
         self
     }
 
+    /// Advertise additional user-configured external MCP servers (ADR 0016 /
+    /// #211) alongside the built-in vault binding. These are passed verbatim in
+    /// the `session/new` `mcpServers` array on whichever transport the agent
+    /// uses; an empty list is a no-op. Replaces any previously set extras.
+    pub fn with_extra_mcp(mut self, bindings: Vec<McpBinding>) -> Self {
+        self.extra_mcp = bindings;
+        self
+    }
+
     /// Explicitly set the read-only permission scope (overrides the value
     /// derived from the MCP endpoint).
     pub fn read_only(mut self, read_only: bool) -> Self {
@@ -795,6 +814,7 @@ impl AcpSession {
         let cwd = self.absolute_cwd();
         let mcp = self.mcp.clone();
         let mcp_stdio_fallback = self.mcp_stdio_fallback.clone();
+        let extra_mcp = self.extra_mcp.clone();
         let local_io = self.local_io;
         let read_only = self.read_only;
         let decider = self.decider.clone();
@@ -807,7 +827,9 @@ impl AcpSession {
         ));
         let preamble = assemble_preamble(
             &session_preamble(
-                self.mcp.is_some() || self.mcp_stdio_fallback.is_some(),
+                self.mcp.is_some()
+                    || self.mcp_stdio_fallback.is_some()
+                    || !self.extra_mcp.is_empty(),
                 self.local_io,
             ),
             self.vault_summary.as_ref(),
@@ -998,7 +1020,7 @@ impl AcpSession {
                         mcp_stdio_fallback.as_ref(),
                     );
                     let session_id: SessionId = match cx
-                        .send_request(new_session_request(&cwd, chosen_mcp))
+                        .send_request(new_session_request(&cwd, chosen_mcp, &extra_mcp))
                         .block_task()
                         .await
                     {
@@ -1364,7 +1386,8 @@ mod tests {
     #[test]
     fn new_session_request_includes_mcp_server_when_bound() {
         let binding = McpBinding::http("notesmith", "http://127.0.0.1:27183/mcp/work");
-        let value = serde_json::to_value(new_session_request("/vault", Some(&binding))).unwrap();
+        let value =
+            serde_json::to_value(new_session_request("/vault", Some(&binding), &[])).unwrap();
         let servers = value["mcpServers"].as_array().unwrap();
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0]["type"], json!("http"));
@@ -1375,7 +1398,8 @@ mod tests {
     #[test]
     fn new_session_request_uses_a_stdio_transport_for_local_bridges() {
         let binding = McpBinding::local_bridge("notesmith", "work", false);
-        let value = serde_json::to_value(new_session_request("/vault", Some(&binding))).unwrap();
+        let value =
+            serde_json::to_value(new_session_request("/vault", Some(&binding), &[])).unwrap();
         let servers = value["mcpServers"].as_array().unwrap();
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0]["command"], json!("notesmith"));
@@ -1387,8 +1411,37 @@ mod tests {
 
     #[test]
     fn new_session_request_has_empty_servers_without_mcp() {
-        let value = serde_json::to_value(new_session_request("/vault", None)).unwrap();
+        let value = serde_json::to_value(new_session_request("/vault", None, &[])).unwrap();
         assert_eq!(value["mcpServers"], json!([]));
+    }
+
+    #[test]
+    fn new_session_request_appends_extra_servers_after_the_vault_binding() {
+        let vault = McpBinding::http("notesmith", "http://127.0.0.1:27183/mcp/work");
+        let extras = vec![
+            McpBinding::stdio("filesystem", "npx", vec!["-y".to_string()], false),
+            McpBinding::http("remote-tools", "https://tools.example.com/mcp"),
+        ];
+        let value =
+            serde_json::to_value(new_session_request("/vault", Some(&vault), &extras)).unwrap();
+        let servers = value["mcpServers"].as_array().unwrap();
+        assert_eq!(servers.len(), 3);
+        // The built-in vault server stays first.
+        assert_eq!(servers[0]["url"], json!("http://127.0.0.1:27183/mcp/work"));
+        assert_eq!(servers[1]["command"], json!("npx"));
+        assert_eq!(servers[2]["url"], json!("https://tools.example.com/mcp"));
+    }
+
+    #[test]
+    fn new_session_request_includes_extra_servers_without_a_vault_binding() {
+        let extras = vec![McpBinding::http(
+            "remote-tools",
+            "https://tools.example.com/mcp",
+        )];
+        let value = serde_json::to_value(new_session_request("/vault", None, &extras)).unwrap();
+        let servers = value["mcpServers"].as_array().unwrap();
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0]["url"], json!("https://tools.example.com/mcp"));
     }
 
     #[test]

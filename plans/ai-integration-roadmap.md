@@ -76,9 +76,9 @@ daemon-side `web_fetch` tool (#207, backlog) lands.
 | Issue | Item | Status |
 |---|---|---|
 | #209 | Headless CLI `notes ai` commands | active |
-| #210 | Customization discovery (agents / skills / instructions) | active |
-| #211 | MCP server management UI | active |
-| #212 | `@agent` routing in chat | active (needs #210) |
+| #210 | Customization discovery (agents / skills / instructions) | done |
+| #211 | MCP server management UI | done |
+| #212 | `@agent` routing in chat | done |
 | #213 | Projects / scoped workspaces | backlog |
 | #214 | Terminal integration (ACP terminal/*) | backlog |
 

@@ -10,6 +10,7 @@
 	import SidebarSettings from '$lib/components/SidebarSettings.svelte';
 	import VaultsSettings from '$lib/components/VaultsSettings.svelte';
 	import AgentSettings from '$lib/components/settings/AgentSettings.svelte';
+	import McpServers from '$lib/components/settings/McpServers.svelte';
 	import AppearanceSettings from '$lib/components/settings/AppearanceSettings.svelte';
 	import ConnectionSettings from '$lib/components/settings/ConnectionSettings.svelte';
 	import DailySettings from '$lib/components/settings/DailySettings.svelte';
@@ -29,7 +30,8 @@
 		| 'appearance'
 		| 'vaults'
 		| 'connection'
-		| 'agent';
+		| 'agent'
+		| 'mcp';
 
 	let selectedSection = $state<Section>('general');
 	let vault = $derived(vaultStore.currentVault);
@@ -54,6 +56,7 @@
 
 	const appSections: { id: Section; label: string }[] = [
 		{ id: 'agent', label: 'AI Agent' },
+		{ id: 'mcp', label: 'MCP Servers' },
 		{ id: 'connection', label: 'Connection' },
 		{ id: 'vaults', label: 'Vaults' }
 	];
@@ -230,6 +233,10 @@
 		{:else if selectedSection === 'agent'}
 			<div class="settings-body">
 				<AgentSettings />
+			</div>
+		{:else if selectedSection === 'mcp'}
+			<div class="settings-body">
+				<McpServers />
 			</div>
 		{:else if selectedSection === 'connection'}
 			<div class="settings-body">

@@ -13,6 +13,7 @@ import type {
 	DiagEntry,
 	DiagnosticsReport,
 	EditorContext,
+	McpConfigData,
 	PermissionDecision,
 	PermissionRequest,
 	StartSessionOptions,
@@ -48,6 +49,10 @@ export interface AgentClient {
 	getAgentConfig(): Promise<AgentsConfigData>;
 	/** Persist the `[agents]` config section. */
 	setAgentConfig(config: AgentsConfigData): Promise<void>;
+	/** Read the `[mcp]` config section (external MCP servers, #211). */
+	getMcpServers(): Promise<McpConfigData>;
+	/** Persist the `[mcp]` config section (#211). */
+	setMcpServers(config: McpConfigData): Promise<void>;
 	/** Subscribe to the normalized event stream. Returns an unsubscribe fn. */
 	onEvent(cb: (sessionId: string, event: AgentEvent) => void): () => void;
 	/** Subscribe to permission prompts. Returns an unsubscribe fn. */
@@ -144,6 +149,14 @@ export class TauriAgentClient implements AgentClient {
 		await this.bridge.invoke('agent_config_set', { config });
 	}
 
+	async getMcpServers(): Promise<McpConfigData> {
+		return (await this.bridge.invoke('mcp_servers_get')) as McpConfigData;
+	}
+
+	async setMcpServers(config: McpConfigData): Promise<void> {
+		await this.bridge.invoke('mcp_servers_set', { config });
+	}
+
 	onEvent(cb: (sessionId: string, event: AgentEvent) => void): () => void {
 		let unlisten: (() => void) | null = null;
 		let disposed = false;
@@ -211,6 +224,10 @@ export class UnavailableAgentClient implements AgentClient {
 	// No-op (like the other mutating methods) so the Settings surface mounts and
 	// "saves" without error in a plain browser; persistence only happens in Tauri.
 	async setAgentConfig(): Promise<void> {}
+	async getMcpServers(): Promise<McpConfigData> {
+		return { servers: [] };
+	}
+	async setMcpServers(): Promise<void> {}
 	onEvent(): () => void {
 		return () => {};
 	}

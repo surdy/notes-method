@@ -9,6 +9,13 @@ Builds on [ADR 0013](0013-agent-discovery-and-diagnostics.md) (agent registry +
 `[agents]` config) and [ADR 0012](0012-agent-transport-acp-mcp.md) (ACP + MCP
 transport). Resilience per [ADR 0009](0009-resilience-to-malformed-content.md).
 
+All three issues are **implemented**: #210 via the `notesmith-customization`
+crate + `GET /api/v/{vault}/customizations`; #212 via persona session-switch
+routing (chat-panel picker + leading `@persona` mention); #211 via the global
+`[mcp]` config section (`notesmith-config`), the `mcp_servers_get`/`set` Tauri
+commands, per-session `with_extra_mcp` wiring in `agent_bridge.rs`, and the
+**Settings → MCP Servers** surface.
+
 ## Context
 
 The roadmap's P4 "scale & customization" slice adds three control surfaces that

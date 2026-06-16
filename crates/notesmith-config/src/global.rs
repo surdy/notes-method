@@ -13,6 +13,8 @@ pub struct GlobalConfig {
     pub vaults: BTreeMap<String, VaultRegistration>,
     #[serde(default)]
     pub agents: AgentsConfig,
+    #[serde(default)]
+    pub mcp: McpConfig,
 }
 
 /// The `[agents]` section (ADR 0013, decision 4): the manual escape hatch for
@@ -64,6 +66,63 @@ impl Default for AgentEntry {
             command: None,
             args: Vec::new(),
             env: BTreeMap::new(),
+            display_name: None,
+            enabled: true,
+        }
+    }
+}
+
+/// The `[mcp]` section (ADR 0016, decision 3): external MCP servers the agent
+/// can reach in addition to the built-in per-vault daemon tools. Lives in the
+/// **global** config so a server list is reusable across vaults. Each
+/// `[[mcp.servers]]` entry is an [`McpServerEntry`]; the built-in vault tools
+/// are *not* stored here (the daemon always exposes them and they are
+/// non-removable in the UI).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct McpConfig {
+    /// External MCP servers, in user-defined order. Each carries its own `id`.
+    #[serde(default)]
+    pub servers: Vec<McpServerEntry>,
+}
+
+/// A single `[[mcp.servers]]` entry. The transport is **stdio** when `command`
+/// is set and **HTTP(S)** when `url` is set; if both are present `command`
+/// wins. `enabled = false` keeps the entry configured but hides it from the
+/// agent session.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct McpServerEntry {
+    /// Stable identifier and the server name surfaced to the agent.
+    pub id: String,
+    /// Executable to launch for a stdio server (path or PATH-resolved name).
+    /// Tilde / `$VAR` allowed. Mutually exclusive with `url` (`command` wins).
+    #[serde(default)]
+    pub command: Option<String>,
+    /// Launch arguments for a stdio server. Tilde / `$VAR` allowed per element.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Environment variables applied to a spawned stdio server.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    /// Streamable HTTP(S) MCP endpoint for an HTTP server. Mutually exclusive
+    /// with `command`.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Display name shown in the Settings list (falls back to `id`).
+    #[serde(default)]
+    pub display_name: Option<String>,
+    /// Whether the server is handed to agent sessions. Defaults to true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for McpServerEntry {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            command: None,
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            url: None,
             display_name: None,
             enabled: true,
         }
@@ -258,6 +317,7 @@ mod tests {
             default_vault: Some("work".to_string()),
             vaults: BTreeMap::new(),
             agents: AgentsConfig::default(),
+            mcp: McpConfig::default(),
         };
         config.vaults.insert(
             "work".to_string(),
@@ -472,6 +532,100 @@ path = "/vaults/work"
         assert_eq!(config.agents, AgentsConfig::default());
         assert!(!config.agents.debug);
         assert!(config.agents.entries.is_empty());
+    }
+
+    #[test]
+    fn mcp_config_round_trips_through_disk() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[[mcp.servers]]
+id = "filesystem"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "~/notes"]
+
+[mcp.servers.env]
+TOKEN = "secret"
+
+[[mcp.servers]]
+id = "remote-tools"
+url = "https://tools.example.com/mcp"
+display_name = "Remote Tools"
+enabled = false
+"#,
+        )
+        .unwrap();
+
+        let config = GlobalConfig::load_from(&path).unwrap();
+        assert_eq!(config.mcp.servers.len(), 2);
+
+        let fs_server = &config.mcp.servers[0];
+        assert_eq!(fs_server.id, "filesystem");
+        assert_eq!(fs_server.command.as_deref(), Some("npx"));
+        assert_eq!(
+            fs_server.args,
+            vec![
+                "-y".to_string(),
+                "@modelcontextprotocol/server-filesystem".to_string(),
+                "~/notes".to_string()
+            ]
+        );
+        assert_eq!(fs_server.env["TOKEN"], "secret");
+        assert!(fs_server.url.is_none());
+        assert!(fs_server.enabled);
+
+        let remote = &config.mcp.servers[1];
+        assert_eq!(remote.id, "remote-tools");
+        assert_eq!(remote.url.as_deref(), Some("https://tools.example.com/mcp"));
+        assert_eq!(remote.display_name.as_deref(), Some("Remote Tools"));
+        assert!(remote.command.is_none());
+        assert!(!remote.enabled);
+
+        // Re-serialize and re-load: every field survives intact.
+        let round_trip_path = temp_dir.path().join("round-trip.toml");
+        config.save_to(&round_trip_path).unwrap();
+        let reloaded = GlobalConfig::load_from(&round_trip_path).unwrap();
+        assert_eq!(reloaded, config);
+    }
+
+    #[test]
+    fn mcp_server_enabled_defaults_to_true_when_omitted() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[[mcp.servers]]
+id = "tools"
+command = "tools-server"
+"#,
+        )
+        .unwrap();
+
+        let config = GlobalConfig::load_from(&path).unwrap();
+        assert!(config.mcp.servers[0].enabled);
+    }
+
+    #[test]
+    fn missing_mcp_section_yields_default_mcp_config() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+default_vault = "work"
+
+[vaults.work]
+path = "/vaults/work"
+"#,
+        )
+        .unwrap();
+
+        let config = GlobalConfig::load_from(&path).unwrap();
+        assert_eq!(config.mcp, McpConfig::default());
+        assert!(config.mcp.servers.is_empty());
     }
 
     #[test]

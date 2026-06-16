@@ -97,6 +97,7 @@ fn write_global_config(
             .map(|(name, path)| (name.clone(), VaultRegistration { path: path.clone() }))
             .collect::<BTreeMap<_, _>>(),
         agents: Default::default(),
+        mcp: Default::default(),
     };
     config.save_to(config_path).unwrap();
 }

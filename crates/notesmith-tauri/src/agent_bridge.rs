@@ -38,7 +38,7 @@ use notesmith_agent::{
     DiffPreview, EditorContext, McpBinding, ModelPicker, PermissionDecider, PermissionDecision,
     PermissionRequest,
 };
-use notesmith_config::{AgentEntry, AgentsConfig, expand_path_vars};
+use notesmith_config::{AgentEntry, AgentsConfig, McpConfig, McpServerEntry, expand_path_vars};
 
 /// Event channel carrying normalized [`AgentEvent`]s to the chat panel.
 pub const AGENT_EVENT: &str = "notesmith://agent-event";
@@ -142,8 +142,120 @@ fn dto_to_agents_config(dto: AgentsConfigDto) -> AgentsConfig {
     }
 }
 
-/// Options for starting a chat session. Mirrors the frontend
-/// `StartSessionOptions` (camelCase over the wire).
+/// A single `[[mcp.servers]]` entry over the wire (ADR 0016 / #211). Mirrors
+/// the frontend `McpServerData` (camelCase JSON). `env` is an array of
+/// `[key, value]` pairs so the Settings UI can edit it as ordered rows.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerDto {
+    pub id: String,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+    pub url: Option<String>,
+    pub display_name: Option<String>,
+    pub enabled: bool,
+}
+
+/// The `[mcp]` section over the wire. Mirrors the frontend `McpConfigData`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct McpConfigDto {
+    pub servers: Vec<McpServerDto>,
+}
+
+/// Project the in-memory [`McpConfig`] to its wire DTO, preserving order.
+fn mcp_config_to_dto(cfg: &McpConfig) -> McpConfigDto {
+    let servers = cfg
+        .servers
+        .iter()
+        .map(|entry| McpServerDto {
+            id: entry.id.clone(),
+            command: entry.command.clone(),
+            args: entry.args.clone(),
+            env: entry
+                .env
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+            url: entry.url.clone(),
+            display_name: entry.display_name.clone(),
+            enabled: entry.enabled,
+        })
+        .collect();
+    McpConfigDto { servers }
+}
+
+/// Fold the wire DTO back into an [`McpConfig`]. Servers with a blank id are
+/// skipped (the UI may carry an empty "add server" draft row); env pairs become
+/// a `BTreeMap`, so a later duplicate key wins. Order is preserved.
+fn dto_to_mcp_config(dto: McpConfigDto) -> McpConfig {
+    let mut servers = Vec::new();
+    for server in dto.servers {
+        let id = server.id.trim().to_string();
+        if id.is_empty() {
+            continue;
+        }
+        let env: BTreeMap<String, String> = server.env.into_iter().collect();
+        servers.push(McpServerEntry {
+            id,
+            command: server.command,
+            args: server.args,
+            env,
+            url: server.url,
+            display_name: server.display_name,
+            enabled: server.enabled,
+        });
+    }
+    McpConfig { servers }
+}
+
+/// Convert the enabled external MCP servers into [`McpBinding`]s for an agent
+/// session (ADR 0016 / #211). A server with a non-empty `command` becomes a
+/// stdio binding (env + tilde/`$VAR` expansion applied); otherwise a non-empty
+/// `url` becomes an HTTP binding. Disabled servers and servers with neither a
+/// command nor a url are skipped (ADR 0009: malformed config never panics).
+fn extra_mcp_bindings(cfg: &McpConfig) -> Vec<McpBinding> {
+    let mut bindings = Vec::new();
+    for server in &cfg.servers {
+        if !server.enabled {
+            continue;
+        }
+        let name = server.id.clone();
+        match server.command.as_deref().filter(|c| !c.trim().is_empty()) {
+            Some(command) => {
+                let args = server.args.iter().map(|a| expand_path_vars(a)).collect();
+                let env = server
+                    .env
+                    .iter()
+                    .map(|(key, value)| (key.clone(), expand_path_vars(value)))
+                    .collect();
+                bindings.push(McpBinding::stdio_with_env(
+                    name,
+                    expand_path_vars(command),
+                    args,
+                    env,
+                    false,
+                ));
+            }
+            None => {
+                if let Some(url) = server.url.as_deref().filter(|u| !u.trim().is_empty()) {
+                    bindings.push(McpBinding::http(name, url.to_string()));
+                }
+            }
+        }
+    }
+    bindings
+}
+
+/// Read the `[mcp]` section of the global config, degrading to the default
+/// (empty) config when the file is absent or unreadable (ADR 0009).
+fn load_mcp_config() -> McpConfig {
+    notesmith_config::GlobalConfig::load()
+        .map(|config| config.mcp)
+        .unwrap_or_default()
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartSessionOptions {
@@ -567,6 +679,11 @@ fn build_session(
         ));
     }
 
+    // Advertise the user's enabled external MCP servers (ADR 0016 / #211)
+    // alongside the built-in vault binding. Disabled or malformed entries are
+    // skipped without erroring (ADR 0009).
+    session = session.with_extra_mcp(extra_mcp_bindings(&load_mcp_config()));
+
     let decider = Arc::new(BridgeDecider {
         app: app.clone(),
         session_id: session_id.to_string(),
@@ -709,6 +826,30 @@ pub async fn agent_config_set(config: AgentsConfigDto) -> Result<(), String> {
         .ok_or_else(|| "could not determine the config directory".to_string())?;
     let mut global = notesmith_config::GlobalConfig::load().unwrap_or_default();
     global.agents = dto_to_agents_config(config);
+    global.save_to(&path).map_err(|error| error.to_string())
+}
+
+/// Read the `[mcp]` section of the global config for the MCP server management
+/// surface (ADR 0016 / #211). Degrades to the default (empty) config when the
+/// file is absent or unreadable (ADR 0009) rather than erroring. The built-in
+/// per-vault daemon tools are not included here — the UI renders them as a
+/// static, non-removable entry.
+#[tauri::command]
+pub async fn mcp_servers_get() -> Result<McpConfigDto, String> {
+    let config = notesmith_config::GlobalConfig::load().unwrap_or_default();
+    Ok(mcp_config_to_dto(&config.mcp))
+}
+
+/// Replace the `[mcp]` section of the global config from the management surface
+/// (ADR 0016 / #211). Loads the current global config (defaulting when absent),
+/// swaps in the edited MCP section, and persists it. A write failure surfaces to
+/// the UI as an `Err` — an explicit user action, not a hot path (ADR 0009).
+#[tauri::command]
+pub async fn mcp_servers_set(config: McpConfigDto) -> Result<(), String> {
+    let path = notesmith_config::GlobalConfig::default_path()
+        .ok_or_else(|| "could not determine the config directory".to_string())?;
+    let mut global = notesmith_config::GlobalConfig::load().unwrap_or_default();
+    global.mcp = dto_to_mcp_config(config);
     global.save_to(&path).map_err(|error| error.to_string())
 }
 
@@ -1176,6 +1317,155 @@ mod tests {
         let cfg = dto_to_agents_config(dto);
         assert_eq!(cfg.entries.len(), 1);
         assert!(cfg.entries.contains_key("real"));
+    }
+
+    #[test]
+    fn mcp_config_dto_round_trips_preserving_order_and_fields() {
+        let cfg = McpConfig {
+            servers: vec![
+                McpServerEntry {
+                    id: "filesystem".to_string(),
+                    command: Some("npx".to_string()),
+                    args: vec!["-y".to_string(), "server-fs".to_string()],
+                    env: BTreeMap::from([("TOKEN".to_string(), "secret".to_string())]),
+                    url: None,
+                    display_name: Some("Files".to_string()),
+                    enabled: true,
+                },
+                McpServerEntry {
+                    id: "remote".to_string(),
+                    command: None,
+                    args: vec![],
+                    env: BTreeMap::new(),
+                    url: Some("https://tools.example.com/mcp".to_string()),
+                    display_name: None,
+                    enabled: false,
+                },
+            ],
+        };
+
+        let dto = mcp_config_to_dto(&cfg);
+        let ids: Vec<&str> = dto.servers.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, vec!["filesystem", "remote"]);
+        assert_eq!(
+            dto.servers[0].env,
+            vec![("TOKEN".to_string(), "secret".to_string())]
+        );
+        assert!(!dto.servers[1].enabled);
+
+        let back = dto_to_mcp_config(dto);
+        assert_eq!(back, cfg);
+    }
+
+    #[test]
+    fn dto_to_mcp_config_skips_blank_ids() {
+        let dto = McpConfigDto {
+            servers: vec![
+                McpServerDto {
+                    id: "  ".to_string(),
+                    command: Some("ignored".to_string()),
+                    args: vec![],
+                    env: vec![],
+                    url: None,
+                    display_name: None,
+                    enabled: true,
+                },
+                McpServerDto {
+                    id: "keep".to_string(),
+                    command: Some("server".to_string()),
+                    args: vec![],
+                    env: vec![],
+                    url: None,
+                    display_name: None,
+                    enabled: true,
+                },
+            ],
+        };
+
+        let cfg = dto_to_mcp_config(dto);
+        assert_eq!(cfg.servers.len(), 1);
+        assert_eq!(cfg.servers[0].id, "keep");
+    }
+
+    #[test]
+    fn extra_mcp_bindings_maps_command_to_stdio_and_url_to_http() {
+        let cfg = McpConfig {
+            servers: vec![
+                McpServerEntry {
+                    id: "fs".to_string(),
+                    command: Some("npx".to_string()),
+                    args: vec!["-y".to_string()],
+                    env: BTreeMap::from([("K".to_string(), "v".to_string())]),
+                    url: None,
+                    display_name: None,
+                    enabled: true,
+                },
+                McpServerEntry {
+                    id: "remote".to_string(),
+                    command: None,
+                    args: vec![],
+                    env: BTreeMap::new(),
+                    url: Some("https://tools.example.com/mcp".to_string()),
+                    display_name: None,
+                    enabled: true,
+                },
+            ],
+        };
+
+        let bindings = extra_mcp_bindings(&cfg);
+        assert_eq!(bindings.len(), 2);
+        match &bindings[0] {
+            McpBinding::Stdio {
+                name,
+                command,
+                args,
+                env,
+                ..
+            } => {
+                assert_eq!(name, "fs");
+                assert_eq!(command, "npx");
+                assert_eq!(args, &["-y".to_string()]);
+                assert_eq!(env, &[("K".to_string(), "v".to_string())]);
+            }
+            other => panic!("expected stdio, got {other:?}"),
+        }
+        match &bindings[1] {
+            McpBinding::Http { name, url, .. } => {
+                assert_eq!(name, "remote");
+                assert_eq!(url, "https://tools.example.com/mcp");
+            }
+            other => panic!("expected http, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn extra_mcp_bindings_skips_disabled_and_transportless_servers() {
+        let cfg = McpConfig {
+            servers: vec![
+                McpServerEntry {
+                    id: "disabled".to_string(),
+                    command: Some("npx".to_string()),
+                    enabled: false,
+                    ..Default::default()
+                },
+                McpServerEntry {
+                    id: "no-transport".to_string(),
+                    command: None,
+                    url: None,
+                    enabled: true,
+                    ..Default::default()
+                },
+                McpServerEntry {
+                    id: "blank-url".to_string(),
+                    command: Some("  ".to_string()),
+                    url: Some("   ".to_string()),
+                    enabled: true,
+                    ..Default::default()
+                },
+            ],
+        };
+
+        assert!(extra_mcp_bindings(&cfg).is_empty());
     }
 
     fn session_opts(vault: &str, read_only: bool) -> StartSessionOptions {

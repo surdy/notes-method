@@ -23,7 +23,7 @@
 
 use std::path::PathBuf;
 
-use agent_client_protocol::schema::{McpServer, McpServerHttp, McpServerStdio};
+use agent_client_protocol::schema::{EnvVariable, McpServer, McpServerHttp, McpServerStdio};
 
 /// Server name surfaced to the agent for the vault's MCP server.
 pub const MCP_SERVER_NAME: &str = "notesmith";
@@ -41,6 +41,9 @@ pub enum McpBinding {
         command: String,
         /// Arguments passed to `command`.
         args: Vec<String>,
+        /// Environment variables applied to the spawned server process. Empty
+        /// for the built-in vault bridge; populated for external stdio servers.
+        env: Vec<(String, String)>,
         /// Whether the bridge targets the read-only scope.
         read_only: bool,
     },
@@ -69,17 +72,32 @@ impl McpBinding {
         }
     }
 
-    /// Build a local stdio binding that launches `command` with `args`.
+    /// Build a local stdio binding that launches `command` with `args` and no
+    /// extra environment. Use [`stdio_with_env`](Self::stdio_with_env) to pass
+    /// environment variables to an external server.
     pub fn stdio(
         name: impl Into<String>,
         command: impl Into<String>,
         args: Vec<String>,
         read_only: bool,
     ) -> Self {
+        Self::stdio_with_env(name, command, args, Vec::new(), read_only)
+    }
+
+    /// Build a local stdio binding with explicit environment variables, for an
+    /// external MCP server that needs credentials or configuration in its env.
+    pub fn stdio_with_env(
+        name: impl Into<String>,
+        command: impl Into<String>,
+        args: Vec<String>,
+        env: Vec<(String, String)>,
+        read_only: bool,
+    ) -> Self {
         Self::Stdio {
             name: name.into(),
             command: command.into(),
             args,
+            env,
             read_only,
         }
     }
@@ -123,10 +141,19 @@ impl McpBinding {
                 name,
                 command,
                 args,
+                env,
                 ..
-            } => McpServer::Stdio(
-                McpServerStdio::new(name.clone(), PathBuf::from(command)).args(args.clone()),
-            ),
+            } => {
+                let env_vars: Vec<EnvVariable> = env
+                    .iter()
+                    .map(|(key, value)| EnvVariable::new(key.clone(), value.clone()))
+                    .collect();
+                McpServer::Stdio(
+                    McpServerStdio::new(name.clone(), PathBuf::from(command))
+                        .args(args.clone())
+                        .env(env_vars),
+                )
+            }
             Self::Http { name, url, .. } => {
                 McpServer::Http(McpServerHttp::new(name.clone(), url.clone()))
             }
@@ -190,5 +217,22 @@ mod tests {
         assert_eq!(value["args"], json!(["--vault", "work", "mcp", "start"]));
         // The stdio variant is untagged: it carries no `type` discriminator.
         assert!(value.get("type").is_none());
+    }
+
+    #[test]
+    fn stdio_with_env_serializes_environment_variables() {
+        let binding = McpBinding::stdio_with_env(
+            "filesystem",
+            "npx",
+            vec!["-y".to_string()],
+            vec![("TOKEN".to_string(), "secret".to_string())],
+            false,
+        );
+        let value = serde_json::to_value(binding.to_mcp_server()).unwrap();
+        assert_eq!(value["command"], json!("npx"));
+        let env = value["env"].as_array().unwrap();
+        assert_eq!(env.len(), 1);
+        assert_eq!(env[0]["name"], json!("TOKEN"));
+        assert_eq!(env[0]["value"], json!("secret"));
     }
 }

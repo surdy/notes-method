@@ -13,6 +13,7 @@ import type {
 	AgentsConfigData,
 	DiagEntry,
 	DiagnosticsReport,
+	McpConfigData,
 	PermissionDecision,
 	StartSessionResult
 } from './types.ts';
@@ -71,6 +72,10 @@ class MockAgentClient implements AgentClient {
 		return { debug: false, entries: [] };
 	}
 	async setAgentConfig(): Promise<void> {}
+	async getMcpServers(): Promise<McpConfigData> {
+		return { servers: [] };
+	}
+	async setMcpServers(): Promise<void> {}
 	onEvent(cb: (sessionId: string, event: AgentEvent) => void): () => void {
 		this.eventCb = cb;
 		return () => {

@@ -51,6 +51,7 @@ fn write_global_config(
             },
         )]),
         agents: Default::default(),
+        mcp: Default::default(),
     };
     if let Some(bind) = bind {
         config.daemon.bind = bind;

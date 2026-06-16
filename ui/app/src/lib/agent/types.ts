@@ -174,6 +174,27 @@ export interface AgentsConfigData {
 	entries: AgentEntryData[];
 }
 
+/**
+ * A single external MCP server (ADR 0016 / #211). Mirrors the Rust
+ * `McpServerDto` (camelCase JSON). A non-empty `command` makes it a stdio
+ * server; otherwise a non-empty `url` makes it an HTTP server. `env` is an
+ * array of `[key, value]` pairs so the UI can edit it as ordered rows.
+ */
+export interface McpServerData {
+	id: string;
+	command: string | null;
+	args: string[];
+	env: [string, string][];
+	url: string | null;
+	displayName: string | null;
+	enabled: boolean;
+}
+
+/** The `[mcp]` config section. Mirrors the Rust `McpConfigDto` (#211). */
+export interface McpConfigData {
+	servers: McpServerData[];
+}
+
 /** The kind of a diagnostics log entry. Mirrors Rust `DiagKind` (#192). */
 export type DiagKind = 'error' | 'wire';
 

@@ -16,3 +16,6 @@ path = "/Users/surdy/Notes/work"
 
 [agents]
 debug = false
+
+[mcp]
+servers = []
