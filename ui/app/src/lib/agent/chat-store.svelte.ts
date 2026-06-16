@@ -215,8 +215,16 @@ export class ChatStore {
 		}
 	}
 
-	/** Send the current input as a prompt. Persists the user message first. */
-	async send(editor?: EditorContext): Promise<void> {
+	/**
+	 * Send the current input as a prompt. Persists the user message first.
+	 *
+	 * `contextPreamble` (issue #197) is an optional block of attached references
+	 * (note/folder/tag/url) that the agent resolves via its MCP read/list tools.
+	 * It is prepended to the text sent to the agent ONLY — the rendered bubble and
+	 * the persisted transcript keep the user's original message, so context
+	 * plumbing never clutters the conversation history.
+	 */
+	async send(editor?: EditorContext, contextPreamble?: string): Promise<void> {
 		const text = this.input.trim();
 		if (!text || this.busy || !this.selectedAgent) return;
 		this.input = '';
@@ -241,7 +249,9 @@ export class ChatStore {
 			await this.transcripts.appendMessage(this.vault, this.currentThreadId, 'user', text);
 			await this.ensureSession();
 			if (this.sessionId) {
-				await this.client.sendPrompt(this.sessionId, text, editor);
+				const preamble = contextPreamble?.trim();
+				const outgoing = preamble ? `${preamble}\n\n${text}` : text;
+				await this.client.sendPrompt(this.sessionId, outgoing, editor);
 			}
 		} catch (err) {
 			this.errorMessage = err instanceof Error ? err.message : String(err);

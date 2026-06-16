@@ -11,6 +11,8 @@
 	import ToolCallCard from './ToolCallCard.svelte';
 	import PermissionPrompt from './PermissionPrompt.svelte';
 	import SlashCommandPalette from './SlashCommandPalette.svelte';
+	import MentionAutocomplete from './MentionAutocomplete.svelte';
+	import ContextPills from './ContextPills.svelte';
 	import { listPrompts } from '$lib/api/prompts';
 	import {
 		filterSlashCommands,
@@ -18,6 +20,18 @@
 		slashCommandsFromPrompts,
 		type SlashCommand
 	} from '$lib/agent/slash-commands';
+	import {
+		addAttachment,
+		assembleContextText,
+		filterAttachments,
+		parseMentionTrigger,
+		removeAttachment,
+		type Attachment
+	} from '$lib/agent/context-attachments';
+	import type { EditorContext } from '$lib/agent/types';
+	import { tabStore } from '$lib/tab-store.svelte';
+	import { activeEditorStore } from '$lib/editor/active-editor.svelte';
+	import { listFolderPickerItems } from '$lib/folder-notes';
 
 	let { collapsed = false }: { collapsed?: boolean } = $props();
 
@@ -77,6 +91,112 @@
 		slashSelected = 0;
 	}
 
+	// --- @-mention context attachments (issue 197) ---------------------------
+	// Attached references (note/folder/tag/url) the agent resolves via its MCP
+	// read/list tools; the frontend only attaches references, never note bodies.
+	let attachments = $state<Attachment[]>([]);
+	// Active note auto-include toggle. Selection (when present) always rides along
+	// via the same EditorContext path.
+	let includeActiveNote = $state(true);
+	let inputEl = $state<HTMLTextAreaElement | null>(null);
+	let caret = $state(0);
+	let mentionSelected = $state(0);
+
+	function syncCaret() {
+		caret = inputEl?.selectionStart ?? (store?.input.length ?? 0);
+	}
+
+	const mention = $derived(
+		store && !slashQuery.active
+			? parseMentionTrigger(store.input, caret)
+			: { active: false, kind: null, query: '', start: caret }
+	);
+
+	// Build kind-aware candidates from frontend stores only. Each source degrades
+	// to an empty list so a missing/empty vault never throws into the composer.
+	const mentionItems = $derived.by((): Attachment[] => {
+		if (!mention.active) return [];
+		const kind = mention.kind ?? 'note';
+		if (kind === 'note') {
+			const candidates = vaultStore.notes.map((n) => ({
+				kind: 'note' as const,
+				value: n.path,
+				label: n.path
+			}));
+			return filterAttachments(candidates, mention.query).slice(0, 8);
+		}
+		if (kind === 'folder') {
+			const candidates = listFolderPickerItems(vaultStore.tree).map((f) => ({
+				kind: 'folder' as const,
+				value: f.id,
+				label: f.id
+			}));
+			return filterAttachments(candidates, mention.query).slice(0, 8);
+		}
+		if (kind === 'tag') {
+			const seen = new Set<string>();
+			for (const n of vaultStore.notes) {
+				for (const t of n.tags ?? []) seen.add(t);
+			}
+			const candidates = [...seen].sort().map((t) => ({
+				kind: 'tag' as const,
+				value: t,
+				label: `#${t}`
+			}));
+			return filterAttachments(candidates, mention.query).slice(0, 8);
+		}
+		// @url has no autocomplete list: synthesize the typed URL as a single item.
+		const url = mention.query.trim();
+		return url ? [{ kind: 'url' as const, value: url, label: url }] : [];
+	});
+
+	const mentionOpen = $derived(mention.active && mentionItems.length > 0);
+
+	// Keep the highlighted mention item within bounds as the list changes.
+	$effect(() => {
+		if (mentionSelected >= mentionItems.length) mentionSelected = 0;
+	});
+
+	// Replace the in-progress `@token` with nothing and add a pill. Strip-and-pill
+	// keeps the composer text clean; the reference travels in the context block.
+	function selectMention(item: Attachment) {
+		if (!store) return;
+		const trigger = parseMentionTrigger(store.input, caret);
+		const start = trigger.active ? trigger.start : caret;
+		store.input = store.input.slice(0, start) + store.input.slice(caret);
+		attachments = addAttachment(attachments, item);
+		mentionSelected = 0;
+		caret = start;
+		void tick().then(() => {
+			inputEl?.focus();
+			inputEl?.setSelectionRange(start, start);
+		});
+	}
+
+	function removePill(attachment: Attachment) {
+		attachments = removeAttachment(attachments, attachment.kind, attachment.value);
+	}
+
+	// Active note + current selection flow to the agent via EditorContext (issue 196).
+	function buildEditorContext(): EditorContext {
+		const activeNote = includeActiveNote ? (tabStore.selectedPath ?? null) : null;
+		let selection: string | null = null;
+		const view = activeEditorStore.view;
+		if (view) {
+			const sel = view.state.selection.main;
+			if (!sel.empty) selection = view.state.sliceDoc(sel.from, sel.to);
+		}
+		return { activeNote, selection };
+	}
+
+	async function submit() {
+		if (!store) return;
+		const editor = buildEditorContext();
+		const preamble = assembleContextText(attachments);
+		await store.send(editor, preamble);
+		attachments = [];
+	}
+
 	onMount(() => {
 		breakGlassStore.load();
 		void initFor(vaultStore.currentVault);
@@ -119,7 +239,7 @@
 
 	async function onSubmit(e: SubmitEvent) {
 		e.preventDefault();
-		await store?.send();
+		await submit();
 	}
 
 	function onKeydown(e: KeyboardEvent) {
@@ -147,9 +267,34 @@
 				return;
 			}
 		}
+		if (mentionOpen) {
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				mentionSelected = (mentionSelected + 1) % mentionItems.length;
+				return;
+			}
+			if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				mentionSelected = (mentionSelected - 1 + mentionItems.length) % mentionItems.length;
+				return;
+			}
+			if (e.key === 'Enter' && !e.shiftKey) {
+				e.preventDefault();
+				const item = mentionItems[mentionSelected];
+				if (item) selectMention(item);
+				return;
+			}
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				// Drop the in-progress `@token` so the dropdown closes.
+				if (store) store.input = store.input.slice(0, mention.start) + store.input.slice(caret);
+				caret = mention.start;
+				return;
+			}
+		}
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
-			void store?.send();
+			void submit();
 		}
 	}
 
@@ -312,18 +457,45 @@
 							onhover={(i) => (slashSelected = i)}
 						/>
 					</div>
+				{:else if mentionOpen}
+					<div class="slash-anchor">
+						<MentionAutocomplete
+							items={mentionItems}
+							kind={mention.kind}
+							selected={mentionSelected}
+							onselect={selectMention}
+							onhover={(i) => (mentionSelected = i)}
+						/>
+					</div>
 				{/if}
-				<textarea
-					class="input"
-					rows="2"
-					placeholder="Message the agent…"
-					bind:value={store.input}
-					onkeydown={onKeydown}
-					disabled={store.busy}
-				></textarea>
-				<button class="send" type="submit" disabled={store.busy || store.input.trim().length === 0}>
-					{store.busy ? '…' : 'Send'}
-				</button>
+				<ContextPills
+					{attachments}
+					{includeActiveNote}
+					activeNotePath={tabStore.selectedPath}
+					onremove={removePill}
+					ontoggleactivenote={(next) => (includeActiveNote = next)}
+				/>
+				<div class="composer-row">
+					<textarea
+						class="input"
+						rows="2"
+						placeholder="Message the agent… (@ to attach context)"
+						bind:this={inputEl}
+						bind:value={store.input}
+						onkeydown={onKeydown}
+						oninput={syncCaret}
+						onclick={syncCaret}
+						onkeyup={syncCaret}
+						disabled={store.busy}
+					></textarea>
+					<button
+						class="send"
+						type="submit"
+						disabled={store.busy || store.input.trim().length === 0}
+					>
+						{store.busy ? '…' : 'Send'}
+					</button>
+				</div>
 			</form>
 		{/if}
 	</div>
@@ -553,10 +725,16 @@
 
 	.composer {
 		display: flex;
+		flex-direction: column;
 		gap: 8px;
 		padding: 10px 12px;
 		border-top: 1px solid var(--border-default);
 		position: relative;
+	}
+
+	.composer-row {
+		display: flex;
+		gap: 8px;
 	}
 
 	.slash-anchor {
