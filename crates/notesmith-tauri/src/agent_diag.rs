@@ -67,6 +67,14 @@ pub struct AgentDiagnostic {
     pub setup_hint: String,
     /// Documentation URL for installing / configuring the agent.
     pub docs_url: String,
+    /// The agent CLI version parsed from the version probe, normalized to
+    /// `"major.minor.patch"`, or `None` when no version could be detected
+    /// (issue #192).
+    pub detected_version: Option<String>,
+    /// A warning surfaced when the detected version is strictly below the
+    /// registry's `min_version` floor, or `None` when up to date / unknown /
+    /// no floor is declared (issue #192).
+    pub version_warning: Option<String>,
 }
 
 /// Per-candidate trace: where it was looked for, what resolved, and any probe.
@@ -193,6 +201,102 @@ fn run_probe(program: &str, probe_args: &[&str], timeout: Duration) -> ProbeResu
     }
 }
 
+/// A parsed semantic version: `(major, minor, patch)`.
+type Version = (u64, u64, u64);
+
+/// Parse the first `x.y.z` (or `x.y`, with patch defaulting to `0`) version
+/// found anywhere in a probe snippet. Returns `None` when no two-or-more
+/// component numeric version is present.
+///
+/// Tolerant by design (ADR 0009): it scans for the first match rather than
+/// assuming a fixed layout, so `"gemini 1.2.3"`, `"v0.0.330 (abc)"`, and
+/// `"copilot version 1.10"` all parse, while prose with no version yields
+/// `None`. Numeric overflow saturates rather than panicking.
+fn parse_version(snippet: &str) -> Option<Version> {
+    let chars: Vec<char> = snippet.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i].is_ascii_digit() {
+            if let Some(version) = parse_version_at(&chars, i) {
+                return Some(version);
+            }
+            // Skip the rest of this digit run before scanning further.
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
+}
+
+/// Attempt to parse a `major.minor[.patch]` version starting at `start`.
+/// Requires at least two dot-separated numeric components.
+fn parse_version_at(chars: &[char], start: usize) -> Option<Version> {
+    let mut idx = start;
+    let mut nums: Vec<u64> = Vec::new();
+    loop {
+        let begin = idx;
+        let mut value: u64 = 0;
+        while idx < chars.len() && chars[idx].is_ascii_digit() {
+            let digit = (chars[idx] as u8 - b'0') as u64;
+            value = value.saturating_mul(10).saturating_add(digit);
+            idx += 1;
+        }
+        if idx == begin {
+            break;
+        }
+        nums.push(value);
+        if nums.len() == 3 {
+            break;
+        }
+        // Continue only across a single dot immediately followed by a digit.
+        if idx + 1 < chars.len() && chars[idx] == '.' && chars[idx + 1].is_ascii_digit() {
+            idx += 1;
+        } else {
+            break;
+        }
+    }
+    match nums.len() {
+        2 => Some((nums[0], nums[1], 0)),
+        3 => Some((nums[0], nums[1], nums[2])),
+        _ => None,
+    }
+}
+
+/// Whether `detected` is strictly older than `min` (lexicographic on
+/// major/minor/patch).
+fn is_outdated(detected: Version, min: Version) -> bool {
+    detected < min
+}
+
+/// Resolve the `(detected_version, version_warning)` pair for an agent from its
+/// candidate probes and the registry `min_version` floor. The detected version
+/// comes from the first candidate that resolved on the PATH and produced probe
+/// output; the warning is set only when that version is below the floor.
+fn detect_version(
+    candidates: &[CandidateDiagnostic],
+    min_version: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    let detected = candidates
+        .iter()
+        .find(|candidate| candidate.found_on_path)
+        .and_then(|candidate| candidate.probe.as_ref())
+        .and_then(|probe| parse_version(&probe.stdout_snippet));
+    let detected_string = detected.map(|(a, b, c)| format!("{a}.{b}.{c}"));
+
+    let warning = match (detected, min_version.and_then(parse_version)) {
+        (Some(detected), Some(min)) if is_outdated(detected, min) => Some(format!(
+            "Detected version {}.{}.{} is older than the supported minimum {}.{}.{}. \
+             Update the agent CLI.",
+            detected.0, detected.1, detected.2, min.0, min.1, min.2
+        )),
+        _ => None,
+    };
+    (detected_string, warning)
+}
+
 /// Derive an agent verdict from its candidate traces (see module docs).
 fn verdict_for(candidates: &[CandidateDiagnostic]) -> &'static str {
     match candidates.iter().find(|candidate| candidate.found_on_path) {
@@ -234,6 +338,8 @@ fn diagnose_agent(descriptor: &AgentDescriptor, path_dirs: &[PathBuf]) -> AgentD
         .collect();
 
     let verdict = verdict_for(&candidates).to_string();
+    let (detected_version, version_warning) =
+        detect_version(&candidates, descriptor.min_version);
     AgentDiagnostic {
         id: descriptor.id.to_string(),
         display_name: descriptor.display_name.to_string(),
@@ -241,6 +347,8 @@ fn diagnose_agent(descriptor: &AgentDescriptor, path_dirs: &[PathBuf]) -> AgentD
         candidates,
         setup_hint: descriptor.setup_hint.to_string(),
         docs_url: descriptor.docs_url.to_string(),
+        detected_version,
+        version_warning,
     }
 }
 
@@ -454,5 +562,87 @@ mod tests {
             ));
             assert!(!agent.candidates.is_empty());
         }
+    }
+
+    #[test]
+    fn parse_version_handles_common_cli_formats() {
+        assert_eq!(parse_version("gemini 1.2.3"), Some((1, 2, 3)));
+        assert_eq!(parse_version("copilot version 1.10"), Some((1, 10, 0)));
+        assert_eq!(parse_version("v0.0.330 (abc1234)"), Some((0, 0, 330)));
+        assert_eq!(parse_version("codex-acp 2.0.0-beta.1"), Some((2, 0, 0)));
+        // Trailing components beyond patch are ignored.
+        assert_eq!(parse_version("4.5.6.7"), Some((4, 5, 6)));
+    }
+
+    #[test]
+    fn parse_version_rejects_garbage_and_single_numbers() {
+        assert_eq!(parse_version(""), None);
+        assert_eq!(parse_version("no version here"), None);
+        // A lone integer is not a version (needs at least major.minor).
+        assert_eq!(parse_version("version 5"), None);
+        // The first valid version after noise still parses.
+        assert_eq!(parse_version("build 7; release 1.4.2"), Some((1, 4, 2)));
+    }
+
+    #[test]
+    fn parse_version_tolerates_replacement_chars_without_panicking() {
+        // Lossy-decoded non-UTF-8 probe output may contain replacement chars;
+        // parsing must not panic and should still find an embedded version.
+        let lossy = "agent \u{FFFD}\u{FFFD} 3.1";
+        assert_eq!(parse_version(lossy), Some((3, 1, 0)));
+    }
+
+    #[test]
+    fn is_outdated_compares_components() {
+        assert!(is_outdated((1, 2, 3), (1, 2, 4)));
+        assert!(is_outdated((1, 2, 3), (1, 3, 0)));
+        assert!(is_outdated((0, 9, 9), (1, 0, 0)));
+        assert!(!is_outdated((1, 2, 3), (1, 2, 3)));
+        assert!(!is_outdated((2, 0, 0), (1, 9, 9)));
+    }
+
+    fn found_candidate_with_snippet(snippet: &str) -> CandidateDiagnostic {
+        CandidateDiagnostic {
+            program: "agent".into(),
+            args: vec![],
+            resolved_program: Some("/bin/agent".into()),
+            found_on_path: true,
+            searched_dirs: vec![],
+            probe: Some(ProbeResult {
+                command: "agent --version".into(),
+                exit_code: Some(0),
+                stdout_snippet: snippet.into(),
+                timed_out: false,
+            }),
+        }
+    }
+
+    #[test]
+    fn detect_version_reports_detected_string() {
+        let candidates = vec![found_candidate_with_snippet("agent 1.4.2")];
+        let (detected, warning) = detect_version(&candidates, None);
+        assert_eq!(detected.as_deref(), Some("1.4.2"));
+        assert!(warning.is_none());
+    }
+
+    #[test]
+    fn detect_version_warns_when_below_minimum() {
+        let candidates = vec![found_candidate_with_snippet("agent 1.0.0")];
+        let (detected, warning) = detect_version(&candidates, Some("1.5.0"));
+        assert_eq!(detected.as_deref(), Some("1.0.0"));
+        let warning = warning.expect("expected an outdated warning");
+        assert!(warning.contains("1.0.0"));
+        assert!(warning.contains("1.5.0"));
+    }
+
+    #[test]
+    fn detect_version_no_warning_when_up_to_date_or_unparsable() {
+        let up_to_date = vec![found_candidate_with_snippet("agent 2.0.0")];
+        assert!(detect_version(&up_to_date, Some("1.5.0")).1.is_none());
+
+        let no_version = vec![found_candidate_with_snippet("agent (dev build)")];
+        let (detected, warning) = detect_version(&no_version, Some("1.5.0"));
+        assert!(detected.is_none());
+        assert!(warning.is_none());
     }
 }

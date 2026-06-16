@@ -17,6 +17,7 @@
 mod acp;
 mod acp_client;
 mod context;
+mod diag_log;
 mod error;
 mod event;
 mod mcp;
@@ -29,6 +30,7 @@ pub use acp::{
     AcpSession, CLAUDE_ACP_PACKAGE, DEFAULT_CODEX_ACP_BIN, DEFAULT_COPILOT_BIN, DEFAULT_GEMINI_BIN,
 };
 pub use context::{EditorContext, VaultSummary};
+pub use diag_log::{AgentDiagnosticsLog, DiagEntry, DiagKind};
 pub use error::AgentError;
 pub use event::{AgentEvent, ToolCall, ToolResult};
 pub use mcp::McpBinding;

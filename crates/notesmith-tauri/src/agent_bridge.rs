@@ -25,6 +25,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures::future::BoxFuture;
@@ -33,8 +34,9 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 use notesmith_agent::{
-    AcpSession, AgentDescriptor, AgentEvent, AgentSession, EditorContext, McpBinding, ModelPicker,
-    PermissionDecider, PermissionDecision, PermissionRequest,
+    AcpSession, AgentDescriptor, AgentDiagnosticsLog, AgentEvent, AgentSession, DiagEntry,
+    EditorContext, McpBinding, ModelPicker, PermissionDecider, PermissionDecision,
+    PermissionRequest,
 };
 use notesmith_config::{AgentEntry, AgentsConfig, expand_path_vars};
 
@@ -42,6 +44,16 @@ use notesmith_config::{AgentEntry, AgentsConfig, expand_path_vars};
 pub const AGENT_EVENT: &str = "notesmith://agent-event";
 /// Event channel carrying write-permission prompts to the chat panel.
 pub const AGENT_PERMISSION: &str = "notesmith://agent-permission";
+
+/// The process-global agent diagnostics log (issue #192). One bounded log is
+/// shared by every [`AcpSession`] the bridge builds, so the Settings UI can read
+/// recent errors and (when verbose) the "wire-ish" ACP message log across all
+/// sessions. Lazily initialized; the verbose toggle defaults to off.
+fn diagnostics_log() -> Arc<AgentDiagnosticsLog> {
+    static LOG: OnceLock<Arc<AgentDiagnosticsLog>> = OnceLock::new();
+    LOG.get_or_init(|| Arc::new(AgentDiagnosticsLog::new()))
+        .clone()
+}
 
 // ---------------------------------------------------------------------------
 // IPC payloads
@@ -527,6 +539,7 @@ fn build_session(
     Ok(session
         .read_only(opts.read_only)
         .with_local_io(opts.break_glass)
+        .with_diagnostics(diagnostics_log())
         .with_permission_decider(decider))
 }
 
@@ -779,6 +792,29 @@ pub async fn agent_stop(
     if let Some(entry) = bridge.sessions.lock().await.remove(&session_id) {
         let _ = entry.commands.send(SessionCommand::Stop);
     }
+    Ok(())
+}
+
+/// Snapshot the process-global agent diagnostics log: recent agent errors and,
+/// when verbose capture is on, the mediated ACP "wire" messages (issue #192).
+/// Newest entries are last.
+#[tauri::command]
+pub async fn agent_diagnostics_log() -> Result<Vec<DiagEntry>, String> {
+    Ok(diagnostics_log().snapshot())
+}
+
+/// Toggle verbose ACP wire capture on the diagnostics log. Off by default;
+/// errors are recorded regardless (issue #192).
+#[tauri::command]
+pub async fn agent_diagnostics_set_verbose(verbose: bool) -> Result<(), String> {
+    diagnostics_log().set_verbose(verbose);
+    Ok(())
+}
+
+/// Clear all retained diagnostics entries (issue #192).
+#[tauri::command]
+pub async fn agent_diagnostics_clear() -> Result<(), String> {
+    diagnostics_log().clear();
     Ok(())
 }
 

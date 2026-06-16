@@ -2,11 +2,12 @@
 	import { onMount } from 'svelte';
 	import { breakGlassStore } from '$lib/agent/break-glass.svelte';
 	import { createAgentClient } from '$lib/agent/agent-client';
-	import { formatDiagnostics, verdictLabel } from '$lib/agent/diagnostics-format';
+	import { formatDiagnostics, formatTimestamp, verdictLabel } from '$lib/agent/diagnostics-format';
 	import type {
 		AgentEntryData,
 		AgentInfo,
 		AgentsConfigData,
+		DiagEntry,
 		DiagnosticsReport
 	} from '$lib/agent/types';
 
@@ -21,6 +22,18 @@
 	let error = $state<string | null>(null);
 	let copied = $state(false);
 
+	// Runtime diagnostics log (recent errors + optional ACP wire trace, issue 192).
+	let diagLog = $state<DiagEntry[]>([]);
+	let diagVerbose = $state(false);
+	let diagLogLoading = $state(false);
+	let expandedEntries = $state<Set<number>>(new Set());
+
+	// Newest first for display, retaining each entry's original index as a
+	// stable key for the expand/collapse state.
+	const orderedLog = $derived(
+		diagLog.map((entry, index) => ({ entry, index })).reverse()
+	);
+
 	// Draft for the "Add custom agent" form.
 	let draftId = $state('');
 	let draftCommand = $state('');
@@ -33,7 +46,7 @@
 	});
 
 	async function reload() {
-		await Promise.all([reloadAgents(), reloadConfig()]);
+		await Promise.all([reloadAgents(), reloadConfig(), loadDiagLog()]);
 	}
 
 	async function reloadAgents() {
@@ -157,6 +170,47 @@
 		const found = diagnostics?.agents.find((a) => a.id === id);
 		return found?.setupHint ?? '';
 	}
+
+	/** Load the runtime diagnostics log snapshot (recent errors + wire entries). */
+	async function loadDiagLog() {
+		diagLogLoading = true;
+		try {
+			diagLog = await client.diagnosticsLog();
+		} catch (e) {
+			error = errorText(e);
+		} finally {
+			diagLogLoading = false;
+		}
+	}
+
+	/** Toggle verbose ACP wire capture, then refresh the snapshot. */
+	async function toggleDiagVerbose(value: boolean) {
+		diagVerbose = value;
+		try {
+			await client.setDiagnosticsVerbose(value);
+		} catch (e) {
+			error = errorText(e);
+		}
+	}
+
+	/** Clear the runtime diagnostics log (errors and wire entries). */
+	async function clearDiagLog() {
+		try {
+			await client.clearDiagnosticsLog();
+			diagLog = [];
+			expandedEntries = new Set();
+		} catch (e) {
+			error = errorText(e);
+		}
+	}
+
+	/** Expand/collapse an entry's detail by its stable index. */
+	function toggleEntry(index: number) {
+		const next = new Set(expandedEntries);
+		if (next.has(index)) next.delete(index);
+		else next.add(index);
+		expandedEntries = next;
+	}
 </script>
 
 <div class="agent-settings">
@@ -232,6 +286,12 @@
 							{agent.displayName}
 							<span class="verdict verdict-{agent.verdict}">{verdictLabel(agent.verdict)}</span>
 						</div>
+						{#if agent.detectedVersion}
+							<div class="trace-line muted">version: {agent.detectedVersion}</div>
+						{/if}
+						{#if agent.versionWarning}
+							<div class="version-warning" role="alert">⚠ {agent.versionWarning}</div>
+						{/if}
 						{#each agent.candidates as candidate}
 							<div class="trace-line">
 								<strong>{candidate.program}</strong>
@@ -265,7 +325,79 @@
 		{/if}
 	</section>
 
-	<!-- 3. Debug toggle -->
+	<!-- 3. Recent errors / ACP wire log (issue 192) -->
+	<section class="config-section">
+		<h3 class="section-title">Recent errors &amp; wire log</h3>
+		<p class="section-hint">
+			Errors from recent agent sessions are always recorded. Turn on the verbose wire log to
+			also capture the ACP messages Notesmith mediates — outgoing prompts, streamed events, and
+			permission / filesystem requests. Useful for debugging a misbehaving agent.
+		</p>
+		<label class="field field-toggle field-toggle-stack">
+			<span class="field-label">Verbose ACP wire log</span>
+			<input
+				type="checkbox"
+				checked={diagVerbose}
+				onchange={(e) => void toggleDiagVerbose(e.currentTarget.checked)}
+			/>
+			<span class="field-description">
+				Captures a "wire-ish" log at Notesmith's ACP boundary (not the raw JSON-RPC bytes,
+				which the protocol library owns). Note content is truncated. Leave off for the quiet
+				default; errors are recorded either way.
+			</span>
+		</label>
+		<div class="row-actions">
+			<button
+				type="button"
+				class="btn"
+				onclick={() => void loadDiagLog()}
+				disabled={diagLogLoading}
+			>
+				{diagLogLoading ? 'Refreshing…' : 'Refresh'}
+			</button>
+			<button
+				type="button"
+				class="btn btn-danger"
+				onclick={() => void clearDiagLog()}
+				disabled={diagLog.length === 0}
+			>
+				Clear
+			</button>
+		</div>
+
+		{#if diagLog.length === 0}
+			<p class="empty">No diagnostics recorded yet.</p>
+		{:else}
+			<ul class="log-list" data-testid="diagnostics-log">
+				{#each orderedLog as { entry, index } (index)}
+					<li class="log-entry">
+						<button
+							type="button"
+							class="log-summary"
+							onclick={() => toggleEntry(index)}
+							disabled={!entry.detail}
+							aria-expanded={expandedEntries.has(index)}
+						>
+							<span class="log-time">{formatTimestamp(entry.timestampMs)}</span>
+							<span class="log-kind log-kind-{entry.kind}">{entry.kind}</span>
+							{#if entry.agent}
+								<span class="log-agent">{entry.agent}</span>
+							{/if}
+							<span class="log-text">{entry.summary}</span>
+							{#if entry.detail}
+								<span class="log-caret">{expandedEntries.has(index) ? '▾' : '▸'}</span>
+							{/if}
+						</button>
+						{#if entry.detail && expandedEntries.has(index)}
+							<pre class="log-detail">{entry.detail}</pre>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</section>
+
+	<!-- 4. Debug toggle -->
 	<section class="config-section">
 		<label class="field field-toggle field-toggle-stack">
 			<span class="field-label">Verbose discovery logging</span>
@@ -281,7 +413,7 @@
 		</label>
 	</section>
 
-	<!-- 4. Custom agents / overrides -->
+	<!-- 5. Custom agents / overrides -->
 	<section class="config-section">
 		<h3 class="section-title">Custom agents &amp; overrides</h3>
 		<p class="section-hint">
@@ -401,7 +533,7 @@
 		</div>
 	</section>
 
-	<!-- 5. Break-glass -->
+	<!-- 6. Break-glass -->
 	<section class="config-section">
 		<h3 class="section-title">Security</h3>
 		<label class="field field-toggle field-toggle-stack">
@@ -604,6 +736,106 @@
 	.verdict-probe_failed {
 		color: var(--color-warning);
 		background: var(--warning-bg);
+	}
+
+	.version-warning {
+		margin-top: 4px;
+		padding: 4px 8px;
+		color: var(--color-warning);
+		background: var(--warning-bg);
+		border: 1px solid var(--border-default);
+		border-radius: 4px;
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+
+	.log-list {
+		list-style: none;
+		margin: 12px 0 0;
+		padding: 0;
+		border: 1px solid var(--border-default);
+		border-radius: 4px;
+		background: var(--bg-secondary);
+		overflow: hidden;
+	}
+
+	.log-entry {
+		border-bottom: 1px solid var(--border-default);
+	}
+
+	.log-entry:last-child {
+		border-bottom: none;
+	}
+
+	.log-summary {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		width: 100%;
+		padding: 6px 10px;
+		border: none;
+		background: transparent;
+		color: var(--text-default);
+		font-family: var(--font-mono);
+		font-size: 11px;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.log-summary:hover:not(:disabled) {
+		background: var(--button-hover);
+	}
+
+	.log-summary:disabled {
+		cursor: default;
+	}
+
+	.log-time {
+		color: var(--text-muted);
+		flex: 0 0 auto;
+	}
+
+	.log-kind {
+		flex: 0 0 auto;
+		padding: 0 5px;
+		border-radius: 8px;
+		font-size: 10px;
+		text-transform: uppercase;
+	}
+
+	.log-kind-error {
+		color: var(--color-danger);
+		background: var(--danger-bg);
+	}
+
+	.log-kind-wire {
+		color: var(--text-muted);
+		background: var(--bg-surface);
+	}
+
+	.log-agent {
+		flex: 0 0 auto;
+		color: var(--text-muted);
+	}
+
+	.log-text {
+		flex: 1 1 auto;
+		word-break: break-word;
+	}
+
+	.log-caret {
+		flex: 0 0 auto;
+		color: var(--text-muted);
+	}
+
+	.log-detail {
+		margin: 0;
+		padding: 6px 10px 10px;
+		color: var(--text-muted);
+		font-family: var(--font-mono);
+		font-size: 11px;
+		white-space: pre-wrap;
+		word-break: break-word;
 	}
 
 	.field {

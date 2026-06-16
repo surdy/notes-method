@@ -4,7 +4,7 @@
  * decision 5). Kept side-effect free so it can be unit-tested without a DOM.
  */
 
-import type { CandidateDiagnostic, DiagnosticsReport } from './types.ts';
+import type { CandidateDiagnostic, DiagEntry, DiagnosticsReport } from './types.ts';
 
 /** Human-readable label for a verdict string. */
 export function verdictLabel(verdict: string): string {
@@ -53,10 +53,38 @@ export function formatDiagnostics(report: DiagnosticsReport): string {
 	lines.push('');
 	for (const agent of report.agents) {
 		lines.push(`${agent.displayName} (${agent.id}): ${verdictLabel(agent.verdict)}`);
+		if (agent.detectedVersion) {
+			lines.push(`  version: ${agent.detectedVersion}`);
+		}
+		if (agent.versionWarning) {
+			lines.push(`  warning: ${agent.versionWarning}`);
+		}
 		for (const candidate of agent.candidates) {
 			lines.push(...formatCandidate(candidate));
 		}
 		lines.push('');
 	}
 	return lines.join('\n').trimEnd();
+}
+
+/**
+ * Format a diagnostics-log {@link DiagEntry} timestamp (ms since the Unix epoch)
+ * as a deterministic UTC `YYYY-MM-DD HH:MM:SS` string, or `—` when absent.
+ */
+export function formatTimestamp(timestampMs: number): string {
+	if (!Number.isFinite(timestampMs) || timestampMs <= 0) return '—';
+	return new Date(timestampMs).toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+}
+
+/**
+ * Render a single diagnostics-log entry as a one-line string for the Settings
+ * "Recent errors / wire log" surface and bug reports. Pure and DOM-free so it
+ * can be unit-tested directly (#192).
+ */
+export function formatDiagEntry(entry: DiagEntry): string {
+	const time = formatTimestamp(entry.timestampMs);
+	const kind = entry.kind === 'error' ? 'ERROR' : 'WIRE';
+	const agent = entry.agent ? ` ${entry.agent}` : '';
+	const detail = entry.detail ? ` — ${entry.detail}` : '';
+	return `[${time}] ${kind}${agent}: ${entry.summary}${detail}`;
 }

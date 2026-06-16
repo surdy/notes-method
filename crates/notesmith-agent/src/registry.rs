@@ -40,6 +40,13 @@ pub struct AgentDescriptor {
     pub docs_url: &'static str,
     /// Where the agent gets its own auth / billing / model from.
     pub auth_hint: &'static str,
+    /// The lowest agent CLI version Notesmith is known to work with, as an
+    /// `"x.y.z"`/`"x.y"` string. `None` means no known floor — the safe
+    /// default, since inventing version floors we cannot justify would only
+    /// produce false "outdated" warnings (issue #192). Diagnostics parse the
+    /// `--version` probe and warn only when a detected version is strictly
+    /// below this.
+    pub min_version: Option<&'static str>,
 }
 
 impl AgentDescriptor {
@@ -123,6 +130,7 @@ static BUILTIN: &[AgentDescriptor] = &[
                      `copilot --acp` (see https://github.com/github/copilot-cli).",
         docs_url: "https://github.com/github/copilot-cli",
         auth_hint: "Sign in with your GitHub Copilot subscription via the Copilot CLI.",
+        min_version: None,
     },
     AgentDescriptor {
         id: "claude",
@@ -133,6 +141,7 @@ static BUILTIN: &[AgentDescriptor] = &[
                      binary to a `claude-code-acp` executable.",
         docs_url: "https://github.com/zed-industries/claude-code-acp",
         auth_hint: "Authenticate with your Anthropic / Claude account in Claude Code.",
+        min_version: None,
     },
     AgentDescriptor {
         id: "codex",
@@ -142,6 +151,7 @@ static BUILTIN: &[AgentDescriptor] = &[
                      (see https://github.com/zed-industries/codex-acp).",
         docs_url: "https://github.com/zed-industries/codex-acp",
         auth_hint: "Authenticate with your OpenAI / Codex account in the Codex adapter.",
+        min_version: None,
     },
     AgentDescriptor {
         id: "gemini",
@@ -151,6 +161,7 @@ static BUILTIN: &[AgentDescriptor] = &[
                      `gemini --experimental-acp` (see https://github.com/google-gemini/gemini-cli).",
         docs_url: "https://github.com/google-gemini/gemini-cli",
         auth_hint: "Authenticate with your Google account in the Gemini CLI.",
+        min_version: None,
     },
     AgentDescriptor {
         id: "opencode",
@@ -160,6 +171,7 @@ static BUILTIN: &[AgentDescriptor] = &[
                      `opencode acp` (see https://github.com/sst/opencode).",
         docs_url: "https://github.com/sst/opencode",
         auth_hint: "Authenticate with your configured provider in the OpenCode CLI.",
+        min_version: None,
     },
 ];
 

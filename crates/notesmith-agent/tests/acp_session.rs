@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use notesmith_agent::{
-    AcpSession, AgentEvent, AgentSession, EditorContext, PermissionDecider, PermissionDecision,
-    PermissionRequest, VaultSummary,
+    AcpSession, AgentDiagnosticsLog, AgentEvent, AgentSession, DiagKind, EditorContext,
+    PermissionDecider, PermissionDecision, PermissionRequest, VaultSummary,
 };
 
 /// A fake ACP agent. Reads newline-delimited JSON-RPC requests on stdin and:
@@ -638,4 +638,72 @@ async fn real_copilot_round_trips_a_turn() {
     }
     assert!(saw_delta, "expected at least one assistant delta");
     assert!(saw_terminal, "expected a clean turn end");
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics log (issue #192): the driver records a "wire-ish" log at our ACP
+// mediation boundary (prompts, emitted events, permission/fs calls) when the
+// log's verbose toggle is on, and always records errors.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn verbose_diagnostics_log_captures_wire_traffic() {
+    let log = std::sync::Arc::new(AgentDiagnosticsLog::new());
+    log.set_verbose(true);
+    let mut session = fake_agent_session(true).with_diagnostics(log.clone());
+
+    session.send("hello").await.expect("send prompt");
+    let _ = drain_until_done(&mut session).await;
+
+    let snapshot = log.snapshot();
+    let wire: Vec<_> = snapshot
+        .iter()
+        .filter(|e| e.kind == DiagKind::Wire)
+        .collect();
+    assert!(
+        !wire.is_empty(),
+        "expected at least one wire entry, got {snapshot:?}"
+    );
+    // The outgoing prompt and the streamed assistant delta are both recorded.
+    assert!(
+        wire.iter().any(|e| e.summary.starts_with("prompt →")),
+        "expected an outgoing prompt entry: {wire:?}"
+    );
+    assert!(
+        wire.iter()
+            .any(|e| e.summary.contains("agent_message_delta")),
+        "expected an emitted-event entry: {wire:?}"
+    );
+}
+
+#[tokio::test]
+async fn diagnostics_log_drops_wire_when_not_verbose() {
+    let log = std::sync::Arc::new(AgentDiagnosticsLog::new());
+    // Verbose left off: wire traffic must not be recorded.
+    let mut session = fake_agent_session(true).with_diagnostics(log.clone());
+
+    session.send("hello").await.expect("send prompt");
+    let _ = drain_until_done(&mut session).await;
+
+    assert!(
+        log.snapshot().iter().all(|e| e.kind != DiagKind::Wire),
+        "no wire entries expected when verbose is off"
+    );
+}
+
+#[tokio::test]
+async fn diagnostics_log_captures_handshake_errors() {
+    let log = std::sync::Arc::new(AgentDiagnosticsLog::new());
+    // A missing binary fails to spawn the transport; the error must be recorded
+    // even though verbose is off (errors are always kept).
+    let mut session = AcpSession::new("notesmith-acp-does-not-exist", vec!["--acp".to_string()])
+        .with_diagnostics(log.clone());
+
+    assert!(session.send("hi").await.is_err());
+
+    let snapshot = log.snapshot();
+    assert!(
+        snapshot.iter().any(|e| e.kind == DiagKind::Error),
+        "expected an error entry, got {snapshot:?}"
+    );
 }

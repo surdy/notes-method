@@ -53,6 +53,7 @@ use tokio::task::JoinHandle;
 
 use crate::acp_client::{LocalIoHandler, await_exit};
 use crate::context::{EditorContext, VaultSummary, assemble_preamble};
+use crate::diag_log::AgentDiagnosticsLog;
 use crate::error::AgentError;
 use crate::event::{AgentEvent, ToolCall, ToolResult};
 use crate::mcp::McpBinding;
@@ -356,6 +357,86 @@ fn signal_ready(slot: &ReadySlot, result: HandshakeResult) {
     }
 }
 
+/// Maximum characters of note/event text retained in a wire-log detail. The
+/// diagnostics log also hard-caps every field, but truncating here keeps a
+/// chatty agent from even handing the log a megabyte of prompt content.
+const WIRE_TEXT_PREFIX: usize = 200;
+
+/// A short, single-line prefix of `text` (trimmed, char-boundary safe), with an
+/// ellipsis when truncated.
+fn wire_prefix(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.chars().count() <= WIRE_TEXT_PREFIX {
+        Some(trimmed.to_string())
+    } else {
+        let head: String = trimmed.chars().take(WIRE_TEXT_PREFIX).collect();
+        Some(format!("{head}…"))
+    }
+}
+
+/// A compact `(summary, detail)` for an outgoing prompt. The summary records the
+/// length only; the detail carries a bounded prefix, never the full note body.
+fn prompt_wire(text: &str) -> (String, Option<String>) {
+    (
+        format!("prompt → ({} chars)", text.chars().count()),
+        wire_prefix(text),
+    )
+}
+
+/// A compact `(summary, detail)` for a normalized [`AgentEvent`] we emit, for
+/// the verbose "wire-ish" log (see [`crate::diag_log`] for the scoping note).
+fn event_wire(event: &AgentEvent) -> (String, Option<String>) {
+    match event {
+        AgentEvent::UserMessage { text } => (
+            format!("event user_message ({} chars)", text.chars().count()),
+            wire_prefix(text),
+        ),
+        AgentEvent::AgentMessageDelta { text } => (
+            format!("event agent_message_delta ({} chars)", text.chars().count()),
+            wire_prefix(text),
+        ),
+        AgentEvent::ToolCall(call) => (format!("event tool_call: {}", call.name), call.id.clone()),
+        AgentEvent::ToolResult(result) => (
+            format!(
+                "event tool_result{}",
+                if result.is_error { " (error)" } else { "" }
+            ),
+            wire_prefix(&result.content),
+        ),
+        AgentEvent::Status { message } => ("event status".to_string(), wire_prefix(message)),
+        AgentEvent::Done { result } => (
+            "event done".to_string(),
+            result.as_deref().and_then(wire_prefix),
+        ),
+        AgentEvent::Error { message } => ("event error".to_string(), wire_prefix(message)),
+    }
+}
+
+/// Whether a resolved permission outcome denied the request: an explicit reject
+/// option was selected, or the request was cancelled (no allow path).
+fn outcome_is_denial(req: &RequestPermissionRequest, outcome: &RequestPermissionOutcome) -> bool {
+    match outcome {
+        RequestPermissionOutcome::Cancelled => true,
+        RequestPermissionOutcome::Selected(selected) => req
+            .options
+            .iter()
+            .find(|option| option.option_id == selected.option_id)
+            .map(|option| {
+                matches!(
+                    option.kind,
+                    PermissionOptionKind::RejectOnce | PermissionOptionKind::RejectAlways
+                )
+            })
+            .unwrap_or(false),
+        // Non-exhaustive enum: any future outcome is treated as "not a denial"
+        // (the wire log records the request regardless).
+        _ => false,
+    }
+}
+
 /// One queued user turn: the message plus the editor context captured for it.
 /// The context is carried per turn (rather than stashed on the session) so each
 /// prompt reflects the editor state at the moment it was sent.
@@ -408,6 +489,8 @@ pub struct AcpSession {
     user_tx: Option<mpsc::UnboundedSender<DriverCommand>>,
     event_rx: Option<mpsc::UnboundedReceiver<AgentEvent>>,
     driver: Option<JoinHandle<()>>,
+    /// Optional shared diagnostics log; when `None` recording is a no-op.
+    diagnostics: Option<Arc<AgentDiagnosticsLog>>,
 }
 
 impl AcpSession {
@@ -432,6 +515,7 @@ impl AcpSession {
             user_tx: None,
             event_rx: None,
             driver: None,
+            diagnostics: None,
         }
     }
 
@@ -577,6 +661,16 @@ impl AcpSession {
         self
     }
 
+    /// Attach a shared, bounded diagnostics log (issue #192). The driver records
+    /// errors always and, when the log's verbose toggle is on, a "wire-ish" log
+    /// of the ACP messages it mediates (outgoing prompts, emitted events,
+    /// permission and fs/terminal requests). Recording is purely additive and
+    /// panic-free; passing no log keeps it a cheap no-op (the default).
+    pub fn with_diagnostics(mut self, log: Arc<AgentDiagnosticsLog>) -> Self {
+        self.diagnostics = Some(log);
+        self
+    }
+
     /// The program this session launches (path or PATH-resolved name).
     pub fn program(&self) -> &str {
         &self.program
@@ -673,6 +767,12 @@ impl AcpSession {
         let main_event_tx = event_tx.clone();
         let outer_event_tx = event_tx;
 
+        // Shared diagnostics log + a stable agent label (the launched program)
+        // for the wire/error records. `diag`/`agent_label` are retained for the
+        // outer (transport spawn) failure path after the connection future ends.
+        let diag = self.diagnostics.clone();
+        let agent_label = self.program.clone();
+
         let driver = tokio::spawn(async move {
             // Per-handler clones of the vault-scoped local-I/O handler. The
             // handlers are always registered but report "method not found" when
@@ -686,12 +786,32 @@ impl AcpSession {
             let h_term_release = io_handler.clone();
             let h_term_wait = io_handler;
 
+            // Per-closure clones of the diagnostics log and agent label. Each
+            // handler records at its own ACP mediation boundary; `diag`/
+            // `agent_label` themselves remain for the outer failure path.
+            let diag_notif = diag.clone();
+            let diag_perm = diag.clone();
+            let diag_read = diag.clone();
+            let diag_write = diag.clone();
+            let diag_term = diag.clone();
+            let diag_main = diag.clone();
+            let label_notif = agent_label.clone();
+            let label_perm = agent_label.clone();
+            let label_read = agent_label.clone();
+            let label_write = agent_label.clone();
+            let label_term = agent_label.clone();
+            let label_main = agent_label.clone();
+
             let result = Client
                 .builder()
                 .name(CLIENT_NAME)
                 .on_receive_notification(
                     async move |notif: SessionNotification, _cx| {
                         for event in map_session_update(notif.update) {
+                            if let Some(log) = &diag_notif {
+                                let (summary, detail) = event_wire(&event);
+                                log.record_wire(Some(&label_notif), summary, detail);
+                            }
                             let _ = notif_event_tx.send(event);
                         }
                         Ok(())
@@ -702,24 +822,61 @@ impl AcpSession {
                     async move |req: RequestPermissionRequest, responder, _cx| {
                         let outcome =
                             answer_permission(&req, read_only, &permission_state, &decider).await;
+                        if let Some(log) = &diag_perm {
+                            let info = permission_request_info(&req);
+                            let kind = info.kind.as_deref().unwrap_or("other");
+                            log.record_wire(
+                                Some(&label_perm),
+                                format!("permission request: {} ({kind})", info.tool),
+                                None,
+                            );
+                            if outcome_is_denial(&req, &outcome) {
+                                log.record_error(
+                                    Some(&label_perm),
+                                    format!("permission denied: {}", info.tool),
+                                    None,
+                                );
+                            }
+                        }
                         responder.respond(RequestPermissionResponse::new(outcome))
                     },
                     agent_client_protocol::on_receive_request!(),
                 )
                 .on_receive_request(
                     async move |req: ReadTextFileRequest, responder, _cx| {
+                        if let Some(log) = &diag_read {
+                            log.record_wire(
+                                Some(&label_read),
+                                format!("fs/read_text_file {}", req.path.display()),
+                                None,
+                            );
+                        }
                         responder.respond_with_result(h_read.fs_read(&req))
                     },
                     agent_client_protocol::on_receive_request!(),
                 )
                 .on_receive_request(
                     async move |req: WriteTextFileRequest, responder, _cx| {
+                        if let Some(log) = &diag_write {
+                            log.record_wire(
+                                Some(&label_write),
+                                format!("fs/write_text_file {}", req.path.display()),
+                                None,
+                            );
+                        }
                         responder.respond_with_result(h_write.fs_write(&req))
                     },
                     agent_client_protocol::on_receive_request!(),
                 )
                 .on_receive_request(
                     async move |req: CreateTerminalRequest, responder, _cx| {
+                        if let Some(log) = &diag_term {
+                            log.record_wire(
+                                Some(&label_term),
+                                format!("terminal/create {}", req.command),
+                                None,
+                            );
+                        }
                         responder.respond_with_result(h_term_create.terminal_create(&req).await)
                     },
                     agent_client_protocol::on_receive_request!(),
@@ -768,6 +925,13 @@ impl AcpSession {
                     {
                         Ok(response) => response,
                         Err(error) => {
+                            if let Some(log) = &diag_main {
+                                log.record_error(
+                                    Some(&label_main),
+                                    format!("initialize failed: {error}"),
+                                    None,
+                                );
+                            }
                             signal_ready(&ready_main, Err(error.to_string()));
                             return Err(error);
                         }
@@ -803,6 +967,13 @@ impl AcpSession {
                             response.session_id
                         }
                         Err(error) => {
+                            if let Some(log) = &diag_main {
+                                log.record_error(
+                                    Some(&label_main),
+                                    format!("session/new failed: {error}"),
+                                    None,
+                                );
+                            }
                             signal_ready(&ready_main, Err(error.to_string()));
                             return Err(error);
                         }
@@ -825,16 +996,30 @@ impl AcpSession {
                                     editor.as_deref(),
                                     &turn.message,
                                 );
+                                if let Some(log) = &diag_main {
+                                    let (summary, detail) = prompt_wire(&turn.message);
+                                    log.record_wire(Some(&label_main), summary, detail);
+                                }
                                 match cx
                                     .send_request(PromptRequest::new(session_id.clone(), blocks))
                                     .block_task()
                                     .await
                                 {
                                     Ok(_response) => {
+                                        if let Some(log) = &diag_main {
+                                            log.record_wire(Some(&label_main), "event done", None);
+                                        }
                                         let _ =
                                             main_event_tx.send(AgentEvent::Done { result: None });
                                     }
                                     Err(error) => {
+                                        if let Some(log) = &diag_main {
+                                            log.record_error(
+                                                Some(&label_main),
+                                                format!("prompt failed: {error}"),
+                                                None,
+                                            );
+                                        }
                                         let _ = main_event_tx.send(AgentEvent::Error {
                                             message: error.to_string(),
                                         });
@@ -897,6 +1082,13 @@ impl AcpSession {
             // first `send` returns a clean error, and onto the event stream for
             // any in-flight `next_event`.
             if let Err(error) = result {
+                if let Some(log) = &diag {
+                    log.record_error(
+                        Some(&agent_label),
+                        format!("transport failed: {error}"),
+                        None,
+                    );
+                }
                 signal_ready(&ready, Err(error.to_string()));
                 let _ = outer_event_tx.send(AgentEvent::Error {
                     message: error.to_string(),

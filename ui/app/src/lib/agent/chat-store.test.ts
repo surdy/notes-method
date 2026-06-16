@@ -6,6 +6,7 @@ import type {
 	AgentEvent,
 	AgentInfo,
 	AgentsConfigData,
+	DiagEntry,
 	DiagnosticsReport,
 	PermissionDecision,
 	StartSessionResult
@@ -55,6 +56,11 @@ class MockAgentClient implements AgentClient {
 	async agentDiagnostics(): Promise<DiagnosticsReport> {
 		return { resolvedPath: [], agents: [] };
 	}
+	async diagnosticsLog(): Promise<DiagEntry[]> {
+		return [];
+	}
+	async setDiagnosticsVerbose(): Promise<void> {}
+	async clearDiagnosticsLog(): Promise<void> {}
 	async getAgentConfig(): Promise<AgentsConfigData> {
 		return { debug: false, entries: [] };
 	}

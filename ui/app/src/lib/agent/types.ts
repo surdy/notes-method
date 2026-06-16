@@ -103,6 +103,10 @@ export interface AgentDiagnostic {
 	candidates: CandidateDiagnostic[];
 	setupHint: string;
 	docsUrl: string;
+	/** Version parsed from the probe, normalized to `"major.minor.patch"` (#192). */
+	detectedVersion?: string | null;
+	/** Warning when the detected version is below the supported minimum (#192). */
+	versionWarning?: string | null;
 }
 
 /** Per-candidate discovery trace. Mirrors Rust `CandidateDiagnostic`. */
@@ -141,4 +145,24 @@ export interface AgentEntryData {
 export interface AgentsConfigData {
 	debug: boolean;
 	entries: AgentEntryData[];
+}
+
+/** The kind of a diagnostics log entry. Mirrors Rust `DiagKind` (#192). */
+export type DiagKind = 'error' | 'wire';
+
+/**
+ * A single bounded diagnostics log entry: a recent agent error or a mediated
+ * ACP "wire" message. Mirrors the Rust `DiagEntry` (camelCase JSON) from
+ * `diag_log.rs` (#192).
+ */
+export interface DiagEntry {
+	/** Capture time in milliseconds since the Unix epoch. */
+	timestampMs: number;
+	kind: DiagKind;
+	/** The agent (launched program) this entry relates to, when known. */
+	agent?: string | null;
+	/** A short one-line summary. */
+	summary: string;
+	/** Optional longer detail, shown expandable in the UI. */
+	detail?: string | null;
 }

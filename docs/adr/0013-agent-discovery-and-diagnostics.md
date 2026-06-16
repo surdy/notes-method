@@ -113,6 +113,27 @@ a clear manual fallback and opt-in diagnostics when auto-detection misses.
    `open acp logs` analogue). Default-off means zero overhead and no log noise
    for the common case.
 
+   **Realized in issue #192 (wire-log scoping).** The literal "tee the JSON-RPC
+   stream" is *not* achievable without forking the Zed `agent_client_protocol`
+   crate, which owns the raw subprocess transport (framing, request/response
+   correlation, dispatch) — we never see the literal wire bytes. So the wire log
+   is realized as a capture at **our own ACP mediation boundary** in the
+   `notesmith-agent` `acp.rs` driver: outgoing prompts (length + bounded prefix,
+   never full note content), the normalized events we emit from incoming
+   `session/update`s, permission requests (tool + kind), and fs/terminal calls
+   (method + path/command). A process-global, bounded, cloneable
+   `AgentDiagnosticsLog` (`diag_log.rs`, capacity 500, every field hard-capped,
+   poisoned-lock-safe per ADR 0009) holds the records: **errors are always
+   recorded**; **wire** records only when a verbose toggle is on. Three Tauri
+   commands expose it — `agent_diagnostics_log` (snapshot), `agent_diagnostics_set_verbose`,
+   `agent_diagnostics_clear` — and Settings renders the log with a verbose toggle,
+   a clear button, and expandable per-entry detail. Separately, the discovery
+   probe now parses the agent's `--version` output into a normalized
+   `detectedVersion`, and each registry agent gains an optional `min_version`
+   floor (all `None` today — conservative, to avoid false "outdated" warnings);
+   a `versionWarning` is surfaced only when a detected version is strictly below
+   a declared floor.
+
 ### UI
 
 6. **Never show a blank picker.** The agent `<select>` always renders the

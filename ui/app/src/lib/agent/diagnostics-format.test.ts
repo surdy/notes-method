@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatDiagnostics, verdictLabel } from './diagnostics-format.ts';
-import type { DiagnosticsReport } from './types.ts';
+import { formatDiagEntry, formatDiagnostics, formatTimestamp, verdictLabel } from './diagnostics-format.ts';
+import type { DiagEntry, DiagnosticsReport } from './types.ts';
 
 const report: DiagnosticsReport = {
 	resolvedPath: ['/opt/homebrew/bin', '/usr/bin'],
@@ -109,5 +109,68 @@ describe('formatDiagnostics', () => {
 		});
 		expect(text).toContain('probe: codex-acp --version (timed out)');
 		expect(text).toContain('Codex (codex): probe failed');
+	});
+});
+
+describe('formatDiagnostics version info', () => {
+	it('renders a detected version and an outdated warning', () => {
+		const withVersion: DiagnosticsReport = {
+			resolvedPath: ['/usr/bin'],
+			agents: [
+				{
+					id: 'copilot',
+					displayName: 'GitHub Copilot',
+					verdict: 'available',
+					setupHint: '',
+					docsUrl: '',
+					detectedVersion: '1.2.3',
+					versionWarning: 'Detected version 1.2.3 is older than the supported minimum 2.0.0.',
+					candidates: []
+				}
+			]
+		};
+		const text = formatDiagnostics(withVersion);
+		expect(text).toContain('version: 1.2.3');
+		expect(text).toContain('warning: Detected version 1.2.3 is older');
+	});
+});
+
+describe('formatTimestamp', () => {
+	it('formats a millisecond epoch as deterministic UTC', () => {
+		// 2026-06-16T18:27:47Z
+		expect(formatTimestamp(Date.UTC(2026, 5, 16, 18, 27, 47, 500))).toBe('2026-06-16 18:27:47');
+	});
+
+	it('renders a dash for missing/invalid timestamps', () => {
+		expect(formatTimestamp(0)).toBe('—');
+		expect(formatTimestamp(Number.NaN)).toBe('—');
+	});
+});
+
+describe('formatDiagEntry', () => {
+	const ts = Date.UTC(2026, 5, 16, 18, 27, 47);
+
+	it('formats an error entry with agent and detail', () => {
+		const entry: DiagEntry = {
+			timestampMs: ts,
+			kind: 'error',
+			agent: 'copilot',
+			summary: 'prompt failed: boom',
+			detail: 'stack trace'
+		};
+		expect(formatDiagEntry(entry)).toBe(
+			'[2026-06-16 18:27:47] ERROR copilot: prompt failed: boom — stack trace'
+		);
+	});
+
+	it('formats a wire entry without agent or detail', () => {
+		const entry: DiagEntry = {
+			timestampMs: ts,
+			kind: 'wire',
+			agent: null,
+			summary: 'prompt → (5 chars)',
+			detail: null
+		};
+		expect(formatDiagEntry(entry)).toBe('[2026-06-16 18:27:47] WIRE: prompt → (5 chars)');
 	});
 });

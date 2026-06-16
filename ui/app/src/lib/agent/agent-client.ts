@@ -10,6 +10,7 @@ import type {
 	AgentEvent,
 	AgentInfo,
 	AgentsConfigData,
+	DiagEntry,
 	DiagnosticsReport,
 	EditorContext,
 	PermissionDecision,
@@ -37,6 +38,12 @@ export interface AgentClient {
 	stop(sessionId: string): Promise<void>;
 	/** Run on-demand agent-discovery diagnostics (ADR 0013, decision 5). */
 	agentDiagnostics(): Promise<DiagnosticsReport>;
+	/** Snapshot the runtime diagnostics log (recent errors + wire entries) (#192). */
+	diagnosticsLog(): Promise<DiagEntry[]>;
+	/** Toggle verbose ACP wire capture on the diagnostics log (#192). */
+	setDiagnosticsVerbose(verbose: boolean): Promise<void>;
+	/** Clear all retained diagnostics log entries (#192). */
+	clearDiagnosticsLog(): Promise<void>;
 	/** Read the `[agents]` config section (overrides, custom agents, debug flag). */
 	getAgentConfig(): Promise<AgentsConfigData>;
 	/** Persist the `[agents]` config section. */
@@ -117,6 +124,18 @@ export class TauriAgentClient implements AgentClient {
 		return (await this.bridge.invoke('agent_diagnostics')) as DiagnosticsReport;
 	}
 
+	async diagnosticsLog(): Promise<DiagEntry[]> {
+		return (await this.bridge.invoke('agent_diagnostics_log')) as DiagEntry[];
+	}
+
+	async setDiagnosticsVerbose(verbose: boolean): Promise<void> {
+		await this.bridge.invoke('agent_diagnostics_set_verbose', { verbose });
+	}
+
+	async clearDiagnosticsLog(): Promise<void> {
+		await this.bridge.invoke('agent_diagnostics_clear');
+	}
+
 	async getAgentConfig(): Promise<AgentsConfigData> {
 		return (await this.bridge.invoke('agent_config_get')) as AgentsConfigData;
 	}
@@ -181,6 +200,11 @@ export class UnavailableAgentClient implements AgentClient {
 	async agentDiagnostics(): Promise<DiagnosticsReport> {
 		throw new Error('Agent diagnostics are unavailable outside the desktop app.');
 	}
+	async diagnosticsLog(): Promise<DiagEntry[]> {
+		return [];
+	}
+	async setDiagnosticsVerbose(): Promise<void> {}
+	async clearDiagnosticsLog(): Promise<void> {}
 	async getAgentConfig(): Promise<AgentsConfigData> {
 		return { debug: false, entries: [] };
 	}
