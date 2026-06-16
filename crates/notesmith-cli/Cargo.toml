@@ -15,6 +15,7 @@ notesmith-http = { workspace = true }
 notesmith-mcp = { workspace = true }
 notesmith-html = { workspace = true }
 notesmith-git = { workspace = true }
+notesmith-agent = { path = "../notesmith-agent" }
 clap = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
@@ -25,6 +26,7 @@ reqwest = { workspace = true }
 dirs = { workspace = true }
 chrono = { workspace = true }
 arboard = { workspace = true }
+futures = { workspace = true }
 libc = "0.2"
 
 [dev-dependencies]

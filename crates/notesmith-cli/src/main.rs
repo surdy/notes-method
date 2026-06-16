@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use notesmith_cli::commands::{
+    ai::AiCommand,
     capture::CaptureCommand,
     copy_html::CopyHtmlCommand,
     daemon::DaemonCommand,
@@ -126,6 +127,11 @@ enum Command {
     CopyHtml(CopyHtmlCommand),
     /// Open a notesmith:// deep-link URL
     UrlOpen(UrlOpenCommand),
+    /// Headless ACP agent commands (summarize, weekly-digest)
+    Ai {
+        #[command(subcommand)]
+        command: AiCommand,
+    },
 }
 
 #[tokio::main]
@@ -215,6 +221,11 @@ async fn main() -> anyhow::Result<()> {
             command.run(&global_config, cli.vault.as_deref(), &cwd)?;
         }
         Command::UrlOpen(command) => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
+        Command::Ai { command } => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;

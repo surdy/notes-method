@@ -14,7 +14,7 @@ notesmith [--vault <name|path>] [--url <daemon-url>] [--format text|json] <comma
 | `--url <daemon-url>` | Target a daemon base URL (e.g. `https://host:8443`) instead of the local daemon. Also settable via the `NOTESMITH_URL` env var (the flag wins). A remote daemon is used as-is and never auto-started; terminate TLS with a reverse proxy. Reverse-proxy subpaths are supported (`https://host/notesmith`). | local daemon |
 | `--format text\|json` | Output format | `text` (JSON when piped) |
 
-`--url` / `NOTESMITH_URL` applies to all daemon-backed commands (query, note, search, reindex, task, capture, template, route, daily, periodic, url-open, and `mcp start`). The `daemon` lifecycle subcommands always manage the **local** daemon and ignore the override.
+`--url` / `NOTESMITH_URL` applies to all daemon-backed commands (query, note, search, reindex, task, capture, template, route, daily, periodic, url-open, ai, and `mcp start`). The `daemon` lifecycle subcommands always manage the **local** daemon and ignore the override.
 
 ---
 
@@ -677,6 +677,43 @@ notesmith url-open "notesmith://user/standup?date=2026-05-10"
 | `notesmith://app/task/{vault}/{path}?line_hash={h}&status={s}` | Toggle a task |
 | `notesmith://app/command/{name}?args…` | Trigger a built-in command |
 | `notesmith://user/{action}?params…` | Run a user-defined action from `.notesmith/url-actions.yaml` |
+
+---
+
+## ai
+
+Headless, non-interactive commands that drive your external ACP agent (Copilot/Claude/Codex/Gemini/OpenCode) for scripting and cron. Notesmith never runs its own chat LLM: it starts the agent over ACP and the agent reaches vault content through Notesmith's MCP tools via the local `notesmith mcp start` stdio bridge. The daemon is auto-started because the bridge forwards to it.
+
+**Shared flags (all `ai` subcommands):**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--agent <id>` | Built-in agent to drive: `copilot`, `claude`, `codex`, `gemini`, `opencode` | `copilot` |
+| `--agent-bin <path>` | Override the agent binary path (otherwise resolved from PATH) | auto |
+| `--allow-writes` | Permit the agent to write to the vault (see safety note below) | off |
+
+### Headless permission safety
+
+There is no human present to answer the agent's per-write permission prompts, so a headless run is **read-only by default**: the agent binds the daemon's read-only MCP scope (`/mcp-ro/<vault>`) and a deny-by-default decider refuses every write or permission request. Pass `--allow-writes` only to explicitly opt in — it flips the bridge to the read-write scope and auto-approves every action the agent requests **without review**. Granting writes to an unattended agent is dangerous; use it sparingly and only against trusted prompts.
+
+### `ai summarize <path|today>`
+
+Summarize a single note. `<target>` is either a vault-relative note path or the literal `today` (the agent fetches today's daily note). The summary is printed to stdout; with `--format json` it is wrapped as `{ "summary": "..." }`.
+
+```bash
+notesmith ai summarize Projects/roadmap.md
+notesmith ai summarize today
+notesmith --format json ai summarize today --agent claude
+```
+
+### `ai weekly-digest`
+
+Produce a digest of the current week's notes (Monday–Sunday of the week containing today). The agent gathers the period's notes via the MCP search/periodic tools. The digest is printed to stdout; with `--format json` it is wrapped as `{ "digest": "..." }`.
+
+```bash
+notesmith ai weekly-digest
+notesmith --format json ai weekly-digest > digest.json
+```
 
 ---
 
