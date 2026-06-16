@@ -250,6 +250,7 @@
 		activeSession.set(next);
 		await next.loadAgents();
 		await next.loadThreads();
+		await next.loadCustomizations();
 		// Establish the session up front so the model picker is available before
 		// the first message (ACP exposes models only after session/new).
 		void next.prepareSession();
@@ -391,6 +392,21 @@
 						>
 							{#each store.modelPicker.options as model (model.id)}
 								<option value={model.id}>{model.name}</option>
+							{/each}
+						</select>
+					{/if}
+
+					{#if store.personas.length > 0}
+						<select
+							class="picker"
+							aria-label="Persona"
+							title="Custom agent persona — applies its instructions, backend, and model"
+							value={store.activePersonaId ?? ''}
+							onchange={(e) => store?.selectPersona(e.currentTarget.value || null)}
+						>
+							<option value="">No persona</option>
+							{#each store.personas as p (p.id)}
+								<option value={p.id} title={p.description}>{p.name}</option>
 							{/each}
 						</select>
 					{/if}

@@ -14,6 +14,13 @@
 import * as transcriptApi from '../api/transcripts.ts';
 import type { Thread } from '../api/transcripts.ts';
 import * as permissionApi from '../api/permissions.ts';
+import * as customizationApi from '../api/customizations.ts';
+import {
+	emptyCustomizations,
+	type Customizations,
+	type CustomAgent
+} from '../api/customizations.ts';
+import { assembleSessionPreamble, parseAgentMention } from './persona.ts';
 import { createNote as createVaultNote } from '../api/notes.ts';
 import type { ApplyMode } from '../editor/apply-output.ts';
 import { formatTranscriptMarkdown } from './transcript-format.ts';
@@ -63,10 +70,16 @@ export interface PermissionApi {
 	revoke(vault: string, tool: string): Promise<void>;
 }
 
+/** The subset of the customization API the store needs; injectable for tests. */
+export interface CustomizationsApi {
+	listCustomizations(vault: string): Promise<Customizations>;
+}
+
 export interface ChatStoreDeps {
 	client: AgentClient;
 	transcripts?: TranscriptApi;
 	permissions?: PermissionApi;
+	customizations?: CustomizationsApi;
 	/** Reads the current break-glass setting at session start. */
 	breakGlass?: () => boolean;
 	/**
@@ -102,8 +115,14 @@ export class ChatStore {
 	input = $state('');
 	errorMessage = $state<string | null>(null);
 
+	/** Discovered custom agents (personas), skills, and instructions (#210). */
+	customizations = $state<Customizations>(emptyCustomizations());
+	/** The active persona id, applied as a preamble + backend/model (#212). */
+	activePersonaId = $state<string | null>(null);
+
 	private readonly transcripts: TranscriptApi;
 	private readonly permissions: PermissionApi;
+	private readonly customizationsApi: CustomizationsApi;
 	private readonly applyToEditor: (mode: ApplyMode, text: string) => boolean;
 	private readonly createNote: (
 		vault: string,
@@ -122,6 +141,7 @@ export class ChatStore {
 	) {
 		this.transcripts = deps?.transcripts ?? (transcriptApi as TranscriptApi);
 		this.permissions = deps?.permissions ?? (permissionApi as PermissionApi);
+		this.customizationsApi = deps?.customizations ?? (customizationApi as CustomizationsApi);
 		this.breakGlass = deps?.breakGlass ?? (() => false);
 		this.applyToEditor = deps?.applyToEditor ?? (() => false);
 		this.createNote = deps?.createNote ?? createVaultNote;
@@ -165,6 +185,61 @@ export class ChatStore {
 
 	async loadThreads(): Promise<void> {
 		this.threads = await this.transcripts.listThreads(this.vault);
+	}
+
+	/**
+	 * Load discovered personas/skills/instructions for this vault (#210).
+	 * Resilient: a fetch failure degrades to an empty set so the panel still
+	 * works without any customizations.
+	 */
+	async loadCustomizations(): Promise<void> {
+		try {
+			this.customizations = await this.customizationsApi.listCustomizations(this.vault);
+		} catch {
+			this.customizations = emptyCustomizations();
+		}
+	}
+
+	/** Discovered personas (custom agents). */
+	get personas(): CustomAgent[] {
+		return this.customizations.agents;
+	}
+
+	/** The currently active persona, or `null` when none is selected. */
+	get activePersona(): CustomAgent | null {
+		return this.customizations.agents.find((p) => p.id === this.activePersonaId) ?? null;
+	}
+
+	/**
+	 * The one-time session preamble: always-on discovered instructions plus the
+	 * active persona's body (ADR 0016). `null` when there is nothing to inject.
+	 */
+	get sessionPreamble(): string | null {
+		return assembleSessionPreamble(this.customizations.instructions, this.activePersona);
+	}
+
+	/**
+	 * Switch the session's active persona (#212, session-switch routing). Applies
+	 * the persona's backend agent (when discovered) and model, and resets the
+	 * session so the new preamble takes effect on the next turn. Passing `null`
+	 * clears the persona. A persona referencing an unavailable backend keeps the
+	 * current agent (the preamble still applies).
+	 */
+	selectPersona(id: string | null): void {
+		if (id === this.activePersonaId) return;
+		this.activePersonaId = id;
+		const persona = this.activePersona;
+		if (persona?.backend) {
+			const backend = this.agents.find((a) => a.id === persona.backend);
+			if (backend) this.selectedAgent = backend.id;
+		}
+		if (persona?.model) this.selectedModel = persona.model;
+		// Persona/instructions change ⇒ fresh ACP session so the new preamble and
+		// any backend/model switch take effect on the next turn.
+		this.sessionId = null;
+		this.sessionStartPromise = null;
+		this.modelPicker = null;
+		void this.prepareSession();
 	}
 
 	selectAgent(id: string): void {
@@ -272,7 +347,8 @@ export class ChatStore {
 				readOnly: startedReadOnly,
 				breakGlass: this.breakGlass(),
 				threadId: this.currentThreadId,
-				persistedGrants
+				persistedGrants,
+				preamble: this.sessionPreamble
 			});
 			this.sessionId = result.sessionId;
 			this.modelPicker = result.models;
@@ -321,7 +397,21 @@ export class ChatStore {
 	 * plumbing never clutters the conversation history.
 	 */
 	async send(editor?: EditorContext, contextPreamble?: string): Promise<void> {
-		const text = this.input.trim();
+		// #212 (session-switch routing): a leading `@persona-id` matching a
+		// discovered persona switches the active persona for the rest of the
+		// session and is stripped from the message. A bare switch (no text after
+		// the mention) just switches and stops; an unknown id is left untouched
+		// and sent as ordinary text.
+		const mention = parseAgentMention(this.input);
+		let text = this.input.trim();
+		if (mention && this.personas.some((p) => p.id === mention.id)) {
+			this.selectPersona(mention.id);
+			text = mention.rest;
+			if (!text) {
+				this.input = '';
+				return;
+			}
+		}
 		if (!text || this.busy || !this.selectedAgent) return;
 		this.input = '';
 		this.errorMessage = null;

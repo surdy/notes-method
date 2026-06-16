@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ChatStore, type TranscriptApi, type PermissionApi } from './chat-store.svelte.ts';
+import {
+	ChatStore,
+	type TranscriptApi,
+	type PermissionApi,
+	type CustomizationsApi
+} from './chat-store.svelte.ts';
 import type { AgentClient, PermissionEvent } from './agent-client.ts';
 import type {
 	AgentEvent,
@@ -12,6 +17,7 @@ import type {
 	StartSessionResult
 } from './types.ts';
 import type { Thread } from '../api/transcripts.ts';
+import type { Customizations, CustomAgent, Instruction } from '../api/customizations.ts';
 
 /** In-memory agent client that records calls and lets tests push events. */
 class MockAgentClient implements AgentClient {
@@ -672,5 +678,167 @@ describe('ChatStore inline commands', () => {
 		// No agent selected yet.
 		await store.runInlineCommand({ instruction: 'Rewrite.', selection: 'x' });
 		expect(client.prompts).toHaveLength(0);
+	});
+});
+
+function persona(id: string, overrides: Partial<CustomAgent> = {}): CustomAgent {
+	return {
+		id,
+		name: id,
+		description: '',
+		backend: null,
+		model: null,
+		body: `Body for ${id}.`,
+		source: 'project',
+		...overrides
+	};
+}
+
+function fakeCustomizations(set: Partial<Customizations>): CustomizationsApi {
+	const full: Customizations = {
+		agents: set.agents ?? [],
+		skills: set.skills ?? [],
+		instructions: set.instructions ?? []
+	};
+	return { listCustomizations: vi.fn(async () => full) };
+}
+
+describe('ChatStore customizations & persona routing (#210/#212)', () => {
+	it('loads discovered personas and exposes them', async () => {
+		const client = new MockAgentClient();
+		const customizations = fakeCustomizations({ agents: [persona('researcher')] });
+		const store = new ChatStore('work', client, { customizations });
+		await store.loadCustomizations();
+		expect(store.personas.map((p) => p.id)).toEqual(['researcher']);
+	});
+
+	it('degrades to an empty set when discovery fails', async () => {
+		const client = new MockAgentClient();
+		const customizations: CustomizationsApi = {
+			listCustomizations: vi.fn(async () => {
+				throw new Error('network down');
+			})
+		};
+		const store = new ChatStore('work', client, { customizations });
+		await store.loadCustomizations();
+		expect(store.personas).toEqual([]);
+	});
+
+	it('assembles a preamble from instructions plus the active persona', async () => {
+		const client = new MockAgentClient();
+		const instructions: Instruction[] = [
+			{ id: 'tone', name: 'Tone', description: '', body: 'Be concise.', source: 'project' }
+		];
+		const customizations = fakeCustomizations({
+			agents: [persona('researcher', { body: 'You research.' })],
+			instructions
+		});
+		const store = new ChatStore('work', client, { customizations });
+		await store.loadAgents();
+		await store.loadCustomizations();
+
+		// No persona yet: only the always-on instruction.
+		expect(store.sessionPreamble).toBe('Be concise.');
+
+		store.selectPersona('researcher');
+		expect(store.sessionPreamble).toBe('Be concise.\n\nYou research.');
+	});
+
+	it('selecting a persona applies its backend and model', async () => {
+		const client = new MockAgentClient();
+		const customizations = fakeCustomizations({
+			agents: [persona('coder', { backend: 'copilot', model: 'gpt-4o' })]
+		});
+		const store = new ChatStore('work', client, { customizations });
+		await store.loadAgents();
+		await store.loadCustomizations();
+
+		store.selectPersona('coder');
+		expect(store.selectedAgent).toBe('copilot');
+		expect(store.selectedModel).toBe('gpt-4o');
+		expect(store.activePersona?.id).toBe('coder');
+	});
+
+	it('keeps the current agent when the persona backend is unavailable', async () => {
+		const client = new MockAgentClient();
+		const customizations = fakeCustomizations({
+			agents: [persona('mystery', { backend: 'not-installed' })]
+		});
+		const store = new ChatStore('work', client, { customizations });
+		await store.loadAgents();
+		await store.loadCustomizations();
+		store.selectAgent('copilot');
+
+		store.selectPersona('mystery');
+		expect(store.selectedAgent).toBe('copilot');
+		expect(store.activePersona?.id).toBe('mystery');
+	});
+
+	it('passes the assembled preamble to startSession', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const customizations = fakeCustomizations({
+			agents: [persona('researcher', { body: 'You research.' })]
+		});
+		const store = new ChatStore('work', client, { transcripts: api, customizations });
+		await store.loadAgents();
+		await store.loadCustomizations();
+		store.start();
+		store.selectPersona('researcher');
+
+		store.input = 'find related notes';
+		await store.send();
+
+		const opts = client.startCalls[0] as { preamble?: string | null };
+		expect(opts.preamble).toBe('You research.');
+	});
+
+	it('routes a leading @persona mention: switches and strips the mention', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const customizations = fakeCustomizations({ agents: [persona('researcher')] });
+		const store = new ChatStore('work', client, { transcripts: api, customizations });
+		await store.loadAgents();
+		await store.loadCustomizations();
+		store.start();
+
+		store.input = '@researcher summarize the vault';
+		await store.send();
+
+		expect(store.activePersona?.id).toBe('researcher');
+		expect(client.prompts[0]?.text).toBe('summarize the vault');
+	});
+
+	it('treats a bare @persona mention as a switch with no message sent', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const customizations = fakeCustomizations({ agents: [persona('researcher')] });
+		const store = new ChatStore('work', client, { transcripts: api, customizations });
+		await store.loadAgents();
+		await store.loadCustomizations();
+		store.start();
+
+		store.input = '@researcher';
+		await store.send();
+
+		expect(store.activePersona?.id).toBe('researcher');
+		expect(client.prompts).toHaveLength(0);
+		expect(store.input).toBe('');
+	});
+
+	it('leaves an unknown @mention as ordinary message text', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const customizations = fakeCustomizations({ agents: [persona('researcher')] });
+		const store = new ChatStore('work', client, { transcripts: api, customizations });
+		await store.loadAgents();
+		await store.loadCustomizations();
+		store.start();
+
+		store.input = '@nobody hello there';
+		await store.send();
+
+		expect(store.activePersona).toBeNull();
+		expect(client.prompts[0]?.text).toBe('@nobody hello there');
 	});
 });

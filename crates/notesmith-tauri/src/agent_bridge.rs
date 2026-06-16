@@ -157,6 +157,12 @@ pub struct StartSessionOptions {
     /// session permission state so they never re-prompt (issue #189).
     #[serde(default)]
     persisted_grants: Vec<String>,
+    /// One-time session preamble assembled by the frontend from always-on
+    /// discovered instructions and the active persona's body (issues #210/#212,
+    /// ADR 0016). Injected via [`AcpSession::with_skill`]; `None` = no preamble.
+    /// Bounded when the preamble is assembled, keeping it small.
+    #[serde(default)]
+    preamble: Option<String>,
 }
 
 /// Editor context handed in with a turn. Mirrors the frontend `EditorContext`.
@@ -569,6 +575,7 @@ fn build_session(
 
     Ok(session
         .read_only(opts.read_only)
+        .with_skill(opts.preamble.clone())
         .with_local_io(opts.break_glass)
         .with_granted_tools(opts.persisted_grants.clone())
         .with_diagnostics(diagnostics_log())
@@ -1178,6 +1185,7 @@ mod tests {
             read_only,
             break_glass: false,
             persisted_grants: Vec::new(),
+            preamble: None,
         }
     }
 

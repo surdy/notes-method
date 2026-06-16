@@ -99,6 +99,12 @@ export interface StartSessionOptions {
 	 * session permission state so they never re-prompt.
 	 */
 	persistedGrants?: string[];
+	/**
+	 * One-time session preamble assembled from always-on discovered instructions
+	 * and the active persona's body (issues #210/#212). Injected as the agent's
+	 * skill/preamble; omitted/`null` when there is nothing to inject.
+	 */
+	preamble?: string | null;
 }
 
 export interface StartSessionResult {
