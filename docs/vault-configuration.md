@@ -16,6 +16,7 @@ This guide covers every config file and format Notesmith reads today.
 | Per-vault | `<vault>/.notesmith/templates/*.md` | Markdown + YAML front matter + Minijinja | Note templates (legacy `Assets/templates/*.md.j2` also loads) |
 | Per-vault | `<vault>/.notesmith/skill.md` | Markdown | AI instruction file |
 | Per-vault | `<vault>/.notesmith/prompts/*.md` | Markdown + YAML front matter | Agent prompt templates |
+| Per-vault / Global | `.notesmith/{agents,skills,instructions}/*.md` (vault) and `~/.config/notesmith/{agents,skills,instructions}/*.md` | Markdown + YAML front matter | Custom agent personas, skills, and always-on instructions |
 
 Vault resolution order:
 1. Walk upward from `$PWD` looking for `.notesmith/vault.toml`
@@ -388,6 +389,45 @@ Fields:
 - `context_queries[].sql` — read-only SQL query to execute
 
 ---
+## Customizations (personas / skills / instructions)
+
+The chat panel auto-discovers user-authored **custom agents (personas)**,
+**skills**, and **instructions** from two scopes (ADR 0016):
+
+| Scope   | Location                                                |
+|---------|---------------------------------------------------------|
+| Project | `<vault>/.notesmith/{agents,skills,instructions}/`      |
+| Global  | `~/.config/notesmith/{agents,skills,instructions}/`     |
+
+Each item is a single `*.md` file. The **file name (stem)** is its id; a project
+file overrides a global file with the same id. Malformed files are skipped (the
+panel still works without any customizations).
+
+**Frontmatter:**
+
+- **Agent (persona)** — `name`, `description`, optional `backend` (a discovered
+  agent id: `copilot`/`claude`/`codex`/…), optional `model`. The **body** is the
+  persona's system/preamble prompt. A persona is not a separate CLI — it runs on
+  top of one of your installed agents.
+- **Skill** / **Instruction** — `name`, `description`; the body is the content.
+  Discovered **instructions** are always applied to the session preamble.
+
+```markdown
+---
+name: Researcher
+description: Deep research assistant.
+backend: copilot
+model: gpt-4o
+---
+You are a meticulous researcher. Cite sources and prefer primary references.
+```
+
+**Using a persona:** pick it from the chat panel's persona dropdown, or type a
+leading `@<persona-id>` mention in the composer followed by your message —
+e.g. `@researcher summarize this note`. Routing is **session-switch**: the
+persona stays active for the rest of the conversation until you change it.
+
+---
 ## Vault Directory Structure
 A typical Notesmith vault:
 
@@ -398,6 +438,9 @@ my-vault/
 │   ├── routing.yaml            # Routing rules
 │   ├── sidebar-views.yaml      # Sidebar view definitions
 │   ├── skill.md                # AI skill file
+│   ├── agents/                 # Custom agent personas (*.md)
+│   ├── skills/                 # Reusable skills (*.md)
+│   ├── instructions/           # Always-on instructions (*.md)
 │   └── prompts/
 │       └── daily-note.md       # Agent daily prompt
 ├── Assets/
