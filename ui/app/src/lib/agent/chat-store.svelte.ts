@@ -287,6 +287,48 @@ export class ChatStore {
 		await this.send({ activeNote: opts.activeNote ?? null, selection: opts.selection });
 	}
 
+	/** The text of the most recent user turn, or null if none yet. */
+	private lastUserMessageText(): string | null {
+		const last = [...this.conversation.items]
+			.reverse()
+			.find((i): i is MessageItem => i.kind === 'message' && i.role === 'user');
+		return last && last.text ? last.text : null;
+	}
+
+	/**
+	 * Cancel the in-flight generation (issue #191). Asks the transport to stop the
+	 * current turn, then unlocks the composer even if the agent never emits a
+	 * terminal event by feeding a synthetic `done` through the reducer.
+	 */
+	async stop(): Promise<void> {
+		if (!this.sessionId || !this.busy) return;
+		try {
+			await this.client.stop(this.sessionId);
+		} catch (err) {
+			this.errorMessage = err instanceof Error ? err.message : String(err);
+		} finally {
+			this.conversation = reduce(this.conversation, { type: 'done', result: null });
+		}
+	}
+
+	/**
+	 * Re-run the most recent user turn (issue #191). Resends the last user message
+	 * verbatim; the agent produces a fresh response. No-op while busy or when the
+	 * conversation has no user turn yet.
+	 */
+	async regenerate(): Promise<void> {
+		if (this.busy) return;
+		const text = this.lastUserMessageText();
+		if (!text) return;
+		this.input = text;
+		await this.send();
+	}
+
+	/** Whether {@link regenerate} has a user turn to re-run. */
+	get canRegenerate(): boolean {
+		return !this.busy && this.lastUserMessageText() !== null;
+	}
+
 	async selectModel(value: string): Promise<void> {
 		this.selectedModel = value;
 		if (this.sessionId) await this.client.selectModel(this.sessionId, value);

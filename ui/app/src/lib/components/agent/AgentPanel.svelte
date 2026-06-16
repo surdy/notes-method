@@ -495,14 +495,27 @@
 						onkeyup={syncCaret}
 						disabled={store.busy}
 					></textarea>
-					<button
-						class="send"
-						type="submit"
-						disabled={store.busy || store.input.trim().length === 0}
-					>
-						{store.busy ? '…' : 'Send'}
-					</button>
+					{#if store.busy}
+						<button class="send stop" type="button" onclick={() => store?.stop()}>
+							Stop
+						</button>
+					{:else}
+						<button
+							class="send"
+							type="submit"
+							disabled={store.input.trim().length === 0}
+						>
+							Send
+						</button>
+					{/if}
 				</div>
+				{#if store.canRegenerate}
+					<div class="turn-actions">
+						<button class="link-btn" type="button" onclick={() => store?.regenerate()}>
+							↻ Regenerate
+						</button>
+					</div>
+				{/if}
 			</form>
 		{/if}
 	</div>
@@ -789,5 +802,21 @@
 	.send:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	.send.stop {
+		border-color: var(--danger-border);
+		background: var(--danger-surface);
+		color: var(--danger-text);
+	}
+
+	.send.stop:hover {
+		background: var(--danger-bg);
+	}
+
+	.turn-actions {
+		display: flex;
+		justify-content: flex-end;
+		margin-top: 6px;
 	}
 </style>

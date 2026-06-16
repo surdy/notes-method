@@ -19,6 +19,7 @@ class MockAgentClient implements AgentClient {
 	modelCalls: Array<{ sessionId: string; value: string }> = [];
 	readOnlyCalls: Array<{ sessionId: string; readOnly: boolean }> = [];
 	answered: Array<{ requestId: string; decision: PermissionDecision }> = [];
+	stopped: string[] = [];
 	private eventCb: ((sessionId: string, event: AgentEvent) => void) | null = null;
 	private permCb: ((event: PermissionEvent) => void) | null = null;
 	models: StartSessionResult['models'] = null;
@@ -48,7 +49,9 @@ class MockAgentClient implements AgentClient {
 	async answerPermission(requestId: string, decision: PermissionDecision): Promise<void> {
 		this.answered.push({ requestId, decision });
 	}
-	async stop(): Promise<void> {}
+	async stop(sessionId: string): Promise<void> {
+		this.stopped.push(sessionId);
+	}
 	async agentDiagnostics(): Promise<DiagnosticsReport> {
 		return { resolvedPath: [], agents: [] };
 	}
@@ -187,6 +190,45 @@ describe('ChatStore orchestration', () => {
 		expect(appended.filter((a) => a.role === 'agent')).toEqual([
 			{ threadId: 't-new-1', role: 'agent', content: 'Hello' }
 		]);
+	});
+
+	it('stop cancels the in-flight turn and unlocks the composer', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		store.start();
+		store.input = 'hi';
+		await store.send();
+
+		client.emit('sess-1', { type: 'agent_message_delta', text: 'partial' });
+		expect(store.busy).toBe(true);
+
+		await store.stop();
+
+		expect(client.stopped).toEqual(['sess-1']);
+		expect(store.busy).toBe(false);
+	});
+
+	it('regenerate re-runs the most recent user turn', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		store.start();
+		store.input = 'summarize my week';
+		await store.send();
+		client.emit('sess-1', { type: 'done', result: null });
+
+		expect(store.canRegenerate).toBe(true);
+		await store.regenerate();
+
+		const sent = client.prompts.map((p) => p.text);
+		expect(sent).toEqual(['summarize my week', 'summarize my week']);
+		const userMsgs = store.conversation.items.filter(
+			(i) => i.kind === 'message' && i.role === 'user'
+		);
+		expect(userMsgs).toHaveLength(2);
 	});
 
 	it('renders the user message immediately on send, without a backend echo', async () => {
