@@ -78,6 +78,7 @@ ui/app/                  # SvelteKit frontend
 - **Quick switcher** — Fuzzy note search (⌘O)
 - **Tabbed editor** — Source, Live Preview, and Reading View modes with persistence
 - **AI agent chat** — Embedded ACP chat panel that auto-discovers external agent CLIs (Copilot, Claude, Codex, Gemini, OpenCode), with manual `[agents]` config overrides, custom agents, and Settings-driven discovery diagnostics
+- **AI integration roadmap** — Forward plan for AI features (slash commands, inline editor commands, retrieval, memory, headless `notes ai`) built on the principle that the daemon exposes MCP tools and the user's ACP agent orchestrates. See [ADR 0015](docs/adr/0015-ai-agent-integration-roadmap.md) and [`plans/ai-integration-roadmap.md`](plans/ai-integration-roadmap.md)
 
 ## Golden Vault
 
