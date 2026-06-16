@@ -207,6 +207,19 @@ Use these docs as you go deeper:
 | [MCP Adapter](mcp.md) | Model Context Protocol tools |
 | [Vault Configuration](vault-configuration.md) | Configuration files and options |
 
+### AI & Agents
+
+The desktop app has an embedded AI chat agent plus AI helpers in the editor and CLI:
+
+| Document | Description |
+|----------|-------------|
+| [AI Chat Panel](ai-chat.md) | Chat with an agent: pick a model, read-only/read-write, fork & export conversations, diagnostics |
+| [Agent Permissions & Diff Preview](ai-permissions.md) | Review and approve agent edits before they touch your notes |
+| [Slash Commands & @-Mentions](ai-slash-commands.md) | Drive the agent from the composer with `/` prompts and `@` context |
+| [AI in the Editor](ai-editor.md) | Rewrite, summarize, expand, fix, and continue text from a selection |
+| [MCP Servers](ai-mcp-servers.md) | Give the agent extra tools beyond the built-in vault tools |
+| [CLI `ai` commands](cli.md#ai) | Headless `summarize` and `weekly-digest` for scripting and cron |
+
 ## Philosophy
 
 Notesmith follows a practical method:

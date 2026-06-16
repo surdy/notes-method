@@ -299,7 +299,14 @@ Use it when you want to answer questions like:
 
 ### Chat
 
-The Chat segment hosts the embedded AI agent (Copilot, Claude, Codex, Gemini, and others). It shares the dock column with Context, so opening chat never adds a fourth column or squeezes the editor. The agent process only starts the first time you open Chat, and the conversation stays alive when you switch back to Context. See the AI agent documentation for agent discovery and read-only/read-write controls.
+The Chat segment hosts the embedded AI agent (Copilot, Claude, Codex, Gemini, and others). It shares the dock column with Context, so opening chat never adds a fourth column or squeezes the editor. The agent process only starts the first time you open Chat, and the conversation stays alive when you switch back to Context.
+
+For the full walkthrough — choosing an agent and model, the read-only vs read-write scope, stopping and regenerating replies, and forking or exporting conversations to a note — see the **[AI Chat Panel guide](ai-chat.md)**. Related guides:
+
+- **[Agent Permissions & Diff Preview](ai-permissions.md)** — how you review and approve any change before it touches your notes
+- **[Slash Commands & @-Mentions](ai-slash-commands.md)** — type `/` to run saved prompts and `@` to attach notes as context
+- **[AI in the Editor](ai-editor.md)** — run AI commands on a text selection
+- **[MCP Servers](ai-mcp-servers.md)** — give the agent extra tools
 
 ## 11. Reading View
 

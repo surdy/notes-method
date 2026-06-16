@@ -122,6 +122,8 @@ enabled = false
 
 These servers are editable from **Settings → MCP Servers** without hand-editing
 the file. Scope is global today; per-vault overrides are deferred (ADR 0016).
+For a step-by-step walkthrough of that Settings screen (including adding stdio
+and HTTP servers), see the [MCP Servers guide](ai-mcp-servers.md).
 
 ---
 ## Per-Vault Configuration
@@ -410,6 +412,10 @@ It typically contains command cheat sheets, vault structure, note type schemas, 
 ## Agent Prompts
 `.notesmith/prompts/` contains prompt templates for agent-driven workflows. The daily note prompt (`daily-note.md`) can include YAML front matter with `context_queries` — SQL queries whose results are injected as markdown tables.
 
+> **Not the same as slash-command prompts.** The chat panel's `/` slash commands
+> are a separate feature whose vault overrides live in `<vault>/_prompts/` (no
+> `.notesmith` prefix). See [Slash Commands & Custom Prompts](ai-slash-commands.md).
+
 ```yaml
 ---
 context_queries:
@@ -464,7 +470,8 @@ You are a meticulous researcher. Cite sources and prefer primary references.
 **Using a persona:** pick it from the chat panel's persona dropdown, or type a
 leading `@<persona-id>` mention in the composer followed by your message —
 e.g. `@researcher summarize this note`. Routing is **session-switch**: the
-persona stays active for the rest of the conversation until you change it.
+persona stays active for the rest of the conversation until you change it. See
+the [AI Chat Panel guide](ai-chat.md) for where the persona dropdown lives.
 
 ---
 ## Vault Directory Structure
