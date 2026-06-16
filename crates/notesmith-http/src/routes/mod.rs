@@ -2,6 +2,7 @@ pub mod admin;
 pub mod capabilities;
 pub mod capture;
 pub mod config;
+pub mod customizations;
 pub mod daily;
 pub mod events;
 pub mod fields;

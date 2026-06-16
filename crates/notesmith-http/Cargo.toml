@@ -9,6 +9,7 @@ license.workspace = true
 notesmith-core = { workspace = true }
 notesmith-config = { workspace = true }
 notesmith-prompts = { workspace = true }
+notesmith-customization = { workspace = true }
 notesmith-vault = { workspace = true }
 notesmith-index = { workspace = true }
 notesmith-query = { workspace = true }

@@ -2193,6 +2193,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "notesmith-customization"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "notesmith-core",
+ "notesmith-vault",
+ "serde",
+ "serde_yaml",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "notesmith-git"
 version = "0.1.0"
 dependencies = [
@@ -2248,6 +2261,7 @@ dependencies = [
  "libc",
  "notesmith-config",
  "notesmith-core",
+ "notesmith-customization",
  "notesmith-git",
  "notesmith-hooks",
  "notesmith-html",

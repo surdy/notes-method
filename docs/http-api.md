@@ -939,6 +939,58 @@ always returns `200` with a possibly-empty list, never a `500`.
 
 ---
 
+## Customizations
+
+Discovered, user-authored **custom agents (personas)**, **skills**, and
+**instructions** for the chat UI (ADR 0016). Items are `*.md` files with optional
+YAML frontmatter, discovered from two scopes:
+
+- **Project** — the vault's `.notesmith/{agents,skills,instructions}/` folders.
+- **Global** — `~/.config/notesmith/{agents,skills,instructions}/` (XDG-aware).
+
+The file stem is the item `id`; project entries override global entries by id
+(project wins). Malformed files are skipped (logged at `WARN`), so the endpoint
+always returns `200`, never a `500`.
+
+### `GET /api/v/{vault}/customizations`
+
+List the merged customization set for a vault.
+
+**Response:** `200 OK`
+```json
+{
+  "agents": [
+    {
+      "id": "researcher",
+      "name": "Researcher",
+      "description": "Deep research assistant.",
+      "backend": "copilot",
+      "model": "gpt-4o",
+      "body": "You are a meticulous researcher...",
+      "source": "project"
+    }
+  ],
+  "skills": [
+    { "id": "citations", "name": "Citations", "description": "Cite sources.",
+      "body": "Always cite sources.", "source": "global" }
+  ],
+  "instructions": [
+    { "id": "tone", "name": "Tone", "description": "",
+      "body": "Be concise.", "source": "project" }
+  ]
+}
+```
+
+For an **agent** (persona), `backend` is an optional ACP agent id
+(`copilot`/`claude`/…; `null` = use the session's selected agent) and `model` is
+an optional model id (`null` when unset); the `body` is the persona's preamble
+prompt. `source` is `"project"` or `"global"`.
+
+**Errors:**
+- `404` — vault not found
+
+---
+
 ## Routing
 
 ### `POST /api/v/{vault}/route/preview`

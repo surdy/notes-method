@@ -192,6 +192,10 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
             "/api/v/{vault}/prompts",
             get(crate::routes::prompts::list_prompts),
         )
+        .route(
+            "/api/v/{vault}/customizations",
+            get(crate::routes::customizations::list_customizations),
+        )
         .route("/api/v/{vault}/route/preview", post(route_preview))
         .route("/api/v/{vault}/route/apply", post(route_apply))
         .route("/api/v/{vault}/git/status", get(git_status))
