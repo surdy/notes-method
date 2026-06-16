@@ -1,11 +1,23 @@
 <script lang="ts">
 	import type { MessageItem } from '$lib/agent/conversation';
 	import { renderMarkdown } from '$lib/agent/markdown';
+	import { activeEditorStore } from '$lib/editor/active-editor.svelte';
+	import type { ApplyMode } from '$lib/editor/apply-output';
+	import { toastStore } from '$lib/toast-store.svelte';
 
 	let { item }: { item: MessageItem } = $props();
 
 	let isAgent = $derived(item.role !== 'user');
 	let html = $derived(isAgent && item.text ? renderMarkdown(item.text) : '');
+	// Only finished assistant turns with text can be applied to the note.
+	let canApply = $derived(isAgent && !item.streaming && item.text.trim().length > 0);
+
+	function apply(mode: ApplyMode) {
+		const applied = activeEditorStore.applyOutput(mode, item.text);
+		if (!applied) {
+			toastStore.add('Open a note in the editor to apply agent output.', 'warning');
+		}
+	}
 </script>
 
 <div class="message" class:user={item.role === 'user'} class:agent={item.role !== 'user'}>
@@ -22,6 +34,19 @@
 			<span class="thinking" aria-label="Agent is responding">…</span>
 		{/if}
 	</div>
+	{#if canApply}
+		<div class="actions">
+			<button type="button" class="action" onclick={() => apply('insert')}>
+				Insert at cursor
+			</button>
+			<button type="button" class="action" onclick={() => apply('replace')}>
+				Replace selection
+			</button>
+			<button type="button" class="action" onclick={() => apply('append')}>
+				Apply to note
+			</button>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -133,5 +158,31 @@
 		color: var(--text-muted);
 		font-size: 16px;
 		letter-spacing: 2px;
+	}
+
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 2px;
+	}
+
+	.action {
+		padding: 3px 8px;
+		font-size: 11px;
+		font-weight: 600;
+		border-radius: 6px;
+		border: 1px solid var(--border-default);
+		background: var(--button-bg);
+		color: var(--button-text);
+		cursor: pointer;
+	}
+
+	.action:hover,
+	.action:focus-visible {
+		background: var(--button-hover);
+		border-color: var(--accent);
+		color: var(--text-default);
+		outline: none;
 	}
 </style>

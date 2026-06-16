@@ -35,6 +35,7 @@ import {
 	duplicateH1HideExtension,
 	setDuplicateH1TitleEffect
 } from '$lib/editor/duplicate-h1-extension';
+import { activeEditorStore } from '$lib/editor/active-editor.svelte';
 import { createOFMDecorations } from '$lib/editor/ofm-decorations';
 import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-blocks';
 import { headingHighlightOverride, notesmithTheme } from '$lib/editor/theme';
@@ -209,6 +210,7 @@ clearWordCountTimer();
 headingStore.clear();
 editorStatus.clear();
 if (view) {
+activeEditorStore.unregister(view);
 view.destroy();
 view = null;
 }
@@ -369,6 +371,7 @@ EditorView.updateListener.of((update) => {
 });
 
 view = new EditorView({ state, parent: editorContainer });
+activeEditorStore.register(view);
 syncDuplicateH1Title();
 updateEditorWordCount(state);
 updateHeadings(documentText);
