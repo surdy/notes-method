@@ -16,12 +16,13 @@ use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use axum::{
     Router,
-    routing::{any, get, post},
+    routing::{any, delete, get, post},
 };
 use chrono::{DateTime, Utc};
 use notesmith_config::{DaemonLockfile, GlobalConfig, VaultConfig, migration};
 use notesmith_core::VaultEngine;
 use notesmith_index::{SearchIndex, VaultCache};
+use notesmith_permission::PermissionGrantStore;
 use notesmith_transcript::TranscriptStore;
 use notesmith_vault::NativeVaultEngine;
 use tokio::{
@@ -66,6 +67,11 @@ pub struct AppState {
     /// Decision 13). Lives outside vaults and outside the rebuildable index
     /// cache so chat history survives restarts and reindexes.
     pub transcripts: Arc<TranscriptStore>,
+    /// Daemon-owned, durable per-vault store of persisted "Always Allow" agent
+    /// write grants (issue #189). Like transcripts it lives in the data dir so
+    /// grants survive daemon/app restarts; consulted by the desktop frontend to
+    /// pre-seed a session's permission state.
+    pub permissions: Arc<PermissionGrantStore>,
 }
 
 impl Default for AppState {
@@ -85,6 +91,10 @@ impl Default for AppState {
             transcripts: Arc::new(
                 TranscriptStore::open_in_memory()
                     .expect("in-memory transcript store should always open"),
+            ),
+            permissions: Arc::new(
+                PermissionGrantStore::open_in_memory()
+                    .expect("in-memory permission store should always open"),
             ),
         }
     }
@@ -221,6 +231,15 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
             "/api/v/{vault}/agent/threads/{thread_id}/messages",
             get(crate::routes::transcripts::list_messages)
                 .post(crate::routes::transcripts::append_message),
+        )
+        .route(
+            "/api/v/{vault}/agent/permissions",
+            get(crate::routes::permissions::list_grants)
+                .post(crate::routes::permissions::grant_permission),
+        )
+        .route(
+            "/api/v/{vault}/agent/permissions/{tool}",
+            delete(crate::routes::permissions::revoke_permission),
         )
         .route("/mcp/{vault}", any(mcp_service_handler))
         .route("/mcp-ro/{vault}", any(mcp_ro_service_handler))
@@ -745,6 +764,7 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
         shutdown_rx,
         mcp_services: McpServiceCache::default(),
         transcripts: Arc::new(open_transcript_store()?),
+        permissions: Arc::new(open_permission_store()?),
     })
 }
 
@@ -779,6 +799,19 @@ fn open_transcript_store() -> anyhow::Result<TranscriptStore> {
     let path = transcripts_path()?;
     TranscriptStore::open(&path)
         .with_context(|| format!("opening transcript store at {}", path.display()))
+}
+
+/// Path to the single daemon-owned agent-permission grant database. Per issue
+/// #189 this lives alongside the transcript store in the durable data dir so
+/// "Always Allow" grants survive daemon/app restarts.
+pub fn permissions_path() -> anyhow::Result<PathBuf> {
+    Ok(data_dir()?.join("agent-permissions.sqlite"))
+}
+
+fn open_permission_store() -> anyhow::Result<PermissionGrantStore> {
+    let path = permissions_path()?;
+    PermissionGrantStore::open(&path)
+        .with_context(|| format!("opening permission store at {}", path.display()))
 }
 
 pub fn cache_path_for_vault(vault_name: &str) -> anyhow::Result<PathBuf> {

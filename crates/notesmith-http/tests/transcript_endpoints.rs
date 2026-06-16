@@ -68,6 +68,7 @@ fn build_state(vaults: &[(String, PathBuf)], config_path: PathBuf) -> AppState {
         shutdown_rx,
         mcp_services: Default::default(),
         transcripts: Default::default(),
+        permissions: Default::default(),
     }
 }
 

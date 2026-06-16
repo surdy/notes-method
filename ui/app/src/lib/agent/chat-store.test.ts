@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ChatStore, type TranscriptApi } from './chat-store.svelte.ts';
+import { ChatStore, type TranscriptApi, type PermissionApi } from './chat-store.svelte.ts';
 import type { AgentClient, PermissionEvent } from './agent-client.ts';
 import type {
 	AgentEvent,
@@ -121,10 +121,33 @@ function fakeTranscripts() {
 	return { api, appended };
 }
 
+function fakePermissions(initial: string[] = []) {
+	const granted: string[] = [];
+	const revoked: string[] = [];
+	const api: PermissionApi = {
+		listGrants: vi.fn(async () => [...initial]),
+		grant: vi.fn(async (_v: string, tool: string) => {
+			granted.push(tool);
+		}),
+		revoke: vi.fn(async (_v: string, tool: string) => {
+			revoked.push(tool);
+		})
+	};
+	return { api, granted, revoked };
+}
+
 beforeEach(() => {
 	// `.svelte.ts` rune fields compile to `$state()` calls; under vitest there is
 	// no Svelte compiler, so make `$state` an identity function.
 	vi.stubGlobal('$state', <T>(value: T) => value);
+	// Tests that start a session but do not inject a fake `permissions` dep fall
+	// through to the real permission client, which fetches persisted grants.
+	// Stub fetch to return an empty grant list so those starts stay fast and
+	// offline (the store seeds `[]` and never re-prompts).
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(async () => new Response(JSON.stringify([]), { status: 200 }))
+	);
 });
 
 afterEach(() => {
@@ -359,7 +382,8 @@ describe('ChatStore orchestration', () => {
 	it('captures and answers a permission prompt', async () => {
 		const client = new MockAgentClient();
 		const { api } = fakeTranscripts();
-		const store = new ChatStore('work', client, { transcripts: api });
+		const perms = fakePermissions();
+		const store = new ChatStore('work', client, { transcripts: api, permissions: perms.api });
 		store.start();
 
 		client.emitPermission({
@@ -372,6 +396,95 @@ describe('ChatStore orchestration', () => {
 		await store.answerPermission('allow_always');
 		expect(store.pendingPermission).toBeNull();
 		expect(client.answered).toEqual([{ requestId: 'req-1', decision: 'allow_always' }]);
+	});
+
+	it('allow_session answers without persisting a grant', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const perms = fakePermissions();
+		const store = new ChatStore('work', client, { transcripts: api, permissions: perms.api });
+		store.start();
+
+		client.emitPermission({
+			sessionId: 'sess-1',
+			requestId: 'req-1',
+			request: { tool: 'Write', kind: 'edit' }
+		});
+		await store.answerPermission('allow_session');
+
+		expect(client.answered).toEqual([{ requestId: 'req-1', decision: 'allow_session' }]);
+		// This-session grants are not persisted to the daemon store.
+		expect(perms.api.grant).not.toHaveBeenCalled();
+		expect(perms.granted).toEqual([]);
+	});
+
+	it('always allow answers AND persists the grant for the tool', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const perms = fakePermissions();
+		const store = new ChatStore('work', client, { transcripts: api, permissions: perms.api });
+		store.start();
+
+		client.emitPermission({
+			sessionId: 'sess-1',
+			requestId: 'req-1',
+			request: { tool: 'Write', kind: 'edit' }
+		});
+		await store.answerPermission('allow_always');
+
+		expect(client.answered).toEqual([{ requestId: 'req-1', decision: 'allow_always' }]);
+		expect(perms.api.grant).toHaveBeenCalledWith('work', 'Write');
+		expect(perms.granted).toEqual(['Write']);
+	});
+
+	it('deny answers deny and persists nothing', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const perms = fakePermissions();
+		const store = new ChatStore('work', client, { transcripts: api, permissions: perms.api });
+		store.start();
+
+		client.emitPermission({
+			sessionId: 'sess-1',
+			requestId: 'req-1',
+			request: { tool: 'Write', kind: 'edit' }
+		});
+		await store.answerPermission('deny');
+
+		expect(client.answered).toEqual([{ requestId: 'req-1', decision: 'deny' }]);
+		expect(perms.api.grant).not.toHaveBeenCalled();
+	});
+
+	it('seeds persisted grants from listGrants into the new session', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const perms = fakePermissions(['create_note', 'append_note']);
+		const store = new ChatStore('work', client, { transcripts: api, permissions: perms.api });
+		await store.loadAgents();
+		store.input = 'hi';
+		await store.send();
+
+		expect(perms.api.listGrants).toHaveBeenCalledWith('work');
+		const opts = client.startCalls[0] as { persistedGrants?: string[] };
+		expect(opts.persistedGrants).toEqual(['create_note', 'append_note']);
+	});
+
+	it('proceeds with no seed when fetching persisted grants fails', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const perms = fakePermissions();
+		perms.api.listGrants = vi.fn(async () => {
+			throw new Error('daemon offline');
+		});
+		const store = new ChatStore('work', client, { transcripts: api, permissions: perms.api });
+		await store.loadAgents();
+		store.input = 'hi';
+		await store.send();
+
+		// A grant-fetch failure must not block the session.
+		expect(store.sessionId).toBe('sess-1');
+		const opts = client.startCalls[0] as { persistedGrants?: string[] };
+		expect(opts.persistedGrants).toEqual([]);
 	});
 
 	it('toggles read-only and forwards to a live session', async () => {

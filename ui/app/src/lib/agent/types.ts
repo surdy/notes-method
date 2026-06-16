@@ -54,14 +54,29 @@ export interface AgentInfo {
 	available: boolean;
 }
 
+/** A proposed file change to preview before deciding (issue #189). */
+export interface DiffPreview {
+	path: string;
+	oldText: string | null;
+	newText: string;
+}
+
 /** Context handed to the user when the agent asks to perform a write. */
 export interface PermissionRequest {
 	tool: string;
 	kind?: string | null;
+	/** The proposed change to preview before deciding; absent for non-file actions. */
+	diff?: DiffPreview | null;
 }
 
-/** The user's answer to a {@link PermissionRequest}. */
-export type PermissionDecision = 'allow_once' | 'allow_always' | 'deny';
+/**
+ * The user's answer to a {@link PermissionRequest} (issue #189):
+ * - `allow_once` — allow this single call, remember nothing.
+ * - `allow_session` — allow + suppress re-prompts for this tool this session only.
+ * - `allow_always` — allow + persist the grant so future sessions never re-prompt.
+ * - `deny` — refuse.
+ */
+export type PermissionDecision = 'allow_once' | 'allow_session' | 'allow_always' | 'deny';
 
 /** Editor context injected with each turn (Phase 5). */
 export interface EditorContext {
@@ -78,6 +93,12 @@ export interface StartSessionOptions {
 	breakGlass?: boolean;
 	/** Reopen an existing transcript thread, re-establishing the ACP session lazily. */
 	threadId?: string | null;
+	/**
+	 * Tools the user has already granted "Always Allow" for this vault (issue
+	 * #189). Fetched from the daemon grant store and passed in to pre-seed the
+	 * session permission state so they never re-prompt.
+	 */
+	persistedGrants?: string[];
 }
 
 export interface StartSessionResult {

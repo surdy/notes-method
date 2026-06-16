@@ -378,10 +378,10 @@ mod tests {
             allow_writes: false,
         };
         let decision = decider
-            .decide(PermissionRequest {
-                tool: "create_note".to_string(),
-                kind: Some("edit".to_string()),
-            })
+            .decide(PermissionRequest::new(
+                "create_note",
+                Some("edit".to_string()),
+            ))
             .await;
         assert_eq!(decision, PermissionDecision::Deny);
     }
@@ -390,10 +390,10 @@ mod tests {
     async fn headless_decider_allows_only_when_opted_in() {
         let decider = HeadlessDecider { allow_writes: true };
         let decision = decider
-            .decide(PermissionRequest {
-                tool: "create_note".to_string(),
-                kind: Some("edit".to_string()),
-            })
+            .decide(PermissionRequest::new(
+                "create_note",
+                Some("edit".to_string()),
+            ))
             .await;
         assert_eq!(decision, PermissionDecision::AllowOnce);
     }

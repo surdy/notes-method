@@ -35,7 +35,7 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 
 use notesmith_agent::{
     AcpSession, AgentDescriptor, AgentDiagnosticsLog, AgentEvent, AgentSession, DiagEntry,
-    EditorContext, McpBinding, ModelPicker, PermissionDecider, PermissionDecision,
+    DiffPreview, EditorContext, McpBinding, ModelPicker, PermissionDecider, PermissionDecision,
     PermissionRequest,
 };
 use notesmith_config::{AgentEntry, AgentsConfig, expand_path_vars};
@@ -152,6 +152,11 @@ pub struct StartSessionOptions {
     read_only: bool,
     #[serde(default)]
     break_glass: bool,
+    /// Tools the user has already granted "Always Allow" for this vault, fetched
+    /// by the frontend from the daemon grant store and passed in to pre-seed the
+    /// session permission state so they never re-prompt (issue #189).
+    #[serde(default)]
+    persisted_grants: Vec<String>,
 }
 
 /// Editor context handed in with a turn. Mirrors the frontend `EditorContext`.
@@ -237,9 +242,34 @@ struct PermissionPayload {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct PermissionRequestDto {
     tool: String,
     kind: Option<String>,
+    /// The proposed change to preview before deciding (issue #189). `None` for
+    /// non-file actions (e.g. command runs).
+    diff: Option<DiffPreviewDto>,
+}
+
+/// A proposed file change carried with a permission prompt so the UI can show a
+/// diff/preview before the user decides (issue #189). Mirrors the frontend
+/// `PermissionRequest.diff`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiffPreviewDto {
+    path: String,
+    old_text: Option<String>,
+    new_text: String,
+}
+
+impl From<DiffPreview> for DiffPreviewDto {
+    fn from(diff: DiffPreview) -> Self {
+        DiffPreviewDto {
+            path: diff.path,
+            old_text: diff.old_text,
+            new_text: diff.new_text,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -349,6 +379,7 @@ impl PermissionDecider for BridgeDecider {
                 request: PermissionRequestDto {
                     tool: request.tool,
                     kind: request.kind,
+                    diff: request.diff.map(DiffPreviewDto::from),
                 },
             };
             if app.emit(AGENT_PERMISSION, payload).is_err() {
@@ -539,6 +570,7 @@ fn build_session(
     Ok(session
         .read_only(opts.read_only)
         .with_local_io(opts.break_glass)
+        .with_granted_tools(opts.persisted_grants.clone())
         .with_diagnostics(diagnostics_log())
         .with_permission_decider(decider))
 }
@@ -774,9 +806,14 @@ pub async fn agent_answer_permission(
     request_id: String,
     decision: String,
 ) -> Result<(), String> {
+    // Map the frontend's decision string to the session policy. "Always Allow"
+    // persistence is frontend-orchestrated (the chat store POSTs the grant to
+    // the daemon store), so here both "allow_session" and "allow_always" resolve
+    // to the same in-session `AllowAlways` (allow + remember this session). The
+    // legacy "allow_always" string is accepted for forward/backward tolerance.
     let decision = match decision.as_str() {
         "allow_once" => PermissionDecision::AllowOnce,
-        "allow_always" => PermissionDecision::AllowAlways,
+        "allow_session" | "allow_always" => PermissionDecision::AllowAlways,
         "deny" => PermissionDecision::Deny,
         other => return Err(format!("unknown decision '{other}'")),
     };
@@ -1140,6 +1177,7 @@ mod tests {
             agent: "copilot".to_string(),
             read_only,
             break_glass: false,
+            persisted_grants: Vec::new(),
         }
     }
 

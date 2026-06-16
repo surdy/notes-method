@@ -14,6 +14,7 @@ members = [
     "crates/notesmith-prompts",
     "crates/notesmith-ops",
     "crates/notesmith-transcript",
+    "crates/notesmith-permission",
     "crates/notesmith-http",
     "crates/notesmith-mcp",
     "crates/notesmith-agent",
@@ -47,6 +48,7 @@ notesmith-config = { path = "crates/notesmith-config" }
 notesmith-prompts = { path = "crates/notesmith-prompts" }
 notesmith-ops = { path = "crates/notesmith-ops" }
 notesmith-transcript = { path = "crates/notesmith-transcript" }
+notesmith-permission = { path = "crates/notesmith-permission" }
 notesmith-http = { path = "crates/notesmith-http" }
 notesmith-mcp = { path = "crates/notesmith-mcp" }
 notesmith-cli = { path = "crates/notesmith-cli" }

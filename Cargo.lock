@@ -2254,6 +2254,7 @@ dependencies = [
  "notesmith-index",
  "notesmith-mcp",
  "notesmith-ops",
+ "notesmith-permission",
  "notesmith-prompts",
  "notesmith-query",
  "notesmith-routing",
@@ -2340,6 +2341,17 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tempfile",
+]
+
+[[package]]
+name = "notesmith-permission"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rusqlite",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]

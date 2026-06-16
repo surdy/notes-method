@@ -9,6 +9,7 @@ pub mod git;
 pub mod helpers;
 pub mod notes;
 pub mod periodic;
+pub mod permissions;
 pub mod prompts;
 pub mod routing;
 pub mod sql;

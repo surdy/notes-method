@@ -59,7 +59,7 @@ use crate::event::{AgentEvent, ToolCall, ToolResult};
 use crate::mcp::McpBinding;
 use crate::model::{ModelPicker, parse_model_picker};
 use crate::permission::{
-    DenyAll, PermissionDecider, PermissionRequest, PermissionState, resolve_permission,
+    DenyAll, DiffPreview, PermissionDecider, PermissionRequest, PermissionState, resolve_permission,
 };
 use crate::session::AgentSession;
 
@@ -300,10 +300,12 @@ pub(crate) fn select_permission_option(
     }
 }
 
-/// Extract the prompt context (tool name + kind) from an inbound
-/// `session/request_permission` request. The tool name is the per-tool "allow
-/// always" key, so a missing/empty title falls back to the tool kind and then a
-/// stable placeholder.
+/// Extract the prompt context (tool name + kind + proposed diff) from an
+/// inbound `session/request_permission` request. The tool name is the per-tool
+/// "allow always" key, so a missing/empty title falls back to the tool kind and
+/// then a stable placeholder. The first `Diff` content block (if any) becomes a
+/// bounded [`DiffPreview`] so the UI can show a preview before deciding (issue
+/// #189).
 fn permission_request_info(req: &RequestPermissionRequest) -> PermissionRequest {
     let kind = req.tool_call.fields.kind.as_ref().map(|kind| {
         serde_json::to_value(kind)
@@ -320,7 +322,42 @@ fn permission_request_info(req: &RequestPermissionRequest) -> PermissionRequest 
         .map(str::to_string)
         .or_else(|| kind.clone())
         .unwrap_or_else(|| "tool".to_string());
-    PermissionRequest { tool, kind }
+    let diff = permission_request_diff(req);
+    PermissionRequest { tool, kind, diff }
+}
+
+/// Maximum characters of either side of a diff preview retained in a permission
+/// request. A pathological tool call must never hand the UI a megabyte of
+/// content (ADR 0009); the preview is for a human glance, not a full apply.
+const DIFF_PREVIEW_CAP: usize = 8 * 1024;
+
+/// Truncate `text` to [`DIFF_PREVIEW_CAP`] characters (char-boundary safe),
+/// appending an ellipsis marker when truncated.
+fn cap_diff_text(text: &str) -> String {
+    if text.chars().count() <= DIFF_PREVIEW_CAP {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(DIFF_PREVIEW_CAP).collect();
+    format!("{head}\n… (truncated)")
+}
+
+/// Pull the first `Diff` content block out of a permission request, bounding
+/// both texts. Returns `None` when the request carries no diff (e.g. a command
+/// run or a plain content tool call).
+fn permission_request_diff(req: &RequestPermissionRequest) -> Option<DiffPreview> {
+    req.tool_call
+        .fields
+        .content
+        .iter()
+        .flatten()
+        .find_map(|block| match block {
+            ToolCallContent::Diff(diff) => Some(DiffPreview {
+                path: diff.path.to_string_lossy().into_owned(),
+                old_text: diff.old_text.as_deref().map(cap_diff_text),
+                new_text: cap_diff_text(&diff.new_text),
+            }),
+            _ => None,
+        })
 }
 
 /// Answer a `session/request_permission` callback using the session permission
@@ -650,6 +687,20 @@ impl AcpSession {
     /// through unprompted; the desktop chat UI injects a real prompt (Phase 8).
     pub fn with_permission_decider(mut self, decider: Arc<dyn PermissionDecider>) -> Self {
         self.decider = decider;
+        self
+    }
+
+    /// Pre-seed the session permission state with tools the user has already
+    /// granted "Always Allow" in a previous session (issue #189). Seeded tools
+    /// behave exactly like a session "allow always" grant: later uses are
+    /// allowed silently without consulting the decider, so a persisted grant —
+    /// even across a daemon/app restart — never re-prompts. The persisted list
+    /// is supplied by the frontend (which owns the daemon HTTP grant store); the
+    /// agent/ACP layer stays HTTP-free and only consumes the names.
+    pub fn with_granted_tools(self, tools: Vec<String>) -> Self {
+        for tool in tools {
+            self.permission_state.remember(&tool);
+        }
         self
     }
 
@@ -1586,6 +1637,87 @@ mod tests {
             "options": [],
         }));
         assert_eq!(permission_request_info(&placeholder).tool, "tool");
+    }
+
+    #[test]
+    fn permission_request_info_extracts_a_diff_preview() {
+        let req = permission_req(json!({
+            "sessionId": "s",
+            "toolCall": {
+                "toolCallId": "t1",
+                "title": "Write",
+                "kind": "edit",
+                "content": [
+                    {
+                        "type": "diff",
+                        "path": "notes/todo.md",
+                        "oldText": "old line",
+                        "newText": "new line"
+                    }
+                ]
+            },
+            "options": [],
+        }));
+        let info = permission_request_info(&req);
+        let diff = info.diff.expect("diff preview extracted");
+        assert_eq!(diff.path, "notes/todo.md");
+        assert_eq!(diff.old_text.as_deref(), Some("old line"));
+        assert_eq!(diff.new_text, "new line");
+    }
+
+    #[test]
+    fn permission_request_info_has_no_diff_without_a_diff_block() {
+        let req = permission_req(json!({
+            "sessionId": "s",
+            "toolCall": { "toolCallId": "t1", "title": "run", "kind": "execute" },
+            "options": [],
+        }));
+        assert!(permission_request_info(&req).diff.is_none());
+    }
+
+    #[test]
+    fn diff_preview_caps_oversized_new_text() {
+        let huge = "x".repeat(DIFF_PREVIEW_CAP + 5_000);
+        let req = permission_req(json!({
+            "sessionId": "s",
+            "toolCall": {
+                "toolCallId": "t1",
+                "title": "Write",
+                "content": [
+                    { "type": "diff", "path": "big.md", "newText": huge }
+                ]
+            },
+            "options": [],
+        }));
+        let diff = permission_request_info(&req).diff.expect("diff preview");
+        // Capped to the bound plus the short truncation marker — never the full
+        // megabyte the agent supplied (ADR 0009).
+        assert!(diff.new_text.chars().count() <= DIFF_PREVIEW_CAP + 32);
+        assert!(diff.new_text.ends_with("… (truncated)"));
+    }
+
+    #[tokio::test]
+    async fn with_granted_tools_auto_allows_seeded_tools() {
+        // A session seeded with a persisted grant (issue #189) auto-allows that
+        // tool without consulting the decider — even a deny-everything decider.
+        let session = AcpSession::new("copilot", vec![]).with_granted_tools(vec!["Write".into()]);
+        assert!(session.permission_state.is_always("Write"));
+        assert!(!session.permission_state.is_always("create_note"));
+
+        let req = permission_req(json!({
+            "sessionId": "s",
+            "toolCall": { "toolCallId": "t1", "title": "Write" },
+            "options": [
+                { "optionId": "yes", "name": "Allow", "kind": "allow_once" },
+                { "optionId": "no", "name": "Reject", "kind": "reject_once" },
+            ],
+        }));
+        let deny: Arc<dyn PermissionDecider> = Arc::new(FixedDecider(PermissionDecision::Deny));
+        let outcome = answer_permission(&req, false, &session.permission_state, &deny).await;
+        assert_eq!(
+            selected_id(&outcome).map(|id| id.0.to_string()),
+            Some("yes".to_string())
+        );
     }
 
     #[tokio::test]

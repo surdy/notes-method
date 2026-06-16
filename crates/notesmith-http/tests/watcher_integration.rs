@@ -68,6 +68,7 @@ async fn watcher_indexes_new_markdown_files() {
         shutdown_rx,
         mcp_services: Default::default(),
         transcripts: Default::default(),
+        permissions: Default::default(),
     }));
 
     let _watcher = watch_vault(state.clone(), "test-vault".to_string())

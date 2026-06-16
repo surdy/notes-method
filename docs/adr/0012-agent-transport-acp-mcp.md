@@ -84,9 +84,27 @@ injected into the prompt) is portable: route **everything through `Ops`**, and
 
 5. **Read-write by default, gated by per-write permission prompts.** The default
    session uses the read-write MCP server, but **every write tool is gated by an
-   ACP `session/request_permission`** prompt offering **allow once /
-   allow always / deny**. "Allow always" is **per-tool and scoped to the current
-   chat session only** — no standing cross-session write grants.
+   ACP `session/request_permission`** prompt offering three allow tiers plus
+   deny: **Allow Once** (allow this single call, remember nothing), **Allow This
+   Session** (allow + suppress re-prompts for this tool for the rest of the chat
+   session, nothing persisted), and **Always Allow** (allow + remember in the
+   session **and** persist the grant so a future session — even after a
+   daemon/app restart — is pre-seeded and never re-prompts). The prompt also
+   carries a **diff/preview** of the proposed change (extracted from the ACP
+   `ToolCallContent::Diff`, bounded to ~8 KB per side per ADR 0009) so the user
+   reviews the change before any write is applied (issue #189).
+
+   **Persisted grants are daemon-owned and frontend-orchestrated.** They live in
+   a single durable SQLite store (`agent-permissions.sqlite`) in the daemon data
+   dir, scoped per-vault and keyed by `(vault, tool)`, exposed over the per-vault
+   REST surface (`GET/POST /api/v/{vault}/agent/permissions`,
+   `DELETE …/{tool}`). The Rust agent/ACP layer stays **HTTP-free**: it only
+   (a) accepts a list of already-granted tool names to pre-seed the session
+   permission state (`AcpSession::with_granted_tools`), and (b) carries the
+   proposed diff in the permission request. The Svelte chat store fetches the
+   persisted grants at session start (pre-seeding the session) and POSTs a new
+   grant when the user picks "Always Allow"; persistence is best-effort, so a
+   store failure never blocks the agent (the in-session grant still applies).
 6. **A hard read-only mode** swaps the session to the **`/mcp-ro/<vault>`**
    (`ReadOnlyOps`) server, which exposes no write tools at all — a guarantee, not
    a prompt. Because the read-only scope can only ever surface safe reads (the

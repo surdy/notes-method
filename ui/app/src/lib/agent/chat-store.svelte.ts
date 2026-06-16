@@ -13,6 +13,7 @@
 
 import * as transcriptApi from '../api/transcripts.ts';
 import type { Thread } from '../api/transcripts.ts';
+import * as permissionApi from '../api/permissions.ts';
 import { createNote as createVaultNote } from '../api/notes.ts';
 import type { ApplyMode } from '../editor/apply-output.ts';
 import { formatTranscriptMarkdown } from './transcript-format.ts';
@@ -55,9 +56,17 @@ export interface TranscriptApi {
 	renameThread(vault: string, threadId: string, title: string): Promise<Thread>;
 }
 
+/** The subset of the permission API the store needs; injectable for tests. */
+export interface PermissionApi {
+	listGrants(vault: string): Promise<string[]>;
+	grant(vault: string, tool: string): Promise<void>;
+	revoke(vault: string, tool: string): Promise<void>;
+}
+
 export interface ChatStoreDeps {
 	client: AgentClient;
 	transcripts?: TranscriptApi;
+	permissions?: PermissionApi;
 	/** Reads the current break-glass setting at session start. */
 	breakGlass?: () => boolean;
 	/**
@@ -94,6 +103,7 @@ export class ChatStore {
 	errorMessage = $state<string | null>(null);
 
 	private readonly transcripts: TranscriptApi;
+	private readonly permissions: PermissionApi;
 	private readonly applyToEditor: (mode: ApplyMode, text: string) => boolean;
 	private readonly createNote: (
 		vault: string,
@@ -111,6 +121,7 @@ export class ChatStore {
 		deps?: Partial<ChatStoreDeps>
 	) {
 		this.transcripts = deps?.transcripts ?? (transcriptApi as TranscriptApi);
+		this.permissions = deps?.permissions ?? (permissionApi as PermissionApi);
 		this.breakGlass = deps?.breakGlass ?? (() => false);
 		this.applyToEditor = deps?.applyToEditor ?? (() => false);
 		this.createNote = deps?.createNote ?? createVaultNote;
@@ -245,12 +256,23 @@ export class ChatStore {
 		if (this.sessionStartPromise) return this.sessionStartPromise;
 		this.sessionStartPromise = (async () => {
 			const startedReadOnly = this.readOnly;
+			// Pre-seed the session with the user's persisted "Always Allow" grants
+			// for this vault (issue #189) so granted tools never re-prompt — even
+			// after a daemon/app restart. Best-effort: a fetch failure must not
+			// block the session, so fall back to no seed.
+			let persistedGrants: string[] = [];
+			try {
+				persistedGrants = await this.permissions.listGrants(this.vault);
+			} catch {
+				persistedGrants = [];
+			}
 			const result = await this.client.startSession({
 				vault: this.vault,
 				agent: this.selectedAgent!,
 				readOnly: startedReadOnly,
 				breakGlass: this.breakGlass(),
-				threadId: this.currentThreadId
+				threadId: this.currentThreadId,
+				persistedGrants
 			});
 			this.sessionId = result.sessionId;
 			this.modelPicker = result.models;
@@ -407,6 +429,19 @@ export class ChatStore {
 		const pending = this.pendingPermission;
 		if (!pending) return;
 		this.pendingPermission = null;
+		// "Always Allow" persists the grant to the daemon store so a future
+		// session (even after a restart) is pre-seeded and never re-prompts
+		// (issue #189). Best-effort: a persistence failure must never block the
+		// agent, so swallow it — the in-session grant still suppresses re-prompts
+		// for the rest of this session. "allow_session" suppresses for this
+		// session only; "allow_once"/"deny" persist nothing.
+		if (decision === 'allow_always') {
+			try {
+				await this.permissions.grant(this.vault, pending.request.tool);
+			} catch {
+				// Swallow: persistence is best-effort, the ACP answer still applies.
+			}
+		}
 		await this.client.answerPermission(pending.requestId, decision);
 	}
 

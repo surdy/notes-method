@@ -189,6 +189,7 @@ mod tests {
             shutdown_rx,
             mcp_services: Default::default(),
             transcripts: Default::default(),
+            permissions: Default::default(),
         }));
 
         let sse = vault_events(

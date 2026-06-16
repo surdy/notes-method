@@ -35,6 +35,21 @@ pub enum PermissionDecision {
     Deny,
 }
 
+/// A proposed file change carried in a permission request so the UI can show a
+/// diff/preview before the user decides (issue #189). Mirrors the ACP
+/// `ToolCallContent::Diff` payload, with both texts bounded to a sane size so a
+/// pathological tool call can never hand the UI a megabyte of content (ADR
+/// 0009).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffPreview {
+    /// The file path being modified.
+    pub path: String,
+    /// The original content (`None` for a new file).
+    pub old_text: Option<String>,
+    /// The new content after the modification.
+    pub new_text: String,
+}
+
 /// Context describing the action an agent is asking permission for, handed to
 /// the [`PermissionDecider`] so a UI can render a meaningful prompt.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +58,21 @@ pub struct PermissionRequest {
     pub tool: String,
     /// Tool kind (`read`/`edit`/`execute`/…), when the agent supplied one.
     pub kind: Option<String>,
+    /// The proposed change to preview before deciding, when the request carries
+    /// a diff (issue #189). `None` for non-file actions (e.g. command runs).
+    pub diff: Option<DiffPreview>,
+}
+
+impl PermissionRequest {
+    /// A request with no diff preview — the common shape before issue #189 and
+    /// for actions that do not carry a proposed file change.
+    pub fn new(tool: impl Into<String>, kind: Option<String>) -> Self {
+        Self {
+            tool: tool.into(),
+            kind,
+            diff: None,
+        }
+    }
 }
 
 /// Decides how to answer a write-permission prompt that the session cannot

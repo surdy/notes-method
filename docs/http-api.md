@@ -1580,6 +1580,48 @@ vault; an unknown `role` is a `4xx` deserialization error (never a `500`).
 
 ---
 
+## Agent permissions
+
+Per-vault persisted **"Always Allow"** grants for agent writes (issue #189). The
+agent panel gates every write behind a permission prompt offering **Allow Once**,
+**Allow This Session**, and **Always Allow**. "Always Allow" is persisted here, in
+the daemon's durable store (alongside transcripts, separate from the rebuildable
+index cache — see [ADR 0012](adr/0012-agent-transport-acp-mcp.md) Decision 5), so
+a future session — even after a daemon/app restart — pre-seeds the grant and
+never re-prompts.
+
+Persistence is **frontend-orchestrated**: the chat store fetches a vault's grants
+at session start (to pre-seed the ACP session) and POSTs a new grant when the user
+picks "Always Allow". Grants are keyed by `(vault, tool)`; all routes are
+vault-scoped, so one vault's grants are never visible under another.
+
+### `GET /api/v/{vault}/agent/permissions`
+
+List the vault's granted tool names. Returns `200` with a JSON array of strings,
+sorted ascending. Example:
+
+```json
+["append_note", "create_note"]
+```
+
+### `POST /api/v/{vault}/agent/permissions`
+
+Persist an "Always Allow" grant. Body: `{ "tool": "create_note" }`. Idempotent —
+a repeated grant is a no-op. Returns `204`. `400` if `tool` is empty/blank.
+
+```bash
+curl -X POST http://127.0.0.1:27183/api/v/work/agent/permissions \
+  -H 'Content-Type: application/json' \
+  -d '{ "tool": "create_note" }'
+```
+
+### `DELETE /api/v/{vault}/agent/permissions/{tool}`
+
+Revoke a persisted grant. Returns `204` (idempotent — revoking an absent grant is
+not an error).
+
+---
+
 ## Agent access (MCP over HTTP)
 
 The daemon hosts a [Model Context Protocol](https://modelcontextprotocol.io) server for each vault using the streamable-HTTP transport (HTTP + SSE). Agents connect directly to the daemon and reuse its live per-vault indexes — there is no separate process to launch.

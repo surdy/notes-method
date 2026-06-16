@@ -36,7 +36,7 @@ pub use event::{AgentEvent, ToolCall, ToolResult};
 pub use mcp::McpBinding;
 pub use model::{ModelOption, ModelPicker};
 pub use permission::{
-    DenyAll, PermissionDecider, PermissionDecision, PermissionRequest, PermissionState,
+    DenyAll, DiffPreview, PermissionDecider, PermissionDecision, PermissionRequest, PermissionState,
 };
 pub use registry::{AgentDescriptor, LaunchCandidate, builtin_registry, descriptor};
 pub use session::AgentSession;

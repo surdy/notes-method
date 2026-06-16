@@ -19,6 +19,7 @@ notesmith-git = { workspace = true }
 notesmith-html = { workspace = true }
 notesmith-ops = { workspace = true }
 notesmith-transcript = { workspace = true }
+notesmith-permission = { workspace = true }
 notesmith-mcp = { workspace = true }
 arc-swap = { workspace = true }
 axum = { workspace = true }
