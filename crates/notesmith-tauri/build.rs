@@ -37,6 +37,8 @@ fn main() {
             "agent_diagnostics_set_verbose",
             "agent_diagnostics_clear",
             "agent_diagnostics",
+            "mcp_servers_get",
+            "mcp_servers_set",
             "connection_list",
             "connection_add",
             "connection_update",
