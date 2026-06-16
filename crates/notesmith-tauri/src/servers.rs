@@ -205,38 +205,6 @@ pub fn load(path: &Path) -> ServersFile {
     }
 }
 
-/// Seed the store from a legacy `NOTESMITH_DESKTOP_DAEMON_URL` value on first
-/// run. When `raw_url` is set and no stored server already points at it, the URL
-/// is added as a server (named `name`) and marked **active**, so existing
-/// env-var setups keep working after the upgrade. Returns `true` when the store
-/// was modified (the caller should persist). Idempotent: once a matching server
-/// exists, subsequent runs are a no-op and the user's in-app selection wins.
-pub fn seed_from_env_url(file: &mut ServersFile, raw_url: Option<&str>, name: &str) -> bool {
-    let raw = match raw_url.map(str::trim).filter(|url| !url.is_empty()) {
-        Some(url) => url,
-        None => return false,
-    };
-    // Compare against the same normalized form `add` stores (no trailing slash).
-    let normalized = raw.trim_end_matches('/');
-    if file.servers.iter().any(|server| server.url == normalized) {
-        return false;
-    }
-    match file.add(ServerInput {
-        name: name.to_string(),
-        url: raw.to_string(),
-        token: None,
-    }) {
-        Ok(id) => {
-            let _ = file.set_active(Some(&id));
-            true
-        }
-        Err(error) => {
-            tracing::warn!(%error, url = raw, "ignoring invalid NOTESMITH_DESKTOP_DAEMON_URL during seed");
-            false
-        }
-    }
-}
-
 /// Atomically write `servers.json` via a sibling `.tmp` file and rename.
 /// Creates the parent directory if needed.
 pub fn save(path: &Path, file: &ServersFile) -> io::Result<()> {
@@ -760,61 +728,5 @@ mod tests {
             file.active_target("http://127.0.0.1:27183"),
             ("http://127.0.0.1:27183".to_string(), false)
         );
-    }
-
-    #[test]
-    fn seed_from_env_url_adds_and_activates_when_absent() {
-        let mut file = ServersFile::default();
-        assert!(seed_from_env_url(
-            &mut file,
-            Some("https://notes.example.com"),
-            "Home server"
-        ));
-        // A new server was added and marked active.
-        assert_eq!(file.servers.len(), 1);
-        assert_eq!(file.servers[0].url, "https://notes.example.com");
-        assert!(!file.is_local_active());
-        assert_eq!(
-            file.active_target("http://127.0.0.1:27183"),
-            ("https://notes.example.com".to_string(), true)
-        );
-    }
-
-    #[test]
-    fn seed_from_env_url_is_idempotent_for_matching_url() {
-        let mut file = ServersFile::default();
-        let id = file
-            .add(input("Home", "https://notes.example.com"))
-            .unwrap();
-        // User has since switched back to local.
-        file.set_active(Some(LOCAL_ID)).unwrap();
-
-        // Same URL (with a trailing slash) must not re-add or re-activate.
-        assert!(!seed_from_env_url(
-            &mut file,
-            Some("https://notes.example.com/"),
-            "Home server"
-        ));
-        assert_eq!(file.servers.len(), 1);
-        assert!(file.is_local_active());
-        // The pre-existing entry is untouched.
-        assert_eq!(
-            file.servers.iter().find(|s| s.id == id).unwrap().name,
-            "Home"
-        );
-    }
-
-    #[test]
-    fn seed_from_env_url_ignores_empty_and_invalid() {
-        let mut file = ServersFile::default();
-        assert!(!seed_from_env_url(&mut file, None, "Home server"));
-        assert!(!seed_from_env_url(&mut file, Some("   "), "Home server"));
-        assert!(!seed_from_env_url(
-            &mut file,
-            Some("ftp://nope"),
-            "Home server"
-        ));
-        assert!(file.servers.is_empty());
-        assert!(file.is_local_active());
     }
 }

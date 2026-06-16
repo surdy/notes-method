@@ -19,18 +19,20 @@ pub struct DaemonSettings {
     pub ping_timeout: Duration,
     pub startup_wait: Duration,
     pub startup_poll_interval: Duration,
-    /// True when the daemon URL was supplied via `NOTESMITH_DESKTOP_DAEMON_URL`.
-    /// When true, skip the local lockfile check and daemon launch — the remote
-    /// daemon is managed independently and its lockfile is not on this machine.
+    /// True when the active connection is a remote server (resolved from the
+    /// persisted server list in `effective_settings`). When true, skip the
+    /// local lockfile check and daemon launch — the remote daemon is managed
+    /// independently and its lockfile is not on this machine.
     pub external_url: bool,
 }
 
 impl Default for DaemonSettings {
     fn default() -> Self {
-        let (daemon_url, external_url) =
-            resolve_external_daemon_url(std::env::var("NOTESMITH_DESKTOP_DAEMON_URL").ok());
+        // The base targets the local daemon; the active connection (local vs a
+        // saved remote server) is resolved from the persisted server list in
+        // `effective_settings`, which overrides `daemon_url`/`external_url`.
         Self {
-            daemon_url,
+            daemon_url: DEFAULT_DAEMON_URL.to_string(),
             daemon_bin: std::env::var("NOTESMITH_DESKTOP_DAEMON_BIN")
                 .ok()
                 .map(|bin| bin.trim().to_string())
@@ -40,22 +42,8 @@ impl Default for DaemonSettings {
             ping_timeout: Duration::from_secs(2),
             startup_wait: Duration::from_secs(10),
             startup_poll_interval: Duration::from_millis(500),
-            external_url,
+            external_url: false,
         }
-    }
-}
-
-/// Resolve the daemon URL from the optional `NOTESMITH_DESKTOP_DAEMON_URL`
-/// value. An unset variable — or one set to an empty/whitespace-only string —
-/// is treated as "not configured", falling back to the local default daemon
-/// (and `external_url = false`). Returns `(daemon_url, external_url)`.
-fn resolve_external_daemon_url(raw: Option<String>) -> (String, bool) {
-    match raw
-        .map(|url| url.trim().to_string())
-        .filter(|url| !url.is_empty())
-    {
-        Some(url) => (url, true),
-        None => (DEFAULT_DAEMON_URL.to_string(), false),
     }
 }
 
@@ -519,9 +507,9 @@ pub async fn orchestrate_startup(settings: &DaemonSettings) -> DaemonState {
 pub async fn orchestrate_startup_supervised(settings: &DaemonSettings) -> SupervisedStartup {
     let settings = settings.clone();
 
-    // When pointing at an external daemon (NOTESMITH_DESKTOP_DAEMON_URL), the
-    // local lockfile belongs to a different process.  Skip the lockfile check
-    // and skip launching — just probe the configured URL.
+    // When the active connection is a remote server, the local lockfile belongs
+    // to a different process.  Skip the lockfile check and skip launching —
+    // just probe the configured URL.
     if !settings.external_url {
         match read_active_lockfile() {
             Ok(Some(lockfile)) => {
@@ -801,8 +789,8 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::{
-        DEFAULT_DAEMON_URL, DaemonSettings, DaemonState, DaemonStatus, DaemonSupervisor, DynError,
-        StartupOrchestrator, VersionStatus, resolve_external_daemon_url,
+        DaemonSettings, DaemonState, DaemonStatus, DaemonSupervisor, DynError, StartupOrchestrator,
+        VersionStatus,
     };
 
     fn test_settings() -> DaemonSettings {
@@ -832,44 +820,6 @@ mod tests {
             version: env!("CARGO_PKG_VERSION").to_string(),
             started_at: Utc::now(),
             binary_path: PathBuf::from("/Applications/Notesmith.app/Contents/MacOS/notesmith"),
-        }
-    }
-
-    #[test]
-    fn resolve_external_daemon_url_treats_set_value_as_external() {
-        let (url, external) =
-            resolve_external_daemon_url(Some("https://notesmith.example.com".into()));
-        assert_eq!(url, "https://notesmith.example.com");
-        assert!(external);
-    }
-
-    #[test]
-    fn resolve_external_daemon_url_trims_whitespace() {
-        let (url, external) =
-            resolve_external_daemon_url(Some("  https://notesmith.example.com  ".into()));
-        assert_eq!(url, "https://notesmith.example.com");
-        assert!(external);
-    }
-
-    #[test]
-    fn resolve_external_daemon_url_treats_unset_as_local_default() {
-        let (url, external) = resolve_external_daemon_url(None);
-        assert_eq!(url, DEFAULT_DAEMON_URL);
-        assert!(!external);
-    }
-
-    #[test]
-    fn resolve_external_daemon_url_treats_empty_as_unset() {
-        for raw in ["", "   ", "\t", "\n"] {
-            let (url, external) = resolve_external_daemon_url(Some(raw.into()));
-            assert_eq!(
-                url, DEFAULT_DAEMON_URL,
-                "empty value {raw:?} should be unset"
-            );
-            assert!(
-                !external,
-                "empty value {raw:?} must not be treated as external"
-            );
         }
     }
 
@@ -1272,9 +1222,9 @@ mod tests {
 
     #[tokio::test]
     async fn orchestrate_startup_skips_lockfile_when_external_url_set() {
-        // When NOTESMITH_DESKTOP_DAEMON_URL is set, a stale local lockfile must
-        // not cause a PortConflict — the external daemon is unreachable here, so
-        // we expect Unreachable (not PortConflict).
+        // When the active connection is a remote server, a stale local lockfile
+        // must not cause a PortConflict — the external daemon is unreachable
+        // here, so we expect Unreachable (not PortConflict).
         let launches = Arc::new(AtomicUsize::new(0));
         let orchestrator = StartupOrchestrator::new(
             external_test_settings(),

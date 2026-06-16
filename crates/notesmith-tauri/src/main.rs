@@ -544,7 +544,6 @@ fn initialize_app(app: &tauri::App) -> Result<(), DynError> {
         handle
             .state::<ServersState>()
             .set_path_and_load(servers::servers_file_path(&config_dir));
-        seed_servers_from_env(&handle.state::<ServersState>());
     } else {
         tracing::warn!("app config dir unavailable; windows.json will not be persisted");
     }
@@ -1838,41 +1837,10 @@ fn frontend_mode<R: Runtime>(app: &AppHandle<R>) -> FrontendMode {
     }
 }
 
-/// Seed the persisted server list from a legacy `NOTESMITH_DESKTOP_DAEMON_URL`
-/// value on first run, then leave the in-app selection authoritative. Only
-/// touches disk when the env var is set, so pure-local users never get a
-/// `servers.json` written behind their back.
-fn seed_servers_from_env(state: &ServersState) {
-    let Some(raw) = std::env::var("NOTESMITH_DESKTOP_DAEMON_URL")
-        .ok()
-        .map(|url| url.trim().to_string())
-        .filter(|url| !url.is_empty())
-    else {
-        return;
-    };
-    let name = friendly_server_name(&raw);
-    if state.mutate(|file| servers::seed_from_env_url(file, Some(&raw), &name)) {
-        tracing::info!(url = %raw, "seeded server list from NOTESMITH_DESKTOP_DAEMON_URL");
-    }
-}
-
-/// Best-effort display name for a seeded server: its host, falling back to a
-/// generic label when the URL can't be parsed.
-fn friendly_server_name(raw: &str) -> String {
-    reqwest::Url::parse(raw)
-        .ok()
-        .and_then(|url| url.host_str().map(str::to_string))
-        .filter(|host| !host.is_empty())
-        .unwrap_or_else(|| "Remote server".to_string())
-}
-
 /// Daemon settings for the **active connection**. The persisted server list is
 /// authoritative: a remote server yields `external_url = true` + its URL, and
-/// the local daemon yields `external_url = false` + the default local URL. The
-/// legacy `NOTESMITH_DESKTOP_DAEMON_URL` no longer drives this decision — it is
-/// only a one-time seed for the store (see [`servers::seed_from_env_url`]), so
-/// switching to "This Mac" truly goes local even when the env var is still set.
-/// `daemon_bin`/sidecar and timeouts continue to come from the env-derived base.
+/// the local daemon yields `external_url = false` + the default local URL.
+/// `daemon_bin`/sidecar and timeouts come from the base defaults.
 fn effective_settings<R: Runtime>(app: &AppHandle<R>) -> DaemonSettings {
     let base = startup_settings();
     let (url, remote) = app
