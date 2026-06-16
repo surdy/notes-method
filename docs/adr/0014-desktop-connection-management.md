@@ -65,22 +65,24 @@ local (and never spawns one when switching to remote), updates the runtime
 embedded assets, local → daemon-served), so the webview loads the right frontend
 for the active target.
 
-### 5. `NOTESMITH_DESKTOP_DAEMON_URL` becomes a one-time seed
+### 5. `NOTESMITH_DESKTOP_DAEMON_URL` is removed
 
-On first launch with the variable set, `servers::seed_from_env_url` adds the URL
-to the list (named after its host) and marks it active, so existing setups keep
-working after the upgrade. It is **idempotent**: once a server with that URL
-exists, later launches are a no-op, and the user's in-app selection wins. The
-variable is no longer required and no longer drives the local/remote decision at
-runtime.
+> **Amended (2026-06):** the variable was initially retained as a one-time seed
+> of the server list. It has since been **removed entirely** — it is no longer
+> read and is ignored if set. Keeping it as a seed introduced a re-seed footgun
+> (deleting the seeded server in-app re-added and re-activated it on the next
+> launch while the variable was still exported), and the in-app server list now
+> fully covers the use case. Remote connections are configured only through
+> **Settings → Connection**. The separate `NOTESMITH_DESKTOP_DAEMON_BIN`
+> override (local daemon binary path) is unaffected.
 
 ## Consequences
 
 - New users get a zero-config local app; remote access is discoverable in the
   UI rather than hidden in the environment.
 - Multiple servers can be saved, tested, and switched between live.
-- The env-var migration path is seamless and reversible — a seeded server can be
-  edited or removed like any other, and switching to local is honoured.
+- The env-var path is fully removed: remote access is configured only in the UI,
+  and a saved server can be edited or removed like any other.
 - `servers.json` is desktop-only state; the daemon and CLI are unaffected.
 - Tauri command registration still requires the three-place wiring
   (`generate_handler!`, `build.rs commands()`, and `allow-*` grants in **both**

@@ -404,7 +404,7 @@ The selection persists in `servers.json` (next to `windows.json` in the app conf
 
 ### Migrating from `NOTESMITH_DESKTOP_DAEMON_URL`
 
-Earlier builds used the `NOTESMITH_DESKTOP_DAEMON_URL` environment variable to force a remote daemon. That variable is now an **optional one-time seed**: on first launch with it set, the URL is added to your server list (named after its host) and marked active, so existing setups keep working. After that, **your in-app selection always wins** — switching to **This Mac** truly goes local even if the variable is still exported. You no longer need to set it; prefer Settings → Connection.
+Earlier builds used the `NOTESMITH_DESKTOP_DAEMON_URL` environment variable to force a remote daemon. **It is no longer supported and is ignored.** Add your server in **Settings → Connection** and switch to it from the status-bar pill instead — the saved server list is now the only way to configure remote connections.
 
 ## 16. URL Scheme
 

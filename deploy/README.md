@@ -186,53 +186,6 @@ Mac** and any saved server at runtime from the **status-bar pill** (bottom-left)
 works for desktop access, because the shell serves its embedded frontend locally
 and sends only API/SSE traffic to the daemon.
 
-### Legacy / scripted seed: `NOTESMITH_DESKTOP_DAEMON_URL`
-
-Setting `NOTESMITH_DESKTOP_DAEMON_URL` is **optional** and now acts as a
-**one-time seed**: on first launch the URL is added to your server list and
-marked active. After that, your in-app selection wins (switching to **This Mac**
-goes local even if the variable is still set). Use this only to pre-provision a
-server non-interactively.
-
-#### macOS (launchd)
-
-Create `~/Library/LaunchAgents/com.notesmith.env.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.notesmith.env</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/launchctl</string>
-    <string>setenv</string>
-    <string>NOTESMITH_DESKTOP_DAEMON_URL</string>
-    <string>http://100.x.x.x:27183</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-</dict>
-</plist>
-```
-
-```bash
-# Load it (or log out and back in)
-launchctl load ~/Library/LaunchAgents/com.notesmith.env.plist
-```
-
-#### Or set it in your shell profile
-
-```bash
-# ~/.zshrc or ~/.bashrc — only needed if launching Notesmith from terminal
-export NOTESMITH_DESKTOP_DAEMON_URL="http://100.x.x.x:27183"
-```
-
-> Replace `100.x.x.x` with your server's Tailscale IP in both cases.
-
 ---
 
 ## 5. Verify connectivity
