@@ -230,7 +230,7 @@ export class ChatStore {
 		this.activePersonaId = id;
 		const persona = this.activePersona;
 		if (persona?.backend) {
-			const backend = this.agents.find((a) => a.id === persona.backend);
+			const backend = this.agents.find((a) => a.id === persona.backend && a.available);
 			if (backend) this.selectedAgent = backend.id;
 		}
 		if (persona?.model) this.selectedModel = persona.model;

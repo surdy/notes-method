@@ -774,6 +774,24 @@ describe('ChatStore customizations & persona routing (#210/#212)', () => {
 		expect(store.activePersona?.id).toBe('mystery');
 	});
 
+	it('keeps the current agent when the persona backend is detected but unavailable', async () => {
+		// 'claude' is in the mock agent list but available: false (line 40). A
+		// persona referencing it must NOT switch to it, else prepareSession
+		// early-returns and the next send runs against an uninstalled agent.
+		const client = new MockAgentClient();
+		const customizations = fakeCustomizations({
+			agents: [persona('cross-machine', { backend: 'claude' })]
+		});
+		const store = new ChatStore('work', client, { customizations });
+		await store.loadAgents();
+		await store.loadCustomizations();
+		store.selectAgent('copilot');
+
+		store.selectPersona('cross-machine');
+		expect(store.selectedAgent).toBe('copilot');
+		expect(store.activePersona?.id).toBe('cross-machine');
+	});
+
 	it('passes the assembled preamble to startSession', async () => {
 		const client = new MockAgentClient();
 		const { api } = fakeTranscripts();
