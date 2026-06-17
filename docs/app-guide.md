@@ -12,7 +12,7 @@ Notesmith uses a three-pane layout:
 - **Editor area (center):** tabs, note toolbar, editing, and reading
 - **Right dock (right):** a collapsible panel that switches between **Context** for the selected note and **Chat** with the AI agent
 
-The desktop app launches **local-only by default**, connecting to the live Notesmith daemon discovered from the Notesmith lockfile (`http://127.0.0.1:27183` by default; the shell follows the daemon's active port when it changes). You can also point it at one or more **remote servers** and switch between them at runtime — see [Connecting to a Server](#15-connecting-to-a-server). When a remote server is active, the shell serves its own embedded UI locally and sends API/SSE traffic to that daemon.
+The desktop app launches **local-only by default**, connecting to the live Notesmith daemon discovered from the Notesmith lockfile (`http://127.0.0.1:27183` by default; the shell follows the daemon's active port when it changes). You can also point it at one or more **remote servers** and open them in their own windows — see [Connecting to a Server](#15-connecting-to-a-server). When a window is connected to a remote server, the shell serves its own embedded UI locally and sends API/SSE traffic to that daemon.
 
 When connected to a remote daemon, vault management actions apply to the remote server. The Settings → Vaults add form and the Add Remote Vault dialog expect paths as seen by the server/container, not local paths on the desktop machine; local folder browsing is only shown for local desktop daemon launches.
 
@@ -400,18 +400,18 @@ You can also reach settings directly at `/<base>/app/settings` (optionally `?vau
 
 ## 15. Connecting to a Server
 
-By default the desktop app runs against the local daemon on your Mac — no setup required. To work with a vault hosted on a remote machine or container, you manage and switch connections from two places that share one saved server list:
+By default the desktop app runs against the local daemon on your Mac — no setup required. To work with a vault hosted on a remote machine or container, you manage servers and open per-window connections from two places that share one saved server list:
 
 - **Settings → Connection** — the system of record. Add, edit, remove, and test servers here. Each server has a name, a URL (e.g. `http://100.x.x.x:27183`), and an optional access token. **Test** checks reachability and reports latency and vault count before you commit.
-- **Status-bar switcher** (bottom-left pill) — the quick switch. Click it to jump between **This Mac** (local) and any saved server without opening Settings.
+- **New Window menu** — lists all vaults grouped by server (local + each remote). Picking a vault opens a window connected to **that** server. The status-bar **badge** (bottom-left) shows the window's own connection — 💻 **This Mac** or ☁ the server name, with a live/offline dot for remotes.
 
-Switching is live: the active window re-targets the selected daemon, so you don't restart the app. The local daemon is started on demand when you switch back to **This Mac**, and is left alone while a remote server is active.
+Connections are **per window** (ADR 0017): a local and a remote vault can be open side by side, each window keeping its own connection for its lifetime. The badge's dropdown offers **Open this vault on another server…** (opens a new window — it never retargets the current one) and **Manage servers…**. Remote windows are titled "Notesmith — <server>".
 
-The selection persists in `servers.json` (next to `windows.json` in the app config dir) and survives restarts.
+The saved server list persists in `servers.json` (next to `windows.json` in the app config dir) and survives restarts. The default server (drives which connection new windows prefer) is non-destructive — it never re-points open windows. **Removing a server, or changing its URL, is blocked while a window is still open against it** — close those windows first.
 
 ### Migrating from `NOTESMITH_DESKTOP_DAEMON_URL`
 
-Earlier builds used the `NOTESMITH_DESKTOP_DAEMON_URL` environment variable to force a remote daemon. **It is no longer supported and is ignored.** Add your server in **Settings → Connection** and switch to it from the status-bar pill instead — the saved server list is now the only way to configure remote connections.
+Earlier builds used the `NOTESMITH_DESKTOP_DAEMON_URL` environment variable to force a remote daemon. **It is no longer supported and is ignored.** Add your server in **Settings → Connection** and open it from the **New Window** menu instead — the saved server list is now the only way to configure remote connections.
 
 ## 16. URL Scheme
 

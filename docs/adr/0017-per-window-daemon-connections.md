@@ -2,12 +2,23 @@
 
 ## Status
 
-Proposed (2026-06). Extends and **amends Decisions 3 and 4 of
-[ADR 0014](0014-desktop-connection-management.md)** (the app-global active
-selection and the renavigate-every-window switch). Builds on the desktop
-transport model of [ADR 0007](0007-sveltekit-tauri.md) and the remote-daemon
-mode of [ADR 0012](0012-agent-transport-acp-mcp.md). Implements GitHub epic
-**#TBD** (per-window connections), the follow-on to the now-complete epic #176.
+Accepted (2026-06), fully implemented across Phases A–D. Extends and **amends
+Decisions 3 and 4 of [ADR 0014](0014-desktop-connection-management.md)** (the
+app-global active selection and the renavigate-every-window switch). Builds on
+the desktop transport model of [ADR 0007](0007-sveltekit-tauri.md) and the
+remote-daemon mode of [ADR 0012](0012-agent-transport-acp-mcp.md). Implements
+GitHub epic **#221** (per-window connections), the follow-on to the now-complete
+epic #176.
+
+**Implementation note.** The app-global `DaemonUrlState` is gone; each window
+owns its connection via the `WindowRegistry` (`window_registry.rs`). The
+status-bar control is now a per-window **badge** (`ConnectionSwitcher.svelte`,
+`connection/badge-view.ts`), not a global switcher; the "New Window" menu groups
+vaults by server; and `servers.json`'s `active_id` now functions purely as a
+**non-destructive default** (drives new-window / menu defaults), never
+retargeting open windows. Destructive server edits (URL change, removal) are
+blocked while windows are open against the server. Phases A–D: GitHub
+#222–#240.
 
 ## Context
 
