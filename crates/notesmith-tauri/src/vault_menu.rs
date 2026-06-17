@@ -13,11 +13,71 @@ pub const OPEN_VAULT_PREFIX: &str = "open_vault::";
 /// Menu id for the "Open Folder…" / "Open Folder as Vault…" entry.
 pub const OPEN_FOLDER_AS_VAULT_ID: &str = "open_folder_as_vault";
 
-/// Encode a vault name into a menu id.
+/// Encode a vault name into a (local) menu id.
 pub fn encode_open_vault_id(vault: &str) -> String {
     let mut out = String::with_capacity(OPEN_VAULT_PREFIX.len() + vault.len());
     out.push_str(OPEN_VAULT_PREFIX);
-    for ch in vault.chars() {
+    push_encoded(&mut out, vault);
+    out
+}
+
+/// Reverse of [`encode_open_vault_id`]. Returns `None` for ids that don't
+/// match the prefix or that are malformed.
+pub fn decode_open_vault_id(id: &str) -> Option<String> {
+    let rest = id.strip_prefix(OPEN_VAULT_PREFIX)?;
+    percent_decode(rest)
+}
+
+/// Encode a server-qualified vault identity into a menu id.
+///
+/// For the local server ([`crate::servers::LOCAL_ID`]) this emits the *legacy*
+/// single-component id (`open_vault::<vault>`) byte-for-byte, so existing local
+/// menu ids and their handlers are unchanged. For a remote server it emits a
+/// two-component id (`open_vault::<server_id>::<vault>`).
+///
+/// Each component is percent-encoded, so neither can contain a literal `:` —
+/// the `::` delimiter is therefore unambiguous regardless of vault name.
+pub fn encode_open_vault_id_for(server_id: &str, vault: &str) -> String {
+    if server_id == crate::servers::LOCAL_ID {
+        return encode_open_vault_id(vault);
+    }
+    let mut out =
+        String::with_capacity(OPEN_VAULT_PREFIX.len() + server_id.len() + vault.len() + 2);
+    out.push_str(OPEN_VAULT_PREFIX);
+    push_encoded(&mut out, server_id);
+    out.push_str("::");
+    push_encoded(&mut out, vault);
+    out
+}
+
+/// Decode a menu id produced by [`encode_open_vault_id_for`] (or the legacy
+/// [`encode_open_vault_id`]) into `(server_id, vault)`.
+///
+/// A legacy single-component id decodes to the local server, so menu ids that
+/// predate per-window connections keep working. Returns `None` for ids that
+/// don't match the prefix or that are malformed.
+pub fn decode_open_vault_target(id: &str) -> Option<(String, String)> {
+    let rest = id.strip_prefix(OPEN_VAULT_PREFIX)?;
+    match rest.split_once("::") {
+        // Two-component id: a remote (or explicitly-qualified) target. Encoded
+        // components never contain a literal `:`, so the first `::` is the only
+        // delimiter and `vault_part` has none.
+        Some((server_part, vault_part)) => {
+            let server_id = percent_decode(server_part)?;
+            let vault = percent_decode(vault_part)?;
+            Some((server_id, vault))
+        }
+        // Single-component id: the historical local-only form.
+        None => {
+            let vault = percent_decode(rest)?;
+            Some((crate::servers::LOCAL_ID.to_string(), vault))
+        }
+    }
+}
+
+/// Percent-encode `value` into `out`, passing unreserved chars through.
+fn push_encoded(out: &mut String, value: &str) {
+    for ch in value.chars() {
         if is_unreserved(ch) {
             out.push(ch);
         } else {
@@ -27,14 +87,11 @@ pub fn encode_open_vault_id(vault: &str) -> String {
             }
         }
     }
-    out
 }
 
-/// Reverse of [`encode_open_vault_id`]. Returns `None` for ids that don't
-/// match the prefix or that are malformed.
-pub fn decode_open_vault_id(id: &str) -> Option<String> {
-    let rest = id.strip_prefix(OPEN_VAULT_PREFIX)?;
-    let bytes = rest.as_bytes();
+/// Reverse of [`push_encoded`] for a single percent-encoded component.
+fn percent_decode(component: &str) -> Option<String> {
+    let bytes = component.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
@@ -150,6 +207,70 @@ mod tests {
     fn decode_returns_none_for_malformed_percent_escape() {
         assert_eq!(decode_open_vault_id("open_vault::ab%2"), None);
         assert_eq!(decode_open_vault_id("open_vault::ab%ZZ"), None);
+    }
+
+    #[test]
+    fn local_target_encodes_to_the_legacy_form() {
+        // Byte-identical to the historical local-only id, so existing menu ids
+        // and handlers are unchanged for local vaults.
+        assert_eq!(
+            encode_open_vault_id_for(crate::servers::LOCAL_ID, "personal"),
+            encode_open_vault_id("personal")
+        );
+        assert_eq!(
+            encode_open_vault_id_for("local", "My Notes"),
+            "open_vault::My%20Notes"
+        );
+    }
+
+    #[test]
+    fn remote_target_encodes_both_components() {
+        assert_eq!(
+            encode_open_vault_id_for("home-server", "personal"),
+            "open_vault::home-server::personal"
+        );
+        // Each component is percent-encoded independently.
+        assert_eq!(
+            encode_open_vault_id_for("home server", "My Notes"),
+            "open_vault::home%20server::My%20Notes"
+        );
+    }
+
+    #[test]
+    fn target_round_trips_for_remote_including_colons_and_unicode() {
+        let cases = [
+            ("home-server", "personal"),
+            ("home server", "My Notes"),
+            ("srv", "a::b"),       // vault containing the delimiter
+            ("srv", "with:colon"), // single colon in the vault
+            ("srv", "Émojis 🚀"),
+            ("weird:id", "v"), // colon in the server id
+        ];
+        for (server, vault) in cases {
+            let id = encode_open_vault_id_for(server, vault);
+            assert_eq!(
+                decode_open_vault_target(&id),
+                Some((server.to_string(), vault.to_string())),
+                "round-trip failed for ({server:?}, {vault:?}) -> {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn decode_target_maps_legacy_ids_to_local() {
+        let id = encode_open_vault_id("My Notes");
+        assert_eq!(
+            decode_open_vault_target(&id),
+            Some(("local".to_string(), "My Notes".to_string()))
+        );
+    }
+
+    #[test]
+    fn decode_target_returns_none_for_non_matching_or_malformed() {
+        assert_eq!(decode_open_vault_target("not_a_vault_id"), None);
+        assert_eq!(decode_open_vault_target("open_folder_as_vault"), None);
+        assert_eq!(decode_open_vault_target("open_vault::ab%2"), None);
+        assert_eq!(decode_open_vault_target("open_vault::srv::ab%ZZ"), None);
     }
 
     #[test]
