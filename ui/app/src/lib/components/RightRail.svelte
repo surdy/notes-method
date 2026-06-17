@@ -1,16 +1,15 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { executeSql, getNote, type SqlQueryResult } from '$lib/api';
 	import TocPanel from '$lib/components/TocPanel.svelte';
 	import { buildBacklinksQuery, buildOutgoingLinksQuery, buildRailMetadata } from '$lib/right-rail';
+	import type { RailTab } from '$lib/right-dock';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
 	type RailLink = { path: string; label: string };
-	type RailTab = 'metadata' | 'links' | 'toc';
 
-	let { collapsed = false }: { collapsed?: boolean } = $props();
-	let activeTab = $state<RailTab>('metadata');
+	let { collapsed = false, activeTab = 'metadata' }: { collapsed?: boolean; activeTab?: RailTab } =
+		$props();
 	let backlinks = $state<SqlQueryResult>(emptySqlResult());
 	let outgoingLinks = $state<SqlQueryResult>(emptySqlResult());
 	let metadata = $state<Record<string, unknown> | null>(null);
@@ -21,10 +20,6 @@
 	const backlinkItems = $derived.by(() => toRailLinks(backlinks.rows, 'source_path', 'source_title'));
 	const outgoingItems = $derived.by(() => toRailLinks(outgoingLinks.rows, 'target_path', 'target'));
 	const metadataEntries = $derived.by(() => Object.entries(metadata ?? {}));
-
-	onMount(() => {
-		activeTab = loadTab();
-	});
 
 	$effect(() => {
 		const path = tabStore.selectedPath;
@@ -118,34 +113,6 @@
 		tabStore.selectNote(path);
 	}
 
-	function railTabKey(): string | null {
-		const vault = vaultStore.currentVault;
-		if (!vault) return null;
-		return `notesmith:rail-tab:${vault}`;
-	}
-
-	function loadTab(): RailTab {
-		try {
-			const key = railTabKey();
-			if (!key) return 'metadata';
-			const saved = localStorage.getItem(key);
-			if (saved === 'metadata' || saved === 'links' || saved === 'toc') {
-				return saved;
-			}
-		} catch {}
-
-		return 'metadata';
-	}
-
-	function setTab(tab: RailTab) {
-		activeTab = tab;
-		try {
-			const key = railTabKey();
-			if (!key) return;
-			localStorage.setItem(key, tab);
-		} catch {}
-	}
-
 	function handleScrollTo(from: number) {
 		window.dispatchEvent(new CustomEvent('notesmith:scroll-to', { detail: { from } }));
 	}
@@ -160,48 +127,13 @@
 
 <div class="rail-shell" class:collapsed>
 	<div class="rail-panel">
-		{#if tabStore.selectedPath || loading}
-			<div class="rail-header">
-				{#if tabStore.selectedPath}
-					<p class="rail-path">{tabStore.selectedPath}</p>
-				{/if}
-				{#if loading}
-					<span class="rail-status">Refreshing…</span>
-				{/if}
-			</div>
-		{/if}
-
-		<div class="rail-tab-bar">
-			<button
-				class="rail-tab"
-				class:active={activeTab === 'metadata'}
-				type="button"
-				onclick={() => setTab('metadata')}
-			>
-				Metadata
-			</button>
-			<button
-				class="rail-tab"
-				class:active={activeTab === 'links'}
-				type="button"
-				onclick={() => setTab('links')}
-			>
-				Links
-			</button>
-			<button
-				class="rail-tab"
-				class:active={activeTab === 'toc'}
-				type="button"
-				onclick={() => setTab('toc')}
-			>
-				TOC
-			</button>
-		</div>
-
 		<div class="rail-content">
 			{#if !tabStore.selectedPath}
 				<div class="rail-empty">Select a note to see metadata, links, and a table of contents.</div>
 			{:else}
+				{#if loading}
+					<div class="rail-status">Refreshing…</div>
+				{/if}
 				{#if error}
 					<div class="rail-error">{error}</div>
 				{/if}
@@ -296,22 +228,6 @@
 		pointer-events: none;
 	}
 
-	.rail-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-		gap: 12px;
-		padding: 10px 16px;
-		border-bottom: 1px solid var(--border-default);
-	}
-
-	.rail-path {
-		margin: 0;
-		color: var(--text-muted);
-		font-size: 12px;
-		word-break: break-word;
-	}
-
 	.rail-status,
 	.section-empty,
 	.rail-empty {
@@ -319,34 +235,8 @@
 		font-size: 12px;
 	}
 
-	.rail-tab-bar {
-		display: flex;
-		border-bottom: 1px solid var(--border-default);
-		flex-shrink: 0;
-	}
-
-	.rail-tab {
-		flex: 1;
-		padding: 8px 4px;
-		border: none;
-		background: transparent;
-		color: var(--text-muted);
-		font-size: 12px;
-		font-weight: 600;
-		cursor: pointer;
-		border-bottom: 2px solid transparent;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-	}
-
-	.rail-tab:hover {
-		color: var(--text-default);
-		background: var(--bg-hover);
-	}
-
-	.rail-tab.active {
-		color: var(--accent);
-		border-bottom-color: var(--accent);
+	.rail-status {
+		padding: 8px 16px 0;
 	}
 
 	.rail-content {

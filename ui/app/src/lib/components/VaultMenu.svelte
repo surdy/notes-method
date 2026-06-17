@@ -183,7 +183,6 @@
 	</div>
 {:else}
 	<span class="vault-identity" title={currentVault}>
-		<span class="vault-icon" aria-hidden="true">🗄️</span>
 		<span class="vault-name">{currentVault}</span>
 		<span class="src-pill" class:remote={sourceBadge.remote} title={sourceBadge.remote ? `On ${sourceBadge.label}` : 'Local vault'}>
 			<span class="src-pill-icon" aria-hidden="true">{sourceBadge.icon}</span>
@@ -328,18 +327,15 @@
 	.vault-identity {
 		display: flex;
 		align-items: center;
-		gap: 5px;
+		gap: 6px;
+		min-width: 0;
 		overflow: hidden;
 	}
 
-	.vault-identity .vault-icon {
-		font-size: 14px;
-		flex-shrink: 0;
-	}
-
 	.vault-identity .vault-name {
-		font-size: 14px;
-		font-weight: 600;
+		font-size: 15px;
+		font-weight: 700;
+		letter-spacing: 0.01em;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;

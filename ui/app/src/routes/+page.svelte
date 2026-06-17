@@ -27,7 +27,7 @@
 	import { vaultStore } from '$lib/stores.svelte';
 	import { settingsStore } from '$lib/settings.svelte';
 	import { workspaceChromeLayout } from '$lib/workspace-chrome';
-	import { loadDockSegment, saveDockSegment, type DockSegment } from '$lib/right-dock';
+	import { dockTitle, loadDockSegment, saveDockSegment, type DockSegment } from '$lib/right-dock';
 	import { pushWindowTitle } from '$lib/window-title';
 	import { createConnectionClient, LOCAL_IDENTITY } from '$lib/connection/connection-client';
 	import { titleServerSuffix } from '$lib/connection/badge-view';
@@ -95,6 +95,7 @@
 	const workspaceChromeStyle = $derived(
 		`--workspace-left-width: ${chromeLayout.leftChromeWidth}; --workspace-right-width: ${chromeLayout.rightChromeWidth};`
 	);
+	const dockNoteTitle = $derived(dockTitle(tabStore.selectedPath));
 
 	let commands = $derived.by(() =>
 		buildCommands(vaultStore.currentVault, (path) => {
@@ -215,6 +216,10 @@
 
 <div class="workspace-chrome" role="toolbar" aria-label="Workspace">
 <section class="workspace-chrome-left" class:collapsed={leftSidebarCollapsed} aria-label="Sidebar controls">
+{#if !leftSidebarCollapsed}
+<VaultMenu {vaults} currentVault={vaultStore.currentVault} />
+<span class="chrome-spacer"></span>
+{/if}
 <button
 	class="chrome-icon-btn"
 	type="button"
@@ -226,9 +231,6 @@
 >
 	<span class={`sidebar-panel-icon ${chromeLayout.leftToggleIcon}`} aria-hidden="true"></span>
 </button>
-{#if !leftSidebarCollapsed}
-<VaultMenu {vaults} currentVault={vaultStore.currentVault} />
-{/if}
 </section>
 
 <section class="workspace-chrome-main" aria-label="Open notes">
@@ -237,19 +239,22 @@
 
 <section class="workspace-chrome-right" class:collapsed={rightRailCollapsed} aria-label="Right sidebar controls">
 {#if !rightRailCollapsed}
-<span class="chrome-section-title">Panels</span>
-{/if}
+<span class="chrome-note-title" title={tabStore.selectedPath ?? ''}>
+	{#if dockNoteTitle}{dockNoteTitle}{:else}<span class="chrome-note-title-empty">No note selected</span>{/if}
+</span>
+<span class="chrome-spacer"></span>
+{:else}
 <button
 	class="chrome-icon-btn"
 	type="button"
 	onclick={toggleAgentPanel}
-	aria-label={!rightRailCollapsed && dockSegment === 'chat' ? 'Close AI agent' : 'Open AI agent'}
-	aria-expanded={!rightRailCollapsed && dockSegment === 'chat'}
+	aria-label="Open AI agent"
 	aria-controls="right-dock"
-	title={!rightRailCollapsed && dockSegment === 'chat' ? 'Close AI agent' : 'Open AI agent'}
+	title="Open AI agent"
 >
 	<span class="agent-toggle-glyph" aria-hidden="true">✦</span>
 </button>
+{/if}
 <button
 	class="chrome-icon-btn"
 	type="button"
@@ -510,13 +515,24 @@ overflow: hidden;
 display: none;
 }
 
-.chrome-section-title {
-color: var(--text-secondary);
-font-size: 12px;
-font-weight: 700;
-letter-spacing: 0.08em;
-text-transform: uppercase;
+.chrome-spacer {
+flex: 1;
+min-width: 0;
+}
+
+.chrome-note-title {
+min-width: 0;
+overflow: hidden;
 white-space: nowrap;
+text-overflow: ellipsis;
+color: var(--text-default);
+font-size: 13px;
+font-weight: 600;
+}
+
+.chrome-note-title-empty {
+color: var(--text-faint);
+font-weight: 400;
 }
 
 .content-area {

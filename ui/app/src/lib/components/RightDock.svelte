@@ -1,7 +1,15 @@
 <script lang="ts">
 	import RightRail from './RightRail.svelte';
 	import AgentPanel from './agent/AgentPanel.svelte';
-	import type { DockSegment } from '$lib/right-dock';
+	import {
+		dockTabs,
+		loadRailTab,
+		saveRailTab,
+		type DockSegment,
+		type DockTabId,
+		type RailTab
+	} from '$lib/right-dock';
+	import { vaultStore } from '$lib/stores.svelte';
 
 	let {
 		segment = 'context',
@@ -19,13 +27,33 @@
 	// it — then it stays mounted to preserve the live session.
 	let railRef = $state<{ refresh: () => void } | null>(null);
 	let chatMounted = $state(false);
+	// The dock owns the Context sub-tab (Metadata/Links/TOC) so a single unified
+	// tab row can drive both the segment and the active context pane.
+	let railTab = $state<RailTab>('metadata');
+
+	// Reload the persisted context sub-tab whenever the active vault changes.
+	$effect(() => {
+		railTab = loadRailTab(vaultStore.currentVault);
+	});
 
 	$effect(() => {
 		if (segment === 'chat') chatMounted = true;
 	});
 
+	const tabs = $derived(dockTabs(segment, railTab));
+
 	function select(next: DockSegment) {
 		if (next !== segment) onSegmentChange?.(next);
+	}
+
+	function onTab(id: DockTabId) {
+		if (id === 'chat') {
+			select('chat');
+			return;
+		}
+		railTab = id;
+		saveRailTab(vaultStore.currentVault, id);
+		select('context');
 	}
 
 	export function refresh() {
@@ -34,32 +62,29 @@
 </script>
 
 <div class="dock" class:collapsed>
-	<div class="dock-segments" role="tablist" aria-label="Right dock">
-		<button
-			class="dock-segment"
-			class:active={segment === 'context'}
-			type="button"
-			role="tab"
-			aria-selected={segment === 'context'}
-			onclick={() => select('context')}
-		>
-			Context
-		</button>
-		<button
-			class="dock-segment"
-			class:active={segment === 'chat'}
-			type="button"
-			role="tab"
-			aria-selected={segment === 'chat'}
-			onclick={() => select('chat')}
-		>
-			Chat
-		</button>
+	<div class="dock-tabrow" role="tablist" aria-label="Right dock">
+		{#each tabs as tab (tab.id)}
+			<button
+				class="dock-tab"
+				class:active={tab.active}
+				class:chat={tab.kind === 'chat'}
+				type="button"
+				role="tab"
+				aria-selected={tab.active}
+				onclick={() => onTab(tab.id)}
+			>
+				{tab.label}
+			</button>
+		{/each}
 	</div>
 
 	<div class="dock-body">
 		<div class="dock-pane" class:hidden={segment !== 'context'}>
-			<RightRail bind:this={railRef} collapsed={collapsed || segment !== 'context'} />
+			<RightRail
+				bind:this={railRef}
+				collapsed={collapsed || segment !== 'context'}
+				activeTab={railTab}
+			/>
 		</div>
 		<div class="dock-pane" class:hidden={segment !== 'chat'}>
 			{#if chatMounted}
@@ -83,17 +108,18 @@
 		pointer-events: none;
 	}
 
-	.dock-segments {
+	.dock-tabrow {
 		display: flex;
+		gap: 2px;
+		padding: 0 6px;
 		flex-shrink: 0;
 		background: var(--bg-secondary);
 		border-left: 1px solid var(--border-default);
 		border-bottom: 1px solid var(--border-default);
 	}
 
-	.dock-segment {
-		flex: 1;
-		padding: 9px 4px;
+	.dock-tab {
+		padding: 8px 9px;
 		border: none;
 		background: transparent;
 		color: var(--text-muted);
@@ -101,18 +127,20 @@
 		font-weight: 600;
 		cursor: pointer;
 		border-bottom: 2px solid transparent;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		white-space: nowrap;
 	}
 
-	.dock-segment:hover {
+	.dock-tab:hover {
 		color: var(--text-default);
-		background: var(--bg-hover);
 	}
 
-	.dock-segment.active {
-		color: var(--accent);
+	.dock-tab.active {
+		color: var(--text-default);
 		border-bottom-color: var(--accent);
+	}
+
+	.dock-tab.chat {
+		color: var(--accent);
 	}
 
 	.dock-body {
