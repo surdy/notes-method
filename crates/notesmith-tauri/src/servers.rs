@@ -129,6 +129,34 @@ pub struct ConnectionList {
     pub servers: Vec<ServerView>,
 }
 
+/// Display label for the implicit local daemon. Mirrors the frontend
+/// `LOCAL_LABEL` so a local window's badge reads the same everywhere.
+pub const LOCAL_LABEL: &str = "This Mac";
+
+/// A single window's connection **identity** (ADR 0017 C.1): which server it is
+/// bound to, for rendering the status-bar badge. Unlike [`ConnectionList`] this
+/// describes *one* connection (the calling window's), not the whole set.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ConnectionIdentity {
+    /// Stable connection id (`"local"` for the local daemon).
+    pub id: String,
+    /// Human-readable label (the server name, or [`LOCAL_LABEL`] for local).
+    pub name: String,
+    /// `true` for a stored remote server, `false` for the local daemon.
+    pub remote: bool,
+}
+
+impl ConnectionIdentity {
+    /// The identity of the local daemon.
+    pub fn local() -> Self {
+        Self {
+            id: LOCAL_ID.to_string(),
+            name: LOCAL_LABEL.to_string(),
+            remote: false,
+        }
+    }
+}
+
 /// Result of probing a candidate daemon URL for reachability.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ConnectionTestResult {
@@ -378,6 +406,22 @@ impl ServersFile {
 
     pub fn get(&self, id: &str) -> Option<&ServerEntry> {
         self.servers.iter().find(|s| s.id == id)
+    }
+
+    /// The connection **identity** of `server_id` for a window's status-bar badge
+    /// (ADR 0017 C.1). A stored remote id yields its name + `remote = true`;
+    /// [`LOCAL_ID`] — or any id that no longer refers to a stored server — yields
+    /// the local identity (parity with [`resolve_target`](Self::resolve_target)'s
+    /// fallback, so a window is never left without a badge).
+    pub fn connection_identity(&self, server_id: &str) -> ConnectionIdentity {
+        match self.get(server_id) {
+            Some(entry) if server_id != LOCAL_ID => ConnectionIdentity {
+                id: entry.id.clone(),
+                name: entry.name.clone(),
+                remote: true,
+            },
+            _ => ConnectionIdentity::local(),
+        }
     }
 
     /// Token-less connection list for the UI. `active_id` is `"local"` when the
@@ -887,6 +931,35 @@ mod tests {
         assert_eq!(
             file.active_target("http://127.0.0.1:27183"),
             ("http://127.0.0.1:27183".to_string(), false)
+        );
+    }
+
+    #[test]
+    fn connection_identity_reports_local_and_remote() {
+        let mut file = ServersFile::default();
+        // Local id → the implicit local identity.
+        assert_eq!(
+            file.connection_identity(LOCAL_ID),
+            ConnectionIdentity::local()
+        );
+
+        let id = file
+            .add(input("Home", "https://notes.example.com"))
+            .unwrap();
+        // A stored remote id → its name, flagged remote.
+        assert_eq!(
+            file.connection_identity(&id),
+            ConnectionIdentity {
+                id: id.clone(),
+                name: "Home".to_string(),
+                remote: true,
+            }
+        );
+
+        // An unknown id falls back to the local identity (never badge-less).
+        assert_eq!(
+            file.connection_identity("does-not-exist"),
+            ConnectionIdentity::local()
         );
     }
 

@@ -472,7 +472,8 @@ fn main() {
             connection_remove,
             connection_set_active,
             connection_test,
-            refresh_remote_vaults
+            refresh_remote_vaults,
+            window_connection_info
         ])
         .menu(build_app_menu)
         .on_menu_event(|app, event| {
@@ -1952,14 +1953,34 @@ fn window_connection_target<R: Runtime>(
     app: &AppHandle<R>,
     label: &str,
 ) -> servers::ConnectionTarget {
-    let server_id = app
-        .state::<WindowConnections>()
-        .context_for_label(label)
-        .and_then(|context| context.server_id().map(str::to_string))
-        .unwrap_or_else(|| active_server_id(app));
     app.state::<ServersState>()
         .snapshot()
-        .resolve_target(&server_id, daemon::DEFAULT_DAEMON_URL)
+        .resolve_target(&window_server_id(app, label), daemon::DEFAULT_DAEMON_URL)
+}
+
+/// The server id a window is bound to, from the registry (ADR 0017 A.4). A
+/// `Global` or not-yet-registered window (settings / onboarding) falls back to
+/// the active (default) connection.
+fn window_server_id<R: Runtime>(app: &AppHandle<R>, label: &str) -> String {
+    app.state::<WindowConnections>()
+        .context_for_label(label)
+        .and_then(|context| context.server_id().map(str::to_string))
+        .unwrap_or_else(|| active_server_id(app))
+}
+
+/// Report the **calling window's** connection identity (id, display name,
+/// local/remote) for its status-bar badge (ADR 0017 C.1). Resolved from the
+/// window's own registry context, not the global active connection — so a local
+/// and a remote window each report their own server.
+#[tauri::command]
+fn window_connection_info(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+) -> servers::ConnectionIdentity {
+    let server_id = window_server_id(&app, window.label());
+    app.state::<ServersState>()
+        .snapshot()
+        .connection_identity(&server_id)
 }
 
 /// Attach a bearer token to a request when one is configured for the target

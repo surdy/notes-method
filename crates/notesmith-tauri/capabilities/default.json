@@ -45,6 +45,7 @@
     "allow-connection-set-active",
     "allow-connection-test",
     "allow-refresh-remote-vaults",
+    "allow-window-connection-info",
     {
       "identifier": "shell:allow-spawn",
       "allow": [

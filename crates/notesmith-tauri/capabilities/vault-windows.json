@@ -36,6 +36,7 @@
     "allow-connection-remove",
     "allow-connection-set-active",
     "allow-connection-test",
-    "allow-refresh-remote-vaults"
+    "allow-refresh-remote-vaults",
+    "allow-window-connection-info"
   ]
 }
