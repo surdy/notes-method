@@ -1513,12 +1513,11 @@ Registers a new vault.
 { "name": "personal", "status": "registered" }
 ```
 
-> **Becoming live is asynchronous.** Registration only writes the global config;
-> the new vault is loaded into the daemon's live engine map by the config
-> watcher after a short debounce (~500 ms). Until then, `/api/v/{name}/…` routes
-> return `404 vault not found`. After creating a vault, poll
-> `GET /api/app/vaults` (or retry the first write) until it is served before
-> writing notes.
+> **Available immediately.** Registration writes the global config **and** loads
+> the new vault into the daemon's live engine map (starting its filesystem
+> watcher) before responding, so `/api/v/{name}/…` routes work right away — no
+> polling needed. The config watcher later observes the same on-disk change and
+> finds the vault already live (a no-op).
 
 **Errors:**
 - `409 vault_exists` — vault name already registered
