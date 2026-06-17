@@ -72,6 +72,12 @@ pub struct AppState {
     /// grants survive daemon/app restarts; consulted by the desktop frontend to
     /// pre-seed a session's permission state.
     pub permissions: Arc<PermissionGrantStore>,
+    /// Live per-vault filesystem watchers, keyed by vault name. This is the same
+    /// `Arc` shared with the global config watcher, so vaults registered via the
+    /// HTTP API can be loaded into the engine map *and* file-watched immediately
+    /// (see `routes::vaults::add_vault`) instead of waiting for the config
+    /// watcher's debounce window.
+    pub vault_watchers: SharedVaultWatchers,
 }
 
 impl Default for AppState {
@@ -96,6 +102,7 @@ impl Default for AppState {
                 PermissionGrantStore::open_in_memory()
                     .expect("in-memory permission store should always open"),
             ),
+            vault_watchers: Default::default(),
         }
     }
 }
@@ -557,7 +564,10 @@ pub async fn serve_configured_vaults(
             }
         }
     }
-    let vault_watchers: SharedVaultWatchers = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+    let vault_watchers = {
+        let state = state.read().await;
+        state.vault_watchers.clone()
+    };
     let vault_names = {
         let state = state.read().await;
         state.vaults.keys().cloned().collect::<Vec<_>>()
@@ -769,6 +779,7 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
         mcp_services: McpServiceCache::default(),
         transcripts: Arc::new(open_transcript_store()?),
         permissions: Arc::new(open_permission_store()?),
+        vault_watchers: Default::default(),
     })
 }
 

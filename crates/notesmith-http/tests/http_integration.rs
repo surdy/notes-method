@@ -81,6 +81,7 @@ fn build_test_state_with_vaults(
         mcp_services: Default::default(),
         transcripts: Default::default(),
         permissions: Default::default(),
+        vault_watchers: Default::default(),
     }
 }
 
@@ -265,7 +266,7 @@ async fn add_vault_with_valid_path_succeeds() {
     let response = client
         .post(format!("http://{address}/api/app/vaults"))
         .json(&serde_json::json!({
-            "name": "beta",
+            "name": "beta-valid",
             "path": new_root,
         }))
         .send()
@@ -277,7 +278,7 @@ async fn add_vault_with_valid_path_succeeds() {
     let config = GlobalConfig::load_from(&config_path).unwrap();
     assert_eq!(
         config
-            .vault("beta")
+            .vault("beta-valid")
             .map(|registration| registration.path.clone()),
         Some(temp_dir.path().join("beta"))
     );
@@ -343,7 +344,7 @@ async fn add_vault_with_create_flag_creates_missing_directory() {
     let response = client
         .post(format!("http://{address}/api/app/vaults"))
         .json(&serde_json::json!({
-            "name": "beta",
+            "name": "beta-create",
             "path": new_root,
             "create": true,
         }))
@@ -423,7 +424,7 @@ async fn add_vault_emits_vaults_changed_event() {
     let response = client
         .post(format!("http://{address}/api/app/vaults"))
         .json(&serde_json::json!({
-            "name": "beta",
+            "name": "beta-events",
             "path": new_root,
         }))
         .send()
@@ -437,7 +438,7 @@ async fn add_vault_emits_vaults_changed_event() {
         .expect("event channel ok");
 
     assert_eq!(event.event_type.as_str(), "vaults.changed");
-    assert_eq!(event.vault, "beta");
+    assert_eq!(event.vault, "beta-events");
 
     server.abort();
 }

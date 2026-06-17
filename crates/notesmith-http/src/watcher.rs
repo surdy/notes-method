@@ -930,6 +930,7 @@ mod tests {
             mcp_services: Default::default(),
             transcripts: Default::default(),
             permissions: Default::default(),
+            vault_watchers: Default::default(),
         }));
 
         run_canary_check_once(&state, "work", &vault_root, &watcher_state)

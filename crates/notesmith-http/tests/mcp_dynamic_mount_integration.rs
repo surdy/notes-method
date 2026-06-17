@@ -86,6 +86,7 @@ fn empty_shared_state(config_root: &Path) -> SharedAppState {
         mcp_services: Default::default(),
         transcripts: Default::default(),
         permissions: Default::default(),
+        vault_watchers: Default::default(),
     }))
 }
 

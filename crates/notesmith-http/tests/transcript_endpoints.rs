@@ -69,6 +69,7 @@ fn build_state(vaults: &[(String, PathBuf)], config_path: PathBuf) -> AppState {
         mcp_services: Default::default(),
         transcripts: Default::default(),
         permissions: Default::default(),
+        vault_watchers: Default::default(),
     }
 }
 

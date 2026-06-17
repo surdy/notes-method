@@ -129,9 +129,26 @@ pub async fn add_vault(
 
     config.vaults.insert(
         body.name.clone(),
-        notesmith_config::VaultRegistration { path: vault_path },
+        notesmith_config::VaultRegistration {
+            path: vault_path.clone(),
+        },
     );
     config.save_to(&config_path).map_err(internal_error)?;
+
+    // Load the new vault into the live engine map (and start its file watcher)
+    // immediately, so `/api/v/{name}` routes work right away instead of 404ing
+    // until the config watcher's debounce fires. The config watcher will still
+    // fire from the on-disk change, but find the vault already live (a no-op).
+    let vault_watchers = {
+        let state = state.read().await;
+        state.vault_watchers.clone()
+    };
+    crate::config_watcher::add_vault_live(&state, &vault_watchers, &body.name, &vault_path)
+        .await
+        .map_err(|error| {
+            tracing::error!(vault = %body.name, %error, "failed to load newly registered vault");
+            internal_error(error)
+        })?;
 
     emit_vaults_changed(&state, &body.name).await;
 
@@ -347,6 +364,7 @@ mod tests {
     use std::{collections::HashMap, fs, sync::Arc};
 
     use axum::{
+        Json,
         extract::{Path, Query, State},
         http::StatusCode,
     };
@@ -364,7 +382,10 @@ mod tests {
         write_guard::WriteGuard,
     };
 
-    use super::{ReindexVaultQuery, RemoveVaultQuery, reindex_vault, remove_vault};
+    use super::{
+        AddVaultRequest, ReindexVaultQuery, RemoveVaultQuery, add_vault, reindex_vault,
+        remove_vault,
+    };
 
     fn minimal_state(config_path: std::path::PathBuf) -> SharedAppState {
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -380,6 +401,7 @@ mod tests {
             mcp_services: Default::default(),
             transcripts: Default::default(),
             permissions: Default::default(),
+            vault_watchers: Default::default(),
         }))
     }
 
@@ -395,6 +417,40 @@ mod tests {
             VaultRegistration { path: vault_root },
         );
         config.save_to(config_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn add_vault_loads_new_vault_into_live_map() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+        GlobalConfig::default().save_to(&config_path).unwrap();
+        let state = minimal_state(config_path.clone());
+
+        let new_root = temp_dir.path().join("vaults").join("fresh");
+
+        let (status, body) = add_vault(
+            State(state.clone()),
+            WriteGuard,
+            Json(AddVaultRequest {
+                name: "fresh".to_string(),
+                path: new_root.to_string_lossy().into_owned(),
+                create: true,
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(body.0["status"], "registered");
+        assert!(new_root.is_dir(), "create:true should create the directory");
+
+        // The vault must be queryable via /api/v immediately — i.e. present in
+        // the live engine map without waiting for the config-watcher debounce.
+        let state = state.read().await;
+        assert!(
+            state.vaults.contains_key("fresh"),
+            "new vault should be loaded into the live engine map by add_vault"
+        );
     }
 
     #[tokio::test]
@@ -503,6 +559,7 @@ mod tests {
             mcp_services: Default::default(),
             transcripts: Default::default(),
             permissions: Default::default(),
+            vault_watchers: Default::default(),
         }));
 
         fs::write(

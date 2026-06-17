@@ -190,6 +190,7 @@ mod tests {
             mcp_services: Default::default(),
             transcripts: Default::default(),
             permissions: Default::default(),
+            vault_watchers: Default::default(),
         }));
 
         let sse = vault_events(

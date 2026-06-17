@@ -107,6 +107,7 @@ fn build_state(vault_name: &str, root: &Path) -> AppState {
         mcp_services: Default::default(),
         transcripts: Default::default(),
         permissions: Default::default(),
+        vault_watchers: Default::default(),
     }
 }
 

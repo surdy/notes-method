@@ -128,6 +128,42 @@ fn plan_vault_changes(
     }
 }
 
+/// Load a single registered vault into the live engine map and start its
+/// filesystem watcher. Shared by the config-watcher reconcile loop and the
+/// add-vault HTTP handler so vaults registered via the API are usable on
+/// `/api/v/{name}` immediately, without waiting for the config-watcher debounce.
+///
+/// On success the vault is present in `state.vaults` and a watcher is recorded
+/// in `vault_watchers`. On failure (engine could not be built, or the watcher
+/// could not start) the vault is not left in the live map.
+pub(crate) async fn add_vault_live(
+    state: &SharedAppState,
+    vault_watchers: &SharedVaultWatchers,
+    vault_name: &str,
+    vault_path: &Path,
+) -> anyhow::Result<()> {
+    let vault_state = create_vault_state(vault_name, vault_path)?;
+    {
+        let mut state = state.write().await;
+        state.vaults.insert(vault_name.to_string(), vault_state);
+    }
+
+    match watch_vault(state.clone(), vault_name.to_string()).await {
+        Ok(watcher) => {
+            vault_watchers
+                .lock()
+                .await
+                .insert(vault_name.to_string(), watcher);
+            Ok(())
+        }
+        Err(error) => {
+            let mut state = state.write().await;
+            state.vaults.remove(vault_name);
+            Err(error)
+        }
+    }
+}
+
 async fn reconcile_vaults(
     state: &SharedAppState,
     vault_watchers: &SharedVaultWatchers,
@@ -162,31 +198,9 @@ async fn reconcile_vaults(
 
     for (vault_name, vault_path) in &plan.to_add {
         tracing::info!("adding vault: {vault_name}");
-        let vault_state = match create_vault_state(vault_name, vault_path) {
-            Ok(vault_state) => vault_state,
-            Err(error) => {
-                tracing::error!("failed to create vault state for {vault_name}: {error}");
-                continue;
-            }
-        };
-
-        {
-            let mut state = state.write().await;
-            state.vaults.insert(vault_name.clone(), vault_state);
-        }
-
-        match watch_vault(state.clone(), vault_name.clone()).await {
-            Ok(watcher) => {
-                vault_watchers
-                    .lock()
-                    .await
-                    .insert(vault_name.clone(), watcher);
-            }
-            Err(error) => {
-                tracing::error!("failed to start watcher for vault {vault_name}: {error}");
-                let mut state = state.write().await;
-                state.vaults.remove(vault_name);
-            }
+        if let Err(error) = add_vault_live(state, vault_watchers, vault_name, vault_path).await {
+            tracing::error!("failed to load vault {vault_name}: {error}");
+            continue;
         }
     }
 
