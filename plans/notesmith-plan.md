@@ -2626,7 +2626,7 @@ Implementation stance:
 
 ### 19.4 Right dock (Context & Chat)
 
-The right dock is a single collapsible right-side panel with a top-level segmented control switching between two surfaces: **Context** and **Chat**. Both share one column so opening chat never adds a second panel beside the editor, and the active segment is remembered per vault.
+The right dock is a single collapsible right-side panel with one unified underline tab row — **Metadata**, **Links**, **TOC**, and **Chat** — that drives both surfaces: the first three tabs are the **Context** surface, and **Chat** is the agent panel. Both share one column so opening chat never adds a second panel beside the editor, and the active tab is remembered per vault. The toolbar above the tabs shows the active note's name, and a ✦ shortcut appears only while the dock is collapsed to reopen it on Chat.
 
 The **Context** surface is contextual to the active note, with core tabs:
 

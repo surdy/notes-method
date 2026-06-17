@@ -15,10 +15,10 @@ Three ways to open it:
 | Action | Result |
 |---|---|
 | Press **⌘\\** | Toggles the entire right dock open or closed |
-| Click the **✦** button in the workspace chrome | Opens the dock directly to the Chat segment |
-| Click the **Chat** segment in the right dock's segmented control | Switches from Context to Chat (or back) |
+| Click the **✦** button in the workspace chrome (shown while the dock is collapsed) | Reopens the dock directly on the Chat tab |
+| Click the **Chat** tab in the right dock's tab row | Switches from a Context tab to Chat (or back) |
 
-The segmented control at the top of the dock reads **Context** and **Chat**. Notesmith remembers your last-used segment per vault, so Chat stays selected the next time you open the dock.
+The dock's tab row reads **Metadata**, **Links**, **TOC**, and **Chat**. Notesmith remembers your last-used tab per vault, so Chat stays selected the next time you open the dock.
 
 > **Tip:** The agent process doesn't start until you open Chat for the first time in a session. Switching back to Context and then to Chat keeps the conversation alive — the agent stays running in the background.
 
@@ -28,8 +28,8 @@ The segmented control at the top of the dock reads **Context** and **Chat**. Not
 
 Here's the quickest way to try the panel:
 
-1. Press **⌘\\** (or click **✦**) to open the right dock.
-2. Click the **Chat** segment if the Context segment is active.
+1. Press **⌘\\** (or, while collapsed, click **✦**) to open the right dock.
+2. Click the **Chat** tab if a Context tab is active.
 3. In the **Agent** dropdown at the top of the panel, select **Copilot** (or whichever agent is marked available).
 4. Type in the message box:
 

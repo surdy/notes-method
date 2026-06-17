@@ -10,7 +10,7 @@ Notesmith uses a three-pane layout:
 
 - **Sidebar (left):** note navigation, file tree, and smart views
 - **Editor area (center):** tabs, note toolbar, editing, and reading
-- **Right dock (right):** a collapsible panel that switches between **Context** for the selected note and **Chat** with the AI agent
+- **Right dock (right):** a collapsible panel whose tab row — Metadata, Links, TOC, and Chat — offers **Context** for the selected note and **Chat** with the AI agent
 
 The desktop app launches **local-only by default**, connecting to the live Notesmith daemon discovered from the Notesmith lockfile (`http://127.0.0.1:27183` by default; the shell follows the daemon's active port when it changes). You can also point it at one or more **remote servers** and open them in their own windows — see [Connecting to a Server](#15-connecting-to-a-server). When a window is connected to a remote server, the shell serves its own embedded UI locally and sends API/SSE traffic to that daemon.
 
@@ -279,17 +279,17 @@ Example searches:
 
 ## 10. Right Dock (Context & Chat)
 
-The right dock is a collapsible panel on the right side of the app with a segmented control at the top that switches between **Context** and **Chat**. Your last-used segment is remembered per vault.
+The right dock is a collapsible panel on the right side of the app with a single underline **tab row** at the top — **Metadata**, **Links**, **TOC**, and **Chat**. The first three tabs are the **Context** surface for the selected note; **Chat** is the AI agent. Your last-used tab is remembered per vault. The toolbar above the tabs shows the active note's name (hover for the full path).
 
-Toggle the whole dock with **⌘\\**. The **✦** button in the workspace chrome opens the dock straight to the Chat segment.
+Toggle the whole dock with **⌘\\**. While the dock is collapsed, a **✦** button appears in the workspace chrome to reopen it straight to Chat.
 
 ### Context
 
-The Context segment follows the currently selected note and shows contextual information such as:
+The Context tabs (Metadata, Links, TOC) follow the currently selected note and show contextual information:
 
-- **Backlinks** — notes that link to the current note
+- **Backlinks** — notes that link to the current note (under **Links**)
 - **Metadata** — frontmatter and note-level fields
-- **Heading outline / table of contents** — a quick map of the current note
+- **Heading outline / table of contents** — a quick map of the current note (under **TOC**)
 
 Use it when you want to answer questions like:
 
@@ -299,7 +299,7 @@ Use it when you want to answer questions like:
 
 ### Chat
 
-The Chat segment hosts the embedded AI agent (Copilot, Claude, Codex, Gemini, and others). It shares the dock column with Context, so opening chat never adds a fourth column or squeezes the editor. The agent process only starts the first time you open Chat, and the conversation stays alive when you switch back to Context.
+The Chat tab hosts the embedded AI agent (Copilot, Claude, Codex, Gemini, and others). It shares the dock column with Context, so opening chat never adds a fourth column or squeezes the editor. The agent process only starts the first time you open Chat, and the conversation stays alive when you switch back to a Context tab.
 
 For the full walkthrough — choosing an agent and model, the read-only vs read-write scope, stopping and regenerating replies, and forking or exporting conversations to a note — see the **[AI Chat Panel guide](ai-chat.md)**. Related guides:
 
