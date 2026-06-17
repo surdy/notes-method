@@ -13,6 +13,8 @@
 	import { API_BASE } from '$lib/api/core';
 	import { toastStore } from '$lib/toast-store.svelte';
 	import { onMount, onDestroy } from 'svelte';
+	import { createConnectionClient } from '$lib/connection/connection-client';
+	import { vaultTargetCopy } from '$lib/open-folder-as-vault';
 	import {
 		messageFromUnknownError,
 		resolveTauri,
@@ -62,6 +64,9 @@
 	let openVaults = $state<string[]>([]);
 	const tauriBridge = resolveTauri();
 	const isRemoteDaemon = vaultRegistrationMode(API_BASE) === 'remote';
+	// Target server name for remote Add Vault copy (ADR 0017 Phase D).
+	let serverName = $state<string | null>(null);
+	let remoteHint = $derived(vaultTargetCopy('remote', serverName).hint);
 	let openVaultsPollHandle: ReturnType<typeof setInterval> | null = null;
 
 	async function refreshOpenVaults() {
@@ -79,6 +84,19 @@
 
 	onMount(() => {
 		void refreshOpenVaults();
+		if (isRemoteDaemon) {
+			const client = createConnectionClient();
+			if (client.available()) {
+				void client
+					.windowInfo()
+					.then((identity) => {
+						serverName = identity.remote ? identity.name : null;
+					})
+					.catch(() => {
+						serverName = null;
+					});
+			}
+		}
 		if (tauriBridge) {
 			openVaultsPollHandle = setInterval(() => void refreshOpenVaults(), 2000);
 		}
@@ -433,7 +451,7 @@
 				</div>
 				{#if isRemoteDaemon}
 					<small class="hint">
-						This path is resolved on the remote Notesmith server, not on this Mac.
+						{remoteHint} This path is resolved on the server, not on this Mac.
 					</small>
 				{/if}
 			</label>

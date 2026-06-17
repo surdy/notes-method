@@ -5,6 +5,7 @@ import {
   vaultRegistrationMode,
   shouldUseNativeVaultRegistration,
   messageFromUnknownError,
+  vaultTargetCopy,
   type TauriBridge
 } from './open-folder-as-vault';
 
@@ -112,5 +113,32 @@ describe('messageFromUnknownError', () => {
 
   it('uses the fallback for unknown rejection shapes', () => {
     expect(messageFromUnknownError({ message: 'not trusted' }, 'fallback')).toBe('fallback');
+  });
+});
+
+describe('vaultTargetCopy', () => {
+  it('describes a local folder registration', () => {
+    expect(vaultTargetCopy('local', null)).toEqual({
+      title: 'Open Folder as Vault',
+      hint: 'Choose a local folder to register as a new vault.'
+    });
+  });
+
+  it('names the target server for remote registration', () => {
+    expect(vaultTargetCopy('remote', 'Memory Server')).toEqual({
+      title: 'Add Vault on Memory Server',
+      hint: 'Enter the folder path as seen by Memory Server.'
+    });
+  });
+
+  it('falls back to a generic remote label when the server name is unknown', () => {
+    expect(vaultTargetCopy('remote', null)).toEqual({
+      title: 'Add Remote Vault',
+      hint: 'Enter the folder path as seen by the remote Notesmith server.'
+    });
+    expect(vaultTargetCopy('remote', '   ')).toEqual({
+      title: 'Add Remote Vault',
+      hint: 'Enter the folder path as seen by the remote Notesmith server.'
+    });
   });
 });

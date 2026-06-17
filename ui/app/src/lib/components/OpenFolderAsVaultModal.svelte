@@ -2,12 +2,14 @@
 	import { onMount, tick } from 'svelte';
 	import { addVault, listVaults } from '$lib/api';
 	import { API_BASE } from '$lib/api/core';
+	import { createConnectionClient } from '$lib/connection/connection-client';
 	import {
 		defaultNameFromPath,
 		resolveTauri,
 		shouldUseNativeVaultRegistration,
 		validateVaultName,
 		vaultRegistrationMode,
+		vaultTargetCopy,
 		type TauriBridge
 	} from '$lib/open-folder-as-vault';
 
@@ -27,12 +29,26 @@
 	let nameInput = $state<HTMLInputElement | undefined>(undefined);
 	let pathInput = $state<HTMLInputElement | undefined>(undefined);
 	const isRemoteDaemon = vaultRegistrationMode(API_BASE) === 'remote';
+	// The target server's display name, for remote registration copy (ADR 0017 D).
+	let serverName = $state<string | null>(null);
+	let copy = $derived(vaultTargetCopy(isRemoteDaemon ? 'remote' : 'local', serverName));
 
 	onMount(() => {
 		void start();
 	});
 
 	async function start() {
+		if (isRemoteDaemon) {
+			const client = createConnectionClient();
+			if (client.available()) {
+				try {
+					const identity = await client.windowInfo();
+					serverName = identity.remote ? identity.name : null;
+				} catch {
+					serverName = null;
+				}
+			}
+		}
 		try {
 			existing = (await listVaults()).map((v) => v.name);
 		} catch (e) {
@@ -138,7 +154,7 @@
 >
 	<div class="modal-sheet">
 		<h2 id="open-folder-title" class="modal-title">
-			{isRemoteDaemon ? 'Add Remote Vault' : 'Open Folder as Vault'}
+			{copy.title}
 		</h2>
 
 		{#if phase === 'picking'}
@@ -146,7 +162,7 @@
 		{:else}
 			{#if isRemoteDaemon}
 				<p class="modal-body">
-					Enter the folder path as seen by the remote Notesmith server.
+					{copy.hint}
 				</p>
 				<label class="field">
 					<span class="field-label">Server vault folder</span>

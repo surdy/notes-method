@@ -73,6 +73,31 @@ export function shouldUseNativeVaultRegistration(
   return vaultRegistrationMode(apiBase) === 'remote' && bridge != null;
 }
 
+/**
+ * Title + hint copy for the Add Vault surface, naming the **target server** for
+ * remote registration so the user always knows which daemon receives the vault
+ * (ADR 0017 Phase D). For a local registration the copy refers to a local
+ * folder; for remote it names the server when known, falling back to a generic
+ * label otherwise.
+ */
+export function vaultTargetCopy(
+  mode: VaultRegistrationMode,
+  serverName: string | null
+): { title: string; hint: string } {
+  if (mode === 'local') {
+    return {
+      title: 'Open Folder as Vault',
+      hint: 'Choose a local folder to register as a new vault.'
+    };
+  }
+  const trimmed = serverName?.trim() ?? '';
+  const where = trimmed ? trimmed : 'the remote Notesmith server';
+  return {
+    title: trimmed ? `Add Vault on ${trimmed}` : 'Add Remote Vault',
+    hint: `Enter the folder path as seen by ${where}.`
+  };
+}
+
 export function messageFromUnknownError(error: unknown, fallback: string): string {
   if (typeof error === 'string') return error;
   if (error instanceof Error) return error.message;

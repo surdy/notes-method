@@ -154,8 +154,8 @@
 		<section class="config-section">
 			<h3 class="section-title">Servers</h3>
 			<p class="section-hint">
-				Notesmith runs locally by default. Add a remote server to access a vault hosted on
-				another machine, then switch between them from the status bar.
+				Notesmith runs locally by default. Add a remote server to open a vault hosted on
+				another machine in its own window; each window shows its connection in the status bar.
 			</p>
 
 			<ul class="server-list">
