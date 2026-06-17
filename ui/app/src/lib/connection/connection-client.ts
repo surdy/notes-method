@@ -23,6 +23,24 @@ export interface ConnectionList {
 	servers: ServerView[];
 }
 
+/**
+ * A single window's connection identity (matches the Rust `ConnectionIdentity`,
+ * ADR 0017 C.1). Describes the connection the *calling window* is bound to, for
+ * the status-bar badge.
+ */
+export interface ConnectionIdentity {
+	id: string;
+	name: string;
+	remote: boolean;
+}
+
+/** The implicit local-daemon identity, used as a safe default off-desktop. */
+export const LOCAL_IDENTITY: ConnectionIdentity = {
+	id: LOCAL_ID,
+	name: 'This Mac',
+	remote: false
+};
+
 /** Result of probing a candidate daemon URL (matches the Rust `ConnectionTestResult`). */
 export interface ConnectionTestResult {
 	reachable: boolean;
@@ -55,6 +73,10 @@ export interface ConnectionClient {
 	/** Switch the active connection. `null`/`"local"` selects the local daemon. */
 	setActive(id: string | null): Promise<ConnectionList>;
 	test(url: string, token?: string | null): Promise<ConnectionTestResult>;
+	/** The calling window's own connection identity (ADR 0017 C.1). */
+	windowInfo(): Promise<ConnectionIdentity>;
+	/** Open `vault` on a specific connection in a (new or focused) window. */
+	openVaultOnServer(serverId: string, vault: string): Promise<void>;
 	/** Subscribe to active-connection changes. Returns an unsubscribe fn. */
 	onChanged(cb: (list: ConnectionList) => void): () => void;
 }
@@ -132,6 +154,14 @@ export class TauriConnectionClient implements ConnectionClient {
 		})) as ConnectionTestResult;
 	}
 
+	async windowInfo(): Promise<ConnectionIdentity> {
+		return (await this.bridge.invoke('window_connection_info')) as ConnectionIdentity;
+	}
+
+	async openVaultOnServer(serverId: string, vault: string): Promise<void> {
+		await this.bridge.invoke('open_vault_on_server', { serverId, vault });
+	}
+
 	onChanged(cb: (list: ConnectionList) => void): () => void {
 		let unlisten: (() => void) | null = null;
 		let disposed = false;
@@ -172,6 +202,12 @@ export class UnavailableConnectionClient implements ConnectionClient {
 		throw new Error('Connections can only be managed in the desktop app.');
 	}
 	async test(): Promise<ConnectionTestResult> {
+		throw new Error('Connections can only be managed in the desktop app.');
+	}
+	async windowInfo(): Promise<ConnectionIdentity> {
+		return LOCAL_IDENTITY;
+	}
+	async openVaultOnServer(): Promise<void> {
 		throw new Error('Connections can only be managed in the desktop app.');
 	}
 	onChanged(): () => void {

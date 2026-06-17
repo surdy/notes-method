@@ -16,17 +16,22 @@ export interface WindowTitleAdapter {
 
 const APP_NAME = 'Notesmith';
 
-export function formatWindowTitle(_vault: string, _noteTitle: string | null): string {
-  return APP_NAME;
+export function formatWindowTitle(
+  _vault: string,
+  _noteTitle: string | null,
+  serverSuffix: string | null = null
+): string {
+  return serverSuffix ? `${APP_NAME} — ${serverSuffix}` : APP_NAME;
 }
 
 export async function pushWindowTitle(
   vault: string,
   noteTitle: string | null,
+  serverSuffix: string | null = null,
   adapter: WindowTitleAdapter | null = resolveTauri()
 ): Promise<void> {
   if (!adapter) return;
-  const title = formatWindowTitle(vault, noteTitle);
+  const title = formatWindowTitle(vault, noteTitle, serverSuffix);
   try {
     await adapter.invoke('set_window_title', { title });
   } catch (error) {

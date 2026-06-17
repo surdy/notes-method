@@ -5,61 +5,74 @@
 	import { settingsRoute } from '$lib/vault-menu';
 	import {
 		createConnectionClient,
-		LOCAL_ID,
+		LOCAL_IDENTITY,
+		type ConnectionIdentity,
 		type ConnectionList,
 		type ConnectionTestResult
 	} from '$lib/connection/connection-client';
-	import {
-		activeOption,
-		connectionOptions,
-		pillIcon,
-		pillLabel
-	} from '$lib/connection/connection-view';
+	import { connectionBadge, otherServerTargets } from '$lib/connection/badge-view';
 
 	let { currentVault = '' }: { currentVault?: string } = $props();
 
 	const client = createConnectionClient();
 
-	let list = $state<ConnectionList>({ active_id: LOCAL_ID, servers: [] });
-	let activeStatus = $state<ConnectionTestResult | null>(null);
+	// The badge reflects *this window's* own connection (ADR 0017 C.2) — it never
+	// retargets the app. Switching is non-destructive: opening a vault on another
+	// server spawns a new window bound to that server.
+	let identity = $state<ConnectionIdentity>(LOCAL_IDENTITY);
+	let list = $state<ConnectionList>({ active_id: LOCAL_IDENTITY.id, servers: [] });
+	let status = $state<ConnectionTestResult | null>(null);
+	let checking = $state(false);
 	let open = $state(false);
-	let switching = $state(false);
 
-	let options = $derived(connectionOptions(list));
-	let label = $derived(pillLabel(list, activeStatus));
-	let icon = $derived(pillIcon(list));
+	let badge = $derived(connectionBadge(identity, status, checking));
+	let targets = $derived(otherServerTargets(list, identity.id));
 
 	onMount(() => {
 		if (!client.available()) return;
 		void load();
+		// Reflect server-list edits (add/remove) in the "open on another server"
+		// menu without a reload.
 		const unsubscribe = client.onChanged((next) => {
 			list = next;
-			void probeActive();
 		});
 		return unsubscribe;
 	});
 
 	async function load() {
 		try {
-			list = await client.list();
-			await probeActive();
+			identity = await client.windowInfo();
 		} catch {
-			// Leave the default local pill on failure — the switcher must never
-			// break the status bar.
-		}
-	}
-
-	/** Best-effort reachability probe of the active remote, for the latency suffix. */
-	async function probeActive() {
-		const active = activeOption(list);
-		if (active.kind === 'local' || !active.url) {
-			activeStatus = null;
-			return;
+			identity = LOCAL_IDENTITY;
 		}
 		try {
-			activeStatus = await client.test(active.url, null);
+			list = await client.list();
 		} catch {
-			activeStatus = null;
+			// Keep the default empty list — the badge must never break the bar.
+		}
+		await probe();
+	}
+
+	/** Best-effort reachability probe of this window's remote, for the dot. */
+	async function probe() {
+		if (!identity.remote) {
+			status = null;
+			checking = false;
+			return;
+		}
+		const server = list.servers.find((entry) => entry.id === identity.id);
+		if (!server) {
+			status = null;
+			checking = false;
+			return;
+		}
+		checking = true;
+		try {
+			status = await client.test(server.url, null);
+		} catch {
+			status = null;
+		} finally {
+			checking = false;
 		}
 	}
 
@@ -71,17 +84,13 @@
 		open = false;
 	}
 
-	async function select(id: string) {
+	async function openOn(serverId: string) {
 		close();
-		if (list.active_id === id || switching) return;
-		switching = true;
+		if (!currentVault) return;
 		try {
-			list = await client.setActive(id === LOCAL_ID ? null : id);
-			await probeActive();
+			await client.openVaultOnServer(serverId, currentVault);
 		} catch {
-			// Swallow — a failed switch leaves the previous connection in place.
-		} finally {
-			switching = false;
+			// Best-effort: a failed open leaves the current window untouched.
 		}
 	}
 
@@ -107,41 +116,45 @@
 		class:open
 		aria-haspopup="menu"
 		aria-expanded={open}
-		title="Switch connection"
+		title={badge.title}
 		onclick={toggle}
-		disabled={switching}
 	>
-		<span class="pill-icon" aria-hidden="true">{icon}</span>
-		<span class="pill-label">{label}</span>
+		<span class="pill-icon" aria-hidden="true">{badge.icon}</span>
+		{#if badge.dot !== 'none'}
+			<span class="dot {badge.dot}" aria-hidden="true"></span>
+		{/if}
+		<span class="pill-label">{badge.label}</span>
 		<span class="pill-caret" aria-hidden="true">▾</span>
 	</button>
 
 	{#if open}
 		<div class="menu" role="menu">
-			{#each options as option (option.id)}
+			<div class="menu-heading">
+				{#if currentVault}
+					Open “{currentVault}” on…
+				{:else}
+					No vault selected
+				{/if}
+			</div>
+			{#each targets as target (target.id)}
 				<button
 					type="button"
 					class="menu-item"
-					class:active={option.active}
-					role="menuitemradio"
-					aria-checked={option.active}
-					onclick={() => void select(option.id)}
+					role="menuitem"
+					disabled={!currentVault}
+					onclick={() => void openOn(target.id)}
 				>
-					<span class="check" aria-hidden="true">{option.active ? '✓' : ''}</span>
-					<span class="menu-icon" aria-hidden="true">{option.kind === 'local' ? '💻' : '☁'}</span>
-					<span class="menu-text">
-						<span class="menu-name">{option.name}</span>
-						{#if option.url}
-							<span class="menu-url">{option.url}</span>
-						{/if}
-					</span>
+					<span class="menu-icon" aria-hidden="true">{target.kind === 'local' ? '💻' : '☁'}</span>
+					<span class="menu-text"><span class="menu-name">{target.name}</span></span>
 				</button>
 			{/each}
+			{#if targets.length === 0}
+				<div class="menu-empty">No other servers configured</div>
+			{/if}
 
 			<div class="menu-divider" role="separator"></div>
 
 			<button type="button" class="menu-item manage" role="menuitem" onclick={manage}>
-				<span class="check" aria-hidden="true"></span>
 				<span class="menu-text"><span class="menu-name">Manage servers…</span></span>
 			</button>
 		</div>
@@ -169,14 +182,28 @@
 		cursor: pointer;
 	}
 
-	.pill:hover:not(:disabled),
+	.pill:hover,
 	.pill.open {
 		background: var(--button-hover);
 	}
 
-	.pill:disabled {
-		opacity: 0.6;
-		cursor: default;
+	.dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.dot.live {
+		background: var(--status-connected);
+	}
+
+	.dot.offline {
+		background: var(--status-disconnected);
+	}
+
+	.dot.checking {
+		background: var(--status-reconnecting);
 	}
 
 	.pill-label {
@@ -204,6 +231,14 @@
 		z-index: 50;
 	}
 
+	.menu-heading {
+		padding: 6px 8px 4px;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
+	}
+
 	.menu-item {
 		display: flex;
 		align-items: center;
@@ -219,18 +254,13 @@
 		cursor: pointer;
 	}
 
-	.menu-item:hover {
+	.menu-item:hover:not(:disabled) {
 		background: var(--bg-hover);
 	}
 
-	.menu-item.active {
-		color: var(--text-default);
-	}
-
-	.check {
-		width: 12px;
-		flex-shrink: 0;
-		color: var(--color-success);
+	.menu-item:disabled {
+		opacity: 0.5;
+		cursor: default;
 	}
 
 	.menu-icon {
@@ -248,13 +278,10 @@
 		font-weight: 500;
 	}
 
-	.menu-url {
-		font-size: 10px;
+	.menu-empty {
+		padding: 6px 8px;
+		font-size: 11px;
 		color: var(--text-muted);
-		font-family: var(--font-mono);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 
 	.menu-divider {

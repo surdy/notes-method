@@ -29,12 +29,16 @@
 	import { workspaceChromeLayout } from '$lib/workspace-chrome';
 	import { loadDockSegment, saveDockSegment, type DockSegment } from '$lib/right-dock';
 	import { pushWindowTitle } from '$lib/window-title';
+	import { createConnectionClient, LOCAL_IDENTITY } from '$lib/connection/connection-client';
+	import { titleServerSuffix } from '$lib/connection/badge-view';
 
 	let vaults = $state<string[]>([]);
 	let paletteMode = $state<'files' | 'commands' | null>(null);
 	let leftSidebarCollapsed = $state(false);
 	let rightRailCollapsed = $state(false);
 	let dockSegment = $state<DockSegment>('context');
+	// This window's own server name, for the remote title suffix (ADR 0017 C.2).
+	let titleSuffix = $state<string | null>(null);
 	let sidebarViewsRef = $state<{ refresh: () => void; reloadConfig: () => void } | null>(null);
 	let noteEditorRef = $state<
 		| {
@@ -142,6 +146,19 @@
 
 		void shell.init(vaultParam, vaults);
 
+		// Resolve this window's connection once for the title suffix.
+		const connectionClient = createConnectionClient();
+		if (connectionClient.available()) {
+			void connectionClient
+				.windowInfo()
+				.then((identity) => {
+					titleSuffix = titleServerSuffix(identity);
+				})
+				.catch(() => {
+					titleSuffix = titleServerSuffix(LOCAL_IDENTITY);
+				});
+		}
+
 		const openFolderHandler = () => {
 			showOpenFolderModal = true;
 		};
@@ -189,7 +206,7 @@
 	$effect(() => {
 		const vault = vaultStore.currentVault;
 		const activeTitle = tabStore.activeTab?.title ?? null;
-		void pushWindowTitle(vault, activeTitle);
+		void pushWindowTitle(vault, activeTitle, titleSuffix);
 	});
 </script>
 
