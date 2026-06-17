@@ -23,7 +23,8 @@ use notesmith_tauri::vault_menu::{
     OPEN_FOLDER_AS_VAULT_ID, decode_open_vault_id, encode_open_vault_id,
     validate_vault_display_name,
 };
-use notesmith_tauri::vault_window::{is_vault_window_label, vault_window_label};
+use notesmith_tauri::vault_window::{VaultKey, is_vault_window_label, vault_window_label};
+use notesmith_tauri::window_registry::{WindowContext, WindowRegistry};
 use notesmith_tauri::windows_persist::{
     self, Rect, WindowEntry, WindowsFile, dedupe_latest_per_vault,
 };
@@ -332,6 +333,48 @@ impl VaultWindows {
     }
 }
 
+/// The authoritative window → connection registry (ADR 0017).
+///
+/// Wraps the pure [`WindowRegistry`] in a mutex for use as Tauri managed state.
+/// Populated alongside [`VaultWindows`] today; later phases switch URL building
+/// and IPC to read from it instead of the app-global `DaemonUrlState`.
+#[derive(Default)]
+struct WindowConnections(Mutex<WindowRegistry>);
+
+impl WindowConnections {
+    fn insert(&self, label: String, context: WindowContext) {
+        self.0
+            .lock()
+            .expect("window registry poisoned")
+            .insert(label, context);
+    }
+
+    fn remove_label(&self, label: &str) -> Option<WindowContext> {
+        self.0
+            .lock()
+            .expect("window registry poisoned")
+            .remove_label(label)
+    }
+
+    #[allow(dead_code)]
+    fn label_for_key(&self, key: &VaultKey) -> Option<String> {
+        self.0
+            .lock()
+            .expect("window registry poisoned")
+            .label_for_key(key)
+            .map(str::to_string)
+    }
+
+    #[allow(dead_code)]
+    fn context_for_label(&self, label: &str) -> Option<WindowContext> {
+        self.0
+            .lock()
+            .expect("window registry poisoned")
+            .context_for_label(label)
+            .cloned()
+    }
+}
+
 /// Tracks the path to `windows.json` plus a debounced timestamp for the next
 /// flush. The timestamp gates noisy geometry-change writes during a drag.
 #[derive(Default)]
@@ -407,6 +450,7 @@ fn main() {
         .manage(DaemonProcessState::default())
         .manage(ServersState::default())
         .manage(VaultWindows::default())
+        .manage(WindowConnections::default())
         .manage(WindowsPersistState::default())
         .manage(agent_bridge::AgentBridge::default())
         .manage(InternalHtmlState(Mutex::new(InternalPages {
@@ -1311,6 +1355,7 @@ fn ensure_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError
 fn ensure_vault_window<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<String, DynError> {
     let label = vault_window_label(vault);
     let target_url = current_vault_app_url(app, vault)?;
+    let window_context = WindowContext::vault(active_server_id(app), vault.to_string());
 
     if let Some(window) = app.get_webview_window(&label) {
         if window.url()?.as_str() != target_url.as_str() {
@@ -1318,6 +1363,8 @@ fn ensure_vault_window<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<St
         }
         app.state::<VaultWindows>()
             .insert(vault.to_string(), label.clone());
+        app.state::<WindowConnections>()
+            .insert(label.clone(), window_context);
         return Ok(label);
     }
 
@@ -1337,6 +1384,8 @@ fn ensure_vault_window<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<St
 
     app.state::<VaultWindows>()
         .insert(vault.to_string(), label.clone());
+    app.state::<WindowConnections>()
+        .insert(label.clone(), window_context);
 
     // New window — schedule a persistence flush so windows.json reflects it.
     schedule_persist(app);
@@ -1472,6 +1521,7 @@ fn schedule_persist<R: Runtime>(app: &AppHandle<R>) {
 /// subsequent launch doesn't reopen the closed window.
 fn handle_vault_window_destroyed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     app.state::<VaultWindows>().remove_label(label);
+    app.state::<WindowConnections>().remove_label(label);
     schedule_persist(app);
 }
 
@@ -1861,6 +1911,16 @@ fn effective_settings<R: Runtime>(app: &AppHandle<R>) -> DaemonSettings {
 
 fn should_use_local_vault_state(settings: &DaemonSettings) -> bool {
     !settings.external_url
+}
+
+/// The stable id of the currently-active connection (`servers::LOCAL_ID` for
+/// the local daemon). Used to stamp new windows with their owning server in the
+/// [`WindowConnections`] registry.
+fn active_server_id<R: Runtime>(app: &AppHandle<R>) -> String {
+    app.state::<ServersState>()
+        .snapshot()
+        .connection_list()
+        .active_id
 }
 
 fn webview_url_for_app(url: Url) -> WebviewUrl {

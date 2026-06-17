@@ -5,4 +5,5 @@ pub mod daemon;
 pub mod servers;
 pub mod vault_menu;
 pub mod vault_window;
+pub mod window_registry;
 pub mod windows_persist;
