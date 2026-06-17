@@ -1,14 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type {
-	ConnectionIdentity,
-	ConnectionList,
-	ConnectionTestResult
-} from './connection-client.ts';
-import {
-	connectionBadge,
-	otherServerTargets,
-	titleServerSuffix
-} from './badge-view.ts';
+import type { ConnectionIdentity, ConnectionTestResult } from './connection-client.ts';
+import { connectionBadge, connectionDetail, titleServerSuffix } from './badge-view.ts';
 
 const local: ConnectionIdentity = { id: 'local', name: 'This Mac', remote: false };
 const remote: ConnectionIdentity = { id: 'memory', name: 'memory', remote: true };
@@ -48,26 +40,38 @@ describe('connectionBadge', () => {
 	});
 });
 
-describe('otherServerTargets', () => {
-	const list: ConnectionList = {
-		active_id: 'local',
-		servers: [
-			{ id: 'memory', name: 'memory', url: 'https://m.example', has_token: true },
-			{ id: 'work', name: 'work', url: 'https://w.example', has_token: false }
-		]
-	};
-
-	it('offers local + the other remotes when the current window is remote', () => {
-		const targets = otherServerTargets(list, 'memory');
-		expect(targets).toEqual([
-			{ id: 'local', name: 'This Mac', kind: 'local' },
-			{ id: 'work', name: 'work', kind: 'remote' }
-		]);
+describe('connectionDetail', () => {
+	it('describes the local daemon as always available with no dot', () => {
+		const detail = connectionDetail(local, null, false);
+		expect(detail).toEqual({
+			name: 'This Mac',
+			kind: 'local',
+			kindLabel: 'Local daemon',
+			statusLabel: 'Always available',
+			dot: 'none',
+			url: null
+		});
 	});
 
-	it('omits local (no duplicate) when the current window is already local', () => {
-		const targets = otherServerTargets(list, 'local');
-		expect(targets.map((t) => t.id)).toEqual(['memory', 'work']);
+	it('shows a checking status for a remote with no probe yet', () => {
+		const detail = connectionDetail(remote, null, true, 'https://m.example');
+		expect(detail.kind).toBe('remote');
+		expect(detail.kindLabel).toBe('Remote server');
+		expect(detail.statusLabel).toBe('Checking…');
+		expect(detail.dot).toBe('checking');
+		expect(detail.url).toBe('https://m.example');
+	});
+
+	it('reports live status with latency when reachable', () => {
+		const detail = connectionDetail(remote, reachable, false, 'https://m.example');
+		expect(detail.statusLabel).toBe('Live · 42 ms');
+		expect(detail.dot).toBe('live');
+	});
+
+	it('reports offline status with the error when unreachable', () => {
+		const detail = connectionDetail(remote, unreachable, false, 'https://m.example');
+		expect(detail.statusLabel).toBe('Offline — No response');
+		expect(detail.dot).toBe('offline');
 	});
 });
 

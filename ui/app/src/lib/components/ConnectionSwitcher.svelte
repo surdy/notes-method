@@ -10,29 +10,31 @@
 		type ConnectionList,
 		type ConnectionTestResult
 	} from '$lib/connection/connection-client';
-	import { connectionBadge, otherServerTargets } from '$lib/connection/badge-view';
+	import { connectionBadge, connectionDetail } from '$lib/connection/badge-view';
 
 	let { currentVault = '' }: { currentVault?: string } = $props();
 
 	const client = createConnectionClient();
 
-	// The badge reflects *this window's* own connection (ADR 0017 C.2) — it never
-	// retargets the app. Switching is non-destructive: opening a vault on another
-	// server spawns a new window bound to that server.
+	// The badge reflects *this window's* own connection (ADR 0017 C.2) — it is a
+	// pure indicator and never retargets the app. Switching servers is the job of
+	// the File → New Window menu (grouped by server, with each server's real
+	// vaults); the badge only links to "Manage servers…".
 	let identity = $state<ConnectionIdentity>(LOCAL_IDENTITY);
 	let list = $state<ConnectionList>({ active_id: LOCAL_IDENTITY.id, servers: [] });
 	let status = $state<ConnectionTestResult | null>(null);
 	let checking = $state(false);
 	let open = $state(false);
 
+	let serverUrl = $derived(list.servers.find((entry) => entry.id === identity.id)?.url ?? null);
 	let badge = $derived(connectionBadge(identity, status, checking));
-	let targets = $derived(otherServerTargets(list, identity.id));
+	let detail = $derived(connectionDetail(identity, status, checking, serverUrl));
 
 	onMount(() => {
 		if (!client.available()) return;
 		void load();
-		// Reflect server-list edits (add/remove) in the "open on another server"
-		// menu without a reload.
+		// Reflect server-list edits (rename / reachability) in the badge detail
+		// without a reload.
 		const unsubscribe = client.onChanged((next) => {
 			list = next;
 		});
@@ -84,16 +86,6 @@
 		open = false;
 	}
 
-	async function openOn(serverId: string) {
-		close();
-		if (!currentVault) return;
-		try {
-			await client.openVaultOnServer(serverId, currentVault);
-		} catch {
-			// Best-effort: a failed open leaves the current window untouched.
-		}
-	}
-
 	function manage() {
 		close();
 		void goto(settingsRoute(base, currentVault, 'connection'));
@@ -114,7 +106,7 @@
 		type="button"
 		class="pill"
 		class:open
-		aria-haspopup="menu"
+		aria-haspopup="dialog"
 		aria-expanded={open}
 		title={badge.title}
 		onclick={toggle}
@@ -128,34 +120,28 @@
 	</button>
 
 	{#if open}
-		<div class="menu" role="menu">
-			<div class="menu-heading">
-				{#if currentVault}
-					Open “{currentVault}” on…
-				{:else}
-					No vault selected
+		<div class="menu" role="dialog" aria-label="Connection details">
+			<div class="detail">
+				<div class="detail-head">
+					<span class="detail-icon" aria-hidden="true">{badge.icon}</span>
+					<span class="detail-name">{detail.name}</span>
+				</div>
+				<div class="detail-kind">{detail.kindLabel}</div>
+				<div class="detail-status">
+					{#if detail.dot !== 'none'}
+						<span class="dot {detail.dot}" aria-hidden="true"></span>
+					{/if}
+					<span>{detail.statusLabel}</span>
+				</div>
+				{#if detail.url}
+					<div class="detail-url" title={detail.url}>{detail.url}</div>
 				{/if}
 			</div>
-			{#each targets as target (target.id)}
-				<button
-					type="button"
-					class="menu-item"
-					role="menuitem"
-					disabled={!currentVault}
-					onclick={() => void openOn(target.id)}
-				>
-					<span class="menu-icon" aria-hidden="true">{target.kind === 'local' ? '💻' : '☁'}</span>
-					<span class="menu-text"><span class="menu-name">{target.name}</span></span>
-				</button>
-			{/each}
-			{#if targets.length === 0}
-				<div class="menu-empty">No other servers configured</div>
-			{/if}
 
 			<div class="menu-divider" role="separator"></div>
 
 			<button type="button" class="menu-item manage" role="menuitem" onclick={manage}>
-				<span class="menu-text"><span class="menu-name">Manage servers…</span></span>
+				Manage servers…
 			</button>
 		</div>
 	{/if}
@@ -231,12 +217,52 @@
 		z-index: 50;
 	}
 
-	.menu-heading {
-		padding: 6px 8px 4px;
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
+	.detail {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		padding: 6px 8px;
+	}
+
+	.detail-head {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+	}
+
+	.detail-icon {
+		flex-shrink: 0;
+	}
+
+	.detail-name {
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--text-default);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.detail-kind {
+		font-size: 11px;
 		color: var(--text-muted);
+	}
+
+	.detail-status {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 12px;
+		color: var(--text-default);
+	}
+
+	.detail-url {
+		font-size: 11px;
+		color: var(--text-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.menu-item {
@@ -248,50 +274,20 @@
 		border: none;
 		border-radius: 4px;
 		background: none;
-		color: var(--text-default);
+		color: var(--text-muted);
 		font-size: 12px;
 		text-align: left;
 		cursor: pointer;
 	}
 
-	.menu-item:hover:not(:disabled) {
+	.menu-item:hover {
 		background: var(--bg-hover);
-	}
-
-	.menu-item:disabled {
-		opacity: 0.5;
-		cursor: default;
-	}
-
-	.menu-icon {
-		flex-shrink: 0;
-	}
-
-	.menu-text {
-		display: flex;
-		flex-direction: column;
-		gap: 1px;
-		min-width: 0;
-	}
-
-	.menu-name {
-		font-weight: 500;
-	}
-
-	.menu-empty {
-		padding: 6px 8px;
-		font-size: 11px;
-		color: var(--text-muted);
+		color: var(--text-default);
 	}
 
 	.menu-divider {
 		height: 1px;
 		margin: 4px 0;
 		background: var(--border-default);
-	}
-
-	.manage .menu-name {
-		color: var(--text-muted);
-		font-weight: 400;
 	}
 </style>

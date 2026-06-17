@@ -17,8 +17,13 @@ status-bar control is now a per-window **badge** (`ConnectionSwitcher.svelte`,
 vaults by server; and `servers.json`'s `active_id` now functions purely as a
 **non-destructive default** (drives new-window / menu defaults), never
 retargeting open windows. Destructive server edits (URL change, removal) are
-blocked while windows are open against the server. Phases A–D: GitHub
-#222–#240.
+blocked while windows are open against the server. The shipped badge is
+**indicator-only** (current connection + status dot + "Manage servers…"); the
+"open this vault on another server" affordance from Decision 8 was dropped as
+semantically misleading — vault namespaces are per-server, so the same vault
+name rarely exists on another server. Cross-server switching is done through
+the **File → New Window** menu, which lists each server's *real* vaults. Phases
+A–D: GitHub #222–#240.
 
 ## Context
 

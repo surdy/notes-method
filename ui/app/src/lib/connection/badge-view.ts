@@ -8,12 +8,7 @@
  * from the Svelte component so the icon/label/dot/title logic is unit-testable.
  */
 
-import {
-	LOCAL_ID,
-	type ConnectionIdentity,
-	type ConnectionList,
-	type ConnectionTestResult
-} from './connection-client.ts';
+import { type ConnectionIdentity, type ConnectionTestResult } from './connection-client.ts';
 
 /** The live-status dot rendered next to the badge label. */
 export type BadgeDot = 'none' | 'checking' | 'live' | 'offline';
@@ -73,31 +68,63 @@ export function connectionBadge(
 	return { icon: '☁', label, dot, remote: true, title };
 }
 
-/** A connection the current vault can be opened on (for the "another server" menu). */
-export interface ServerTarget {
-	id: string;
+/**
+ * The connection-detail view-model for the badge's status popover (ADR 0017
+ * C.2, indicator-only). Describes *this window's own* connection — never an
+ * action to retarget it. Switching servers is the job of the File → New Window
+ * menu (grouped by server, listing each server's real vaults).
+ */
+export interface ConnectionDetail {
+	/** The connection's display name. */
 	name: string;
+	/** Whether this is a local daemon or a remote server. */
 	kind: 'local' | 'remote';
+	/** Human label for the kind: "Local daemon" / "Remote server". */
+	kindLabel: string;
+	/** Reachability summary: "Always available" / "Checking…" / "Live · 42 ms" / "Offline — …". */
+	statusLabel: string;
+	/** Status dot mirroring {@link connectionBadge}. */
+	dot: BadgeDot;
+	/** The server URL for a remote connection, or `null` for local. */
+	url: string | null;
 }
 
 /**
- * The connections *other than* the current window's, for the "Open this vault on
- * another server…" submenu. Always offers the local daemon (unless that's the
- * current connection) followed by every saved remote server (minus the current).
+ * Build the detail model shown when the badge is opened. Local connections are
+ * always available (no probe); remote connections summarise the reachability
+ * probe (checking → live+latency → offline+error).
  */
-export function otherServerTargets(
-	list: ConnectionList,
-	currentServerId: string
-): ServerTarget[] {
-	const targets: ServerTarget[] = [];
-	if (currentServerId !== LOCAL_ID) {
-		targets.push({ id: LOCAL_ID, name: 'This Mac', kind: 'local' });
+export function connectionDetail(
+	identity: ConnectionIdentity,
+	status: ConnectionTestResult | null,
+	checking: boolean,
+	url: string | null = null
+): ConnectionDetail {
+	if (!identity.remote) {
+		return {
+			name: identity.name,
+			kind: 'local',
+			kindLabel: 'Local daemon',
+			statusLabel: 'Always available',
+			dot: 'none',
+			url: null
+		};
 	}
-	for (const server of list.servers) {
-		if (server.id === currentServerId) continue;
-		targets.push({ id: server.id, name: server.name, kind: 'remote' });
+
+	let dot: BadgeDot = 'checking';
+	let statusLabel = 'Checking…';
+	if (!checking && status) {
+		if (status.reachable) {
+			dot = 'live';
+			statusLabel =
+				typeof status.latency_ms === 'number' ? `Live · ${status.latency_ms} ms` : 'Live';
+		} else {
+			dot = 'offline';
+			statusLabel = status.error ? `Offline — ${status.error}` : 'Offline';
+		}
 	}
-	return targets;
+
+	return { name: identity.name, kind: 'remote', kindLabel: 'Remote server', statusLabel, dot, url };
 }
 
 /**
