@@ -389,6 +389,7 @@ transition:
 .workspace-chrome-left {
 flex: 0 0 var(--workspace-left-width);
 width: var(--workspace-left-width);
+padding-left: 14px;
 border-right: 1px solid var(--border-default);
 }
 
