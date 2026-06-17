@@ -15,7 +15,9 @@ use notesmith_tauri::app_url::{
     APP_PROTOCOL, app_asset_path, connection_window_url, should_fallback_to_index,
 };
 use notesmith_tauri::daemon::{self, DaemonSettings, DaemonState, DynError};
-use notesmith_tauri::new_window_menu::{GroupStatus, MenuRow, ServerGroup, build_new_window_rows};
+use notesmith_tauri::new_window_menu::{
+    GroupStatus, MenuRow, ServerGroup, VaultSource, build_new_window_rows,
+};
 use notesmith_tauri::servers::{
     self, ConnectionList, ConnectionTestResult, ServerInput, ServerView, ServersFile,
 };
@@ -31,7 +33,7 @@ use notesmith_tauri::windows_persist::{
 use tauri::{
     AppHandle, Emitter, Manager, RunEvent, Runtime, UriSchemeContext, Url, WebviewUrl,
     WebviewWindowBuilder,
-    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{IconMenuItem, Menu, MenuItem, NativeIcon, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -965,15 +967,36 @@ fn build_new_window_submenu_items<R: Runtime>(
                 // Disabled, auto-id item used purely as a non-interactive label.
                 entries.push(Box::new(MenuItem::new(app, text, false, None::<&str>)?));
             }
-            MenuRow::Vault { id, label, enabled } => {
-                entries.push(Box::new(MenuItem::with_id(
-                    app,
-                    id,
-                    label,
-                    *enabled,
-                    None::<&str>,
-                )?));
-            }
+            MenuRow::Vault {
+                id,
+                label,
+                enabled,
+                source,
+            } => match source {
+                Some(src) => {
+                    let native = match src {
+                        VaultSource::Local => NativeIcon::Computer,
+                        VaultSource::Remote => NativeIcon::Network,
+                    };
+                    entries.push(Box::new(IconMenuItem::with_id_and_native_icon(
+                        app,
+                        id,
+                        label,
+                        *enabled,
+                        Some(native),
+                        None::<&str>,
+                    )?));
+                }
+                None => {
+                    entries.push(Box::new(MenuItem::with_id(
+                        app,
+                        id,
+                        label,
+                        *enabled,
+                        None::<&str>,
+                    )?));
+                }
+            },
             MenuRow::Separator => {
                 entries.push(Box::new(PredefinedMenuItem::separator(app)?));
             }

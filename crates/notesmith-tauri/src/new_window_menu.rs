@@ -77,6 +77,17 @@ pub struct ServerGroup {
     pub status: GroupStatus,
 }
 
+/// Whether a vault row belongs to the local daemon or a remote server, used to
+/// pick a source icon (laptop vs. globe) in the rendered menu. `None` (in the
+/// local-only flat menu) renders without an icon, preserving the legacy layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VaultSource {
+    /// A vault on the local daemon.
+    Local,
+    /// A vault on a remote server.
+    Remote,
+}
+
 /// A single rendered row of the submenu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuRow {
@@ -92,6 +103,9 @@ pub enum MenuRow {
         label: String,
         /// Whether the entry can be opened.
         enabled: bool,
+        /// Local vs. remote source for the row icon; `None` = no icon (legacy
+        /// local-only flat menu).
+        source: Option<VaultSource>,
     },
     /// A non-interactive informational row (e.g. "No vaults").
     Info(String),
@@ -116,6 +130,7 @@ pub fn build_new_window_rows(local_vaults: &[String], remotes: &[ServerGroup]) -
                 id: encode_open_vault_id(vault),
                 label: vault.clone(),
                 enabled: true,
+                source: None,
             });
         }
         if !local_vaults.is_empty() {
@@ -135,6 +150,7 @@ pub fn build_new_window_rows(local_vaults: &[String], remotes: &[ServerGroup]) -
                 id: encode_open_vault_id(vault),
                 label: vault.clone(),
                 enabled: true,
+                source: Some(VaultSource::Local),
             });
         }
     }
@@ -159,6 +175,7 @@ pub fn build_new_window_rows(local_vaults: &[String], remotes: &[ServerGroup]) -
                 id: encode_open_vault_id_for(&group.server_id, vault),
                 label: vault.clone(),
                 enabled,
+                source: Some(VaultSource::Remote),
             });
         }
     }
@@ -199,11 +216,13 @@ mod tests {
                     id: encode_open_vault_id("personal"),
                     label: "personal".into(),
                     enabled: true,
+                    source: None,
                 },
                 MenuRow::Vault {
                     id: encode_open_vault_id("work"),
                     label: "work".into(),
                     enabled: true,
+                    source: None,
                 },
                 MenuRow::Separator,
                 MenuRow::OpenFolder,
@@ -234,6 +253,7 @@ mod tests {
                     id: encode_open_vault_id("personal"),
                     label: "personal".into(),
                     enabled: true,
+                    source: Some(VaultSource::Local),
                 },
                 MenuRow::Separator,
                 MenuRow::Header("memory".into()),
@@ -241,11 +261,13 @@ mod tests {
                     id: encode_open_vault_id_for("memory", "people"),
                     label: "people".into(),
                     enabled: true,
+                    source: Some(VaultSource::Remote),
                 },
                 MenuRow::Vault {
                     id: encode_open_vault_id_for("memory", "tech"),
                     label: "tech".into(),
                     enabled: true,
+                    source: Some(VaultSource::Remote),
                 },
                 MenuRow::Separator,
                 MenuRow::OpenFolder,
@@ -267,6 +289,7 @@ mod tests {
             id: encode_open_vault_id_for("memory", "people"),
             label: "people".into(),
             enabled: false,
+            source: Some(VaultSource::Remote),
         }));
     }
 
@@ -284,6 +307,7 @@ mod tests {
             id: encode_open_vault_id_for("memory", "people"),
             label: "people".into(),
             enabled: false,
+            source: Some(VaultSource::Remote),
         }));
     }
 
@@ -304,6 +328,31 @@ mod tests {
         let rows = build_new_window_rows(&[], &remotes);
         assert!(rows.contains(&MenuRow::Header("memory".into())));
         assert!(rows.contains(&MenuRow::Info("No vaults".into())));
+    }
+
+    #[test]
+    fn vault_rows_carry_source_local_then_remote() {
+        // Local-only flat menu: no source (legacy, icon-less).
+        let flat = build_new_window_rows(&["personal".into()], &[]);
+        assert!(matches!(
+            flat.first(),
+            Some(MenuRow::Vault { source: None, .. })
+        ));
+
+        // Multi-server: local group rows are Local, remote group rows are Remote.
+        let remotes = vec![group("memory", "memory", &["people"], GroupStatus::Fresh)];
+        let rows = build_new_window_rows(&["personal".into()], &remotes);
+        let sources: Vec<Option<VaultSource>> = rows
+            .iter()
+            .filter_map(|row| match row {
+                MenuRow::Vault { source, .. } => Some(*source),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            sources,
+            vec![Some(VaultSource::Local), Some(VaultSource::Remote)]
+        );
     }
 
     #[test]
