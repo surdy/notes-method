@@ -269,6 +269,21 @@ impl ServersFile {
         }
     }
 
+    /// Resolve a specific connection's target by id, independent of which
+    /// connection is currently active. [`LOCAL_ID`] (or an id that no longer
+    /// refers to a stored server) yields the local target; a stored id yields
+    /// that entry's URL flagged remote.
+    ///
+    /// This is the per-window analogue of [`active_target`](Self::active_target):
+    /// each desktop window builds its frontend URL from *its* connection
+    /// (ADR 0017), not the single global active one.
+    pub fn target_for(&self, id: &str, local_url: &str) -> (String, bool) {
+        match self.get(id) {
+            Some(entry) if id != LOCAL_ID => (entry.url.clone(), true),
+            _ => (local_url.to_string(), false),
+        }
+    }
+
     pub fn get(&self, id: &str) -> Option<&ServerEntry> {
         self.servers.iter().find(|s| s.id == id)
     }
@@ -726,6 +741,33 @@ mod tests {
         file.set_active(Some(LOCAL_ID)).unwrap();
         assert_eq!(
             file.active_target("http://127.0.0.1:27183"),
+            ("http://127.0.0.1:27183".to_string(), false)
+        );
+    }
+
+    #[test]
+    fn target_for_resolves_by_id_independent_of_active() {
+        let mut file = ServersFile::default();
+        let id = file
+            .add(input("Home", "https://notes.example.com"))
+            .unwrap();
+        // Local remains the active connection throughout.
+        assert!(file.is_local_active());
+
+        // Explicit local id → local target, regardless of active.
+        assert_eq!(
+            file.target_for(LOCAL_ID, "http://127.0.0.1:27183"),
+            ("http://127.0.0.1:27183".to_string(), false)
+        );
+        // A stored remote id → that entry's URL, flagged remote — even though
+        // the active connection is still local.
+        assert_eq!(
+            file.target_for(&id, "http://127.0.0.1:27183"),
+            ("https://notes.example.com".to_string(), true)
+        );
+        // An unknown id falls back to local (mirrors `normalized()`).
+        assert_eq!(
+            file.target_for("ghost", "http://127.0.0.1:27183"),
             ("http://127.0.0.1:27183".to_string(), false)
         );
     }

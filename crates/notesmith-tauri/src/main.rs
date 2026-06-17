@@ -12,8 +12,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use notesmith_tauri::app_url::{
-    APP_PROTOCOL, FrontendMode, app_asset_path, app_route_window_url, app_window_url,
-    should_fallback_to_index,
+    APP_PROTOCOL, app_asset_path, connection_window_url, should_fallback_to_index,
 };
 use notesmith_tauri::daemon::{self, DaemonSettings, DaemonState, DynError};
 use notesmith_tauri::servers::{
@@ -1354,8 +1353,11 @@ fn ensure_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError
 /// The caller is responsible for `.show()/.set_focus()` on the returned window.
 fn ensure_vault_window<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<String, DynError> {
     let label = vault_window_label(vault);
-    let target_url = current_vault_app_url(app, vault)?;
-    let window_context = WindowContext::vault(active_server_id(app), vault.to_string());
+    // Build the window's URL from the *same* connection it is stamped with, so
+    // a window bound to a remote server loads that server's frontend (ADR 0017).
+    let server_id = active_server_id(app);
+    let target_url = app_url_for_server(app, &server_id, "/", Some(vault))?;
+    let window_context = WindowContext::vault(server_id, vault.to_string());
 
     if let Some(window) = app.get_webview_window(&label) {
         if window.url()?.as_str() != target_url.as_str() {
@@ -1863,45 +1865,49 @@ fn current_vault_app_url<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<
 }
 
 fn current_settings_app_url<R: Runtime>(app: &AppHandle<R>) -> Result<Url, DynError> {
-    Url::parse(&app_route_window_url(
-        &current_daemon_url(app),
-        "/settings",
-        None,
-        frontend_mode(app),
-    ))
-    .map_err(Into::into)
+    app_url_for_server(app, &active_server_id(app), "/settings", None)
 }
 
 fn current_app_url_for_vault<R: Runtime>(
     app: &AppHandle<R>,
     vault: Option<&str>,
 ) -> Result<Url, DynError> {
-    Url::parse(&app_window_url(
-        &current_daemon_url(app),
-        vault,
-        frontend_mode(app),
-    ))
-    .map_err(Into::into)
+    app_url_for_server(app, &active_server_id(app), "/", vault)
 }
 
-fn frontend_mode<R: Runtime>(app: &AppHandle<R>) -> FrontendMode {
-    if effective_settings(app).external_url {
-        FrontendMode::Embedded
-    } else {
-        FrontendMode::Daemon
-    }
+/// Build the frontend URL a window bound to `server_id` should load for the
+/// given `route`/`vault`. Resolves the connection's daemon URL + load mode from
+/// the persisted server list (ADR 0017): each window targets *its* connection,
+/// not the single global active one.
+fn app_url_for_server<R: Runtime>(
+    app: &AppHandle<R>,
+    server_id: &str,
+    route: &str,
+    vault: Option<&str>,
+) -> Result<Url, DynError> {
+    let settings = settings_for_server(app, server_id);
+    let (_mode, url) =
+        connection_window_url(&settings.daemon_url, settings.external_url, route, vault);
+    Url::parse(&url).map_err(Into::into)
 }
 
-/// Daemon settings for the **active connection**. The persisted server list is
-/// authoritative: a remote server yields `external_url = true` + its URL, and
-/// the local daemon yields `external_url = false` + the default local URL.
-/// `daemon_bin`/sidecar and timeouts come from the base defaults.
+/// Daemon settings for the **active connection** — the default used by Global
+/// windows (settings/onboarding) and any code path that isn't bound to a
+/// specific window's connection.
 fn effective_settings<R: Runtime>(app: &AppHandle<R>) -> DaemonSettings {
+    settings_for_server(app, &active_server_id(app))
+}
+
+/// Daemon settings for a specific connection (`server_id`). The persisted server
+/// list is authoritative: a stored remote id yields `external_url = true` + its
+/// URL; [`servers::LOCAL_ID`] (or an unknown id) yields the local daemon URL.
+/// `daemon_bin`/sidecar and timeouts come from the base defaults.
+fn settings_for_server<R: Runtime>(app: &AppHandle<R>, server_id: &str) -> DaemonSettings {
     let base = startup_settings();
     let (url, remote) = app
         .state::<ServersState>()
         .snapshot()
-        .active_target(daemon::DEFAULT_DAEMON_URL);
+        .target_for(server_id, daemon::DEFAULT_DAEMON_URL);
     DaemonSettings {
         daemon_url: url,
         external_url: remote,

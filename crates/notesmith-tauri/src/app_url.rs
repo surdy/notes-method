@@ -17,6 +17,30 @@ pub fn app_window_url(daemon_base: &str, vault: Option<&str>, mode: FrontendMode
     app_route_window_url(daemon_base, "/", vault, mode)
 }
 
+/// Map a connection's remoteness to the frontend load mode: a remote daemon
+/// serves the embedded shell (assets bundled locally, API pointed at the
+/// remote), the local daemon serves `/app/` directly.
+pub fn frontend_mode_for_remote(remote: bool) -> FrontendMode {
+    if remote {
+        FrontendMode::Embedded
+    } else {
+        FrontendMode::Daemon
+    }
+}
+
+/// Resolve the load mode and full app URL for a connection target. This is the
+/// pure per-window decision (ADR 0017): given a window's resolved daemon URL +
+/// remoteness, build the frontend URL it should load.
+pub fn connection_window_url(
+    daemon_base: &str,
+    remote: bool,
+    route: &str,
+    vault: Option<&str>,
+) -> (FrontendMode, String) {
+    let mode = frontend_mode_for_remote(remote);
+    (mode, app_route_window_url(daemon_base, route, vault, mode))
+}
+
 pub fn app_route_window_url(
     daemon_base: &str,
     route: &str,
@@ -178,5 +202,26 @@ mod tests {
         assert!(should_fallback_to_index("/app/notes/today"));
         assert!(!should_fallback_to_index("/app/_app/immutable/chunk.js"));
         assert!(!should_fallback_to_index("/splash"));
+    }
+
+    #[test]
+    fn connection_window_url_picks_mode_and_url_per_target() {
+        // Local target (not remote) → load the frontend from the daemon.
+        assert_eq!(
+            connection_window_url("http://127.0.0.1:27183", false, "/", Some("work")),
+            (
+                FrontendMode::Daemon,
+                "http://127.0.0.1:27183/app/?vault=work".to_string()
+            )
+        );
+        // Remote target → embedded shell carrying the remote apiBase.
+        assert_eq!(
+            connection_window_url("https://notes.example", true, "/settings", None),
+            (
+                FrontendMode::Embedded,
+                "notesmith-app://localhost/app/settings?apiBase=https%3A%2F%2Fnotes.example"
+                    .to_string()
+            )
+        );
     }
 }
