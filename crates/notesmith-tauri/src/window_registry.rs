@@ -114,6 +114,24 @@ impl WindowRegistry {
         self.label_by_key.get(key).map(String::as_str)
     }
 
+    /// Every registered vault window as `(label, server_id, vault)`.
+    ///
+    /// Order is unspecified. `Global`/`ServerScoped` windows are skipped — only
+    /// vault-bound windows are returned, so callers can snapshot, enumerate
+    /// open vaults, or look a label up by vault name without consulting a
+    /// separate name-keyed map.
+    pub fn vault_windows(&self) -> Vec<(String, String, String)> {
+        self.by_label
+            .iter()
+            .filter_map(|(label, context)| match context {
+                WindowContext::VaultScoped { server_id, vault } => {
+                    Some((label.clone(), server_id.clone(), vault.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Remove a window by label, returning its former context. Cleans up the
     /// reuse index when the removed window owned its key mapping.
     pub fn remove_label(&mut self, label: &str) -> Option<WindowContext> {
@@ -271,5 +289,37 @@ mod tests {
 
         reg.remove_label("first");
         assert_eq!(reg.label_for_key(&key("local", "p")), Some("second"));
+    }
+
+    #[test]
+    fn vault_windows_lists_only_vault_bound_windows() {
+        let mut reg = WindowRegistry::default();
+        reg.insert("label-local", WindowContext::vault("local", "personal"));
+        reg.insert("label-remote", WindowContext::vault("remote", "personal"));
+        reg.insert("settings", WindowContext::Global);
+        reg.insert(
+            "server-window",
+            WindowContext::ServerScoped {
+                server_id: "remote".into(),
+            },
+        );
+
+        let mut got = reg.vault_windows();
+        got.sort();
+        assert_eq!(
+            got,
+            vec![
+                (
+                    "label-local".to_string(),
+                    "local".to_string(),
+                    "personal".to_string()
+                ),
+                (
+                    "label-remote".to_string(),
+                    "remote".to_string(),
+                    "personal".to_string()
+                ),
+            ]
+        );
     }
 }

@@ -106,16 +106,20 @@ pub fn save(path: &Path, file: &WindowsFile) -> io::Result<()> {
     Ok(())
 }
 
-/// Collapse multiple entries for the same vault, keeping the last one in
-/// document order. The on-disk invariant is "at most one entry per vault".
+/// Collapse multiple entries for the same vault **on the same connection**,
+/// keeping the last one in document order. The on-disk invariant is "at most
+/// one entry per `(server_id, vault)`", so a vault with the same name on two
+/// different daemons (local + remote) keeps a distinct entry each.
 pub fn dedupe_latest_per_vault(entries: Vec<WindowEntry>) -> Vec<WindowEntry> {
-    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut seen: std::collections::HashMap<(Option<String>, String), usize> =
+        std::collections::HashMap::new();
     let mut result: Vec<WindowEntry> = Vec::with_capacity(entries.len());
     for entry in entries {
-        if let Some(&index) = seen.get(&entry.vault) {
+        let key = (entry.server_id.clone(), entry.vault.clone());
+        if let Some(&index) = seen.get(&key) {
             result[index] = entry;
         } else {
-            seen.insert(entry.vault.clone(), result.len());
+            seen.insert(key, result.len());
             result.push(entry);
         }
     }
@@ -305,6 +309,34 @@ mod tests {
         let a = result.iter().find(|e| e.vault == "a").unwrap();
         assert_eq!(a.x, 50);
         assert_eq!(a.w, 200);
+    }
+
+    #[test]
+    fn dedupe_keeps_same_named_vaults_on_distinct_servers() {
+        // A `personal` vault open both locally and on a remote daemon must keep
+        // a distinct entry each — they are different windows (ADR 0017 A.6).
+        let entries = vec![
+            WindowEntry {
+                vault: "personal".into(),
+                server_id: Some("local".into()),
+                x: 0,
+                y: 0,
+                w: 100,
+                h: 100,
+            },
+            WindowEntry {
+                vault: "personal".into(),
+                server_id: Some("home-server".into()),
+                x: 500,
+                y: 500,
+                w: 100,
+                h: 100,
+            },
+        ];
+
+        let result = dedupe_latest_per_vault(entries);
+
+        assert_eq!(result.len(), 2);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::borrow::Cow;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -22,7 +22,7 @@ use notesmith_tauri::vault_menu::{
     OPEN_FOLDER_AS_VAULT_ID, decode_open_vault_id, encode_open_vault_id,
     validate_vault_display_name,
 };
-use notesmith_tauri::vault_window::{VaultKey, is_vault_window_label, vault_window_label};
+use notesmith_tauri::vault_window::{VaultKey, is_vault_window_label, vault_window_label_for_key};
 use notesmith_tauri::window_registry::{WindowContext, WindowRegistry};
 use notesmith_tauri::windows_persist::{
     self, Rect, WindowEntry, WindowsFile, dedupe_latest_per_vault,
@@ -75,8 +75,6 @@ struct ExitState(AtomicBool);
 
 #[derive(Default)]
 struct LastQuitAttempt(Mutex<Option<Instant>>);
-
-struct DaemonUrlState(Mutex<String>);
 
 struct DaemonProcessState(Mutex<DaemonProcessInner>);
 
@@ -240,12 +238,6 @@ impl StartupFallbackView {
     }
 }
 
-impl Default for DaemonUrlState {
-    fn default() -> Self {
-        Self(Mutex::new(DaemonSettings::default().daemon_url))
-    }
-}
-
 /// Loaded saved-server list plus its on-disk path. The desktop's source of
 /// truth for connections, shared by the Settings → Connection UI and the
 /// status-bar switcher. Mutations persist immediately to `servers.json`.
@@ -287,56 +279,12 @@ impl ServersState {
     }
 }
 
-/// Map of vault-name → window-label for currently-known vault windows.
-///
-/// Used to implement focus-existing: opening a vault that already has a window
-/// re-focuses that window rather than creating a duplicate. Entries are added
-/// when [`ensure_vault_window`] creates a window and removed when the
-/// `WindowEvent::Destroyed` handler fires.
-#[derive(Default)]
-struct VaultWindows(Mutex<HashMap<String, String>>);
-
-impl VaultWindows {
-    fn get_label(&self, vault: &str) -> Option<String> {
-        self.0
-            .lock()
-            .expect("vault windows state poisoned")
-            .get(vault)
-            .cloned()
-    }
-
-    fn insert(&self, vault: String, label: String) {
-        self.0
-            .lock()
-            .expect("vault windows state poisoned")
-            .insert(vault, label);
-    }
-
-    /// Remove and return the vault associated with the given window label.
-    fn remove_label(&self, label: &str) -> Option<String> {
-        let mut guard = self.0.lock().expect("vault windows state poisoned");
-        let vault = guard
-            .iter()
-            .find_map(|(k, v)| (v == label).then(|| k.clone()))?;
-        guard.remove(&vault);
-        Some(vault)
-    }
-
-    /// The vault associated with the given window label, if any (non-removing).
-    fn vault_for_label(&self, label: &str) -> Option<String> {
-        self.0
-            .lock()
-            .expect("vault windows state poisoned")
-            .iter()
-            .find_map(|(k, v)| (v == label).then(|| k.clone()))
-    }
-}
-
 /// The authoritative window → connection registry (ADR 0017).
 ///
 /// Wraps the pure [`WindowRegistry`] in a mutex for use as Tauri managed state.
-/// Populated alongside [`VaultWindows`] today; later phases switch URL building
-/// and IPC to read from it instead of the app-global `DaemonUrlState`.
+/// The single source of truth for "which server/vault does this window belong
+/// to" — both for focus-existing (reuse by `(server_id, vault)`) and for
+/// persistence/IPC, which read each window's own connection from here.
 #[derive(Default)]
 struct WindowConnections(Mutex<WindowRegistry>);
 
@@ -355,13 +303,12 @@ impl WindowConnections {
             .remove_label(label)
     }
 
-    #[allow(dead_code)]
-    fn label_for_key(&self, key: &VaultKey) -> Option<String> {
+    /// Snapshot of every open vault window as `(label, server_id, vault)`.
+    fn vault_windows(&self) -> Vec<(String, String, String)> {
         self.0
             .lock()
             .expect("window registry poisoned")
-            .label_for_key(key)
-            .map(str::to_string)
+            .vault_windows()
     }
 
     fn context_for_label(&self, label: &str) -> Option<WindowContext> {
@@ -444,10 +391,8 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .manage(ExitState::default())
         .manage(LastQuitAttempt::default())
-        .manage(DaemonUrlState::default())
         .manage(DaemonProcessState::default())
         .manage(ServersState::default())
-        .manage(VaultWindows::default())
         .manage(WindowConnections::default())
         .manage(WindowsPersistState::default())
         .manage(agent_bridge::AgentBridge::default())
@@ -520,8 +465,8 @@ fn main() {
                         let _ = window.hide();
                     }
                     // Vault windows: let native close proceed. The
-                    // `Destroyed` handler below cleans up VaultWindows and
-                    // windows.json. Auto-save ensures no more than ~1 s of
+                    // `Destroyed` handler below cleans up the window registry
+                    // and windows.json. Auto-save ensures no more than ~1 s of
                     // edits can be lost.
                 }
                 tauri::WindowEvent::Destroyed => {
@@ -671,7 +616,7 @@ fn setup_deep_links<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
 fn handle_deep_link<R: Runtime>(app: &AppHandle<R>, parsed: notesmith_core::NotesmithUrl) {
     use notesmith_core::NotesmithUrl;
 
-    let daemon_base = current_daemon_url(app);
+    let daemon_base = active_daemon_url(app);
 
     match parsed {
         NotesmithUrl::Open { vault, path } => {
@@ -1206,7 +1151,7 @@ async fn post_admin_command(url: String) -> Result<(), DynError> {
 }
 
 async fn daemon_is_reachable<R: Runtime>(app: &AppHandle<R>) -> bool {
-    let url = format!("{}/ping", current_daemon_url(app).trim_end_matches('/'));
+    let url = format!("{}/ping", active_daemon_url(app).trim_end_matches('/'));
     match reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
@@ -1226,7 +1171,7 @@ async fn daemon_is_reachable<R: Runtime>(app: &AppHandle<R>) -> bool {
 
 async fn request_service_stop<R: Runtime>(app: &AppHandle<R>) -> Result<String, DynError> {
     set_expected_daemon_shutdown(app, true);
-    let url = admin_route_url(&current_daemon_url(app), "shutdown");
+    let url = admin_route_url(&active_daemon_url(app), "shutdown");
 
     match post_admin_command(url).await {
         Ok(()) => Ok("Notesmith service is stopping.".to_string()),
@@ -1243,7 +1188,7 @@ async fn request_service_stop<R: Runtime>(app: &AppHandle<R>) -> Result<String, 
 }
 
 async fn request_service_restart<R: Runtime>(app: &AppHandle<R>) -> Result<String, DynError> {
-    let url = admin_route_url(&current_daemon_url(app), "restart");
+    let url = admin_route_url(&active_daemon_url(app), "restart");
 
     match post_admin_command(url).await {
         Ok(()) => Ok("Notesmith service is restarting.".to_string()),
@@ -1343,8 +1288,8 @@ fn ensure_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError
 
 /// Ensure a window exists for the given vault, returning its label.
 ///
-/// If a window for this vault already exists in the [`VaultWindows`] map and
-/// the underlying webview is still present, this is a no-op. Otherwise a new
+/// If a window for this vault already exists in the registry and the underlying
+/// webview is still present, this is a no-op. Otherwise a new
 /// window is created by cloning the `main` window config from `tauri.conf.json`,
 /// rewriting the label and URL (with `?vault=<vault>` appended) so the
 /// frontend can read the binding from `window.location.search`.
@@ -1365,7 +1310,12 @@ fn ensure_vault_window_for<R: Runtime>(
     server_id: &str,
     vault: &str,
 ) -> Result<String, DynError> {
-    let label = vault_window_label(vault);
+    // Server-qualified identity: the same vault name on two daemons (e.g. a
+    // local and a remote `personal`) yields two distinct windows. For the local
+    // server the label is byte-identical to the legacy name-only scheme, so
+    // existing windows and persisted geometry keep matching (ADR 0017 A.6).
+    let key = VaultKey::new(server_id.to_string(), vault.to_string());
+    let label = vault_window_label_for_key(&key);
     // Build the window's URL from the *same* connection it is stamped with, so
     // a window bound to a remote server loads that server's frontend (ADR 0017).
     let target_url = app_url_for_server(app, server_id, "/", Some(vault))?;
@@ -1375,8 +1325,6 @@ fn ensure_vault_window_for<R: Runtime>(
         if window.url()?.as_str() != target_url.as_str() {
             window.navigate(target_url)?;
         }
-        app.state::<VaultWindows>()
-            .insert(vault.to_string(), label.clone());
         app.state::<WindowConnections>()
             .insert(label.clone(), window_context);
         return Ok(label);
@@ -1396,8 +1344,6 @@ fn ensure_vault_window_for<R: Runtime>(
     window_config.title = "Notesmith".to_string();
     WebviewWindowBuilder::from_config(app, &window_config)?.build()?;
 
-    app.state::<VaultWindows>()
-        .insert(vault.to_string(), label.clone());
     app.state::<WindowConnections>()
         .insert(label.clone(), window_context);
 
@@ -1483,17 +1429,10 @@ fn persist_open_windows<R: Runtime>(app: &AppHandle<R>) -> io::Result<()> {
 }
 
 fn snapshot_window_entries<R: Runtime>(app: &AppHandle<R>) -> Vec<WindowEntry> {
-    let mapping: Vec<(String, String)> = app
-        .state::<VaultWindows>()
-        .0
-        .lock()
-        .expect("vault windows state poisoned")
-        .iter()
-        .map(|(vault, label)| (vault.clone(), label.clone()))
-        .collect();
+    let vault_windows = app.state::<WindowConnections>().vault_windows();
 
-    let mut out = Vec::with_capacity(mapping.len());
-    for (vault, label) in mapping {
+    let mut out = Vec::with_capacity(vault_windows.len());
+    for (label, server_id, vault) in vault_windows {
         let Some(window) = app.get_webview_window(&label) else {
             continue;
         };
@@ -1506,13 +1445,7 @@ fn snapshot_window_entries<R: Runtime>(app: &AppHandle<R>) -> Vec<WindowEntry> {
             Err(_) => continue,
         };
         // Persist the connection this window is bound to so it restores against
-        // the right daemon (ADR 0017 A.5). Fall back to the active connection
-        // if (unexpectedly) the registry has no context for this window.
-        let server_id = app
-            .state::<WindowConnections>()
-            .context_for_label(&label)
-            .and_then(|context| context.server_id().map(str::to_string))
-            .unwrap_or_else(|| active_server_id(app));
+        // the right daemon (ADR 0017).
         out.push(WindowEntry {
             vault,
             server_id: Some(server_id),
@@ -1541,10 +1474,9 @@ fn schedule_persist<R: Runtime>(app: &AppHandle<R>) {
 
 /// Called after a vault window has actually closed.
 ///
-/// Removes the entry from [`VaultWindows`] and rewrites `windows.json` so a
+/// Removes the window from the registry and rewrites `windows.json` so a
 /// subsequent launch doesn't reopen the closed window.
 fn handle_vault_window_destroyed<R: Runtime>(app: &AppHandle<R>, label: &str) {
-    app.state::<VaultWindows>().remove_label(label);
     app.state::<WindowConnections>().remove_label(label);
     schedule_persist(app);
 }
@@ -1619,32 +1551,30 @@ fn resolve_default_vault() -> Option<String> {
 /// Return any known vault window label (preferring the default vault's) for
 /// "focus the active app window" actions like a tray click.
 fn first_known_vault_window_label<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    let vault_windows = app.state::<WindowConnections>().vault_windows();
+
     if let Some(default) = resolve_default_vault()
-        && let Some(label) = app.state::<VaultWindows>().get_label(&default)
-        && app.get_webview_window(&label).is_some()
+        && let Some((label, ..)) = vault_windows
+            .iter()
+            .find(|(label, _, vault)| *vault == default && app.get_webview_window(label).is_some())
     {
-        return Some(label);
+        return Some(label.clone());
     }
 
-    let state = app.state::<VaultWindows>();
-    let map = state.0.lock().expect("vault windows state poisoned");
-    for label in map.values() {
-        if app.get_webview_window(label).is_some() {
-            return Some(label.clone());
-        }
-    }
-    None
+    vault_windows
+        .into_iter()
+        .find(|(label, ..)| app.get_webview_window(label).is_some())
+        .map(|(label, ..)| label)
 }
 
-/// Labels of every app-facing window (vault windows + onboarding main).
+/// Labels of every app-facing window (vault windows + onboarding main +
+/// settings). Sourced from the window registry for vault windows.
 fn all_app_window_labels<R: Runtime>(app: &AppHandle<R>) -> Vec<String> {
     let mut labels: Vec<String> = app
-        .state::<VaultWindows>()
-        .0
-        .lock()
-        .expect("vault windows state poisoned")
-        .values()
-        .cloned()
+        .state::<WindowConnections>()
+        .vault_windows()
+        .into_iter()
+        .map(|(label, _, _)| label)
         .collect();
     if app.get_webview_window(MAIN_WINDOW_LABEL).is_some() {
         labels.push(MAIN_WINDOW_LABEL.to_string());
@@ -1655,45 +1585,11 @@ fn all_app_window_labels<R: Runtime>(app: &AppHandle<R>) -> Vec<String> {
     labels
 }
 
-/// Re-point every open app window at the current daemon URL + frontend mode.
-///
-/// Called after a connection switch so each webview reloads with the new
-/// `apiBase` (remote) or local daemon origin. Each window keeps its own route:
-/// vault windows reopen their vault, the settings window stays on `/settings`,
-/// and the onboarding main window reloads at the root.
-fn renavigate_app_windows<R: Runtime>(app: &AppHandle<R>) {
-    for label in all_app_window_labels(app) {
-        let target = if label == SETTINGS_WINDOW_LABEL {
-            current_settings_app_url(app)
-        } else if label == MAIN_WINDOW_LABEL {
-            current_app_url(app)
-        } else if let Some(vault) = app.state::<VaultWindows>().vault_for_label(&label) {
-            current_vault_app_url(app, &vault)
-        } else {
-            current_app_url(app)
-        };
-
-        match target {
-            Ok(url) => {
-                if let Some(window) = app.get_webview_window(&label)
-                    && let Err(error) = window.navigate(url)
-                {
-                    tracing::warn!(%label, %error, "failed to re-navigate window on connection switch");
-                }
-            }
-            Err(error) => {
-                tracing::warn!(%label, %error, "failed to build app url on connection switch")
-            }
-        }
-    }
-}
-
 fn show_main_app_window<R: Runtime>(
     app: &AppHandle<R>,
     settings: &DaemonSettings,
 ) -> Result<(), DynError> {
     close_window(app, FALLBACK_WINDOW_LABEL)?;
-    set_current_daemon_url(app, daemon::resolve_daemon_url(settings));
 
     if !should_use_local_vault_state(settings) {
         ensure_main_window(app)?;
@@ -1881,27 +1777,17 @@ fn close_window<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<(), DynEr
     Ok(())
 }
 
-fn current_daemon_url<R: Runtime>(app: &AppHandle<R>) -> String {
-    app.state::<DaemonUrlState>()
-        .0
-        .lock()
-        .expect("daemon url state poisoned")
-        .clone()
-}
-
-fn set_current_daemon_url<R: Runtime>(app: &AppHandle<R>, daemon_url: String) {
-    *app.state::<DaemonUrlState>()
-        .0
-        .lock()
-        .expect("daemon url state poisoned") = daemon_url;
+/// The active connection's daemon URL, resolved live (local → lockfile port,
+/// remote → the stored server URL). Replaces the former app-global
+/// `DaemonUrlState`: there is no single mutable "current" URL anymore, each
+/// window targets its own connection (ADR 0017). This is the default used by
+/// connection-agnostic paths (admin lifecycle, deep-link HTTP posts).
+fn active_daemon_url<R: Runtime>(app: &AppHandle<R>) -> String {
+    daemon::resolve_daemon_url(&effective_settings(app))
 }
 
 fn current_app_url<R: Runtime>(app: &AppHandle<R>) -> Result<Url, DynError> {
     current_app_url_for_vault(app, None)
-}
-
-fn current_vault_app_url<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<Url, DynError> {
-    current_app_url_for_vault(app, Some(vault))
 }
 
 fn current_settings_app_url<R: Runtime>(app: &AppHandle<R>) -> Result<Url, DynError> {
@@ -2052,7 +1938,6 @@ async fn start_and_track_supervised_daemon<R: Runtime + 'static>(
         .into());
     }
 
-    set_current_daemon_url(&app, daemon::resolve_daemon_url(&settings));
     register_supervised_child(app, child);
     Ok(())
 }
@@ -2683,7 +2568,7 @@ async fn confirm_window_close(
         return Ok(());
     }
 
-    // VaultWindows entry + windows.json are cleaned up by the
+    // The window registry entry + windows.json are cleaned up by the
     // `WindowEvent::Destroyed` handler once destroy() takes effect.
     if let Some(webview) = app.get_webview_window(&label) {
         webview.destroy().map_err(|error| error.to_string())?;
@@ -2803,38 +2688,39 @@ async fn open_folder_as_vault(
 #[tauri::command]
 fn list_open_vaults(app: tauri::AppHandle) -> Vec<String> {
     let mut open: Vec<String> = app
-        .state::<VaultWindows>()
-        .0
-        .lock()
-        .expect("vault windows state poisoned")
-        .iter()
-        .filter(|(_, label)| app.get_webview_window(label).is_some())
-        .map(|(vault, _)| vault.clone())
+        .state::<WindowConnections>()
+        .vault_windows()
+        .into_iter()
+        .filter(|(label, _, _)| app.get_webview_window(label).is_some())
+        .map(|(_, _, vault)| vault)
         .collect();
     open.sort();
+    open.dedup();
     open
 }
 
-/// Close the window for a given vault, if one is open.
+/// Close the window(s) for a given vault, if any are open.
 ///
 /// Used by the Settings UI to gracefully close an open vault window before
 /// the user removes the vault registration. `WindowEvent::Destroyed` will
-/// then clean up the `VaultWindows` entry and persist `windows.json`.
+/// then clean up the registry entry and persist `windows.json`.
 ///
 /// Returns Ok(()) whether or not a window was found — callers shouldn't have
 /// to distinguish "no window open" from "window closed" before removing the
 /// vault registration.
 #[tauri::command]
 async fn close_vault_window(app: tauri::AppHandle, vault: String) -> Result<(), String> {
-    let label = {
-        let state = app.state::<VaultWindows>();
-        let guard = state.0.lock().expect("vault windows state poisoned");
-        guard.get(&vault).cloned()
-    };
-    if let Some(label) = label
-        && let Some(window) = app.get_webview_window(&label)
-    {
-        window.destroy().map_err(|error| error.to_string())?;
+    let labels: Vec<String> = app
+        .state::<WindowConnections>()
+        .vault_windows()
+        .into_iter()
+        .filter(|(_, _, name)| *name == vault)
+        .map(|(label, _, _)| label)
+        .collect();
+    for label in labels {
+        if let Some(window) = app.get_webview_window(&label) {
+            window.destroy().map_err(|error| error.to_string())?;
+        }
     }
     Ok(())
 }
@@ -2925,12 +2811,15 @@ fn connection_remove(app: tauri::AppHandle, id: String) -> Result<(), String> {
         .mutate(|file| file.remove(&id).map_err(|error| error.to_string()))
 }
 
-/// Switch the active connection at runtime. Persists the selection, retargets
-/// the daemon URL, re-navigates open windows, and emits `connection-changed`.
+/// Set the **default** connection used by new windows (and connection-agnostic
+/// paths). Persists the selection and emits `connection-changed`, but is
+/// **non-destructive**: it does not retarget any open window. Each window keeps
+/// its own per-window connection (ADR 0017 A.6).
 ///
 /// Pass `id = None` (or `"local"`) for the local daemon, or a stored server id
-/// for a remote daemon. When switching to local the local daemon is started if
-/// it isn't already running; switching to remote never spawns one.
+/// for a remote daemon. When switching the default to local, the local daemon
+/// is started if it isn't already running so the default connection is live;
+/// switching to remote never spawns one.
 #[tauri::command]
 async fn connection_set_active(
     app: tauri::AppHandle,
@@ -2942,17 +2831,14 @@ async fn connection_set_active(
     })?;
 
     let settings = effective_settings(&app);
-    let target_url = daemon::resolve_daemon_url(&settings);
 
-    // Switching to the local daemon: make sure it's up before we point at it.
+    // Making local the default: make sure the local daemon is up so the next
+    // window opened on it connects immediately.
     if !settings.external_url && !daemon::wait_for_daemon_status(&settings).await {
         start_and_track_supervised_daemon(app.clone())
             .await
             .map_err(|error| format!("Failed to start the local daemon: {error}"))?;
     }
-
-    set_current_daemon_url(&app, target_url);
-    renavigate_app_windows(&app);
 
     let list = app.state::<ServersState>().snapshot().connection_list();
     if let Err(error) = app.emit(CONNECTION_CHANGED_EVENT, &list) {

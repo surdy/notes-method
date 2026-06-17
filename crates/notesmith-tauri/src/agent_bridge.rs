@@ -666,7 +666,7 @@ fn build_session(
     //     (ADR 0010 Phase 3).
     // Read-only vs read-write scope is carried on each binding.
     let local = crate::should_use_local_vault_state(&crate::DaemonSettings::default());
-    let http = http_binding(&crate::current_daemon_url(app), opts);
+    let http = http_binding(&crate::active_daemon_url(app), opts);
     session = session.with_mcp(http);
     if local {
         let bin = crate::resolve_sidecar_path()
