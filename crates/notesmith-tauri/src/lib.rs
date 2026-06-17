@@ -3,6 +3,7 @@
 pub mod app_url;
 pub mod daemon;
 pub mod servers;
+pub mod vault_cache;
 pub mod vault_menu;
 pub mod vault_window;
 pub mod window_registry;
