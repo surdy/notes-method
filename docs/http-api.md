@@ -1499,17 +1499,33 @@ Registers a new vault.
 
 **Body:**
 ```json
-{ "name": "personal", "path": "/home/user/vaults/personal" }
+{ "name": "personal", "path": "/home/user/vaults/personal", "create": false }
 ```
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Unique vault name. |
+| `path` | string | yes | Absolute path **on the daemon host**. |
+| `create` | bool | no (default `false`) | When `true` and `path` does not exist, the daemon creates the directory (recursively) before registering. When `false`, a missing path is rejected with `422 path_not_found`. |
 
 **Response:** `201 Created`
 ```json
 { "name": "personal", "status": "registered" }
 ```
 
+> **Becoming live is asynchronous.** Registration only writes the global config;
+> the new vault is loaded into the daemon's live engine map by the config
+> watcher after a short debounce (~500 ms). Until then, `/api/v/{name}/…` routes
+> return `404 vault not found`. After creating a vault, poll
+> `GET /api/app/vaults` (or retry the first write) until it is served before
+> writing notes.
+
 **Errors:**
-- `409` — vault name already registered
-- `422` — path does not exist
+- `409 vault_exists` — vault name already registered
+- `422 path_not_found` — path does not exist and `create` was not `true`
+- `422 path_create_failed` — `create:true` but the daemon could not create the
+  directory (e.g. the parent is not writable by the daemon's user)
+- `422 path_not_directory` — path exists but is not a directory
 
 ### `PUT /api/app/vaults/{name}`
 
