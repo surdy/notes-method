@@ -577,6 +577,21 @@ fn normalize_url(raw: &str) -> Result<String, ServerStoreError> {
     Ok(trimmed.trim_end_matches('/').to_string())
 }
 
+/// Whether an update patch would change the daemon **endpoint URL** the server
+/// points at (as opposed to a rename-only edit). A `None` URL, or a URL that
+/// normalizes to the current one, is not a change; an unparseable URL is treated
+/// as a change so it is caught by the open-window guard rather than silently
+/// applied. Used to block URL edits while windows are open against the server,
+/// so a live window never silently swaps daemons (ADR 0017 Phase D).
+pub fn update_changes_url(current_url: &str, new_url: &Option<String>) -> bool {
+    match new_url {
+        Some(raw) => normalize_url(raw)
+            .map(|normalized| normalized != current_url)
+            .unwrap_or(true),
+        None => false,
+    }
+}
+
 /// Lowercase ASCII slug: alphanumerics kept, runs of anything else collapsed
 /// to single hyphens, leading/trailing hyphens trimmed.
 fn slugify(name: &str) -> String {
@@ -1034,5 +1049,30 @@ mod tests {
             file.resolve_target("ghost", "http://127.0.0.1:27183").token,
             None
         );
+    }
+
+    #[test]
+    fn update_changes_url_detects_only_real_endpoint_changes() {
+        let current = "https://office.example";
+
+        // No URL supplied (rename-only edit) → not a URL change.
+        assert!(!update_changes_url(current, &None));
+        // Same URL, with a trailing slash that normalizes away → not a change.
+        assert!(!update_changes_url(
+            current,
+            &Some("https://office.example/".into())
+        ));
+        // A different host → a change.
+        assert!(update_changes_url(
+            current,
+            &Some("https://home.example".into())
+        ));
+        // A different scheme → a change.
+        assert!(update_changes_url(
+            current,
+            &Some("http://office.example".into())
+        ));
+        // An unparseable URL is treated as a change (caught by the guard).
+        assert!(update_changes_url(current, &Some("not a url".into())));
     }
 }

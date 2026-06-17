@@ -352,6 +352,15 @@ impl WindowConnections {
             .context_for_label(label)
             .cloned()
     }
+
+    /// Labels of every open window bound to `server_id`, for the open-window
+    /// guard on destructive server edits (ADR 0017 Phase D).
+    fn windows_for_server(&self, server_id: &str) -> Vec<String> {
+        self.0
+            .lock()
+            .expect("window registry poisoned")
+            .windows_for_server(server_id)
+    }
 }
 
 /// Tracks the path to `windows.json` plus a debounced timestamp for the next
@@ -2925,8 +2934,19 @@ fn connection_add(
     Ok(view)
 }
 
+/// User-facing message for the open-window guard on destructive server edits
+/// (URL change, removal). Names the server and how many windows must close.
+fn open_windows_guard_message(name: &str, count: usize, action: &str) -> String {
+    let windows = if count == 1 { "window" } else { "windows" };
+    format!("Close the {count} open {windows} connected to \u{201c}{name}\u{201d} before {action}.")
+}
+
 /// Update an existing server. Omitted fields are left unchanged; a blank
 /// `token` clears the stored credential.
+///
+/// **URL changes are blocked while windows are open** against this server, so a
+/// live window never silently swaps the daemon it talks to (ADR 0017 Phase D).
+/// Rename and token edits are always allowed.
 #[tauri::command]
 fn connection_update(
     app: tauri::AppHandle,
@@ -2935,6 +2955,19 @@ fn connection_update(
     url: Option<String>,
     token: Option<String>,
 ) -> Result<ServerView, String> {
+    if let Some(current) = app.state::<ServersState>().snapshot().get(&id) {
+        let view = current.view();
+        if servers::update_changes_url(&view.url, &url) {
+            let open = app.state::<WindowConnections>().windows_for_server(&id);
+            if !open.is_empty() {
+                return Err(open_windows_guard_message(
+                    &view.name,
+                    open.len(),
+                    "changing its URL",
+                ));
+            }
+        }
+    }
     let view = app.state::<ServersState>().mutate(|file| {
         file.update(&id, name, url, token)
             .map_err(|error| error.to_string())?;
@@ -2944,9 +2977,21 @@ fn connection_update(
     Ok(view)
 }
 
-/// Remove a server. If it was active, the connection falls back to local.
+/// Remove a server. Blocked while windows are open against it, so an open
+/// window never ends up bound to a server that no longer exists (ADR 0017
+/// Phase D); the user must close those windows first.
 #[tauri::command]
 fn connection_remove(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let open = app.state::<WindowConnections>().windows_for_server(&id);
+    if !open.is_empty() {
+        let name = app
+            .state::<ServersState>()
+            .snapshot()
+            .get(&id)
+            .map(|entry| entry.view().name)
+            .unwrap_or_else(|| id.clone());
+        return Err(open_windows_guard_message(&name, open.len(), "removing it"));
+    }
     app.state::<ServersState>()
         .mutate(|file| file.remove(&id).map_err(|error| error.to_string()))?;
     tauri::async_runtime::spawn(refresh_vault_cache(app.clone()));
@@ -3187,9 +3232,21 @@ mod tests {
     use super::{
         CrashAction, CrashTracker, DaemonSettings, QuitRequestAction, admin_route_url,
         classify_vault_response, daemon_error_detail, evaluate_quit_request, find_sidecar_in,
-        should_use_local_vault_state,
+        open_windows_guard_message, should_use_local_vault_state,
     };
     use notesmith_tauri::vault_cache::RefreshOutcome;
+
+    #[test]
+    fn open_windows_guard_message_names_server_and_counts_windows() {
+        assert_eq!(
+            open_windows_guard_message("Memory Server", 1, "removing it"),
+            "Close the 1 open window connected to \u{201c}Memory Server\u{201d} before removing it."
+        );
+        assert_eq!(
+            open_windows_guard_message("Memory Server", 3, "changing its URL"),
+            "Close the 3 open windows connected to \u{201c}Memory Server\u{201d} before changing its URL."
+        );
+    }
 
     #[test]
     fn classify_vault_response_maps_status_and_body_to_outcomes() {

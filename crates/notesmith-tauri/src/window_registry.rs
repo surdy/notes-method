@@ -149,6 +149,20 @@ impl WindowRegistry {
         self.by_label.len()
     }
 
+    /// Labels of every window bound to `server_id` (vault- or server-scoped).
+    ///
+    /// Used to block destructive server edits (URL change, removal) while
+    /// windows are still open against that server, so a live window never
+    /// silently swaps daemons (ADR 0017 Phase D). `Global` windows are never
+    /// bound to a server and are excluded.
+    pub fn windows_for_server(&self, server_id: &str) -> Vec<String> {
+        self.by_label
+            .iter()
+            .filter(|(_, context)| context.server_id() == Some(server_id))
+            .map(|(label, _)| label.clone())
+            .collect()
+    }
+
     /// True when no windows are registered.
     pub fn is_empty(&self) -> bool {
         self.by_label.is_empty()
@@ -321,5 +335,32 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn windows_for_server_includes_vault_and_server_scoped_only() {
+        let mut reg = WindowRegistry::default();
+        reg.insert("vault-remote", WindowContext::vault("remote", "personal"));
+        reg.insert(
+            "blank-remote",
+            WindowContext::ServerScoped {
+                server_id: "remote".into(),
+            },
+        );
+        reg.insert("vault-local", WindowContext::vault("local", "work"));
+        reg.insert("settings", WindowContext::Global);
+
+        let mut got = reg.windows_for_server("remote");
+        got.sort();
+        assert_eq!(
+            got,
+            vec!["blank-remote".to_string(), "vault-remote".to_string()]
+        );
+
+        assert_eq!(
+            reg.windows_for_server("local"),
+            vec!["vault-local".to_string()]
+        );
+        assert!(reg.windows_for_server("unknown").is_empty());
     }
 }
