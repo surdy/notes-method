@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+tauri = { version = "2", features = ["tray-icon", "macos-private-api", "image-png"] }
 tauri-plugin-deep-link = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-shell = "2"

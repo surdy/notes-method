@@ -33,7 +33,7 @@ use notesmith_tauri::windows_persist::{
 use tauri::{
     AppHandle, Emitter, Manager, RunEvent, Runtime, UriSchemeContext, Url, WebviewUrl,
     WebviewWindowBuilder,
-    menu::{IconMenuItem, Menu, MenuItem, NativeIcon, PredefinedMenuItem, Submenu},
+    menu::{IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -974,16 +974,24 @@ fn build_new_window_submenu_items<R: Runtime>(
                 source,
             } => match source {
                 Some(src) => {
-                    let native = match src {
-                        VaultSource::Local => NativeIcon::Computer,
-                        VaultSource::Remote => NativeIcon::Network,
+                    // Subtle outline source glyphs (muted-gray monitor / cloud),
+                    // matching the chosen "quiet native menu" mockup. Decoded from
+                    // the small bundled PNGs in icons/menu/ (24x24 RGBA).
+                    let png: &[u8] = match src {
+                        VaultSource::Local => {
+                            include_bytes!("../icons/menu/source-local.png").as_slice()
+                        }
+                        VaultSource::Remote => {
+                            include_bytes!("../icons/menu/source-remote.png").as_slice()
+                        }
                     };
-                    entries.push(Box::new(IconMenuItem::with_id_and_native_icon(
+                    let icon = tauri::image::Image::from_bytes(png)?;
+                    entries.push(Box::new(IconMenuItem::with_id(
                         app,
                         id,
                         label,
                         *enabled,
-                        Some(native),
+                        Some(icon),
                         None::<&str>,
                     )?));
                 }
