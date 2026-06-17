@@ -445,6 +445,7 @@ fn main() {
             view_crash_report,
             restart_daemon_anyway,
             open_vault_window,
+            open_vault_on_server,
             set_window_title,
             confirm_window_close,
             open_folder_as_vault,
@@ -2640,7 +2641,35 @@ async fn open_vault_window(app: tauri::AppHandle, vault: String) -> Result<(), S
     Ok(())
 }
 
-/// Update the title of the calling Tauri window.
+/// Open (or focus) a window for `vault` bound to a *specific* connection
+/// (ADR 0017 C.2 "Open this vault on another server…"). Unlike
+/// [`open_vault_window`], which uses the active connection, this targets the
+/// given `server_id` so the same vault name can be opened on a different daemon
+/// in its own window.
+#[tauri::command]
+async fn open_vault_on_server(
+    app: tauri::AppHandle,
+    server_id: String,
+    vault: String,
+) -> Result<(), String> {
+    // For the local daemon, validate the vault is registered (parity with
+    // open_vault_window). A remote vault is validated by its own daemon.
+    if server_id == servers::LOCAL_ID {
+        let config = notesmith_config::GlobalConfig::load().map_err(|error| error.to_string())?;
+        if config.vault(&vault).is_none() {
+            return Err(format!("Vault '{vault}' is not registered"));
+        }
+    }
+
+    let label =
+        ensure_vault_window_for(&app, &server_id, &vault).map_err(|error| error.to_string())?;
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+    Ok(())
+}
 ///
 /// The frontend pushes `<vault> — <note>` (or just `<vault>` when no note
 /// is open) on tab changes so the OS window switcher shows distinct titles.

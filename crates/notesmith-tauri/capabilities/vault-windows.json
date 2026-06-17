@@ -9,6 +9,7 @@
   "permissions": [
     "core:default",
     "allow-open-vault-window",
+    "allow-open-vault-on-server",
     "allow-set-window-title",
     "allow-confirm-window-close",
     "allow-open-folder-as-vault",

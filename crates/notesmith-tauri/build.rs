@@ -18,6 +18,7 @@ fn main() {
             "view_crash_report",
             "restart_daemon_anyway",
             "open_vault_window",
+            "open_vault_on_server",
             "set_window_title",
             "confirm_window_close",
             "open_folder_as_vault",
