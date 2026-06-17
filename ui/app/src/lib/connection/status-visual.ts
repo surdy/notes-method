@@ -101,3 +101,13 @@ export function connectionPillLabel(
 			return 'Offline';
 	}
 }
+
+/**
+ * Whether this window's daemon is the **local** background service (an empty
+ * apiBase). Remote windows talk to a self-hosted server, so the local-service
+ * diagnostics (restart / view logs) don't apply to them and are hidden, while
+ * their labels name the scope explicitly (ADR 0017 Phase D).
+ */
+export function isLocalDaemon(apiBase: string): boolean {
+	return apiBase.trim() === '';
+}

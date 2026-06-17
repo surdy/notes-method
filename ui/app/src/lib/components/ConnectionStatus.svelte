@@ -13,10 +13,16 @@
 	import {
 		connectionPillLabel,
 		connectionVisualState,
+		isLocalDaemon,
 		type StatusVisualState
 	} from '$lib/connection/status-visual';
+	import { API_BASE } from '$lib/api/core';
 
 	const STATUS_POLL_MS = 30_000;
+
+	// Restart/logs manage the *local* background service; they don't apply to a
+	// remote window's server, so they're scoped local-only (ADR 0017 Phase D).
+	const localDaemon = isLocalDaemon(API_BASE);
 
 	let {
 		currentVault,
@@ -260,14 +266,16 @@
 			<hr class="divider" />
 
 			<div class="actions">
-				<button
-					class="action-btn"
-					type="button"
-					onclick={() => void handleRestart()}
-					disabled={isRebuilding || restarting}
-				>
-					{restarting || $daemonShuttingDown ? 'Restarting…' : 'Restart Service'}
-				</button>
+				{#if localDaemon}
+					<button
+						class="action-btn"
+						type="button"
+						onclick={() => void handleRestart()}
+						disabled={isRebuilding || restarting}
+					>
+						{restarting || $daemonShuttingDown ? 'Restarting…' : 'Restart Local Service'}
+					</button>
+				{/if}
 				<button
 					class="action-btn"
 					type="button"
@@ -276,14 +284,16 @@
 				>
 					{isRebuilding ? 'Rebuilding…' : 'Rebuild Index'}
 				</button>
-				<button
-					class="action-btn"
-					type="button"
-					onclick={() => void handleViewLogs()}
-					disabled={loadingLogs}
-				>
-					{showLogs ? 'Back to Status' : loadingLogs ? 'Loading Logs…' : 'View Logs'}
-				</button>
+				{#if localDaemon}
+					<button
+						class="action-btn"
+						type="button"
+						onclick={() => void handleViewLogs()}
+						disabled={loadingLogs}
+					>
+						{showLogs ? 'Back to Status' : loadingLogs ? 'Loading Logs…' : 'View Local Service Logs'}
+					</button>
+				{/if}
 			</div>
 		</div>
 	{/if}

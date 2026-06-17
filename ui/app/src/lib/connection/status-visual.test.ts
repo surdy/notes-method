@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	connectionPillLabel,
 	connectionVisualState,
+	isLocalDaemon,
 	type StatusVisualInputs
 } from './status-visual';
 
@@ -117,5 +118,16 @@ describe('connectionPillLabel', () => {
 		expect(connectionPillLabel('live', { ...base, isRebuilding: true })).toBe('Rebuilding index');
 		expect(connectionPillLabel('connecting', { ...base, restarting: true })).toBe('Restarting…');
 		expect(connectionPillLabel('live', { ...base, daemonShuttingDown: true })).toBe('Restarting…');
+	});
+});
+
+describe('isLocalDaemon', () => {
+	it('treats an empty apiBase as the local daemon', () => {
+		expect(isLocalDaemon('')).toBe(true);
+		expect(isLocalDaemon('   ')).toBe(true);
+	});
+
+	it('treats a non-empty apiBase as a remote daemon', () => {
+		expect(isLocalDaemon('https://notesmith.example.com')).toBe(false);
 	});
 });
