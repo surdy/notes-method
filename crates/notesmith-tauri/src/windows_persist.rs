@@ -15,7 +15,11 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// Current schema version. Bump and add a migration when fields change.
-pub const SCHEMA_VERSION: u32 = 1;
+///
+/// v1 → v2 (ADR 0017): each window records the `server_id` it is bound to.
+/// v1 files have no `server_id`; they load and migrate to the default
+/// connection at restore.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// On-disk representation of the open-window set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +42,10 @@ impl Default for WindowsFile {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowEntry {
     pub vault: String,
+    /// The server this window is bound to (ADR 0017). Absent in legacy v1 files;
+    /// `None` triggers migration to the default connection at restore.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_id: Option<String>,
     pub x: i32,
     pub y: i32,
     pub w: u32,
@@ -70,7 +78,9 @@ pub fn load(path: &Path) -> io::Result<Option<WindowsFile>> {
         return Ok(None);
     }
     match serde_json::from_slice::<WindowsFile>(&bytes) {
-        Ok(file) if file.version == SCHEMA_VERSION => Ok(Some(file)),
+        // Accept any known schema version (v1 legacy files have no per-window
+        // `server_id`; serde fills `None`, which restore migrates to default).
+        Ok(file) if (1..=SCHEMA_VERSION).contains(&file.version) => Ok(Some(file)),
         _ => Ok(None),
     }
 }
@@ -165,6 +175,7 @@ mod tests {
             windows: vec![
                 WindowEntry {
                     vault: "personal".into(),
+                    server_id: Some("local".into()),
                     x: 100,
                     y: 80,
                     w: 1200,
@@ -172,6 +183,7 @@ mod tests {
                 },
                 WindowEntry {
                     vault: "work".into(),
+                    server_id: Some("home-server".into()),
                     x: 200,
                     y: 120,
                     w: 1100,
@@ -263,6 +275,7 @@ mod tests {
         let entries = vec![
             WindowEntry {
                 vault: "a".into(),
+                server_id: Some("local".into()),
                 x: 0,
                 y: 0,
                 w: 100,
@@ -270,6 +283,7 @@ mod tests {
             },
             WindowEntry {
                 vault: "b".into(),
+                server_id: Some("local".into()),
                 x: 1,
                 y: 1,
                 w: 100,
@@ -277,6 +291,7 @@ mod tests {
             },
             WindowEntry {
                 vault: "a".into(),
+                server_id: Some("local".into()),
                 x: 50,
                 y: 50,
                 w: 200,
@@ -290,6 +305,35 @@ mod tests {
         let a = result.iter().find(|e| e.vault == "a").unwrap();
         assert_eq!(a.x, 50);
         assert_eq!(a.w, 200);
+    }
+
+    #[test]
+    fn server_id_round_trips_through_save_load() {
+        let dir = tmp_dir();
+        let path = windows_file_path(&dir);
+        let file = sample_file();
+        save(&path, &file).unwrap();
+        let loaded = load(&path).unwrap().expect("file should exist");
+        assert_eq!(loaded.windows[0].server_id.as_deref(), Some("local"));
+        assert_eq!(loaded.windows[1].server_id.as_deref(), Some("home-server"));
+    }
+
+    #[test]
+    fn legacy_v1_file_without_server_id_loads_with_none() {
+        let dir = tmp_dir();
+        let path = windows_file_path(&dir);
+        // A v1 file as written before per-window connections: no `server_id`.
+        fs::write(
+            &path,
+            br#"{"version":1,"windows":[{"vault":"personal","x":10,"y":20,"w":800,"h":600}]}"#,
+        )
+        .unwrap();
+
+        let loaded = load(&path).unwrap().expect("legacy file should load");
+        assert_eq!(loaded.windows.len(), 1);
+        assert_eq!(loaded.windows[0].vault, "personal");
+        // No server → restore migrates this to the default connection.
+        assert_eq!(loaded.windows[0].server_id, None);
     }
 
     #[test]

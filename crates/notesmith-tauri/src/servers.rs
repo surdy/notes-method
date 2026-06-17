@@ -98,6 +98,19 @@ pub struct ConnectionTarget {
     pub token: Option<String>,
 }
 
+/// Classification of a persisted window's `server_id` against the current
+/// server set, used when restoring `windows.json` (ADR 0017 A.5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WindowServerResolution {
+    /// The server still exists (or is the local daemon) — open against it.
+    Resolved(String),
+    /// A legacy entry with no `server_id` — migrate to the default connection.
+    Migrated(String),
+    /// The referenced server is gone — surface an explicit unresolved window,
+    /// never a silent local open.
+    Unresolved(String),
+}
+
 /// Token-less projection of a [`ServerEntry`] for the UI. Tokens are never
 /// returned to the frontend; `has_token` indicates whether one is set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -308,6 +321,28 @@ impl ServersFile {
                 remote: false,
                 token: None,
             },
+        }
+    }
+
+    /// Classify a persisted window's `server_id` against the current server set
+    /// when restoring `windows.json` (ADR 0017 A.5):
+    /// - `None` (legacy v1 entry) → [`Migrated`](WindowServerResolution::Migrated)
+    ///   to `default_id` (the startup/active connection).
+    /// - [`LOCAL_ID`] or a still-stored id →
+    ///   [`Resolved`](WindowServerResolution::Resolved).
+    /// - an id that no longer refers to a stored server →
+    ///   [`Unresolved`](WindowServerResolution::Unresolved) — the caller must
+    ///   not silently fall back to local.
+    pub fn resolve_window_server(
+        &self,
+        server_id: Option<&str>,
+        default_id: &str,
+    ) -> WindowServerResolution {
+        match server_id {
+            None => WindowServerResolution::Migrated(default_id.to_string()),
+            Some(id) if id == LOCAL_ID => WindowServerResolution::Resolved(LOCAL_ID.to_string()),
+            Some(id) if self.get(id).is_some() => WindowServerResolution::Resolved(id.to_string()),
+            Some(id) => WindowServerResolution::Unresolved(id.to_string()),
         }
     }
 
@@ -731,6 +766,33 @@ mod tests {
 
         file.set_active(Some(&id)).unwrap();
         assert_eq!(file.connection_list().active_id, id);
+    }
+
+    #[test]
+    fn resolve_window_server_classifies_legacy_known_and_dangling() {
+        let mut file = ServersFile::default();
+        let home = file.add(input("Home", "https://home.example")).unwrap();
+
+        // Legacy entry (no server_id) → migrate to the supplied default.
+        assert_eq!(
+            file.resolve_window_server(None, "local"),
+            WindowServerResolution::Migrated("local".into())
+        );
+        // Explicit local → resolved as local.
+        assert_eq!(
+            file.resolve_window_server(Some(LOCAL_ID), "local"),
+            WindowServerResolution::Resolved("local".into())
+        );
+        // A stored server id → resolved.
+        assert_eq!(
+            file.resolve_window_server(Some(&home), "local"),
+            WindowServerResolution::Resolved(home.clone())
+        );
+        // A server id that no longer exists → unresolved (never silent-local).
+        assert_eq!(
+            file.resolve_window_server(Some("ghost"), "local"),
+            WindowServerResolution::Unresolved("ghost".into())
+        );
     }
 
     #[test]

@@ -1351,12 +1351,25 @@ fn ensure_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError
 ///
 /// The caller is responsible for `.show()/.set_focus()` on the returned window.
 fn ensure_vault_window<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<String, DynError> {
+    ensure_vault_window_for(app, &active_server_id(app), vault)
+}
+
+/// Open (or focus) the window for `vault` bound to a *specific* connection.
+///
+/// Unlike [`ensure_vault_window`], which uses the active connection, this stamps
+/// the given `server_id` into the window context and builds the URL from it —
+/// so the restore path can reopen a remote window against its own server even
+/// when a different connection is active (ADR 0017 A.5).
+fn ensure_vault_window_for<R: Runtime>(
+    app: &AppHandle<R>,
+    server_id: &str,
+    vault: &str,
+) -> Result<String, DynError> {
     let label = vault_window_label(vault);
     // Build the window's URL from the *same* connection it is stamped with, so
     // a window bound to a remote server loads that server's frontend (ADR 0017).
-    let server_id = active_server_id(app);
-    let target_url = app_url_for_server(app, &server_id, "/", Some(vault))?;
-    let window_context = WindowContext::vault(server_id, vault.to_string());
+    let target_url = app_url_for_server(app, server_id, "/", Some(vault))?;
+    let window_context = WindowContext::vault(server_id.to_string(), vault.to_string());
 
     if let Some(window) = app.get_webview_window(&label) {
         if window.url()?.as_str() != target_url.as_str() {
@@ -1396,15 +1409,16 @@ fn ensure_vault_window<R: Runtime>(app: &AppHandle<R>, vault: &str) -> Result<St
 
 /// Open a vault window and apply the saved geometry from `windows.json`.
 ///
-/// Used by the restore-from-disk path. Differs from `ensure_vault_window` in
-/// that it positions/sizes the new window after creation. Existing windows
+/// Used by the restore-from-disk path. Differs from [`ensure_vault_window_for`]
+/// in that it positions/sizes the new window after creation. Existing windows
 /// are left untouched (we don't overwrite the user's current geometry).
 fn ensure_vault_window_with_geometry<R: Runtime>(
     app: &AppHandle<R>,
+    server_id: &str,
     vault: &str,
     entry: &WindowEntry,
 ) -> Result<String, DynError> {
-    let label = ensure_vault_window(app, vault)?;
+    let label = ensure_vault_window_for(app, server_id, vault)?;
     if let Some(window) = app.get_webview_window(&label) {
         // Clamp to a visible monitor so windows from a now-disconnected
         // display don't end up off-screen.
@@ -1491,8 +1505,17 @@ fn snapshot_window_entries<R: Runtime>(app: &AppHandle<R>) -> Vec<WindowEntry> {
             Ok(s) => s,
             Err(_) => continue,
         };
+        // Persist the connection this window is bound to so it restores against
+        // the right daemon (ADR 0017 A.5). Fall back to the active connection
+        // if (unexpectedly) the registry has no context for this window.
+        let server_id = app
+            .state::<WindowConnections>()
+            .context_for_label(&label)
+            .and_then(|context| context.server_id().map(str::to_string))
+            .unwrap_or_else(|| active_server_id(app));
         out.push(WindowEntry {
             vault,
+            server_id: Some(server_id),
             x: pos.x,
             y: pos.y,
             w: size.width,
@@ -1548,8 +1571,26 @@ fn restore_windows_from_disk<R: Runtime>(app: &AppHandle<R>) -> usize {
     };
 
     let mut opened = 0;
+    let servers = app.state::<ServersState>().snapshot();
+    let default_id = active_server_id(app);
     for entry in &file.windows {
-        match ensure_vault_window_with_geometry(app, &entry.vault, entry) {
+        // Resolve which connection this window belongs to. Legacy entries (no
+        // server_id) migrate to the default connection; a window whose server
+        // was deleted is left unresolved rather than silently opened on local.
+        let server_id = match servers.resolve_window_server(entry.server_id.as_deref(), &default_id)
+        {
+            servers::WindowServerResolution::Resolved(id)
+            | servers::WindowServerResolution::Migrated(id) => id,
+            servers::WindowServerResolution::Unresolved(missing) => {
+                tracing::warn!(
+                    vault = %entry.vault,
+                    server = %missing,
+                    "skipping window restore: its server is no longer configured"
+                );
+                continue;
+            }
+        };
+        match ensure_vault_window_with_geometry(app, &server_id, &entry.vault, entry) {
             Ok(label) => {
                 if let Some(window) = app.get_webview_window(&label) {
                     let _ = window.show();
