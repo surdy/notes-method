@@ -1,10 +1,17 @@
 //! Helpers for computing per-vault window labels and URLs.
 //!
-//! Each Tauri window is bound to a single vault at creation time. The window
-//! label is `main:<slug>-<short-hash>` where the slug is a lossy sanitisation
-//! of the vault name and the short hash disambiguates between vaults whose
-//! slugs would otherwise collide (e.g. `Foo Bar`, `foo-bar`, `foo_bar` all
-//! reduce to slug `foo-bar`).
+//! Each Tauri window is bound to a single vault **on a single daemon** at
+//! creation time. The window label is `main:<slug>-<short-hash>` where the slug
+//! is a lossy sanitisation of the vault name and the short hash disambiguates
+//! between vaults whose slugs would otherwise collide (e.g. `Foo Bar`,
+//! `foo-bar`, `foo_bar` all reduce to slug `foo-bar`).
+//!
+//! Identity is **server-qualified**: the canonical key is a [`VaultKey`] of
+//! `(server_id, vault)`, so the same vault name hosted by two different daemons
+//! (e.g. a local vault and a remote vault both named `personal`) yields two
+//! distinct windows. For the reserved local server (`servers::LOCAL_ID`) the
+//! label is byte-for-byte identical to the legacy name-only label, so existing
+//! windows and persisted geometry keep matching across the upgrade.
 
 use crate::app_url::{FrontendMode, app_window_url};
 
@@ -14,13 +21,71 @@ pub const VAULT_WINDOW_LABEL_PREFIX: &str = "main:";
 /// Length of the short hash suffix appended to vault window labels.
 const HASH_SUFFIX_LEN: usize = 8;
 
-/// Compute the canonical window label for a vault.
+/// Canonical, server-qualified identity of a vault window.
 ///
-/// The returned label is guaranteed to differ between distinct vault names,
-/// even when their sanitised slugs collide.
+/// A window is uniquely identified by the daemon that hosts the vault
+/// (`server_id`) plus the vault name. `server_id` is the stable id minted by
+/// [`crate::servers`] (it survives server rename/URL edits); the reserved
+/// [`crate::servers::LOCAL_ID`] denotes the local daemon.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VaultKey {
+    /// Stable id of the daemon hosting the vault (`servers::LOCAL_ID` = local).
+    pub server_id: String,
+    /// Vault name as registered on that daemon.
+    pub vault: String,
+}
+
+impl VaultKey {
+    /// Identity for `vault` on the daemon identified by `server_id`.
+    pub fn new(server_id: impl Into<String>, vault: impl Into<String>) -> Self {
+        Self {
+            server_id: server_id.into(),
+            vault: vault.into(),
+        }
+    }
+
+    /// Identity for a vault on the local daemon.
+    pub fn local(vault: impl Into<String>) -> Self {
+        Self::new(crate::servers::LOCAL_ID, vault)
+    }
+
+    /// True when this identity refers to the local daemon.
+    pub fn is_local(&self) -> bool {
+        self.server_id == crate::servers::LOCAL_ID
+    }
+}
+
+/// String fed to [`short_hash`] to make a label unique per `(server_id, vault)`.
+///
+/// For the local server this is exactly the vault name, so local labels match
+/// the legacy name-only scheme byte-for-byte. For remote servers the stable
+/// `server_id` is prefixed with a unit-separator (`U+001F`) — a character the
+/// slug-form `server_id` can never contain, keeping the encoding injective.
+fn canonical_identity(key: &VaultKey) -> String {
+    if key.is_local() {
+        key.vault.clone()
+    } else {
+        format!("{}\u{1f}{}", key.server_id, key.vault)
+    }
+}
+
+/// Compute the canonical window label for a vault on the local daemon.
+///
+/// Thin shim over [`vault_window_label_for_key`] with the local server id. The
+/// output is unchanged from the historical name-only scheme.
 pub fn vault_window_label(vault: &str) -> String {
-    let slug = slug_for_vault(vault);
-    let hash = short_hash(vault);
+    vault_window_label_for_key(&VaultKey::local(vault))
+}
+
+/// Compute the canonical window label for a server-qualified vault identity.
+///
+/// The returned label is guaranteed to differ between distinct identities —
+/// across vault names *and* across servers — even when their sanitised slugs
+/// collide. For the local server it equals [`vault_window_label`] for the same
+/// vault name.
+pub fn vault_window_label_for_key(key: &VaultKey) -> String {
+    let slug = slug_for_vault(&key.vault);
+    let hash = short_hash(&canonical_identity(key));
     if slug.is_empty() {
         format!("{VAULT_WINDOW_LABEL_PREFIX}{hash}")
     } else {
@@ -161,6 +226,69 @@ mod tests {
     #[test]
     fn vault_window_label_for_empty_slug_uses_hash_only() {
         let label = vault_window_label("日本");
+        assert!(label.starts_with("main:"));
+        assert!(!label.starts_with("main:-"));
+        assert_eq!(label.len(), "main:".len() + HASH_SUFFIX_LEN);
+    }
+
+    #[test]
+    fn local_key_label_matches_legacy_name_label() {
+        // The name-only shim must not change local-vault labels: existing
+        // windows/persisted geometry keyed by the legacy label must still match.
+        for name in ["personal", "work", "foo-bar", "日本", "Foo Bar"] {
+            assert_eq!(
+                vault_window_label_for_key(&VaultKey::local(name)),
+                vault_window_label(name),
+            );
+        }
+    }
+
+    #[test]
+    fn same_vault_distinct_servers_yield_distinct_labels() {
+        let a = vault_window_label_for_key(&VaultKey::new("server-a", "personal"));
+        let b = vault_window_label_for_key(&VaultKey::new("server-b", "personal"));
+        let local = vault_window_label_for_key(&VaultKey::local("personal"));
+        assert_ne!(a, b);
+        assert_ne!(a, local);
+        assert_ne!(b, local);
+    }
+
+    #[test]
+    fn same_server_and_vault_is_stable() {
+        let key = VaultKey::new("server-a", "personal");
+        assert_eq!(
+            vault_window_label_for_key(&key),
+            vault_window_label_for_key(&key),
+        );
+    }
+
+    #[test]
+    fn remote_label_keeps_vault_slug_prefix() {
+        let label = vault_window_label_for_key(&VaultKey::new("server-a", "Work Notes"));
+        assert!(label.starts_with("main:work-notes-"), "got {label}");
+    }
+
+    #[test]
+    fn cross_server_duplicate_after_slug_collision_still_distinct() {
+        // Names that slug-collide, spread across servers — all labels distinct.
+        let a = vault_window_label_for_key(&VaultKey::new("s1", "foo-bar"));
+        let b = vault_window_label_for_key(&VaultKey::new("s2", "Foo Bar"));
+        let c = vault_window_label_for_key(&VaultKey::local("foo_bar"));
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(b, c);
+    }
+
+    #[test]
+    fn vault_key_local_constructor_uses_local_id() {
+        assert!(VaultKey::local("x").is_local());
+        assert_eq!(VaultKey::local("x").server_id, crate::servers::LOCAL_ID);
+        assert!(!VaultKey::new("remote", "x").is_local());
+    }
+
+    #[test]
+    fn remote_label_with_empty_slug_uses_hash_only() {
+        let label = vault_window_label_for_key(&VaultKey::new("server-a", "日本"));
         assert!(label.starts_with("main:"));
         assert!(!label.starts_with("main:-"));
         assert_eq!(label.len(), "main:".len() + HASH_SUFFIX_LEN);
