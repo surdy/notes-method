@@ -45,6 +45,7 @@ fn main() {
             "connection_remove",
             "connection_set_active",
             "connection_test",
+            "refresh_remote_vaults",
         ]));
     tauri_build::try_build(attrs).expect("failed to run tauri-build");
 }

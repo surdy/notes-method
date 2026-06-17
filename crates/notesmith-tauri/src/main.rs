@@ -9,7 +9,7 @@ use std::sync::{
     Mutex,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use notesmith_tauri::app_url::{
     APP_PROTOCOL, app_asset_path, connection_window_url, should_fallback_to_index,
@@ -18,6 +18,7 @@ use notesmith_tauri::daemon::{self, DaemonSettings, DaemonState, DynError};
 use notesmith_tauri::servers::{
     self, ConnectionList, ConnectionTestResult, ServerInput, ServerView, ServersFile,
 };
+use notesmith_tauri::vault_cache::{RefreshOutcome, VaultCache};
 use notesmith_tauri::vault_menu::{
     OPEN_FOLDER_AS_VAULT_ID, decode_open_vault_id, encode_open_vault_id,
     validate_vault_display_name,
@@ -279,6 +280,39 @@ impl ServersState {
     }
 }
 
+/// Managed wrapper around the pure per-server [`VaultCache`] (ADR 0017 B.3).
+///
+/// The async refresher folds per-server [`RefreshOutcome`]s into it; the
+/// multi-server "New Window" menu builder reads snapshots so menu rendering
+/// never blocks on the network.
+#[derive(Default)]
+struct VaultCacheState(Mutex<VaultCache>);
+
+impl VaultCacheState {
+    /// The cached entry for `server_id`, if any (a clone — the lock is not held
+    /// while the menu builds). Read by the B.4 grouped-menu builder.
+    #[allow(dead_code)] // consumed by the multi-server menu builder (B.4 / #234)
+    fn get(&self, server_id: &str) -> Option<notesmith_tauri::vault_cache::ServerVaults> {
+        self.0.lock().expect("vault cache poisoned").get(server_id)
+    }
+
+    /// Fold a refresh outcome for `server_id` into the cache at `now`.
+    fn merge(&self, server_id: &str, outcome: RefreshOutcome, now: SystemTime) {
+        self.0
+            .lock()
+            .expect("vault cache poisoned")
+            .merge_refresh(server_id, outcome, now);
+    }
+
+    /// Drop cache entries for servers no longer present.
+    fn retain(&self, live_ids: &[String]) {
+        self.0
+            .lock()
+            .expect("vault cache poisoned")
+            .retain_servers(live_ids);
+    }
+}
+
 /// The authoritative window → connection registry (ADR 0017).
 ///
 /// Wraps the pure [`WindowRegistry`] in a mutex for use as Tauri managed state.
@@ -393,6 +427,7 @@ fn main() {
         .manage(LastQuitAttempt::default())
         .manage(DaemonProcessState::default())
         .manage(ServersState::default())
+        .manage(VaultCacheState::default())
         .manage(WindowConnections::default())
         .manage(WindowsPersistState::default())
         .manage(agent_bridge::AgentBridge::default())
@@ -436,7 +471,8 @@ fn main() {
             connection_update,
             connection_remove,
             connection_set_active,
-            connection_test
+            connection_test,
+            refresh_remote_vaults
         ])
         .menu(build_app_menu)
         .on_menu_event(|app, event| {
@@ -551,6 +587,10 @@ fn initialize_app(app: &tauri::App) -> Result<(), DynError> {
     setup_tray(handle)?;
     setup_deep_links(handle)?;
     tauri::async_runtime::block_on(run_startup_flow(handle))?;
+
+    // Kick off an initial remote vault-list refresh so the multi-server "New
+    // Window" menu has data to show. Best-effort and off the startup path.
+    tauri::async_runtime::spawn(refresh_vault_cache(handle.clone()));
     Ok(())
 }
 
@@ -2779,12 +2819,14 @@ fn connection_add(
     url: String,
     token: Option<String>,
 ) -> Result<ServerView, String> {
-    app.state::<ServersState>().mutate(|file| {
+    let view = app.state::<ServersState>().mutate(|file| {
         let id = file
             .add(ServerInput { name, url, token })
             .map_err(|error| error.to_string())?;
-        Ok(file.get(&id).expect("entry was just added").view())
-    })
+        Ok::<_, String>(file.get(&id).expect("entry was just added").view())
+    })?;
+    tauri::async_runtime::spawn(refresh_vault_cache(app.clone()));
+    Ok(view)
 }
 
 /// Update an existing server. Omitted fields are left unchanged; a blank
@@ -2797,18 +2839,22 @@ fn connection_update(
     url: Option<String>,
     token: Option<String>,
 ) -> Result<ServerView, String> {
-    app.state::<ServersState>().mutate(|file| {
+    let view = app.state::<ServersState>().mutate(|file| {
         file.update(&id, name, url, token)
             .map_err(|error| error.to_string())?;
-        Ok(file.get(&id).expect("entry exists after update").view())
-    })
+        Ok::<_, String>(file.get(&id).expect("entry exists after update").view())
+    })?;
+    tauri::async_runtime::spawn(refresh_vault_cache(app.clone()));
+    Ok(view)
 }
 
 /// Remove a server. If it was active, the connection falls back to local.
 #[tauri::command]
 fn connection_remove(app: tauri::AppHandle, id: String) -> Result<(), String> {
     app.state::<ServersState>()
-        .mutate(|file| file.remove(&id).map_err(|error| error.to_string()))
+        .mutate(|file| file.remove(&id).map_err(|error| error.to_string()))?;
+    tauri::async_runtime::spawn(refresh_vault_cache(app.clone()));
+    Ok(())
 }
 
 /// Set the **default** connection used by new windows (and connection-agnostic
@@ -2857,6 +2903,119 @@ const CONNECTION_CHANGED_EVENT: &str = "notesmith://connection-changed";
 #[tauri::command]
 async fn connection_test(url: String, token: Option<String>) -> ConnectionTestResult {
     probe_daemon(&url, token.as_deref()).await
+}
+
+/// Manually refresh every remote server's cached vault list (ADR 0017 B.3).
+///
+/// Used by the multi-server "New Window" menu surface to pull fresh data on
+/// demand, and re-invoked automatically after connection changes. Best-effort:
+/// it never errors — failures are recorded in the cache as `AuthError` /
+/// `Unreachable` so the menu can still show the last-known vaults.
+#[tauri::command]
+async fn refresh_remote_vaults(app: tauri::AppHandle) {
+    refresh_vault_cache(app).await;
+}
+
+/// Concurrency cap for per-server vault refreshes — keeps a large server list
+/// from opening an unbounded number of sockets at once.
+const VAULT_REFRESH_CONCURRENCY: usize = 6;
+
+/// Per-server timeout for a single vault-list fetch. Short so one slow or dead
+/// server never stalls the whole refresh (and, transitively, the menu).
+const VAULT_REFRESH_TIMEOUT: Duration = Duration::from_secs(4);
+
+/// Refresh the cached vault list for every **remote** server, concurrently and
+/// with a short per-server timeout, then fold the outcomes into the
+/// [`VaultCacheState`] (ADR 0017 B.3).
+///
+/// Local vaults are sourced directly from `GlobalConfig` by the menu builder and
+/// are not cached here. This is best-effort and never blocks menu rendering: a
+/// failed fetch is recorded as `AuthError`/`Unreachable` (preserving the
+/// last-known list), and removed servers are evicted via `retain_servers`.
+async fn refresh_vault_cache(app: tauri::AppHandle) {
+    use futures::StreamExt;
+
+    let servers = app.state::<ServersState>().snapshot().servers;
+    let live_ids: Vec<String> = servers.iter().map(|server| server.id.clone()).collect();
+
+    // Evict cache entries for servers that no longer exist before fetching.
+    app.state::<VaultCacheState>().retain(&live_ids);
+
+    if servers.is_empty() {
+        return;
+    }
+
+    let client = match reqwest::Client::builder()
+        .timeout(VAULT_REFRESH_TIMEOUT)
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            tracing::warn!(%error, "failed to build vault-refresh HTTP client");
+            return;
+        }
+    };
+
+    let outcomes = futures::stream::iter(servers.into_iter().map(|server| {
+        let client = client.clone();
+        async move {
+            let outcome = fetch_server_vaults(&client, &server.url, server.token.as_deref()).await;
+            (server.id, outcome)
+        }
+    }))
+    .buffer_unordered(VAULT_REFRESH_CONCURRENCY)
+    .collect::<Vec<_>>()
+    .await;
+
+    let now = SystemTime::now();
+    let cache = app.state::<VaultCacheState>();
+    for (id, outcome) in outcomes {
+        cache.merge(&id, outcome, now);
+    }
+
+    // Reflect the refreshed cache in the dynamic menus. The grouped multi-server
+    // menu lands in B.4; this is harmless before then.
+    if let Err(error) = rebuild_dynamic_menus(&app) {
+        tracing::warn!(%error, "failed to rebuild menus after vault refresh");
+    }
+}
+
+/// Fetch one server's vault list and classify the result, mapping any transport
+/// failure to [`RefreshOutcome::Unreachable`].
+async fn fetch_server_vaults(
+    client: &reqwest::Client,
+    base: &str,
+    token: Option<&str>,
+) -> RefreshOutcome {
+    let url = format!("{}/api/app/vaults", base.trim_end_matches('/'));
+    match with_bearer(client.get(&url), token).send().await {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            match response.bytes().await {
+                Ok(body) => classify_vault_response(status, &body),
+                Err(_) => RefreshOutcome::Unreachable,
+            }
+        }
+        Err(_) => RefreshOutcome::Unreachable,
+    }
+}
+
+/// Pure status→outcome policy for a vault-list response, separated from the
+/// network call so it can be unit-tested:
+/// - `2xx` with a parseable body → [`RefreshOutcome::Loaded`];
+/// - `401`/`403` → [`RefreshOutcome::AuthError`];
+/// - any other status, or an unparseable `2xx` body → [`RefreshOutcome::Unreachable`].
+fn classify_vault_response(status: u16, body: &[u8]) -> RefreshOutcome {
+    if (200..300).contains(&status) {
+        match servers::parse_vault_names(body) {
+            Some(names) => RefreshOutcome::Loaded(names),
+            None => RefreshOutcome::Unreachable,
+        }
+    } else if status == 401 || status == 403 {
+        RefreshOutcome::AuthError
+    } else {
+        RefreshOutcome::Unreachable
+    }
 }
 
 const CONNECTION_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
@@ -2931,8 +3090,36 @@ mod tests {
 
     use super::{
         CrashAction, CrashTracker, DaemonSettings, QuitRequestAction, admin_route_url,
-        daemon_error_detail, evaluate_quit_request, find_sidecar_in, should_use_local_vault_state,
+        classify_vault_response, daemon_error_detail, evaluate_quit_request, find_sidecar_in,
+        should_use_local_vault_state,
     };
+    use notesmith_tauri::vault_cache::RefreshOutcome;
+
+    #[test]
+    fn classify_vault_response_maps_status_and_body_to_outcomes() {
+        // 2xx with a parseable body → Loaded(names).
+        assert_eq!(
+            classify_vault_response(200, br#"[{"name":"people"},{"name":"tech"}]"#),
+            RefreshOutcome::Loaded(vec!["people".to_string(), "tech".to_string()])
+        );
+        // 2xx but an unparseable body → Unreachable (don't wipe last-known list).
+        assert_eq!(
+            classify_vault_response(200, b"not json"),
+            RefreshOutcome::Unreachable
+        );
+        // Auth failures are distinguished so the menu can flag credentials.
+        assert_eq!(classify_vault_response(401, b""), RefreshOutcome::AuthError);
+        assert_eq!(classify_vault_response(403, b""), RefreshOutcome::AuthError);
+        // Any other status → Unreachable.
+        assert_eq!(
+            classify_vault_response(500, b""),
+            RefreshOutcome::Unreachable
+        );
+        assert_eq!(
+            classify_vault_response(404, b""),
+            RefreshOutcome::Unreachable
+        );
+    }
 
     #[test]
     fn find_sidecar_prefers_the_triple_stripped_bundle_name() {

@@ -167,6 +167,36 @@ pub fn parse_vault_count(body: &[u8]) -> Option<u32> {
     }
 }
 
+/// Best-effort vault **names** from a `/api/app/vaults` response body, used to
+/// populate the per-server vault cache (ADR 0017 B.3). The daemon returns a bare
+/// JSON array of objects each carrying a `name`; an object with a `vaults` array
+/// is also accepted for forward-compatibility, as are bare string entries. Items
+/// without a usable name are skipped. Any non-array shape yields `None`; a valid
+/// but empty array yields `Some(vec![])`.
+pub fn parse_vault_names(body: &[u8]) -> Option<Vec<String>> {
+    let value = serde_json::from_slice::<serde_json::Value>(body).ok()?;
+    let items = match &value {
+        serde_json::Value::Array(items) => items,
+        serde_json::Value::Object(map) => match map.get("vaults") {
+            Some(serde_json::Value::Array(items)) => items,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let names = items
+        .iter()
+        .filter_map(|entry| match entry {
+            serde_json::Value::String(name) => Some(name.clone()),
+            serde_json::Value::Object(_) => entry
+                .get("name")
+                .and_then(|n| n.as_str())
+                .map(|s| s.to_string()),
+            _ => None,
+        })
+        .collect();
+    Some(names)
+}
+
 /// Errors from mutating the server set.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServerStoreError {
@@ -805,6 +835,32 @@ mod tests {
         assert_eq!(parse_vault_count(br#"{"vaults":[1,2,3]}"#), Some(3));
         assert_eq!(parse_vault_count(br#"{"unexpected":true}"#), None);
         assert_eq!(parse_vault_count(b"not json"), None);
+    }
+
+    #[test]
+    fn parse_vault_names_extracts_from_objects_strings_and_skips_garbage() {
+        assert_eq!(
+            parse_vault_names(br#"[{"name":"people"},{"name":"tech"}]"#),
+            Some(vec!["people".to_string(), "tech".to_string()])
+        );
+        // Bare-string entries and a forward-compat object wrapper.
+        assert_eq!(
+            parse_vault_names(br#"["a","b"]"#),
+            Some(vec!["a".to_string(), "b".to_string()])
+        );
+        assert_eq!(
+            parse_vault_names(br#"{"vaults":[{"name":"x"}]}"#),
+            Some(vec!["x".to_string()])
+        );
+        // Items without a usable name are skipped, not fatal.
+        assert_eq!(
+            parse_vault_names(br#"[{"name":"ok"},{"path":"/no/name"},42]"#),
+            Some(vec!["ok".to_string()])
+        );
+        // Valid-but-empty array → empty list; non-array / garbage → None.
+        assert_eq!(parse_vault_names(br#"[]"#), Some(vec![]));
+        assert_eq!(parse_vault_names(br#"{"unexpected":true}"#), None);
+        assert_eq!(parse_vault_names(b"not json"), None);
     }
 
     #[test]
