@@ -15,13 +15,13 @@ use notesmith_tauri::app_url::{
     APP_PROTOCOL, app_asset_path, connection_window_url, should_fallback_to_index,
 };
 use notesmith_tauri::daemon::{self, DaemonSettings, DaemonState, DynError};
+use notesmith_tauri::new_window_menu::{GroupStatus, MenuRow, ServerGroup, build_new_window_rows};
 use notesmith_tauri::servers::{
     self, ConnectionList, ConnectionTestResult, ServerInput, ServerView, ServersFile,
 };
 use notesmith_tauri::vault_cache::{RefreshOutcome, VaultCache};
 use notesmith_tauri::vault_menu::{
-    OPEN_FOLDER_AS_VAULT_ID, decode_open_vault_id, encode_open_vault_id,
-    validate_vault_display_name,
+    OPEN_FOLDER_AS_VAULT_ID, decode_open_vault_target, validate_vault_display_name,
 };
 use notesmith_tauri::vault_window::{VaultKey, is_vault_window_label, vault_window_label_for_key};
 use notesmith_tauri::window_registry::{WindowContext, WindowRegistry};
@@ -802,7 +802,7 @@ fn emit_wake_event<R: Runtime>(app: &AppHandle<R>) {
 /// registered vault plus an "Open Folder…" entry, so the user can relaunch
 /// any closed vault window without leaving the menubar.
 fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
-    let vaults = registered_vault_names();
+    let new_window_rows = new_window_menu_rows(app);
 
     let open = MenuItem::with_id(app, MENU_OPEN, "Open Notesmith", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, MENU_SETTINGS, "Settings…", true, Some("CmdOrCtrl+,"))?;
@@ -835,7 +835,7 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     };
     let app_submenu = Submenu::with_items(app, "Notesmith", true, &app_menu_items)?;
 
-    let new_window_items = build_new_window_submenu_items(app, &vaults)?;
+    let new_window_items = build_new_window_submenu_items(app, &new_window_rows)?;
     let new_window_refs: Vec<&dyn tauri::menu::IsMenuItem<R>> =
         new_window_items.iter().map(|item| item.as_ref()).collect();
     let new_window_submenu = Submenu::with_items(app, "New Window", true, &new_window_refs)?;
@@ -869,9 +869,9 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 }
 
 fn build_tray_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
-    let vaults = registered_vault_names();
+    let new_window_rows = new_window_menu_rows(app);
 
-    let open_items = build_new_window_submenu_items(app, &vaults)?;
+    let open_items = build_new_window_submenu_items(app, &new_window_rows)?;
     let open_refs: Vec<&dyn tauri::menu::IsMenuItem<R>> =
         open_items.iter().map(|item| item.as_ref()).collect();
     let open_submenu = Submenu::with_items(app, "Open", true, &open_refs)?;
@@ -904,33 +904,79 @@ fn build_tray_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     )
 }
 
-/// Build the menu items that make up the "Open" / "New Window" submenu
-/// (vault entries + separator + "Open Folder…") as a heap-allocated vec so
-/// the caller can recombine them however it wants.
+/// Freshness window before a successfully-fetched server's vault list is shown
+/// as "stale" (still openable, just visually de-emphasised) in the menu.
+const VAULT_CACHE_TTL: Duration = Duration::from_secs(60);
+
+/// Gather the New Window submenu rows from current state: local vault names from
+/// `GlobalConfig` plus a cached [`ServerGroup`] per configured remote server.
+/// The layout itself is computed by the pure [`build_new_window_rows`].
+fn new_window_menu_rows<R: Runtime>(app: &AppHandle<R>) -> Vec<MenuRow> {
+    let local_vaults = registered_vault_names();
+    let servers = app.state::<ServersState>().snapshot().servers;
+    let cache = app.state::<VaultCacheState>();
+    let now = SystemTime::now();
+
+    let remotes: Vec<ServerGroup> = servers
+        .into_iter()
+        .map(|server| {
+            let entry = cache.get(&server.id);
+            let status = GroupStatus::from_display(
+                entry
+                    .as_ref()
+                    .map(|cached| cached.display_status(now, VAULT_CACHE_TTL)),
+            );
+            let vaults = entry.map(|cached| cached.vaults).unwrap_or_default();
+            ServerGroup {
+                server_id: server.id,
+                name: server.name,
+                vaults,
+                status,
+            }
+        })
+        .collect();
+
+    build_new_window_rows(&local_vaults, &remotes)
+}
+
+/// Map the pure [`MenuRow`]s into concrete Tauri menu items for the "Open" /
+/// "New Window" submenu. Headers and info rows render as disabled items with
+/// auto-generated ids (they never dispatch); vault rows carry their
+/// server-qualified id so [`handle_menu_event`] can route them.
 fn build_new_window_submenu_items<R: Runtime>(
     app: &AppHandle<R>,
-    vaults: &[String],
+    rows: &[MenuRow],
 ) -> tauri::Result<Vec<Box<dyn tauri::menu::IsMenuItem<R>>>> {
     let mut entries: Vec<Box<dyn tauri::menu::IsMenuItem<R>>> = Vec::new();
-    for vault in vaults {
-        entries.push(Box::new(MenuItem::with_id(
-            app,
-            encode_open_vault_id(vault),
-            vault,
-            true,
-            None::<&str>,
-        )?));
+    for row in rows {
+        match row {
+            MenuRow::Header(text) | MenuRow::Info(text) => {
+                // Disabled, auto-id item used purely as a non-interactive label.
+                entries.push(Box::new(MenuItem::new(app, text, false, None::<&str>)?));
+            }
+            MenuRow::Vault { id, label, enabled } => {
+                entries.push(Box::new(MenuItem::with_id(
+                    app,
+                    id,
+                    label,
+                    *enabled,
+                    None::<&str>,
+                )?));
+            }
+            MenuRow::Separator => {
+                entries.push(Box::new(PredefinedMenuItem::separator(app)?));
+            }
+            MenuRow::OpenFolder => {
+                entries.push(Box::new(MenuItem::with_id(
+                    app,
+                    OPEN_FOLDER_AS_VAULT_ID,
+                    "Open Folder\u{2026}",
+                    true,
+                    None::<&str>,
+                )?));
+            }
+        }
     }
-    if !vaults.is_empty() {
-        entries.push(Box::new(PredefinedMenuItem::separator(app)?));
-    }
-    entries.push(Box::new(MenuItem::with_id(
-        app,
-        OPEN_FOLDER_AS_VAULT_ID,
-        "Open Folder\u{2026}",
-        true,
-        None::<&str>,
-    )?));
     Ok(entries)
 }
 
@@ -1003,9 +1049,9 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<(), Dyn
             }
             Ok(())
         }
-        other if decode_open_vault_id(other).is_some() => {
-            let vault = decode_open_vault_id(other).expect("just checked");
-            let label = ensure_vault_window(app, &vault)?;
+        other if decode_open_vault_target(other).is_some() => {
+            let (server_id, vault) = decode_open_vault_target(other).expect("just checked");
+            let label = ensure_vault_window_for(app, &server_id, &vault)?;
             if let Some(window) = app.get_webview_window(&label) {
                 let _ = window.show();
                 let _ = window.unminimize();

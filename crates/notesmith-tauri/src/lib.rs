@@ -2,6 +2,7 @@
 
 pub mod app_url;
 pub mod daemon;
+pub mod new_window_menu;
 pub mod servers;
 pub mod vault_cache;
 pub mod vault_menu;
