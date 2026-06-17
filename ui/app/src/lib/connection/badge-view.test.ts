@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ConnectionIdentity, ConnectionTestResult } from './connection-client.ts';
-import { connectionBadge, connectionDetail, titleServerSuffix } from './badge-view.ts';
+import { connectionBadge, connectionDetail, titleServerSuffix, vaultSourceBadge } from './badge-view.ts';
 
 const local: ConnectionIdentity = { id: 'local', name: 'This Mac', remote: false };
 const remote: ConnectionIdentity = { id: 'memory', name: 'memory', remote: true };
@@ -79,5 +79,15 @@ describe('titleServerSuffix', () => {
 	it('is the server name for remote and null for local', () => {
 		expect(titleServerSuffix(remote)).toBe('memory');
 		expect(titleServerSuffix(local)).toBeNull();
+	});
+});
+
+describe('vaultSourceBadge', () => {
+	it('renders a laptop "Local" pill for local', () => {
+		expect(vaultSourceBadge(local)).toEqual({ icon: '💻', label: 'Local', remote: false });
+	});
+
+	it('renders a cloud pill labelled with the server name for remote', () => {
+		expect(vaultSourceBadge(remote)).toEqual({ icon: '☁', label: 'memory', remote: true });
 	});
 });

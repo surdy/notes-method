@@ -134,3 +134,27 @@ export function connectionDetail(
 export function titleServerSuffix(identity: ConnectionIdentity): string | null {
 	return identity.remote ? identity.name : null;
 }
+
+/**
+ * The inline source pill shown after the vault name in the sidebar top-left
+ * label (Idea 2 → variant 2). It tells the user, at a glance, whether the vault
+ * they're looking at lives on the local daemon or a named remote server.
+ *
+ * - **Local**: laptop glyph + the literal "Local".
+ * - **Remote**: cloud glyph + the server's display name.
+ */
+export interface VaultSourceBadge {
+	/** 💻 for local, ☁ for a remote server. */
+	icon: string;
+	/** "Local" for the local daemon, or the server name for a remote one. */
+	label: string;
+	/** Whether the vault is on a remote server (drives the accent styling). */
+	remote: boolean;
+}
+
+/** Build the sidebar source pill for a window's connection identity. */
+export function vaultSourceBadge(identity: ConnectionIdentity): VaultSourceBadge {
+	return identity.remote
+		? { icon: '☁', label: identity.name, remote: true }
+		: { icon: '💻', label: 'Local', remote: false };
+}

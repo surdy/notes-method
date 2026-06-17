@@ -1,7 +1,14 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { resolveTauri } from '$lib/open-folder-as-vault';
+	import {
+		createConnectionClient,
+		LOCAL_IDENTITY,
+		type ConnectionIdentity
+	} from '$lib/connection/connection-client';
+	import { vaultSourceBadge } from '$lib/connection/badge-view';
 	import {
 		buildVaultMenuModel,
 		isBrowserVaultMenu,
@@ -17,6 +24,25 @@
 	// Browser-only: the desktop shell exposes these actions through its native OS
 	// menu and a window-per-vault model, so the dropdown would only duplicate them.
 	const isBrowser = isBrowserVaultMenu(resolveTauri());
+
+	// Desktop-only: this window's own connection identity drives the source pill
+	// shown after the vault name. Off-desktop the Unavailable client reports a
+	// local identity we deliberately don't render (the pill is desktop-only).
+	const connection = createConnectionClient();
+	let identity = $state<ConnectionIdentity>(LOCAL_IDENTITY);
+	const sourceBadge = $derived(vaultSourceBadge(identity));
+
+	onMount(() => {
+		if (!connection.available()) return;
+		void connection
+			.windowInfo()
+			.then((info) => {
+				identity = info;
+			})
+			.catch(() => {
+				identity = LOCAL_IDENTITY;
+			});
+	});
 
 	let open = $state(false);
 	let menuRef = $state<HTMLDivElement | null>(null);
@@ -159,6 +185,10 @@
 	<span class="vault-identity" title={currentVault}>
 		<span class="vault-icon" aria-hidden="true">🗄️</span>
 		<span class="vault-name">{currentVault}</span>
+		<span class="src-pill" class:remote={sourceBadge.remote} title={sourceBadge.remote ? `On ${sourceBadge.label}` : 'Local vault'}>
+			<span class="src-pill-icon" aria-hidden="true">{sourceBadge.icon}</span>
+			<span class="src-pill-label">{sourceBadge.label}</span>
+		</span>
 	</span>
 {/if}
 
@@ -310,6 +340,38 @@
 	.vault-identity .vault-name {
 		font-size: 14px;
 		font-weight: 600;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.src-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		flex-shrink: 0;
+		padding: 1px 7px 1px 5px;
+		border: 1px solid var(--border-default);
+		border-radius: 999px;
+		color: var(--text-muted);
+		font-size: 11px;
+		font-weight: 600;
+		line-height: 1.5;
+	}
+
+	.src-pill.remote {
+		border-color: var(--accent);
+		background: var(--accent-bg);
+		color: var(--text-default);
+	}
+
+	.src-pill-icon {
+		font-size: 11px;
+		line-height: 1;
+	}
+
+	.src-pill-label {
+		max-width: 120px;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
