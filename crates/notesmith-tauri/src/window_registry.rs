@@ -58,6 +58,17 @@ impl WindowContext {
             _ => None,
         }
     }
+
+    /// The `(server_id, vault)` pair this window is bound to, but **only** for a
+    /// vault window. `Global`/`ServerScoped` windows return `None`, letting
+    /// vault-scoped IPC reject them with a clear error instead of dispatching to
+    /// the wrong (or no) daemon.
+    pub fn vault_binding(&self) -> Option<(&str, &str)> {
+        match self {
+            WindowContext::VaultScoped { server_id, vault } => Some((server_id, vault)),
+            _ => None,
+        }
+    }
 }
 
 /// Bi-directional registry of windows ↔ their connection context.
@@ -148,6 +159,25 @@ mod tests {
         let vault = WindowContext::vault("remote", "personal");
         assert_eq!(vault.server_id(), Some("remote"));
         assert_eq!(vault.vault_key(), Some(key("remote", "personal")));
+    }
+
+    #[test]
+    fn vault_binding_only_resolves_for_vault_windows() {
+        // A vault window exposes its (server, vault) pair...
+        assert_eq!(
+            WindowContext::vault("remote", "personal").vault_binding(),
+            Some(("remote", "personal"))
+        );
+        // ...but a Global or merely server-scoped window does not: a vault-scoped
+        // command invoked from one must be rejected, not sent to a wrong daemon.
+        assert_eq!(WindowContext::Global.vault_binding(), None);
+        assert_eq!(
+            WindowContext::ServerScoped {
+                server_id: "remote".into(),
+            }
+            .vault_binding(),
+            None
+        );
     }
 
     #[test]

@@ -364,7 +364,6 @@ impl WindowConnections {
             .map(str::to_string)
     }
 
-    #[allow(dead_code)]
     fn context_for_label(&self, label: &str) -> Option<WindowContext> {
         self.0
             .lock()
@@ -1929,6 +1928,37 @@ fn active_server_id<R: Runtime>(app: &AppHandle<R>) -> String {
         .active_id
 }
 
+/// Resolve the daemon connection a window's IPC should target — its per-window
+/// server URL plus bearer token, from the registry (ADR 0017 A.4) — rather than
+/// the single global active connection.
+///
+/// A `Global` or not-yet-registered window (settings / onboarding) falls back to
+/// the active (default) connection, so connection-scoped actions like "add a
+/// vault" still work from the Settings window.
+fn window_connection_target<R: Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+) -> servers::ConnectionTarget {
+    let server_id = app
+        .state::<WindowConnections>()
+        .context_for_label(label)
+        .and_then(|context| context.server_id().map(str::to_string))
+        .unwrap_or_else(|| active_server_id(app));
+    app.state::<ServersState>()
+        .snapshot()
+        .resolve_target(&server_id, daemon::DEFAULT_DAEMON_URL)
+}
+
+/// Attach a bearer token to a request when one is configured for the target
+/// server. Tokens travel only as an `Authorization` header, never a query
+/// param.
+fn with_bearer(request: reqwest::RequestBuilder, token: Option<&str>) -> reqwest::RequestBuilder {
+    match token {
+        Some(token) => request.bearer_auth(token),
+        None => request,
+    }
+}
+
 fn webview_url_for_app(url: Url) -> WebviewUrl {
     if url.scheme() == APP_PROTOCOL {
         WebviewUrl::CustomProtocol(url)
@@ -2632,11 +2662,17 @@ async fn confirm_window_close(
 #[tauri::command]
 async fn open_folder_as_vault(
     app: tauri::AppHandle,
+    window: tauri::Window,
     path: String,
     display_name: String,
     create: Option<bool>,
 ) -> Result<(), String> {
-    let existing: Vec<String> = if should_use_local_vault_state(&effective_settings(&app)) {
+    // Resolve the *calling window's* daemon + bearer token (not the global
+    // active connection). A vault window targets its own server; the Settings
+    // window falls back to the active connection.
+    let target = window_connection_target(&app, window.label());
+
+    let existing: Vec<String> = if !target.remote {
         notesmith_config::GlobalConfig::load()
             .map_err(|error| error.to_string())?
             .vaults
@@ -2648,14 +2684,12 @@ async fn open_folder_as_vault(
     };
     let validated = validate_vault_display_name(&display_name, existing.iter())?;
 
-    let base = current_daemon_url(&app);
-    let url = format!("{}/api/app/vaults", base.trim_end_matches('/'));
+    let url = format!("{}/api/app/vaults", target.url.trim_end_matches('/'));
     let body =
         serde_json::json!({ "name": validated, "path": path, "create": create.unwrap_or(false) });
 
     let client = reqwest::Client::new();
-    let response = client
-        .post(&url)
+    let response = with_bearer(client.post(&url), target.token.as_deref())
         .json(&body)
         .send()
         .await
@@ -2678,8 +2712,7 @@ async fn open_folder_as_vault(
     let mut attempts = 0u32;
     loop {
         attempts += 1;
-        let listed = client
-            .get(&list_url)
+        let listed = with_bearer(client.get(&list_url), target.token.as_deref())
             .send()
             .await
             .and_then(|r| r.error_for_status())

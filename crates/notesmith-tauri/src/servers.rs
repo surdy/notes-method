@@ -87,6 +87,17 @@ pub enum Active<'a> {
     Remote(&'a ServerEntry),
 }
 
+/// A fully-resolved daemon connection target for daemon-directed IPC: where to
+/// send the request, whether it is remote, and the bearer token (if any) to
+/// attach. Unlike [`ServerView`] this *does* carry the token because it is used
+/// internally to make authenticated requests, never returned to the frontend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionTarget {
+    pub url: String,
+    pub remote: bool,
+    pub token: Option<String>,
+}
+
 /// Token-less projection of a [`ServerEntry`] for the UI. Tokens are never
 /// returned to the frontend; `has_token` indicates whether one is set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -278,9 +289,25 @@ impl ServersFile {
     /// each desktop window builds its frontend URL from *its* connection
     /// (ADR 0017), not the single global active one.
     pub fn target_for(&self, id: &str, local_url: &str) -> (String, bool) {
+        let target = self.resolve_target(id, local_url);
+        (target.url, target.remote)
+    }
+
+    /// Like [`target_for`](Self::target_for) but also carries the bearer token
+    /// to send with daemon-targeted IPC for that connection. Used to thread a
+    /// window's per-server credential onto its requests (ADR 0017).
+    pub fn resolve_target(&self, id: &str, local_url: &str) -> ConnectionTarget {
         match self.get(id) {
-            Some(entry) if id != LOCAL_ID => (entry.url.clone(), true),
-            _ => (local_url.to_string(), false),
+            Some(entry) if id != LOCAL_ID => ConnectionTarget {
+                url: entry.url.clone(),
+                remote: true,
+                token: entry.token.clone(),
+            },
+            _ => ConnectionTarget {
+                url: local_url.to_string(),
+                remote: false,
+                token: None,
+            },
         }
     }
 
@@ -769,6 +796,52 @@ mod tests {
         assert_eq!(
             file.target_for("ghost", "http://127.0.0.1:27183"),
             ("http://127.0.0.1:27183".to_string(), false)
+        );
+    }
+
+    #[test]
+    fn resolve_target_carries_the_servers_token() {
+        let mut file = ServersFile::default();
+        let with_token = file
+            .add(ServerInput {
+                name: "Home".into(),
+                url: "https://home.example".into(),
+                token: Some("s3cret".into()),
+            })
+            .unwrap();
+        let no_token = file.add(input("Office", "https://office.example")).unwrap();
+
+        // Local target → no token, not remote.
+        assert_eq!(
+            file.resolve_target(LOCAL_ID, "http://127.0.0.1:27183"),
+            ConnectionTarget {
+                url: "http://127.0.0.1:27183".into(),
+                remote: false,
+                token: None,
+            }
+        );
+        // Remote with a token → URL + remote + the bearer token.
+        assert_eq!(
+            file.resolve_target(&with_token, "http://127.0.0.1:27183"),
+            ConnectionTarget {
+                url: "https://home.example".into(),
+                remote: true,
+                token: Some("s3cret".into()),
+            }
+        );
+        // Remote without a token → URL + remote, no token.
+        assert_eq!(
+            file.resolve_target(&no_token, "http://127.0.0.1:27183"),
+            ConnectionTarget {
+                url: "https://office.example".into(),
+                remote: true,
+                token: None,
+            }
+        );
+        // Unknown id → local fallback, no token.
+        assert_eq!(
+            file.resolve_target("ghost", "http://127.0.0.1:27183").token,
+            None
         );
     }
 }
