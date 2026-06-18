@@ -203,6 +203,17 @@ Use the **Copy** button to copy the full plain-text report to your clipboard for
 > `npx --yes @zed-industries/claude-code-acp --version` once to populate the npx
 > cache), then click **Run diagnostics** again. Until then Notesmith correctly
 > reports Claude as unavailable rather than letting a chat fail on first use.
+>
+> There is **no separate "Claude Code" binary to install** for this integration:
+> the adapter bundles the Claude engine (via `@anthropic-ai/claude-agent-sdk`),
+> so once the adapter resolves, Notesmith can launch it.
+
+> **`available` means launchable, not signed in.** A ✓ badge means Notesmith can
+> *start* the agent — it does not verify your credentials. Claude additionally
+> needs authentication: set `ANTHROPIC_API_KEY`, or sign in with the Claude CLI
+> (`claude` / a Claude subscription login). If you are not authenticated the
+> agent still launches, but the **first message** returns an auth error in the
+> conversation. Fix the credentials and send again — no restart needed.
 
 ### Recent errors & wire log
 
