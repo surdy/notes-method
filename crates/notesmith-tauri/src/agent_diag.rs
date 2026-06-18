@@ -18,6 +18,9 @@
 //! - `"probe_failed"` — a candidate resolved but its probe timed out or exited
 //!   non-zero. The binary exists (so it is still launchable), but the probe could
 //!   not confirm it; this is informational, not a hard failure.
+//! - `"package_missing"` — the launcher resolved on the PATH, but the agent runs
+//!   its adapter through a package runner (e.g. `npx <pkg>`) and that package is
+//!   not installed locally. The launcher alone cannot run the agent (issue #241).
 //! - `"not_found"` — no candidate's `program` resolved on the PATH.
 //!
 //! ## Resilience (ADR 0009)
@@ -298,13 +301,28 @@ fn detect_version(
 }
 
 /// Derive an agent verdict from its candidate traces (see module docs).
-fn verdict_for(candidates: &[CandidateDiagnostic]) -> &'static str {
+///
+/// `availability_package` is the npm package the resolved launcher runs through
+/// (e.g. the Claude adapter behind `npx`), or `None` for agents launched
+/// directly from a binary. When set and unresolved locally, the launcher being
+/// on the PATH is not enough — the verdict is `"package_missing"` (issue #241).
+fn verdict_for(
+    candidates: &[CandidateDiagnostic],
+    availability_package: Option<&str>,
+) -> &'static str {
     match candidates.iter().find(|candidate| candidate.found_on_path) {
         None => "not_found",
-        Some(candidate) => match &candidate.probe {
-            Some(probe) if probe.timed_out || probe.exit_code != Some(0) => "probe_failed",
-            _ => "available",
-        },
+        Some(candidate) => {
+            if let Some(pkg) = availability_package
+                && !crate::agent_bridge::npm_package_available(pkg)
+            {
+                return "package_missing";
+            }
+            match &candidate.probe {
+                Some(probe) if probe.timed_out || probe.exit_code != Some(0) => "probe_failed",
+                _ => "available",
+            }
+        }
     }
 }
 
@@ -337,7 +355,7 @@ fn diagnose_agent(descriptor: &AgentDescriptor, path_dirs: &[PathBuf]) -> AgentD
         })
         .collect();
 
-    let verdict = verdict_for(&candidates).to_string();
+    let verdict = verdict_for(&candidates, descriptor.availability_package()).to_string();
     let (detected_version, version_warning) = detect_version(&candidates, descriptor.min_version);
     AgentDiagnostic {
         id: descriptor.id.to_string(),
@@ -477,7 +495,7 @@ mod tests {
             searched_dirs: vec![],
             probe: None,
         }];
-        assert_eq!(verdict_for(&candidates), "available");
+        assert_eq!(verdict_for(&candidates, None), "available");
     }
 
     #[test]
@@ -490,7 +508,7 @@ mod tests {
             searched_dirs: vec!["/bin".into()],
             probe: None,
         }];
-        assert_eq!(verdict_for(&candidates), "not_found");
+        assert_eq!(verdict_for(&candidates, None), "not_found");
     }
 
     #[test]
@@ -508,7 +526,7 @@ mod tests {
                 timed_out: true,
             }),
         }];
-        assert_eq!(verdict_for(&timed_out), "probe_failed");
+        assert_eq!(verdict_for(&timed_out, None), "probe_failed");
 
         let nonzero = vec![CandidateDiagnostic {
             program: "x".into(),
@@ -523,7 +541,7 @@ mod tests {
                 timed_out: false,
             }),
         }];
-        assert_eq!(verdict_for(&nonzero), "probe_failed");
+        assert_eq!(verdict_for(&nonzero, None), "probe_failed");
     }
 
     #[test]
@@ -541,7 +559,48 @@ mod tests {
                 timed_out: false,
             }),
         }];
-        assert_eq!(verdict_for(&candidates), "available");
+        assert_eq!(verdict_for(&candidates, None), "available");
+    }
+
+    #[test]
+    fn verdict_package_missing_when_launcher_found_but_adapter_absent() {
+        // The launcher (e.g. `npx`) resolved, but the adapter package the agent
+        // runs through is not installed locally (issue #241). A package name no
+        // one would ever install keeps this deterministic and offline.
+        let candidates = vec![CandidateDiagnostic {
+            program: "npx".into(),
+            args: vec!["--yes".into(), "@notesmith/definitely-not-real-pkg".into()],
+            resolved_program: Some("/usr/bin/npx".into()),
+            found_on_path: true,
+            searched_dirs: vec![],
+            probe: Some(ProbeResult {
+                command: "npx --version".into(),
+                exit_code: Some(0),
+                stdout_snippet: "10.0.0".into(),
+                timed_out: false,
+            }),
+        }];
+        assert_eq!(
+            verdict_for(&candidates, Some("@notesmith/definitely-not-real-pkg")),
+            "package_missing"
+        );
+    }
+
+    #[test]
+    fn verdict_not_found_ignores_the_package_gate() {
+        // No launcher on PATH wins regardless of the package gate.
+        let candidates = vec![CandidateDiagnostic {
+            program: "npx".into(),
+            args: vec![],
+            resolved_program: None,
+            found_on_path: false,
+            searched_dirs: vec!["/bin".into()],
+            probe: None,
+        }];
+        assert_eq!(
+            verdict_for(&candidates, Some("@notesmith/definitely-not-real-pkg")),
+            "not_found"
+        );
     }
 
     #[test]
@@ -557,7 +616,7 @@ mod tests {
         for agent in &report.agents {
             assert!(matches!(
                 agent.verdict.as_str(),
-                "available" | "not_found" | "probe_failed"
+                "available" | "not_found" | "probe_failed" | "package_missing"
             ));
             assert!(!agent.candidates.is_empty());
         }

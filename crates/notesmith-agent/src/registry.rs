@@ -23,6 +23,13 @@ pub struct LaunchCandidate {
     /// Optional version-probe arguments used only for on-demand diagnostics
     /// (never spawned on the fast availability path).
     pub probe_args: Option<&'static [&'static str]>,
+    /// The npm package this candidate runs via a package runner (e.g. `npx`).
+    ///
+    /// When set, the candidate's `program` is only a launcher; the agent is
+    /// truly available only when this package resolves locally (the npx cache or
+    /// the global modules). `None` for agents launched directly from a binary on
+    /// PATH, whose availability is the plain PATH-existence of `program`.
+    pub npm_package: Option<&'static str>,
 }
 
 /// A built-in agent description: identity plus its ordered launch candidates and
@@ -59,6 +66,16 @@ impl AgentDescriptor {
             .unwrap_or(self.id)
     }
 
+    /// The npm package the availability candidate runs via a package runner
+    /// (e.g. `npx`), or `None` when the agent launches directly from a binary on
+    /// PATH. When `Some`, `availability_program` is only a launcher and the agent
+    /// is available only if this package also resolves locally.
+    pub fn availability_package(&self) -> Option<&'static str> {
+        self.candidates
+            .first()
+            .and_then(|candidate| candidate.npm_package)
+    }
+
     /// Build (but do not start) an [`AcpSession`] from this descriptor.
     ///
     /// Uses the first launch candidate, overriding its `program` with
@@ -92,24 +109,28 @@ static COPILOT_CANDIDATES: &[LaunchCandidate] = &[LaunchCandidate {
     program: DEFAULT_COPILOT_BIN,
     args: &["--acp"],
     probe_args: Some(&["--version"]),
+    npm_package: None,
 }];
 
 static CLAUDE_CANDIDATES: &[LaunchCandidate] = &[LaunchCandidate {
     program: "npx",
     args: &["--yes", CLAUDE_ACP_PACKAGE],
     probe_args: Some(&["--version"]),
+    npm_package: Some(CLAUDE_ACP_PACKAGE),
 }];
 
 static CODEX_CANDIDATES: &[LaunchCandidate] = &[LaunchCandidate {
     program: DEFAULT_CODEX_ACP_BIN,
     args: &[],
     probe_args: Some(&["--version"]),
+    npm_package: None,
 }];
 
 static GEMINI_CANDIDATES: &[LaunchCandidate] = &[LaunchCandidate {
     program: "gemini",
     args: &["--experimental-acp"],
     probe_args: Some(&["--version"]),
+    npm_package: None,
 }];
 
 // The OpenCode CLI exposes its ACP server via the `acp` subcommand
@@ -119,6 +140,7 @@ static OPENCODE_CANDIDATES: &[LaunchCandidate] = &[LaunchCandidate {
     program: "opencode",
     args: &["acp"],
     probe_args: Some(&["--version"]),
+    npm_package: None,
 }];
 
 static BUILTIN: &[AgentDescriptor] = &[
@@ -235,6 +257,24 @@ mod tests {
             descriptor("codex").unwrap().availability_program(),
             DEFAULT_CODEX_ACP_BIN
         );
+    }
+
+    #[test]
+    fn availability_package_set_only_for_npx_adapter() {
+        // Claude launches via `npx <package>`, so its availability requires the
+        // adapter package to resolve — not merely `npx` on PATH.
+        assert_eq!(
+            descriptor("claude").unwrap().availability_package(),
+            Some(CLAUDE_ACP_PACKAGE)
+        );
+        // Agents launched from a real binary have no package gate.
+        for id in ["copilot", "codex", "gemini", "opencode"] {
+            assert_eq!(
+                descriptor(id).unwrap().availability_package(),
+                None,
+                "{id} should not declare an npm availability package"
+            );
+        }
     }
 
     #[test]

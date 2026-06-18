@@ -15,6 +15,8 @@ export function verdictLabel(verdict: string): string {
 			return 'not found';
 		case 'probe_failed':
 			return 'probe failed';
+		case 'package_missing':
+			return 'package not installed';
 		default:
 			return verdict;
 	}

@@ -189,11 +189,20 @@ If an agent isn't connecting, go to **Settings → AI Agent**.
 The **Available agents** section lists every agent Notesmith knows about, with a ✓ (available) or ✗ (not found) badge. Click **Run diagnostics** to trigger a detailed probe. The report shows:
 
 - **Resolved PATH** — the directories Notesmith searched
-- **Per-agent verdict** — `available`, `not found`, or `probe failed`
+- **Per-agent verdict** — `available`, `not found`, `probe failed`, or `package not installed`
 - **Detected version** — the version string from the agent's version probe, plus any version warning
 - **Candidate programs** — which executable names were tried and where they were (or weren't) found
 
 Use the **Copy** button to copy the full plain-text report to your clipboard for a bug report.
+
+> **Claude Code shows "package not installed"?** Claude Code runs through an npm
+> adapter (`@zed-industries/claude-code-acp`) launched with `npx`. Having Node.js
+> (and therefore `npx`) on your machine is **not** enough — the adapter package
+> itself must be present. Install it once with
+> `npm install -g @zed-industries/claude-code-acp` (or run
+> `npx --yes @zed-industries/claude-code-acp --version` once to populate the npx
+> cache), then click **Run diagnostics** again. Until then Notesmith correctly
+> reports Claude as unavailable rather than letting a chat fail on first use.
 
 ### Recent errors & wire log
 

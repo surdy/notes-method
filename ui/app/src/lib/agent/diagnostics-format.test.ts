@@ -53,6 +53,7 @@ describe('verdictLabel', () => {
 		expect(verdictLabel('available')).toBe('available');
 		expect(verdictLabel('not_found')).toBe('not found');
 		expect(verdictLabel('probe_failed')).toBe('probe failed');
+		expect(verdictLabel('package_missing')).toBe('package not installed');
 	});
 
 	it('passes through unknown verdicts unchanged', () => {

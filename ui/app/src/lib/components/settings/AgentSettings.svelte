@@ -738,6 +738,11 @@
 		background: var(--warning-bg);
 	}
 
+	.verdict-package_missing {
+		color: var(--color-warning);
+		background: var(--warning-bg);
+	}
+
 	.version-warning {
 		margin-top: 4px;
 		padding: 4px 8px;

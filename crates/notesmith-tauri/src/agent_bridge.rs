@@ -522,6 +522,109 @@ fn binary_on_path(program: &str) -> bool {
     std::env::split_paths(&paths).any(|dir| dir.join(program).exists())
 }
 
+/// Whether the additional npm-package gate (if any) is satisfied.
+///
+/// Agents launched directly from a binary on PATH have no gate (`None` →
+/// always satisfied). Agents launched through a package runner (`npx`) are only
+/// truly available when their adapter package resolves locally — otherwise the
+/// "available" badge would be true on any machine with Node.js even though the
+/// adapter is not installed (issue #241).
+fn package_available(pkg: Option<&str>) -> bool {
+    match pkg {
+        None => true,
+        Some(pkg) => npm_package_available(pkg),
+    }
+}
+
+/// The npm package that must additionally resolve for `id` to count as
+/// available — but only while `program` is still the registry's default
+/// launcher. A user `[agents].<id>.command` override points at a real binary and
+/// needs no package gate, so the gate is dropped when the program differs from
+/// the descriptor's default availability program.
+fn availability_package_for(id: &str, program: &str) -> Option<String> {
+    notesmith_agent::descriptor(id)
+        .filter(|descriptor| descriptor.availability_program() == program)
+        .and_then(|descriptor| descriptor.availability_package())
+        .map(|pkg| pkg.to_string())
+}
+
+/// Whether an npm `pkg` resolves locally without a network round-trip and
+/// without ever spawning the package itself (the Claude adapter is an stdio ACP
+/// server that would hang). Checks the two places npx/npm actually place it:
+/// the npx on-demand cache (`npx --yes <pkg>`) and the global modules
+/// (`npm i -g <pkg>`).
+pub(crate) fn npm_package_available(pkg: &str) -> bool {
+    if let Some(cache) = npm_cache_root()
+        && npx_cache_has_package(&cache, pkg)
+    {
+        return true;
+    }
+    if let Some(root) = npm_global_root()
+        && package_in_node_modules(&root, pkg)
+    {
+        return true;
+    }
+    false
+}
+
+/// The npm cache directory: `$npm_config_cache` / `$NPM_CONFIG_CACHE` when set
+/// (as npm itself honors), otherwise `~/.npm`.
+fn npm_cache_root() -> Option<PathBuf> {
+    if let Some(value) = std::env::var_os("npm_config_cache")
+        .or_else(|| std::env::var_os("NPM_CONFIG_CACHE"))
+        .filter(|value| !value.is_empty())
+    {
+        return Some(PathBuf::from(value));
+    }
+    home_dir().map(|home| home.join(".npm"))
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Whether any npx on-demand cache entry (`<cache>/_npx/<hash>/node_modules`)
+/// contains `pkg`. Resilient to a missing/unreadable cache dir (ADR 0009).
+fn npx_cache_has_package(cache_root: &std::path::Path, pkg: &str) -> bool {
+    let Ok(entries) = std::fs::read_dir(cache_root.join("_npx")) else {
+        return false;
+    };
+    entries
+        .flatten()
+        .any(|entry| package_in_node_modules(&entry.path().join("node_modules"), pkg))
+}
+
+/// Whether `node_modules/<pkg>/package.json` exists (handles scoped packages
+/// like `@scope/name`, whose `/` nests correctly).
+fn package_in_node_modules(node_modules: &std::path::Path, pkg: &str) -> bool {
+    node_modules.join(pkg).join("package.json").exists()
+}
+
+/// The global npm modules directory via `npm root -g`, bounded so a slow or
+/// misconfigured npm cannot stall the picker, and never spawning anything that
+/// reads stdin. Returns `None` when npm is absent or the probe fails.
+fn npm_global_root() -> Option<PathBuf> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let output = std::process::Command::new("npm")
+            .args(["root", "-g"])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output();
+        let _ = tx.send(output);
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(2)) {
+        Ok(Ok(output)) if output.status.success() => {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            (!path.is_empty()).then(|| PathBuf::from(path))
+        }
+        _ => None,
+    }
+}
+
 /// Load the `[agents]` config section, degrading to defaults (never panicking)
 /// when the global config is missing or unreadable (ADR 0009).
 fn load_agents_config() -> AgentsConfig {
@@ -801,7 +904,8 @@ pub async fn agent_list() -> Result<Vec<AgentInfo>, String> {
         .map(|(id, name, program)| AgentInfo {
             id: id.to_string(),
             name: name.to_string(),
-            available: binary_on_path(&program),
+            available: binary_on_path(&program)
+                && package_available(availability_package_for(&id, &program).as_deref()),
         })
         .collect())
 }
@@ -1501,5 +1605,90 @@ mod tests {
             }
             other => panic!("expected an http binding, got {other:?}"),
         }
+    }
+
+    fn unique_temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "notesmith-agent-pkg-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_package(node_modules: &std::path::Path, pkg: &str) {
+        let dir = node_modules.join(pkg);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("package.json"), "{}").unwrap();
+    }
+
+    #[test]
+    fn package_in_node_modules_detects_a_scoped_package() {
+        let root = unique_temp_dir("scoped");
+        let node_modules = root.join("node_modules");
+        write_package(&node_modules, "@zed-industries/claude-code-acp");
+
+        assert!(package_in_node_modules(
+            &node_modules,
+            "@zed-industries/claude-code-acp"
+        ));
+        assert!(!package_in_node_modules(
+            &node_modules,
+            "@zed-industries/other"
+        ));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn npx_cache_finds_an_on_demand_installed_package() {
+        let cache = unique_temp_dir("npx-cache");
+        let node_modules = cache.join("_npx").join("abc123hash").join("node_modules");
+        write_package(&node_modules, "@zed-industries/claude-code-acp");
+
+        assert!(npx_cache_has_package(
+            &cache,
+            "@zed-industries/claude-code-acp"
+        ));
+        assert!(!npx_cache_has_package(&cache, "@zed-industries/missing"));
+        std::fs::remove_dir_all(&cache).ok();
+    }
+
+    #[test]
+    fn npx_cache_missing_directory_is_not_an_error() {
+        let cache = unique_temp_dir("npx-empty");
+        assert!(!npx_cache_has_package(
+            &cache,
+            "@zed-industries/claude-code-acp"
+        ));
+        std::fs::remove_dir_all(&cache).ok();
+    }
+
+    #[test]
+    fn package_available_is_always_true_without_a_gate() {
+        assert!(package_available(None));
+    }
+
+    #[test]
+    fn availability_gate_applies_only_to_the_default_npx_launcher() {
+        // The npx-wrapped Claude adapter carries a package gate at its default
+        // launcher (issue #241).
+        assert_eq!(
+            availability_package_for("claude", "npx").as_deref(),
+            Some(notesmith_agent::CLAUDE_ACP_PACKAGE)
+        );
+        // A user command override points at a real binary — no package gate.
+        assert_eq!(
+            availability_package_for("claude", "/usr/local/bin/claude-code-acp"),
+            None
+        );
+        // Agents that launch directly from a binary never carry a gate.
+        assert_eq!(availability_package_for("copilot", "copilot"), None);
+        assert_eq!(availability_package_for("codex", "codex"), None);
+        // Unknown / custom ids have no descriptor and therefore no gate.
+        assert_eq!(availability_package_for("my-agent", "my-agent"), None);
     }
 }
