@@ -422,6 +422,60 @@
 					</button>
 
 					<button
+						class="head-act"
+						type="button"
+						aria-label="Fork this conversation"
+						title="Fork this conversation"
+						disabled={!store.currentThreadId}
+						onclick={() => { if (store?.currentThreadId) void forkThread(store.currentThreadId); }}
+					>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							aria-hidden="true"
+						>
+							<circle cx="12" cy="18" r="3" />
+							<circle cx="6" cy="6" r="3" />
+							<circle cx="18" cy="6" r="3" />
+							<path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9" />
+							<path d="M12 12v3" />
+						</svg>
+					</button>
+
+					<button
+						class="head-act"
+						type="button"
+						aria-label="Export this conversation to a note"
+						title="Export this conversation to a note"
+						disabled={!store.currentThreadId}
+						onclick={() => { if (store?.currentThreadId) void exportThread(store.currentThreadId); }}
+					>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							aria-hidden="true"
+						>
+							<path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6" />
+							<path d="m21 3-9 9" />
+							<path d="M15 3h6v6" />
+						</svg>
+					</button>
+
+					<button
 						class="threads-toggle"
 						type="button"
 						aria-pressed={showThreads}
@@ -681,8 +735,29 @@
 		color: var(--warning-text);
 	}
 
-	.threads-toggle {
+	.mode-toggle {
 		margin-left: auto;
+	}
+
+	.head-act {
+		display: inline-grid;
+		place-items: center;
+		padding: 4px 7px;
+		border: 1px solid var(--border-strong);
+		border-radius: 6px;
+		background: var(--button-bg);
+		color: var(--button-text);
+		cursor: pointer;
+	}
+
+	.head-act:hover:not(:disabled) {
+		background: var(--button-hover);
+		color: var(--text-default);
+	}
+
+	.head-act:disabled {
+		opacity: 0.4;
+		cursor: default;
 	}
 
 	.badge {
