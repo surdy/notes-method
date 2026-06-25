@@ -422,6 +422,31 @@
 					</button>
 
 					<button
+						class="head-act new"
+						type="button"
+						aria-label="New conversation"
+						title="New conversation"
+						onclick={() => { store?.newThread(); showThreads = false; }}
+					>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							aria-hidden="true"
+						>
+							<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+							<path d="M9 10h6" />
+							<path d="M12 7v6" />
+						</svg>
+					</button>
+
+					<button
 						class="head-act"
 						type="button"
 						aria-label="Fork this conversation"
@@ -504,24 +529,6 @@
 								onclick={() => { void store?.openThread(thread.id); showThreads = false; }}
 							>
 								{thread.title}
-							</button>
-							<button
-								class="thread-act"
-								type="button"
-								aria-label="Fork conversation"
-								title="Fork conversation"
-								onclick={() => { void forkThread(thread.id); }}
-							>
-								⑂
-							</button>
-							<button
-								class="thread-act"
-								type="button"
-								aria-label="Export conversation to note"
-								title="Export conversation to note"
-								onclick={() => { void exportThread(thread.id); }}
-							>
-								↗
 							</button>
 							<button
 								class="thread-del"
@@ -836,20 +843,6 @@
 
 	.thread-del:hover {
 		color: var(--danger-text);
-	}
-
-	.thread-act {
-		padding: 8px 8px;
-		border: none;
-		background: transparent;
-		color: var(--text-muted);
-		font-size: 12px;
-		cursor: pointer;
-	}
-
-	.thread-act:hover {
-		color: var(--text-default);
-		background: var(--bg-hover);
 	}
 
 	.thread-empty {
