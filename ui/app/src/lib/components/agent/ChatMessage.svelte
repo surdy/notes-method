@@ -39,13 +39,55 @@
 			<button
 				type="button"
 				class="action"
-				title="Replaces the selected text, or inserts at the cursor when nothing is selected"
+				title="Insert / Replace at cursor — replaces the selected text, or inserts at the cursor when nothing is selected"
+				aria-label="Insert or replace at cursor"
 				onclick={() => apply('cursor')}
 			>
-				Insert / Replace at cursor
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					width="16"
+					height="16"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"
+				>
+					<path d="M12 20h-1a2 2 0 0 1-2-2 2 2 0 0 1-2 2H6" />
+					<path d="M13 8h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-7" />
+					<path d="M5 16H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h1" />
+					<path d="M6 4h1a2 2 0 0 1 2 2 2 2 0 0 1 2-2h1" />
+					<path d="M9 6v12" />
+				</svg>
 			</button>
-			<button type="button" class="action" onclick={() => apply('append')}>
-				Apply to note
+			<button
+				type="button"
+				class="action"
+				title="Apply to note — append to the end of the active note"
+				aria-label="Apply to note"
+				onclick={() => apply('append')}
+			>
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					width="16"
+					height="16"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"
+				>
+					<path
+						d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+					/>
+					<path d="M14 2v5a1 1 0 0 0 1 1h5" />
+					<path d="M12 18v-6" />
+					<path d="m9 15 3 3 3-3" />
+				</svg>
 			</button>
 		</div>
 	{/if}
@@ -170,14 +212,19 @@
 	}
 
 	.action {
-		padding: 3px 8px;
-		font-size: 11px;
-		font-weight: 600;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 4px;
 		border-radius: 6px;
 		border: 1px solid var(--border-default);
 		background: var(--button-bg);
 		color: var(--button-text);
 		cursor: pointer;
+	}
+
+	.action svg {
+		display: block;
 	}
 
 	.action:hover,
