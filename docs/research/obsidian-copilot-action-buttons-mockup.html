@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Obsidian Copilot — chat action buttons (faithful mockup)</title>
+<style>
+  /* Obsidian-ish dark theme tokens */
+  :root {
+    --bg: #1e1e1e;
+    --bg-secondary: #262626;
+    --bg-panel: #202020;
+    --bg-hover: #ffffff14;
+    --bubble-user: #2d2d2d;
+    --bubble-ai: #242424;
+    --text: #dcddde;
+    --text-muted: #8a8a8a;
+    --text-faint: #6c6c6c;
+    --border: #ffffff1f;
+    --accent: #7c5cff;
+    --accent-text: #ffffff;
+    --interactive: #353535;
+    --interactive-hover: #3f3f3f;
+    --radius: 8px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #161616;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 32px 20px 64px;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: var(--text-muted); margin: 0 0 28px; font-size: 13px; }
+  h2 {
+    font-size: 13px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--text-muted);
+    margin: 36px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+  }
+  .note { color: var(--text-faint); font-size: 12.5px; margin: 8px 0 0; }
+  .grid { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
+  .col { flex: 1 1 360px; min-width: 320px; }
+
+  /* ---- chat panel ---- */
+  .panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 30px #0006;
+  }
+  .panel-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px; color: var(--text-muted);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .panel-body { padding: 14px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* ---- message bubble ---- */
+  .msg { display: flex; flex-direction: column; gap: 6px; }
+  .msg .role { font-size: 11px; color: var(--text-faint); letter-spacing: .04em; }
+  .bubble {
+    background: var(--bubble-ai);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 13.5px;
+  }
+  .msg.user .bubble { background: var(--bubble-user); }
+  .bubble p { margin: 0 0 8px; }
+  .bubble p:last-child { margin-bottom: 0; }
+  .bubble code {
+    background: #00000040; padding: 1px 5px; border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  }
+
+  /* ---- the action bar (this is the key bit) ---- */
+  .actions {
+    display: flex; gap: 2px; margin-top: 2px;
+    opacity: 0; transition: opacity .12s ease;
+  }
+  .group:hover .actions { opacity: 1; }          /* group-hover reveal, like the real plugin */
+  .actions.always { opacity: 1; }
+  .iconbtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; padding: 0;
+    background: transparent; border: none; border-radius: 6px;
+    color: var(--text-muted); cursor: pointer; position: relative;
+  }
+  .iconbtn:hover { background: var(--bg-hover); color: var(--text); }
+  .iconbtn svg { width: 16px; height: 16px; }
+
+  /* tooltip */
+  .iconbtn[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: #000000d9; color: #fff; font-size: 11.5px; white-space: nowrap;
+    padding: 4px 7px; border-radius: 5px; pointer-events: none;
+    opacity: 0; transition: opacity .1s ease; z-index: 5;
+  }
+  .iconbtn[data-tip]:hover::after { opacity: 1; }
+
+  /* ---- Quick Ask floating popup ---- */
+  .quickask {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 10px 40px #0008;
+    width: 340px; overflow: hidden;
+  }
+  .quickask .qa-resp { padding: 12px; font-size: 13px; }
+  .quickask .qa-bar {
+    display: flex; gap: 2px; padding: 6px 8px; border-top: 1px solid var(--border);
+    background: #00000026;
+  }
+  .qa-iconbtn {
+    width: 22px; height: 22px; display:inline-flex; align-items:center; justify-content:center;
+    background: transparent; border: none; border-radius: 5px; color: var(--text-muted);
+    cursor: pointer; position: relative;
+  }
+  .qa-iconbtn:hover { background: var(--bg-hover); color: var(--text); }
+  .qa-iconbtn svg { width: 13px; height: 13px; }
+  .qa-iconbtn[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: #000000d9; color: #fff; font-size: 11px; white-space: nowrap;
+    padding: 3px 6px; border-radius: 5px; pointer-events: none; opacity: 0; z-index: 5;
+  }
+  .qa-iconbtn[data-tip]:hover::after { opacity: 1; }
+
+  /* ---- Modal (text buttons) ---- */
+  .modal {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: 0 10px 40px #0008; width: 380px; overflow: hidden;
+  }
+  .modal-head { padding: 12px 14px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  .modal-body { padding: 14px; font-size: 13px; color: var(--text-muted); }
+  .modal-foot {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 12px 14px; border-top: 1px solid var(--border);
+  }
+  .btn {
+    font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 6px;
+    border: 1px solid var(--border); cursor: pointer;
+  }
+  .btn.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+  .btn.secondary { background: var(--interactive); color: var(--text); }
+  .btn.secondary:hover { background: var(--interactive-hover); }
+  .legend { margin-top: 10px; font-size: 12.5px; color: var(--text-faint); }
+  .legend b { color: var(--text-muted); font-weight: 600; }
+  .src { color: var(--text-faint); font-size: 12px; margin-top: 6px; }
+  .src code { font-family: ui-monospace, Menlo, monospace; }
+</style>
+</head>
+<body>
+
+<h1>Obsidian Copilot — how it renders response actions</h1>
+<p class="sub">Faithful recreation from <code>logancyang/obsidian-copilot</code> source (current main). Icons are the actual lucide glyphs the plugin uses. Hover a message to reveal its action bar; hover a button for its tooltip.</p>
+
+<div class="grid">
+
+  <!-- ============ MAIN CHAT ============ -->
+  <div class="col">
+    <h2>1 · Main chat — icon-only bar (hover to reveal)</h2>
+    <div class="panel">
+      <div class="panel-head"><span class="dot"></span> Copilot Chat</div>
+      <div class="panel-body">
+
+        <!-- user message -->
+        <div class="msg user group">
+          <div class="role">You</div>
+          <div class="bubble"><p>Summarize the key risks in this note.</p></div>
+          <div class="actions">
+            <button class="iconbtn" data-tip="Copy" title="Copy"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></button>
+            <button class="iconbtn" data-tip="Edit" title="Edit"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg></button>
+            <button class="iconbtn" data-tip="Delete" title="Delete"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+          </div>
+        </div>
+
+        <!-- ai message -->
+        <div class="msg ai group">
+          <div class="role">Copilot</div>
+          <div class="bubble">
+            <p>Three risks stand out:</p>
+            <p>1) the migration has no rollback, 2) the API key is logged in plaintext, and 3) the deadline assumes zero review time.</p>
+          </div>
+          <div class="actions always">
+            <button class="iconbtn" data-tip="Show Sources" title="Show Sources"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="18" x="3" y="3" rx="1"/><path d="M7 3v18"/><path d="M20.4 18.9c.2.5-.1 1.1-.6 1.3l-1.9.7c-.5.2-1.1-.1-1.3-.6L11.1 5.1c-.2-.5.1-1.1.6-1.3l1.9-.7c.5-.2 1.1.1 1.3.6Z"/></svg></button>
+            <button class="iconbtn" data-tip="Insert / Replace at cursor" title="Insert / Replace at cursor"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h-1a2 2 0 0 1-2-2 2 2 0 0 1-2 2H6"/><path d="M13 8h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-7"/><path d="M5 16H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h1"/><path d="M6 4h1a2 2 0 0 1 2 2 2 2 0 0 1 2-2h1"/><path d="M9 6v12"/></svg></button>
+            <button class="iconbtn" data-tip="Copy" title="Copy"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></button>
+            <button class="iconbtn" data-tip="Regenerate" title="Regenerate"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
+            <button class="iconbtn" data-tip="Delete" title="Delete"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    <p class="note">AI bar shown always-on here for clarity; in the plugin it appears on hover (<code>group-hover:opacity-100 opacity-0</code>). The user bar above <em>is</em> hover-reveal — mouse over it.</p>
+    <div class="legend">
+      <b>Insert / Replace at cursor</b> is a <b>single</b> button (lucide <code>TextCursorInput</code>) — insert and replace are not separate. There is <b>no “Apply to note”</b> button here.
+    </div>
+    <p class="src">src: <code>src/components/chat-components/ChatButtons.tsx</code></p>
+  </div>
+
+  <!-- ============ QUICK ASK + MODAL ============ -->
+  <div class="col">
+    <h2>2 · Quick Ask popup — icon bar</h2>
+    <div class="quickask">
+      <div class="qa-resp">Rewritten: “The deployment completed successfully across all three regions.”</div>
+      <div class="qa-bar">
+        <button class="qa-iconbtn" data-tip="Insert at cursor" title="Insert at cursor"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 14h10"/><path d="M16 4h2a2 2 0 0 1 2 2v1.344"/><path d="m17 18 4-4-4-4"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 1.793-1.113"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></button>
+        <button class="qa-iconbtn" data-tip="Copy" title="Copy"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></button>
+        <button class="qa-iconbtn" data-tip="Regenerate" title="Regenerate"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
+      </div>
+    </div>
+    <p class="src">src: <code>src/components/quick-ask/QuickAskMessage.tsx</code> — “Insert at cursor” uses lucide <code>ClipboardPaste</code>.</p>
+
+    <h2>3 · Modal dialogs — text buttons</h2>
+    <div class="modal">
+      <div class="modal-head">YouTube Transcript</div>
+      <div class="modal-body">Transcript fetched (1,284 words). Choose what to do with it.</div>
+      <div class="modal-foot">
+        <button class="btn secondary">Copy to Clipboard</button>
+        <button class="btn primary">Insert at Cursor</button>
+        <button class="btn secondary">Close</button>
+      </div>
+    </div>
+    <p class="src">src: <code>src/components/modals/YoutubeTranscriptModal.tsx</code> — modals use <em>text-labeled</em> buttons, not icons.</p>
+
+    <h2>4 · Composer — “Apply to note” is a diff flow</h2>
+    <div class="modal">
+      <div class="modal-head">Apply changes</div>
+      <div class="modal-body">Copilot proposes edits as a <b>diff</b> you review, then accept/reject — it’s not a one-click button on the message.</div>
+      <div class="modal-foot">
+        <button class="btn secondary">Reject</button>
+        <button class="btn primary">Apply</button>
+      </div>
+    </div>
+    <p class="src">src: <code>src/components/composer/ApplyView.tsx</code></p>
+  </div>
+
+</div>
+
+</body>
+</html>
