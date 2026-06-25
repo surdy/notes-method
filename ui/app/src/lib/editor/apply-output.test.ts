@@ -5,6 +5,7 @@ import {
 	appendToNoteSpec,
 	applyOutputSpec,
 	insertAtCursorSpec,
+	insertOrReplaceAtCursorSpec,
 	replaceSelectionSpec
 } from './apply-output.ts';
 
@@ -76,6 +77,24 @@ describe('replaceSelectionSpec', () => {
 	});
 });
 
+describe('insertOrReplaceAtCursorSpec', () => {
+	it('inserts at the cursor when there is no selection', () => {
+		const state = stateWith('ac', 1);
+		expect(applied(state, insertOrReplaceAtCursorSpec(state, 'b'))).toBe('abc');
+	});
+
+	it('replaces the selected range when there is a selection', () => {
+		const state = stateWith('hello world', 6, 11);
+		expect(applied(state, insertOrReplaceAtCursorSpec(state, 'there'))).toBe('hello there');
+	});
+
+	it('places the cursor after the inserted or replaced text', () => {
+		const state = stateWith('hello world', 6, 11);
+		const next = state.update(insertOrReplaceAtCursorSpec(state, 'there')).state;
+		expect(next.selection.main.head).toBe(11);
+	});
+});
+
 describe('appendToNoteSpec', () => {
 	it('appends to the end of the document with a newline separator', () => {
 		const state = stateWith('first line');
@@ -118,5 +137,15 @@ describe('applyOutputSpec', () => {
 	it('dispatches to the append behaviour', () => {
 		const state = stateWith('a');
 		expect(applied(state, applyOutputSpec(state, 'append', 'b'))).toBe('a\nb');
+	});
+
+	it('dispatches to the selection-aware cursor behaviour (insert with no selection)', () => {
+		const state = stateWith('ac', 1);
+		expect(applied(state, applyOutputSpec(state, 'cursor', 'b'))).toBe('abc');
+	});
+
+	it('dispatches to the selection-aware cursor behaviour (replace with a selection)', () => {
+		const state = stateWith('hello world', 6, 11);
+		expect(applied(state, applyOutputSpec(state, 'cursor', 'there'))).toBe('hello there');
 	});
 });

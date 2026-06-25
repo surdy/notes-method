@@ -8,7 +8,7 @@
 
 import type { EditorState, TransactionSpec } from '@codemirror/state';
 
-export type ApplyMode = 'insert' | 'replace' | 'append';
+export type ApplyMode = 'insert' | 'replace' | 'append' | 'cursor';
 
 /** Tag edits as paste-like so undo coalesces the whole insertion into one step. */
 const USER_EVENT = 'input.paste';
@@ -56,6 +56,19 @@ export function appendToNoteSpec(state: EditorState, text: string): TransactionS
 	};
 }
 
+/**
+ * Selection-aware "insert or replace at cursor" used by the chat message action
+ * button. Replaces the selection when there is one, otherwise inserts at the
+ * cursor — one control, two behaviours chosen at click time (mirrors the
+ * combined button in Obsidian Copilot). Behaviourally this is exactly
+ * {@link replaceSelectionSpec}; the distinct mode keeps the UI intent explicit
+ * and independently testable, and decouples it from the `replace` mode that
+ * inline commands (Rewrite/Summarize/…) deliberately force.
+ */
+export function insertOrReplaceAtCursorSpec(state: EditorState, text: string): TransactionSpec {
+	return replaceSelectionSpec(state, text);
+}
+
 /** Dispatch to the correct targeting helper for the requested {@link ApplyMode}. */
 export function applyOutputSpec(state: EditorState, mode: ApplyMode, text: string): TransactionSpec {
 	switch (mode) {
@@ -65,5 +78,7 @@ export function applyOutputSpec(state: EditorState, mode: ApplyMode, text: strin
 			return replaceSelectionSpec(state, text);
 		case 'append':
 			return appendToNoteSpec(state, text);
+		case 'cursor':
+			return insertOrReplaceAtCursorSpec(state, text);
 	}
 }

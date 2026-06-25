@@ -36,11 +36,13 @@
 	</div>
 	{#if canApply}
 		<div class="actions">
-			<button type="button" class="action" onclick={() => apply('insert')}>
-				Insert at cursor
-			</button>
-			<button type="button" class="action" onclick={() => apply('replace')}>
-				Replace selection
+			<button
+				type="button"
+				class="action"
+				title="Replaces the selected text, or inserts at the cursor when nothing is selected"
+				onclick={() => apply('cursor')}
+			>
+				Insert / Replace at cursor
 			</button>
 			<button type="button" class="action" onclick={() => apply('append')}>
 				Apply to note

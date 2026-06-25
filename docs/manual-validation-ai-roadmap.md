@@ -64,8 +64,8 @@ yet implemented** so the checklist stays exhaustive.
   - **Hint:** this must work **without opening the chat panel**.
 
 - [ ] **Apply agent output to document (insert / replace / append)** ([#196](https://github.com/surdy/notes-method/issues/196)) — Ref: [docs/ai-editor.md](ai-editor.md)
-  - On a chat message, verify the actions: **Insert at cursor**, **Replace selection**, **Apply-to-note (append)**.
-  - **Verify positioning:** insert lands at the cursor; replace swaps the current selection; append adds to the end of the active note.
+  - On a chat message, verify the actions: **Insert / Replace at cursor** (selection-aware) and **Apply to note** (append).
+  - **Verify selection-aware behaviour:** with text selected, *Insert / Replace at cursor* swaps the selection; with nothing selected, it inserts at the cursor. *Apply to note* always adds to the end of the active note.
   - **Hint — undo:** each apply must be a **single undo step** (one ⌘Z reverts it cleanly).
 
 - [ ] **Context attachment: @-mentions + pills + active-note auto-include** ([#197](https://github.com/surdy/notes-method/issues/197)) — Ref: [docs/ai-chat.md](ai-chat.md)
