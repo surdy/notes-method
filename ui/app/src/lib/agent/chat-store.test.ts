@@ -511,6 +511,25 @@ describe('ChatStore orchestration', () => {
 		expect(client.readOnlyCalls).toEqual([{ sessionId: 'sess-1', readOnly: false }]);
 	});
 
+	it('sets read-only explicitly and no-ops when unchanged', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		store.input = 'hi';
+		await store.send(); // session live, readOnly defaults true
+
+		// No-op: already read-only ⇒ no forward to the session.
+		await store.setReadOnly(true);
+		expect(store.readOnly).toBe(true);
+		expect(client.readOnlyCalls).toEqual([]);
+
+		// Flip to read-write ⇒ forwarded once.
+		await store.setReadOnly(false);
+		expect(store.readOnly).toBe(false);
+		expect(client.readOnlyCalls).toEqual([{ sessionId: 'sess-1', readOnly: false }]);
+	});
+
 	it('reconciles read-write toggled while an eager session start is still in flight', async () => {
 		// Repro: opening the panel eagerly starts a read-only session. If the user
 		// flips to read-write before that (slow) start resolves, the toggle sees a

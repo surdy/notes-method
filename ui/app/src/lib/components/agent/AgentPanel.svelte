@@ -42,6 +42,33 @@
 	let listEl = $state<HTMLDivElement | null>(null);
 	let currentVault = $state('');
 
+	// Mode dropdown (Ask = read-only, Agent = read-write) shown in the composer.
+	// Custom-agent personas are folded into the same menu as write-capable agents.
+	let modeOpen = $state(false);
+	const modeLabel = $derived(
+		store?.activePersona ? store.activePersona.name : store?.readOnly ? 'Ask' : 'Agent'
+	);
+	const modeIsWrite = $derived(store ? !store.readOnly : false);
+
+	async function chooseAsk(): Promise<void> {
+		modeOpen = false;
+		store?.selectPersona(null);
+		await store?.setReadOnly(true);
+	}
+
+	async function chooseAgent(): Promise<void> {
+		modeOpen = false;
+		store?.selectPersona(null);
+		await store?.setReadOnly(false);
+	}
+
+	async function choosePersona(id: string): Promise<void> {
+		modeOpen = false;
+		// Custom agents are write-capable; individual writes still prompt per call.
+		await store?.setReadOnly(false);
+		store?.selectPersona(id);
+	}
+
 	// Slash-command palette state. Commands are fetched lazily from the merged
 	// prompt store (defaults + vault `_prompts/`) the first time the palette
 	// opens, then cached per vault so the dropdown is instant on subsequent `/`.
@@ -368,7 +395,8 @@
 					{:else}
 						<select
 							class="picker"
-							aria-label="Agent"
+							aria-label="Provider"
+							title="AI provider — the agent CLI powering this chat"
 							value={store.selectedAgent ?? ''}
 							onchange={(e) => store?.selectAgent(e.currentTarget.value)}
 						>
@@ -395,31 +423,6 @@
 							{/each}
 						</select>
 					{/if}
-
-					{#if store.personas.length > 0}
-						<select
-							class="picker"
-							aria-label="Persona"
-							title="Custom agent persona — applies its instructions, backend, and model"
-							value={store.activePersonaId ?? ''}
-							onchange={(e) => store?.selectPersona(e.currentTarget.value || null)}
-						>
-							<option value="">No persona</option>
-							{#each store.personas as p (p.id)}
-								<option value={p.id} title={p.description}>{p.name}</option>
-							{/each}
-						</select>
-					{/if}
-
-					<button
-						class="mode-toggle"
-						class:ro={store.readOnly}
-						type="button"
-						onclick={() => void store?.toggleReadOnly()}
-						title={store.readOnly ? 'Read-only — click to allow writes' : 'Read-write — click to lock'}
-					>
-						{store.readOnly ? 'Read-only' : 'Read-write'}
-					</button>
 
 					<button
 						class="head-act new"
@@ -511,8 +514,7 @@
 					</button>
 				</div>
 				<div class="badge" title="Agent operating scope">
-					Operating on <strong>{currentVault}</strong> ·
-					<span class:ro={store.readOnly}>{store.readOnly ? 'read-only' : 'read-write'}</span>
+					Operating on <strong>{currentVault}</strong>
 				</div>
 			</header>
 
@@ -629,6 +631,104 @@
 						</button>
 					{/if}
 				</div>
+				<div class="composer-tools">
+					<div class="mode-wrap">
+						<button
+							type="button"
+							class="mode-pill"
+							class:write={modeIsWrite}
+							aria-haspopup="menu"
+							aria-expanded={modeOpen}
+							title={store.readOnly
+								? 'Ask — read-only, the agent can search and answer but never writes'
+								: 'Agent — read-write, the agent can modify the vault (prompts per write)'}
+							onclick={() => (modeOpen = !modeOpen)}
+						>
+							<span class="mode-dot" class:write={modeIsWrite}></span>
+							{modeLabel}
+							<span class="mode-caret" aria-hidden="true">⌄</span>
+						</button>
+
+						{#if modeOpen}
+							<button
+								class="mode-backdrop"
+								type="button"
+								aria-label="Close mode menu"
+								onclick={() => (modeOpen = false)}
+							></button>
+							<div class="mode-menu" role="menu">
+								<button
+									type="button"
+									class="mode-item"
+									class:sel={store.readOnly && !store.activePersona}
+									role="menuitemradio"
+									aria-checked={store.readOnly && !store.activePersona}
+									onclick={() => void chooseAsk()}
+								>
+									<span class="mi-ic ask" aria-hidden="true">
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+											<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+										</svg>
+									</span>
+									<span class="mi-text">
+										<span class="mi-title">Ask <span class="mi-tag">· read-only</span></span>
+										<span class="mi-desc">Search &amp; answer questions. Never modifies the vault.</span>
+									</span>
+								</button>
+
+								<button
+									type="button"
+									class="mode-item"
+									class:sel={!store.readOnly && !store.activePersona}
+									role="menuitemradio"
+									aria-checked={!store.readOnly && !store.activePersona}
+									onclick={() => void chooseAgent()}
+								>
+									<span class="mi-ic write" aria-hidden="true">
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+											<path d="M12 8V4H8" />
+											<rect width="16" height="12" x="4" y="8" rx="2" />
+											<path d="M2 14h2" />
+											<path d="M20 14h2" />
+											<path d="M15 13v2" />
+											<path d="M9 13v2" />
+										</svg>
+									</span>
+									<span class="mi-text">
+										<span class="mi-title">Agent <span class="mi-tag">· read-write</span></span>
+										<span class="mi-desc">Can create &amp; edit notes. Prompts for each write.</span>
+									</span>
+								</button>
+
+								{#if store.personas.length > 0}
+									<div class="mode-div"></div>
+									<div class="mode-hdr">Custom agents</div>
+									{#each store.personas as p (p.id)}
+										<button
+											type="button"
+											class="mode-item"
+											class:sel={store.activePersonaId === p.id}
+											role="menuitemradio"
+											aria-checked={store.activePersonaId === p.id}
+											title={p.description}
+											onclick={() => void choosePersona(p.id)}
+										>
+											<span class="mi-ic" aria-hidden="true">
+												<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+													<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+												</svg>
+											</span>
+											<span class="mi-text">
+												<span class="mi-title">{p.name}</span>
+												{#if p.description}<span class="mi-desc">{p.description}</span>{/if}
+											</span>
+										</button>
+									{/each}
+								{/if}
+							</div>
+						{/if}
+					</div>
+				</div>
 				{#if store.canRegenerate}
 					<div class="turn-actions">
 						<button class="link-btn" type="button" onclick={() => store?.regenerate()}>
@@ -719,7 +819,6 @@
 		text-decoration: none;
 	}
 
-	.mode-toggle,
 	.threads-toggle {
 		padding: 4px 10px;
 		border: 1px solid var(--border-strong);
@@ -731,19 +830,8 @@
 		cursor: pointer;
 	}
 
-	.mode-toggle:hover,
 	.threads-toggle:hover {
 		background: var(--button-hover);
-	}
-
-	.mode-toggle.ro {
-		border-color: var(--warning-border);
-		background: var(--warning-bg);
-		color: var(--warning-text);
-	}
-
-	.mode-toggle {
-		margin-left: auto;
 	}
 
 	.head-act {
@@ -755,6 +843,10 @@
 		background: var(--button-bg);
 		color: var(--button-text);
 		cursor: pointer;
+	}
+
+	.head-act.new {
+		margin-left: auto;
 	}
 
 	.head-act:hover:not(:disabled) {
@@ -774,11 +866,6 @@
 
 	.badge strong {
 		color: var(--text-default);
-	}
-
-	.badge .ro {
-		color: var(--warning-text);
-		font-weight: 600;
 	}
 
 	.threads {
@@ -959,5 +1046,151 @@
 		display: flex;
 		justify-content: flex-end;
 		margin-top: 6px;
+	}
+
+	.composer-tools {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.mode-wrap {
+		position: relative;
+	}
+
+	.mode-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 4px 9px;
+		border: 1px solid var(--border-strong);
+		border-radius: 8px;
+		background: var(--button-bg);
+		color: var(--text-default);
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.mode-pill:hover {
+		background: var(--button-hover);
+	}
+
+	.mode-pill.write {
+		border-color: var(--warning-border);
+		color: var(--warning-text);
+	}
+
+	.mode-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--text-muted);
+	}
+
+	.mode-dot.write {
+		background: var(--warning-text);
+	}
+
+	.mode-caret {
+		color: var(--text-muted);
+		font-size: 11px;
+	}
+
+	.mode-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 20;
+		border: none;
+		background: transparent;
+		cursor: default;
+	}
+
+	.mode-menu {
+		position: absolute;
+		bottom: calc(100% + 6px);
+		left: 0;
+		z-index: 21;
+		width: 264px;
+		max-height: 320px;
+		overflow-y: auto;
+		background: var(--bg-input);
+		border: 1px solid var(--border-strong);
+		border-radius: 10px;
+		box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+		padding: 4px;
+	}
+
+	.mode-item {
+		display: flex;
+		gap: 10px;
+		width: 100%;
+		padding: 8px 9px;
+		border: none;
+		border-radius: 7px;
+		background: transparent;
+		color: var(--text-default);
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.mode-item:hover {
+		background: var(--bg-hover);
+	}
+
+	.mode-item.sel {
+		background: var(--bg-hover);
+	}
+
+	.mi-ic {
+		margin-top: 1px;
+		color: var(--text-muted);
+		flex: 0 0 auto;
+	}
+
+	.mode-item.sel .mi-ic.ask {
+		color: var(--accent-bg);
+	}
+
+	.mi-ic.write {
+		color: var(--warning-text);
+	}
+
+	.mi-text {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	.mi-title {
+		font-size: 13px;
+		font-weight: 600;
+	}
+
+	.mi-tag {
+		font-size: 11px;
+		font-weight: 400;
+		color: var(--text-muted);
+	}
+
+	.mi-desc {
+		font-size: 11px;
+		color: var(--text-muted);
+		line-height: 1.35;
+	}
+
+	.mode-div {
+		height: 1px;
+		background: var(--border-default);
+		margin: 4px 2px;
+	}
+
+	.mode-hdr {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--text-muted);
+		padding: 6px 9px 3px;
 	}
 </style>

@@ -511,8 +511,18 @@ export class ChatStore {
 	}
 
 	async toggleReadOnly(): Promise<void> {
-		this.readOnly = !this.readOnly;
-		if (this.sessionId) await this.client.setReadOnly(this.sessionId, this.readOnly);
+		await this.setReadOnly(!this.readOnly);
+	}
+
+	/**
+	 * Set the read-only capability explicitly (Ask = read-only, Agent =
+	 * read-write). Forwards to a live session; when the session start is still
+	 * in flight the flag is reconciled once it lands (see `prepareSession`).
+	 */
+	async setReadOnly(value: boolean): Promise<void> {
+		if (this.readOnly === value) return;
+		this.readOnly = value;
+		if (this.sessionId) await this.client.setReadOnly(this.sessionId, value);
 	}
 
 	async answerPermission(decision: PermissionDecision): Promise<void> {
