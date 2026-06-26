@@ -15,8 +15,9 @@
 //! Each item is a single `*.md` file with optional YAML frontmatter and a
 //! markdown body. The file **stem** is the item `id`; frontmatter `name` and
 //! `description` are optional (name falls back to the stem). For an *agent*
-//! (persona) the frontmatter may also carry `backend` (a discovered ACP agent id)
-//! and `model`; the body is the system/preamble prompt.
+//! (persona) the frontmatter may also carry `backend` (a discovered ACP agent id),
+//! `model`, and `access` (`read-only` to run the persona without write access);
+//! the body is the system/preamble prompt.
 //!
 //! # Resilience (ADR 0009)
 //!
@@ -68,6 +69,12 @@ pub struct CustomAgent {
     pub backend: Option<String>,
     /// Optional model id to request for this persona.
     pub model: Option<String>,
+    /// Whether this persona runs read-only (search/answer only, never writes).
+    /// Parsed from the `access: read-only` frontmatter key; defaults to `false`
+    /// (read-write) so existing personas keep their current behaviour. Serialized
+    /// as `readOnly` for the camelCase HTTP/JS contract.
+    #[serde(default, rename = "readOnly")]
+    pub read_only: bool,
     /// The persona's system/preamble prompt (the markdown body).
     pub body: String,
     /// Whether this entry is a project or global file.
@@ -272,6 +279,11 @@ fn make_agent(source: Source) -> impl Fn(ParsedFile) -> CustomAgent {
             .get_string("model")
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty()),
+        read_only: p
+            .frontmatter
+            .get_string("access")
+            .map(|s| s.trim().to_ascii_lowercase())
+            .is_some_and(|s| matches!(s.as_str(), "read-only" | "readonly" | "ro")),
         id: p.id,
         name: p.name,
         description: p.description,
@@ -407,6 +419,45 @@ mod tests {
         assert_eq!(a.model.as_deref(), Some("gpt-4o"));
         assert_eq!(a.body, "You are a meticulous researcher.");
         assert_eq!(a.source, Source::Project);
+    }
+
+    #[test]
+    fn agent_defaults_to_read_write_access() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "editor.md", "---\nname: Editor\n---\nBody.");
+        let agents = load_agents_from_dir(tmp.path(), Source::Project);
+        assert!(!agents[0].read_only, "absent access ⇒ read-write");
+    }
+
+    #[test]
+    fn parses_read_only_access_frontmatter() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write(
+            dir,
+            "librarian.md",
+            "---\nname: Librarian\naccess: read-only\n---\nBody.",
+        );
+        write(dir, "ro.md", "---\nname: RO\naccess: RO\n---\nBody.");
+        write(
+            dir,
+            "writer.md",
+            "---\nname: Writer\naccess: read-write\n---\nBody.",
+        );
+        let agents = load_agents_from_dir(dir, Source::Project);
+        let by_id = |id: &str| agents.iter().find(|a| a.id == id).unwrap();
+        assert!(
+            by_id("librarian").read_only,
+            "access: read-only ⇒ read-only"
+        );
+        assert!(
+            by_id("ro").read_only,
+            "access: RO (case-insensitive) ⇒ read-only"
+        );
+        assert!(
+            !by_id("writer").read_only,
+            "access: read-write ⇒ read-write"
+        );
     }
 
     #[test]

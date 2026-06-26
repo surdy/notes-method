@@ -8,7 +8,7 @@ function instruction(id: string, body: string): Instruction {
 }
 
 function persona(id: string, body: string): CustomAgent {
-	return { id, name: id, description: '', backend: null, model: null, body, source: 'project' };
+	return { id, name: id, description: '', backend: null, model: null, readOnly: false, body, source: 'project' };
 }
 
 describe('assembleSessionPreamble', () => {

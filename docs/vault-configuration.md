@@ -451,9 +451,10 @@ panel still works without any customizations).
 **Frontmatter:**
 
 - **Agent (persona)** — `name`, `description`, optional `backend` (a discovered
-  agent id: `copilot`/`claude`/`codex`/…), optional `model`. The **body** is the
-  persona's system/preamble prompt. A persona is not a separate CLI — it runs on
-  top of one of your installed agents.
+  agent id: `copilot`/`claude`/`codex`/…), optional `model`, and optional
+  `access` (`read-only` to run the persona without write access; defaults to
+  `read-write`). The **body** is the persona's system/preamble prompt. A persona
+  is not a separate CLI — it runs on top of one of your installed agents.
 - **Skill** / **Instruction** — `name`, `description`; the body is the content.
   Discovered **instructions** are always applied to the session preamble.
 
@@ -463,11 +464,17 @@ name: Researcher
 description: Deep research assistant.
 backend: copilot
 model: gpt-4o
+access: read-only
 ---
 You are a meticulous researcher. Cite sources and prefer primary references.
 ```
 
-**Using a persona:** pick it from the chat panel's persona dropdown, or type a
+**Read-only personas:** add `access: read-only` to a persona that should only
+search and answer, never modify the vault. Selecting it in the chat puts the
+session in read-only mode automatically; omit `access` (or use `read-write`) for
+personas that can create and edit notes (each write still prompts).
+
+**Using a persona:** pick it from the chat composer's mode dropdown, or type a
 leading `@<persona-id>` mention in the composer followed by your message —
 e.g. `@researcher summarize this note`. Routing is **session-switch**: the
 persona stays active for the rest of the conversation until you change it. See

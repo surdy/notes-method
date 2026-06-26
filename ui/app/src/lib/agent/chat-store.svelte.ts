@@ -220,10 +220,11 @@ export class ChatStore {
 
 	/**
 	 * Switch the session's active persona (#212, session-switch routing). Applies
-	 * the persona's backend agent (when discovered) and model, and resets the
-	 * session so the new preamble takes effect on the next turn. Passing `null`
-	 * clears the persona. A persona referencing an unavailable backend keeps the
-	 * current agent (the preamble still applies).
+	 * the persona's backend agent (when discovered), model, and read-only access,
+	 * and resets the session so the new preamble takes effect on the next turn.
+	 * Passing `null` clears the persona (and leaves the read-only mode untouched).
+	 * A persona referencing an unavailable backend keeps the current agent (the
+	 * preamble still applies).
 	 */
 	selectPersona(id: string | null): void {
 		if (id === this.activePersonaId) return;
@@ -234,6 +235,10 @@ export class ChatStore {
 			if (backend) this.selectedAgent = backend.id;
 		}
 		if (persona?.model) this.selectedModel = persona.model;
+		// A persona carries its own read/write capability. Apply it synchronously
+		// here so the fresh session below is prepared with the right scope (the
+		// session reset below means there is no live session to forward to).
+		if (persona) this.readOnly = persona.readOnly;
 		// Persona/instructions change ⇒ fresh ACP session so the new preamble and
 		// any backend/model switch take effect on the next turn.
 		this.sessionId = null;

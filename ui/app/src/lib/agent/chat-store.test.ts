@@ -712,6 +712,7 @@ function persona(id: string, overrides: Partial<CustomAgent> = {}): CustomAgent 
 		description: '',
 		backend: null,
 		model: null,
+		readOnly: false,
 		body: `Body for ${id}.`,
 		source: 'project',
 		...overrides
@@ -796,6 +797,27 @@ describe('ChatStore customizations & persona routing (#210/#212)', () => {
 		store.selectPersona('mystery');
 		expect(store.selectedAgent).toBe('copilot');
 		expect(store.activePersona?.id).toBe('mystery');
+	});
+
+	it('applies a persona read/write access on selection', async () => {
+		const client = new MockAgentClient();
+		const customizations = fakeCustomizations({
+			agents: [
+				persona('librarian', { readOnly: true }),
+				persona('scribe', { readOnly: false })
+			]
+		});
+		const store = new ChatStore('work', client, { customizations });
+		await store.loadAgents();
+		await store.loadCustomizations();
+
+		// readOnly defaults true; a read-write persona flips it to false.
+		store.selectPersona('scribe');
+		expect(store.readOnly).toBe(false);
+
+		// A read-only persona sets it back to true.
+		store.selectPersona('librarian');
+		expect(store.readOnly).toBe(true);
 	});
 
 	it('keeps the current agent when the persona backend is detected but unavailable', async () => {

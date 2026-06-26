@@ -27,7 +27,8 @@ use crate::server::SharedAppState;
 /// {
 ///   "agents":       [ { "id": "...", "name": "...", "description": "...",
 ///                       "backend": "copilot" | null, "model": "..." | null,
-///                       "body": "...", "source": "project" | "global" } ],
+///                       "readOnly": false, "body": "...",
+///                       "source": "project" | "global" } ],
 ///   "skills":       [ { "id", "name", "description", "body", "source" } ],
 ///   "instructions": [ { "id", "name", "description", "body", "source" } ]
 /// }

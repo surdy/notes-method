@@ -64,8 +64,8 @@
 
 	async function choosePersona(id: string): Promise<void> {
 		modeOpen = false;
-		// Custom agents are write-capable; individual writes still prompt per call.
-		await store?.setReadOnly(false);
+		// The store applies the persona's own read/write capability; individual
+		// writes still prompt per call for read-write personas.
 		store?.selectPersona(id);
 	}
 
@@ -713,13 +713,13 @@
 											title={p.description}
 											onclick={() => void choosePersona(p.id)}
 										>
-											<span class="mi-ic" aria-hidden="true">
+											<span class="mi-ic" class:ask={p.readOnly} class:write={!p.readOnly} aria-hidden="true">
 												<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 													<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
 												</svg>
 											</span>
 											<span class="mi-text">
-												<span class="mi-title">{p.name}</span>
+												<span class="mi-title">{p.name} <span class="mi-tag">· {p.readOnly ? 'read-only' : 'read-write'}</span></span>
 												{#if p.description}<span class="mi-desc">{p.description}</span>{/if}
 											</span>
 										</button>

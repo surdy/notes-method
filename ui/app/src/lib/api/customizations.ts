@@ -20,6 +20,12 @@ export interface CustomAgent {
 	backend: string | null;
 	/** Model id to request for this persona; `null` when unset. */
 	model: string | null;
+	/**
+	 * Whether this persona runs read-only (search/answer only, never writes).
+	 * Authored via the `access: read-only` frontmatter key; defaults to `false`
+	 * (read-write). Selecting the persona applies this to the chat session.
+	 */
+	readOnly: boolean;
 	/** The persona's system/preamble prompt. */
 	body: string;
 	source: CustomizationSource;
