@@ -250,27 +250,6 @@ describe('ChatStore orchestration', () => {
 		expect(store.busy).toBe(false);
 	});
 
-	it('regenerate re-runs the most recent user turn', async () => {
-		const client = new MockAgentClient();
-		const { api } = fakeTranscripts();
-		const store = new ChatStore('work', client, { transcripts: api });
-		await store.loadAgents();
-		store.start();
-		store.input = 'summarize my week';
-		await store.send();
-		client.emit('sess-1', { type: 'done', result: null });
-
-		expect(store.canRegenerate).toBe(true);
-		await store.regenerate();
-
-		const sent = client.prompts.map((p) => p.text);
-		expect(sent).toEqual(['summarize my week', 'summarize my week']);
-		const userMsgs = store.conversation.items.filter(
-			(i) => i.kind === 'message' && i.role === 'user'
-		);
-		expect(userMsgs).toHaveLength(2);
-	});
-
 	it('forks a saved thread, copying prior messages into a new continuable thread', async () => {
 		const client = new MockAgentClient();
 		const { api, appended } = fakeTranscripts();

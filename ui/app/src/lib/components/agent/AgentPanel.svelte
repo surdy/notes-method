@@ -743,13 +743,6 @@
 						{/if}
 					</div>
 				</div>
-				{#if store.canRegenerate}
-					<div class="turn-actions">
-						<button class="link-btn" type="button" onclick={() => store?.regenerate()}>
-							↻ Regenerate
-						</button>
-					</div>
-				{/if}
 			</form>
 		{/if}
 	</div>
@@ -1092,12 +1085,6 @@
 
 	.send.stop:hover {
 		background: var(--danger-bg);
-	}
-
-	.turn-actions {
-		display: flex;
-		justify-content: flex-end;
-		margin-top: 6px;
 	}
 
 	.composer-tools {
