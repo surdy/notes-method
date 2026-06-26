@@ -18,6 +18,20 @@
 			toastStore.add('Open a note in the editor to apply agent output.', 'warning');
 		}
 	}
+
+	let copied = $state(false);
+	let copyTimer: ReturnType<typeof setTimeout> | undefined;
+
+	async function copy() {
+		try {
+			await navigator.clipboard.writeText(item.text);
+			copied = true;
+			clearTimeout(copyTimer);
+			copyTimer = setTimeout(() => (copied = false), 1500);
+		} catch {
+			toastStore.add('Could not copy to clipboard.', 'warning');
+		}
+	}
 </script>
 
 <div class="message" class:user={item.role === 'user'} class:agent={item.role !== 'user'}>
@@ -88,6 +102,46 @@
 					<path d="M12 18v-6" />
 					<path d="m9 15 3 3 3-3" />
 				</svg>
+			</button>
+			<button
+				type="button"
+				class="action"
+				title="Copy — copy this message to the clipboard"
+				aria-label={copied ? 'Copied' : 'Copy message'}
+				onclick={copy}
+			>
+				{#if copied}
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						width="16"
+						height="16"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<path d="M20 6 9 17l-5-5" />
+					</svg>
+				{:else}
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						width="16"
+						height="16"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+						<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+					</svg>
+				{/if}
 			</button>
 		</div>
 	{/if}
