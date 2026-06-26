@@ -891,7 +891,7 @@
 	}
 
 	.head-act.new {
-		color: var(--accent-bg);
+		color: var(--accent);
 	}
 
 	.head-act:hover:not(:disabled) {
