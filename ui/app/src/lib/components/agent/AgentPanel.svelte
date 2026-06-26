@@ -393,35 +393,45 @@
 							</button>
 						</div>
 					{:else}
-						<select
-							class="picker"
-							aria-label="Provider"
-							title="AI provider — the agent CLI powering this chat"
-							value={store.selectedAgent ?? ''}
-							onchange={(e) => store?.selectAgent(e.currentTarget.value)}
-						>
-							{#each sortedAgents as agent (agent.id)}
-								<option
-									value={agent.id}
-									disabled={!agent.available && agent.id !== store.selectedAgent}
-								>
-									{agent.name}{agent.available ? '' : ' (not found)'}
-								</option>
-							{/each}
-						</select>
+						<div class="pick-wrap">
+							<select
+								class="picker"
+								aria-label="Provider"
+								title="AI provider — the agent CLI powering this chat"
+								value={store.selectedAgent ?? ''}
+								onchange={(e) => store?.selectAgent(e.currentTarget.value)}
+							>
+								{#each sortedAgents as agent (agent.id)}
+									<option
+										value={agent.id}
+										disabled={!agent.available && agent.id !== store.selectedAgent}
+									>
+										{agent.name}{agent.available ? '' : ' (not found)'}
+									</option>
+								{/each}
+							</select>
+							<span class="pick-caret" aria-hidden="true">
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+							</span>
+						</div>
 					{/if}
 
 					{#if store.modelPicker}
-						<select
-							class="picker"
-							aria-label="Model"
-							value={store.selectedModel ?? store.modelPicker.current}
-							onchange={(e) => void store?.selectModel(e.currentTarget.value)}
-						>
-							{#each store.modelPicker.options as model (model.id)}
-								<option value={model.id}>{model.name}</option>
-							{/each}
-						</select>
+						<div class="pick-wrap">
+							<select
+								class="picker"
+								aria-label="Model"
+								value={store.selectedModel ?? store.modelPicker.current}
+								onchange={(e) => void store?.selectModel(e.currentTarget.value)}
+							>
+								{#each store.modelPicker.options as model (model.id)}
+									<option value={model.id}>{model.name}</option>
+								{/each}
+							</select>
+							<span class="pick-caret" aria-hidden="true">
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+							</span>
+						</div>
 					{/if}
 
 					<button
@@ -502,6 +512,8 @@
 							<path d="M15 3h6v6" />
 						</svg>
 					</button>
+
+					<span class="head-div" aria-hidden="true"></span>
 
 					<button
 						class="threads-toggle"
@@ -771,23 +783,59 @@
 
 	.controls {
 		display: flex;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		align-items: center;
-		gap: 6px;
+		gap: 5px;
+	}
+
+	.pick-wrap {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		min-width: 0;
+		flex: 0 1 auto;
 	}
 
 	.picker {
-		padding: 4px 8px;
+		appearance: none;
+		-webkit-appearance: none;
+		width: 100%;
+		min-width: 0;
+		padding: 4px 22px 4px 10px;
 		border: 1px solid var(--border-strong);
-		border-radius: 6px;
-		background: var(--bg-input);
+		border-radius: 8px;
+		background: var(--button-bg);
 		color: var(--text-default);
 		font-size: 12px;
+		font-weight: 600;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		cursor: pointer;
+	}
+
+	.picker:hover {
+		background: var(--button-hover);
 	}
 
 	.picker:focus {
 		outline: none;
 		border-color: var(--accent-bg);
+	}
+
+	.pick-caret {
+		position: absolute;
+		right: 7px;
+		display: inline-flex;
+		color: var(--text-muted);
+		pointer-events: none;
+	}
+
+	.head-div {
+		width: 1px;
+		height: 18px;
+		background: var(--border-strong);
+		margin: 0 2px;
 	}
 
 	.no-agents {
@@ -820,13 +868,15 @@
 	}
 
 	.threads-toggle {
-		padding: 4px 10px;
+		display: inline-grid;
+		place-items: center;
+		padding: 4px 7px;
+		min-width: 30px;
 		border: 1px solid var(--border-strong);
-		border-radius: 6px;
+		border-radius: 7px;
 		background: var(--button-bg);
 		color: var(--button-text);
-		font-size: 12px;
-		font-weight: 600;
+		font-size: 14px;
 		cursor: pointer;
 	}
 
@@ -839,7 +889,7 @@
 		place-items: center;
 		padding: 4px 7px;
 		border: 1px solid var(--border-strong);
-		border-radius: 6px;
+		border-radius: 7px;
 		background: var(--button-bg);
 		color: var(--button-text);
 		cursor: pointer;
@@ -847,6 +897,7 @@
 
 	.head-act.new {
 		margin-left: auto;
+		color: var(--accent-bg);
 	}
 
 	.head-act:hover:not(:disabled) {
