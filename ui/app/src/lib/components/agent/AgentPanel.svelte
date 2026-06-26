@@ -381,7 +381,7 @@
 			</div>
 		{:else}
 			<header class="bar">
-				<div class="controls">
+				<div class="controls pickers">
 					{#if store.agents.length === 0}
 						<div class="no-agents">
 							<span class="no-agents-text">
@@ -433,7 +433,9 @@
 							</span>
 						</div>
 					{/if}
+				</div>
 
+				<div class="controls actions">
 					<button
 						class="head-act new"
 						type="button"
@@ -776,7 +778,7 @@
 	.bar {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: 6px;
 		padding: 10px 12px;
 		border-bottom: 1px solid var(--border-default);
 	}
@@ -835,7 +837,7 @@
 		width: 1px;
 		height: 18px;
 		background: var(--border-strong);
-		margin: 0 2px;
+		margin: 0 4px 0 auto;
 	}
 
 	.no-agents {
@@ -896,7 +898,6 @@
 	}
 
 	.head-act.new {
-		margin-left: auto;
 		color: var(--accent-bg);
 	}
 

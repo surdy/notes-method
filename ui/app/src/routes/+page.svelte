@@ -36,6 +36,80 @@
 	let paletteMode = $state<'files' | 'commands' | null>(null);
 	let leftSidebarCollapsed = $state(false);
 	let rightRailCollapsed = $state(false);
+
+	// Resizable right rail (agent / context dock). Width is drag-adjustable and
+	// persisted across sessions; collapse is handled separately via the chrome.
+	const RIGHT_RAIL_DEFAULT = 320;
+	const RIGHT_RAIL_MIN = 280;
+	const RIGHT_RAIL_WIDTH_KEY = 'notesmith:right-rail-width';
+
+	function loadRightRailWidth(): number {
+		try {
+			const stored = localStorage.getItem(RIGHT_RAIL_WIDTH_KEY);
+			if (stored) {
+				const parsed = parseInt(stored, 10);
+				if (!Number.isNaN(parsed) && parsed >= RIGHT_RAIL_MIN) return parsed;
+			}
+		} catch {
+			// ignore (no localStorage / prerender)
+		}
+		return RIGHT_RAIL_DEFAULT;
+	}
+
+	function rightRailMaxWidth(): number {
+		if (typeof window === 'undefined') return 640;
+		return Math.max(RIGHT_RAIL_MIN, Math.floor(window.innerWidth * 0.6));
+	}
+
+	let rightRailWidth = $state(loadRightRailWidth());
+	let railDragging = $state(false);
+	let railDragStartX = 0;
+	let railDragStartWidth = 0;
+
+	function clampRailWidth(value: number): number {
+		return Math.max(RIGHT_RAIL_MIN, Math.min(rightRailMaxWidth(), value));
+	}
+
+	function persistRailWidth() {
+		try {
+			localStorage.setItem(RIGHT_RAIL_WIDTH_KEY, String(rightRailWidth));
+		} catch {
+			// ignore
+		}
+	}
+
+	function onRailDragStart(event: MouseEvent) {
+		railDragging = true;
+		railDragStartX = event.clientX;
+		railDragStartWidth = rightRailWidth;
+		event.preventDefault();
+	}
+
+	function onRailMouseMove(event: MouseEvent) {
+		if (!railDragging) return;
+		// Handle is on the rail's left edge: dragging left (smaller clientX) widens.
+		const delta = railDragStartX - event.clientX;
+		rightRailWidth = clampRailWidth(railDragStartWidth + delta);
+	}
+
+	function onRailMouseUp() {
+		if (!railDragging) return;
+		railDragging = false;
+		persistRailWidth();
+	}
+
+	function onRailKeydown(event: KeyboardEvent) {
+		const step = event.shiftKey ? 48 : 16;
+		if (event.key === 'ArrowLeft') {
+			rightRailWidth = clampRailWidth(rightRailWidth + step);
+			persistRailWidth();
+			event.preventDefault();
+		} else if (event.key === 'ArrowRight') {
+			rightRailWidth = clampRailWidth(rightRailWidth - step);
+			persistRailWidth();
+			event.preventDefault();
+		}
+	}
 	let dockSegment = $state<DockSegment>('context');
 	// This window's own server name, for the remote title suffix (ADR 0017 C.2).
 	let titleSuffix = $state<string | null>(null);
@@ -92,8 +166,9 @@
 	const chromeLayout = $derived(
 		workspaceChromeLayout({ leftSidebarCollapsed, rightRailCollapsed })
 	);
+	const rightChromeWidth = $derived(rightRailCollapsed ? '44px' : `${rightRailWidth}px`);
 	const workspaceChromeStyle = $derived(
-		`--workspace-left-width: ${chromeLayout.leftChromeWidth}; --workspace-right-width: ${chromeLayout.rightChromeWidth};`
+		`--workspace-left-width: ${chromeLayout.leftChromeWidth}; --workspace-right-width: ${rightChromeWidth};`
 	);
 	const dockNoteTitle = $derived(dockTitle(tabStore.selectedPath));
 
@@ -211,7 +286,9 @@
 	});
 </script>
 
-<div class="page-shell" style={workspaceChromeStyle}>
+<svelte:window onmousemove={onRailMouseMove} onmouseup={onRailMouseUp} />
+
+<div class="page-shell" class:rail-resizing={railDragging} style={workspaceChromeStyle}>
 <VersionBanner />
 
 <div class="workspace-chrome" role="toolbar" aria-label="Workspace">
@@ -309,6 +386,17 @@ onClose={() => (activeMiddlePaneItem = null)}
 	class:collapsed={rightRailCollapsed}
 	aria-hidden={rightRailCollapsed}
 >
+{#if !rightRailCollapsed}
+<button
+	type="button"
+	class="rail-drag-handle"
+	class:dragging={railDragging}
+	aria-label="Resize agent panel"
+	title="Drag to resize (← → to adjust)"
+	onmousedown={onRailDragStart}
+	onkeydown={onRailKeydown}
+></button>
+{/if}
 <RightDock
 	bind:this={rightRailRef}
 	collapsed={rightRailCollapsed}
@@ -552,6 +640,37 @@ overflow: hidden;
 transition:
 	flex-basis 180ms ease,
 	width 180ms ease;
+}
+
+.rail-drag-handle {
+position: absolute;
+left: 0;
+top: 0;
+bottom: 0;
+width: 6px;
+margin: 0;
+padding: 0;
+border: none;
+background: transparent;
+cursor: col-resize;
+z-index: 5;
+}
+
+.rail-drag-handle:hover,
+.rail-drag-handle.dragging,
+.rail-drag-handle:focus-visible {
+outline: none;
+background: var(--accent-bg);
+}
+
+.page-shell.rail-resizing .right-rail-shell,
+.page-shell.rail-resizing .workspace-chrome-right {
+transition: none;
+}
+
+.page-shell.rail-resizing {
+cursor: col-resize;
+user-select: none;
 }
 
 .agent-toggle-glyph {
