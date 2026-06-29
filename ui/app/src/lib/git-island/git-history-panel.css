@@ -1,0 +1,203 @@
+/*
+ * Styles for the React GitHistoryPanel island.
+ * Uses Notesmith semantic design tokens only (no hard-coded colors) so the
+ * React-rendered panel inherits all five themes via CSS custom properties that
+ * cross the React root boundary unchanged.
+ */
+
+.ghp-root {
+	display: grid;
+	grid-template-columns: minmax(220px, 320px) 1fr;
+	height: 100%;
+	min-height: 0;
+	background: var(--bg-default);
+	color: var(--text-default);
+	font-family: inherit;
+	font-size: 13px;
+}
+
+/* ---- Commit list ---- */
+
+.ghp-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	overflow-y: auto;
+	border-right: 1px solid var(--border-default);
+	background: var(--bg-panel);
+}
+
+.ghp-item {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	width: 100%;
+	padding: 10px 12px;
+	border: none;
+	border-bottom: 1px solid var(--border-subtle);
+	background: transparent;
+	color: var(--text-default);
+	text-align: left;
+	cursor: pointer;
+}
+
+.ghp-item:hover {
+	background: var(--bg-hover);
+}
+
+.ghp-item--active {
+	background: var(--bg-selected);
+}
+
+.ghp-item-subject {
+	font-weight: 500;
+	line-height: 1.3;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ghp-item-meta {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	color: var(--text-muted);
+	font-size: 11px;
+}
+
+.ghp-sha {
+	font-family: var(--font-mono);
+	color: var(--accent-text);
+}
+
+.ghp-item-stats {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	font-size: 11px;
+	font-family: var(--font-mono);
+}
+
+.ghp-item-stat--add,
+.ghp-file-stat--add {
+	color: var(--success-text);
+}
+
+.ghp-item-stat--del,
+.ghp-file-stat--del {
+	color: var(--danger-text);
+}
+
+.ghp-item-files {
+	color: var(--text-muted);
+}
+
+/* ---- Diff pane ---- */
+
+.ghp-diff {
+	overflow: auto;
+	padding: 12px;
+	min-height: 0;
+}
+
+.ghp-empty {
+	color: var(--text-muted);
+}
+
+.ghp-file {
+	margin-bottom: 16px;
+	border: 1px solid var(--border-default);
+	border-radius: 6px;
+	overflow: hidden;
+}
+
+.ghp-file-head {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	padding: 6px 10px;
+	background: var(--bg-secondary);
+	border-bottom: 1px solid var(--border-default);
+}
+
+.ghp-file-status {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 3px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	font-weight: 600;
+	background: var(--badge-bg);
+	color: var(--badge-text);
+}
+
+.ghp-file-status--added {
+	background: var(--success-surface);
+	color: var(--success-text);
+}
+
+.ghp-file-status--deleted {
+	background: var(--danger-surface);
+	color: var(--danger-text);
+}
+
+.ghp-file-path {
+	flex: 1;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ghp-file-stat {
+	font-family: var(--font-mono);
+	font-size: 11px;
+}
+
+.ghp-file-body {
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 1.5;
+}
+
+.ghp-line {
+	display: grid;
+	grid-template-columns: 44px 44px 16px 1fr;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.ghp-gutter {
+	padding: 0 6px;
+	text-align: right;
+	color: var(--text-muted);
+	user-select: none;
+}
+
+.ghp-sign {
+	text-align: center;
+	user-select: none;
+}
+
+.ghp-line--added {
+	background: var(--success-surface);
+	color: var(--success-text);
+}
+
+.ghp-line--removed {
+	background: var(--danger-surface);
+	color: var(--danger-text);
+}
+
+.ghp-line--hunk {
+	background: var(--bg-active);
+	color: var(--text-muted);
+}
+
+.ghp-code {
+	padding-right: 8px;
+}
