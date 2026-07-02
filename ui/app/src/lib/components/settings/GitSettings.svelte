@@ -55,6 +55,23 @@ cfg.git.auto_commit_every = v || null;
 {/if}
 </label>
 <label class="field">
+<span class="field-label">Commit Message</span>
+<input
+type="text"
+placeholder="e.g. auto: sync changes"
+{...textField(markDirty, 'git', cfg.git.commit_message, (v) => {
+cfg.git.commit_message = v || null;
+})}
+/>
+</label>
+<div class="subsection">
+<h3 class="subsection-title">Remote sync (optional)</h3>
+<p class="subsection-hint">
+Leave these empty for local-only versioning. When set, they push to and pull
+from the <code>origin</code> remote, which must be configured in the vault repo.
+</p>
+</div>
+<label class="field">
 <span class="field-label">Auto-pull Interval</span>
 <input
 type="text"
@@ -80,16 +97,6 @@ cfg.git.auto_push_every = v || null;
 <span class="field-error">{fieldError('git.auto_push_every')}</span>
 {/if}
 </label>
-<label class="field">
-<span class="field-label">Commit Message</span>
-<input
-type="text"
-placeholder="e.g. auto: sync changes"
-{...textField(markDirty, 'git', cfg.git.commit_message, (v) => {
-cfg.git.commit_message = v || null;
-})}
-/>
-</label>
 </section>
 
 <style>
@@ -102,6 +109,35 @@ max-width: 560px;
 display: flex;
 gap: 6px;
 margin-bottom: 12px;
+}
+
+.subsection {
+margin: 6px 0 14px;
+padding-top: 12px;
+border-top: 1px solid var(--border-default);
+}
+
+.subsection-title {
+margin: 0 0 4px;
+font-size: 12px;
+font-weight: 600;
+color: var(--text-default);
+}
+
+.subsection-hint {
+margin: 0;
+font-size: 11px;
+line-height: 1.5;
+color: var(--text-muted);
+max-width: 400px;
+}
+
+.subsection-hint code {
+font-family: var(--font-mono);
+font-size: 10px;
+padding: 1px 4px;
+border-radius: 3px;
+background: var(--bg-secondary);
 }
 
 .btn-save,

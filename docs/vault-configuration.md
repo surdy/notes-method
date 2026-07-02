@@ -230,10 +230,28 @@ Legacy `[daily]` settings are still read and mapped to `periodic.daily` for back
 
 `[git]`:
 - `enabled` — enable per-vault git integration (default: `false`)
-- `auto_commit_every` — auto-commit interval such as `5m` or `1h`
-- `auto_pull_every` — auto-pull interval
-- `auto_push_every` — auto-push interval
-- `commit_message` — commit message used by automatic sync
+- `auto_commit_every` — auto-commit interval such as `5m` or `1h` (local, no remote needed)
+- `auto_pull_every` — auto-pull interval (remote sync)
+- `auto_push_every` — auto-push interval (remote sync)
+- `commit_message` — commit message used by automatic commits
+
+**Local-only versioning:** The three intervals are independent, and syncing is
+entirely optional. To keep local snapshots without any remote, set `enabled = true`
+and `auto_commit_every`, and leave `auto_pull_every`/`auto_push_every` unset — no
+`origin` remote is required. `auto_pull_every` and `auto_push_every` are the only
+fields that talk to a remote (they use `origin`).
+
+Git integration never runs `git init` for you: the vault root must already be a git
+repository, otherwise the timers are skipped with a warning. Initialize it once with
+`git init` in the vault directory.
+
+```toml
+[git]
+enabled = true
+auto_commit_every = "15m"
+commit_message = "notesmith: {{ operation }}"
+# auto_pull_every / auto_push_every omitted → local-only, no remote sync
+```
 
 `[hooks]`:
 - `on_note_create` — script to run when a note is created
