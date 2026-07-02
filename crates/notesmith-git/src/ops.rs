@@ -1,6 +1,7 @@
 //! Pure git2 operations: status, commit, pull, push, log.
 
 use std::path::Path;
+use std::time::SystemTime;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -41,6 +42,13 @@ pub struct GitLogEntry {
     pub message: String,
     pub author: String,
     pub timestamp: String,
+}
+
+/// Result of a commit: the new SHA plus the relative paths that were committed.
+#[derive(Debug, Clone, Serialize)]
+pub struct CommitOutcome {
+    pub sha: String,
+    pub files: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -104,12 +112,65 @@ pub fn status(path: &Path) -> Result<GitStatus> {
 
 /// Stage files matching [`STAGEABLE_EXTENSIONS`], commit if there are changes,
 /// and return the new commit SHA (or `None` if nothing to commit).
+///
+/// Thin wrapper over [`commit_all`] with an explicit message; retained for
+/// callers that only need the SHA.
 pub fn auto_commit(path: &Path, message: &str) -> Result<Option<String>> {
+    Ok(commit_all(path, Some(message))?.map(|outcome| outcome.sha))
+}
+
+/// Stage all changed, stageable working-tree files and commit them.
+///
+/// When `message` is `None`, a message is generated from the staged file list
+/// (see [`generate_commit_message`]). Returns `None` when there is nothing to
+/// commit.
+pub fn commit_all(path: &Path, message: Option<&str>) -> Result<Option<CommitOutcome>> {
     let repo = git2::Repository::open(path).context("failed to open git repo")?;
 
-    // Stage matching files
     let mut index = repo.index().context("failed to get repo index")?;
+    let staged = stage_changes(&repo, &mut index)?;
 
+    if staged.is_empty() {
+        return Ok(None);
+    }
+
+    let message = match message {
+        Some(msg) => msg.to_string(),
+        None => generate_commit_message(&staged),
+    };
+
+    index.write()?;
+    let tree_oid = index.write_tree()?;
+    let tree = repo.find_tree(tree_oid)?;
+
+    let sig = repo
+        .signature()
+        .or_else(|_| git2::Signature::now("notesmith", "notesmith@localhost"))
+        .context("failed to create signature")?;
+
+    let parent_commit = match repo.head() {
+        Ok(head) => Some(head.peel_to_commit().context("HEAD is not a commit")?),
+        Err(e)
+            if e.code() == git2::ErrorCode::UnbornBranch
+                || e.code() == git2::ErrorCode::NotFound =>
+        {
+            None
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let parents: Vec<&git2::Commit<'_>> = parent_commit.iter().collect();
+    let oid = repo.commit(Some("HEAD"), &sig, &sig, &message, &tree, &parents)?;
+
+    Ok(Some(CommitOutcome {
+        sha: oid.to_string(),
+        files: staged,
+    }))
+}
+
+/// Stage every changed, stageable working-tree file into `index` and return the
+/// staged relative paths (deletions included).
+fn stage_changes(repo: &git2::Repository, index: &mut git2::Index) -> Result<Vec<String>> {
     let mut opts = git2::StatusOptions::new();
     opts.include_untracked(true)
         .include_ignored(false)
@@ -118,8 +179,8 @@ pub fn auto_commit(path: &Path, message: &str) -> Result<Option<String>> {
     let statuses = repo
         .statuses(Some(&mut opts))
         .context("failed to get status")?;
-    let mut has_changes = false;
 
+    let mut staged = Vec::new();
     for entry in statuses.iter() {
         let Some(file_path) = entry.path() else {
             continue;
@@ -144,37 +205,86 @@ pub fn auto_commit(path: &Path, message: &str) -> Result<Option<String>> {
         } else {
             index.add_path(Path::new(file_path))?;
         }
-        has_changes = true;
+        staged.push(file_path.to_string());
     }
 
-    if !has_changes {
-        return Ok(None);
+    Ok(staged)
+}
+
+/// Build a commit message from a changed-file list (list-summary format), e.g.
+/// `"Update note-a.md, note-b.md and 3 more"`. Uses file basenames.
+pub fn generate_commit_message(files: &[String]) -> String {
+    const SHOWN: usize = 2;
+
+    let names: Vec<&str> = files
+        .iter()
+        .map(|f| {
+            Path::new(f)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(f.as_str())
+        })
+        .collect();
+
+    match names.len() {
+        0 => "notesmith: checkpoint".to_string(),
+        1 => format!("Update {}", names[0]),
+        n if n <= SHOWN => format!("Update {}", names.join(", ")),
+        n => format!(
+            "Update {} and {} more",
+            names[..SHOWN].join(", "),
+            n - SHOWN
+        ),
     }
+}
 
-    index.write()?;
-    let tree_oid = index.write_tree()?;
-    let tree = repo.find_tree(tree_oid)?;
+/// Return the newest modification time among changed, stageable working-tree
+/// files, or `None` when the tree has no stageable changes. Used to gate
+/// inactivity checkpoints: a commit fires only once the newest change is older
+/// than the configured inactivity window.
+pub fn newest_change_mtime(path: &Path) -> Result<Option<SystemTime>> {
+    let repo = git2::Repository::open(path).context("failed to open git repo")?;
 
-    let sig = repo
-        .signature()
-        .or_else(|_| git2::Signature::now("notesmith", "notesmith@localhost"))
-        .context("failed to create signature")?;
+    let mut opts = git2::StatusOptions::new();
+    opts.include_untracked(true)
+        .include_ignored(false)
+        .recurse_untracked_dirs(true);
 
-    let parent_commit = match repo.head() {
-        Ok(head) => Some(head.peel_to_commit().context("HEAD is not a commit")?),
-        Err(e)
-            if e.code() == git2::ErrorCode::UnbornBranch
-                || e.code() == git2::ErrorCode::NotFound =>
-        {
-            None
+    let statuses = repo
+        .statuses(Some(&mut opts))
+        .context("failed to get status")?;
+
+    let mut newest: Option<SystemTime> = None;
+    for entry in statuses.iter() {
+        let Some(file_path) = entry.path() else {
+            continue;
+        };
+        let s = entry.status();
+        if !s.intersects(
+            git2::Status::WT_MODIFIED
+                | git2::Status::WT_NEW
+                | git2::Status::WT_DELETED
+                | git2::Status::WT_RENAMED
+                | git2::Status::WT_TYPECHANGE,
+        ) {
+            continue;
         }
-        Err(e) => return Err(e.into()),
-    };
+        if !is_stageable(file_path) {
+            continue;
+        }
+        // Deleted files have no mtime; treat the change as "just happened" so a
+        // deletion still gates the inactivity window rather than being ignored.
+        let mtime = match std::fs::metadata(path.join(file_path)).and_then(|m| m.modified()) {
+            Ok(mtime) => mtime,
+            Err(_) => SystemTime::now(),
+        };
+        newest = Some(match newest {
+            Some(current) if current >= mtime => current,
+            _ => mtime,
+        });
+    }
 
-    let parents: Vec<&git2::Commit<'_>> = parent_commit.iter().collect();
-    let oid = repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)?;
-
-    Ok(Some(oid.to_string()))
+    Ok(newest)
 }
 
 /// Fetch from remote and attempt a fast-forward merge.
@@ -566,6 +676,99 @@ mod tests {
         assert!(!is_stageable("binary.exe"));
         assert!(!is_stageable("Makefile"));
         assert!(!is_stageable("data.csv"));
+    }
+
+    #[test]
+    fn generate_commit_message_zero_files() {
+        assert_eq!(generate_commit_message(&[]), "notesmith: checkpoint");
+    }
+
+    #[test]
+    fn generate_commit_message_single_file_uses_basename() {
+        let files = vec!["notes/sub/idea.md".to_string()];
+        assert_eq!(generate_commit_message(&files), "Update idea.md");
+    }
+
+    #[test]
+    fn generate_commit_message_two_files() {
+        let files = vec!["a.md".to_string(), "dir/b.md".to_string()];
+        assert_eq!(generate_commit_message(&files), "Update a.md, b.md");
+    }
+
+    #[test]
+    fn generate_commit_message_many_files_summarizes() {
+        let files = vec![
+            "note-a.md".to_string(),
+            "note-b.md".to_string(),
+            "c.md".to_string(),
+            "d.md".to_string(),
+            "e.md".to_string(),
+        ];
+        assert_eq!(
+            generate_commit_message(&files),
+            "Update note-a.md, note-b.md and 3 more"
+        );
+    }
+
+    #[test]
+    fn commit_all_generates_message_when_none() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+        fs::write(path.join("alpha.md"), "a").unwrap();
+        fs::write(path.join("beta.md"), "b").unwrap();
+
+        let outcome = commit_all(&path, None).unwrap().expect("expected commit");
+        assert_eq!(outcome.files.len(), 2);
+        let entries = log(&path, 1).unwrap();
+        assert!(
+            entries[0].message.starts_with("Update "),
+            "generated message, got: {}",
+            entries[0].message
+        );
+    }
+
+    #[test]
+    fn commit_all_uses_explicit_message() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+        fs::write(path.join("n.md"), "x").unwrap();
+
+        let outcome = commit_all(&path, Some("explicit msg"))
+            .unwrap()
+            .expect("expected commit");
+        assert_eq!(outcome.files, vec!["n.md".to_string()]);
+        let entries = log(&path, 1).unwrap();
+        assert_eq!(entries[0].message, "explicit msg");
+    }
+
+    #[test]
+    fn commit_all_returns_none_when_clean() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+        assert!(commit_all(&path, None).unwrap().is_none());
+    }
+
+    #[test]
+    fn newest_change_mtime_none_when_clean() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+        assert!(newest_change_mtime(&path).unwrap().is_none());
+    }
+
+    #[test]
+    fn newest_change_mtime_some_when_dirty() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+        fs::write(path.join("dirty.md"), "changed").unwrap();
+        assert!(newest_change_mtime(&path).unwrap().is_some());
+    }
+
+    #[test]
+    fn newest_change_mtime_ignores_non_stageable() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+        fs::write(path.join("ignore.sh"), "x").unwrap();
+        assert!(newest_change_mtime(&path).unwrap().is_none());
     }
 
     #[test]

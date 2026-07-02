@@ -51,6 +51,7 @@ fn snapshot_vault_config_full() {
         git: GitConfig {
             enabled: true,
             auto_commit_every: Some("15m".to_string()),
+            commit_on_inactivity: None,
             auto_pull_every: Some("30m".to_string()),
             auto_push_every: Some("30m".to_string()),
             commit_message: Some("notesmith: {{ operation }}".to_string()),

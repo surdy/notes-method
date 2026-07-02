@@ -1395,6 +1395,36 @@ Returns git working tree status for the vault.
 - `400` — vault is not a git repository
 - `404` — vault not found
 
+### `POST /api/v/{vault}/git/commit`
+
+Stages all changed, stageable files and commits them (a "checkpoint"). Used by
+the desktop inactivity-checkpoint driver (after flushing unsaved editor buffers
+to disk) and for manual "commit now" actions. Requires `git.enabled` for the
+vault.
+
+**Request body (optional):**
+```json
+{ "message": "checkpoint: before refactor" }
+```
+
+- `message` (optional) — explicit commit message. When omitted, the vault's
+  configured `commit_message` is used; if that is also unset, a message is
+  generated from the changed-file list (e.g. `"Update note-a.md, note-b.md and 3 more"`).
+
+**Response (200) — committed:**
+```json
+{ "committed": true, "sha": "abc1234...", "files": ["note-a.md", "note-b.md"] }
+```
+
+**Response (200) — nothing to commit:**
+```json
+{ "committed": false, "sha": null, "files": [] }
+```
+
+**Errors:**
+- `400` — git integration is not enabled, or vault is not a git repository
+- `404` — vault not found
+
 ### `POST /api/v/{vault}/git/sync`
 
 Triggers pull (fast-forward only) then push. Returns combined result.

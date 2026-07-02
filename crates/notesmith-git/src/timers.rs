@@ -1,7 +1,7 @@
 //! Timer management for auto-commit, auto-pull, and auto-push.
 
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use notesmith_config::GitConfig;
 
@@ -56,25 +56,69 @@ pub async fn start_git_timers(configs: Vec<GitTimerConfig>) -> Vec<tokio::task::
                 let vault_name = cfg.vault_name.clone();
                 let vault_root = cfg.vault_root.clone();
                 let interval_display = interval_str.clone();
-                let message = cfg
-                    .config
-                    .commit_message
-                    .clone()
-                    .unwrap_or_else(|| "notesmith: auto-commit".to_string());
+                let message = cfg.config.commit_message.clone();
 
                 handles.push(tokio::spawn(async move {
                     tracing::info!(vault = %vault_name, every = %interval_display, "starting auto-commit timer");
                     loop {
                         tokio::time::sleep(interval).await;
-                        match crate::ops::auto_commit(&vault_root, &message) {
-                            Ok(Some(sha)) => {
-                                tracing::info!(vault = %vault_name, sha = %sha, "auto-committed");
+                        match crate::ops::commit_all(&vault_root, message.as_deref()) {
+                            Ok(Some(outcome)) => {
+                                tracing::info!(vault = %vault_name, sha = %outcome.sha, files = outcome.files.len(), "auto-committed");
                             }
                             Ok(None) => {
                                 tracing::debug!(vault = %vault_name, "auto-commit: nothing to commit");
                             }
                             Err(e) => {
                                 tracing::warn!(vault = %vault_name, error = %e, "auto-commit failed");
+                            }
+                        }
+                    }
+                }));
+            }
+        }
+
+        // Inactivity-checkpoint timer (headless). Commits once the newest
+        // working-tree change has been stable for the configured window. The
+        // desktop editor drives its own inactivity checkpoint (which also
+        // flushes unsaved buffers to disk first); this daemon timer is the
+        // fallback for when the app isn't open/focused.
+        if let Some(interval_str) = cfg.config.commit_on_inactivity.clone() {
+            if let Some(window) = parse_duration(&interval_str) {
+                let vault_name = cfg.vault_name.clone();
+                let vault_root = cfg.vault_root.clone();
+                let interval_display = interval_str;
+                let message = cfg.config.commit_message.clone();
+                // Poll several times within the window, bounded to a sane range.
+                let tick = window
+                    .min(Duration::from_secs(30))
+                    .max(Duration::from_secs(1));
+
+                handles.push(tokio::spawn(async move {
+                    tracing::info!(vault = %vault_name, after = %interval_display, "starting inactivity-commit timer");
+                    loop {
+                        tokio::time::sleep(tick).await;
+                        match crate::ops::newest_change_mtime(&vault_root) {
+                            Ok(Some(mtime)) => {
+                                let age = SystemTime::now()
+                                    .duration_since(mtime)
+                                    .unwrap_or_default();
+                                if age < window {
+                                    continue;
+                                }
+                                match crate::ops::commit_all(&vault_root, message.as_deref()) {
+                                    Ok(Some(outcome)) => {
+                                        tracing::info!(vault = %vault_name, sha = %outcome.sha, files = outcome.files.len(), "inactivity checkpoint committed");
+                                    }
+                                    Ok(None) => {}
+                                    Err(e) => {
+                                        tracing::warn!(vault = %vault_name, error = %e, "inactivity commit failed");
+                                    }
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                tracing::warn!(vault = %vault_name, error = %e, "inactivity status check failed");
                             }
                         }
                     }
@@ -206,6 +250,7 @@ mod tests {
             config: GitConfig {
                 enabled: false,
                 auto_commit_every: Some("5m".into()),
+                commit_on_inactivity: None,
                 auto_pull_every: None,
                 auto_push_every: None,
                 commit_message: None,
@@ -229,6 +274,7 @@ mod tests {
             config: GitConfig {
                 enabled: true,
                 auto_commit_every: Some("5m".into()),
+                commit_on_inactivity: None,
                 auto_pull_every: None,
                 auto_push_every: None,
                 commit_message: None,
@@ -253,6 +299,7 @@ mod tests {
             config: GitConfig {
                 enabled: true,
                 auto_commit_every: Some("5m".into()),
+                commit_on_inactivity: None,
                 auto_pull_every: Some("10m".into()),
                 auto_push_every: Some("15m".into()),
                 commit_message: None,
@@ -283,6 +330,7 @@ mod tests {
             config: GitConfig {
                 enabled: true,
                 auto_commit_every: Some("5m".into()),
+                commit_on_inactivity: None,
                 auto_pull_every: None,
                 auto_push_every: None,
                 commit_message: None,
@@ -291,6 +339,32 @@ mod tests {
 
         let handles = start_git_timers(vec![config]).await;
         assert_eq!(handles.len(), 1, "should only spawn commit timer");
+
+        for h in handles {
+            h.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn start_git_timers_spawns_inactivity_timer() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+
+        let config = GitTimerConfig {
+            vault_name: "test".into(),
+            vault_root: dir.path().to_path_buf(),
+            config: GitConfig {
+                enabled: true,
+                auto_commit_every: None,
+                commit_on_inactivity: Some("120s".into()),
+                auto_pull_every: None,
+                auto_push_every: None,
+                commit_message: None,
+            },
+        };
+
+        let handles = start_git_timers(vec![config]).await;
+        assert_eq!(handles.len(), 1, "should spawn only the inactivity timer");
 
         for h in handles {
             h.abort();

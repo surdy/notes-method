@@ -3348,3 +3348,126 @@ async fn daemon_does_not_mount_mcp_for_unknown_vault() {
 
     server.server.abort();
 }
+
+// ---------------------------------------------------------------------------
+// Git commit (checkpoint) endpoint
+// ---------------------------------------------------------------------------
+
+fn init_git_repo(root: &Path) {
+    let repo = git2::Repository::init(root).unwrap();
+    let mut config = repo.config().unwrap();
+    config.set_str("user.name", "test").unwrap();
+    config.set_str("user.email", "test@test.com").unwrap();
+}
+
+const GIT_ENABLED_CONFIG: &str =
+    "name = \"test-vault\"\n\n[capture]\nfolder = \"Inbox\"\n\n[git]\nenabled = true\n";
+
+#[tokio::test]
+async fn git_commit_stages_and_commits_with_generated_message() {
+    let server = TestServer::with_config_and_files(GIT_ENABLED_CONFIG, &[]).await;
+    init_git_repo(&server.root);
+    write_note(&server.root, "note.md", "# Hello");
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(server.url("/api/v/test-vault/git/commit"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["committed"], serde_json::json!(true));
+    assert!(body["sha"].as_str().is_some(), "expected a sha");
+    let files = body["files"].as_array().unwrap();
+    assert!(
+        files.iter().any(|f| f == "note.md"),
+        "expected note.md in committed files, got {files:?}"
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn git_commit_honours_explicit_message() {
+    let server = TestServer::with_config_and_files(GIT_ENABLED_CONFIG, &[]).await;
+    init_git_repo(&server.root);
+    write_note(&server.root, "note.md", "# Hello");
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(server.url("/api/v/test-vault/git/commit"))
+        .json(&serde_json::json!({ "message": "checkpoint: manual" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let entries = notesmith_git::ops::log(&server.root, 1).unwrap();
+    assert_eq!(entries[0].message, "checkpoint: manual");
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn git_commit_returns_committed_false_when_clean() {
+    let server = TestServer::with_config_and_files(GIT_ENABLED_CONFIG, &[]).await;
+    init_git_repo(&server.root);
+    // First commit captures the existing vault files, leaving a clean tree.
+    notesmith_git::ops::commit_all(&server.root, Some("seed"))
+        .unwrap()
+        .expect("seed commit");
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(server.url("/api/v/test-vault/git/commit"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["committed"], serde_json::json!(false));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn git_commit_rejected_when_git_disabled() {
+    // Default config has git disabled.
+    let server = TestServer::with_files(&[]).await;
+    init_git_repo(&server.root);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(server.url("/api/v/test-vault/git/commit"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn git_commit_rejected_when_not_a_repo() {
+    let server = TestServer::with_config_and_files(GIT_ENABLED_CONFIG, &[]).await;
+    // No git init — enabled but not a repo.
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(server.url("/api/v/test-vault/git/commit"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    server.server.abort();
+}

@@ -191,6 +191,7 @@ paste_url_image_whitelist = ""    # One regex per line; empty disables automatic
 [git]
 enabled = false               # Enable git integration (default: false)
 auto_commit_every = "5m"      # Auto-commit interval (optional, e.g. "5m", "1h")
+commit_on_inactivity = "120s" # Commit a checkpoint after this much inactivity (optional)
 auto_pull_every = "10m"       # Auto-pull interval (optional)
 auto_push_every = "10m"       # Auto-push interval (optional)
 commit_message = "vault sync" # Custom commit message (optional)
@@ -231,9 +232,10 @@ Legacy `[daily]` settings are still read and mapped to `periodic.daily` for back
 `[git]`:
 - `enabled` — enable per-vault git integration (default: `false`)
 - `auto_commit_every` — auto-commit interval such as `5m` or `1h` (local, no remote needed)
+- `commit_on_inactivity` — commit a checkpoint once the working tree has been idle for this long, e.g. `120s` or `2m` (local, no remote needed). The desktop editor flushes unsaved buffers to disk before committing; the daemon also runs a headless fallback based on file modification times.
 - `auto_pull_every` — auto-pull interval (remote sync)
 - `auto_push_every` — auto-push interval (remote sync)
-- `commit_message` — commit message used by automatic commits
+- `commit_message` — commit message used by automatic commits. When unset, a message is generated from the changed-file list (e.g. `Update note-a.md, note-b.md and 3 more`).
 
 **Local-only versioning:** The three intervals are independent, and syncing is
 entirely optional. To keep local snapshots without any remote, set `enabled = true`

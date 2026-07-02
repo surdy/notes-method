@@ -352,6 +352,11 @@ pub struct GitConfig {
     pub enabled: bool,
     #[serde(default)]
     pub auto_commit_every: Option<String>,
+    /// Commit a checkpoint after this much editor/working-tree inactivity
+    /// (e.g. `"120s"`, `"2m"`). Local versioning; no remote required. The
+    /// desktop editor flushes unsaved buffers to disk before committing.
+    #[serde(default)]
+    pub commit_on_inactivity: Option<String>,
     #[serde(default)]
     pub auto_pull_every: Option<String>,
     #[serde(default)]
@@ -729,6 +734,7 @@ on_note_create = "hooks/create.py"
             git: GitConfig {
                 enabled: true,
                 auto_commit_every: Some("15m".to_string()),
+                commit_on_inactivity: None,
                 auto_pull_every: None,
                 auto_push_every: None,
                 commit_message: Some("notesmith: {{ operation }}".to_string()),
