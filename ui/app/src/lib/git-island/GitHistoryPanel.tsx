@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { DiffFile, DiffLine, GitHistoryPanelProps } from './types';
 import './git-history-panel.css';
 
@@ -61,11 +61,19 @@ function DiffFileBlock({ file }: { file: DiffFile }) {
 export function GitHistoryPanel({
 	commits,
 	diffForCommit,
+	onSelectCommit,
 	initialSelectedSha
 }: GitHistoryPanelProps) {
 	const [selectedSha, setSelectedSha] = useState(
 		initialSelectedSha ?? commits[0]?.sha ?? ''
 	);
+
+	// Notify the host of the current selection so it can fetch the diff lazily.
+	useEffect(() => {
+		if (selectedSha) {
+			onSelectCommit?.(selectedSha);
+		}
+	}, [selectedSha, onSelectCommit]);
 
 	const diff = useMemo(
 		() => (selectedSha ? diffForCommit(selectedSha) : undefined),
@@ -107,9 +115,13 @@ export function GitHistoryPanel({
 
 			<div className="ghp-diff">
 				{diff ? (
-					diff.files.map((file) => <DiffFileBlock key={file.path} file={file} />)
+					diff.files.length > 0 ? (
+						diff.files.map((file) => <DiffFileBlock key={file.path} file={file} />)
+					) : (
+						<p className="ghp-empty">No file changes in this commit.</p>
+					)
 				) : (
-					<p className="ghp-empty">No diff for this commit.</p>
+					<p className="ghp-empty">Loading diff…</p>
 				)}
 			</div>
 		</div>

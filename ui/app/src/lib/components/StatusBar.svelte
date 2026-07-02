@@ -9,11 +9,13 @@
 	let {
 		currentVault,
 		onToast,
-		restartRequired
+		restartRequired,
+		onOpenGitHistory
 	}: {
 		currentVault: string;
 		onToast: (message: string, type: 'info' | 'error') => void;
 		restartRequired: boolean;
+		onOpenGitHistory: () => void;
 	} = $props();
 
 	let wordLabel = $derived.by(() =>
@@ -25,19 +27,6 @@
 			? '1 changed file'
 			: `${gitCheckpoint.changedCount} changed files`
 	);
-
-	async function handleCheckpointClick() {
-		try {
-			const result = await gitCheckpoint.commitNow();
-			if (result?.committed) {
-				onToast(`Checkpoint committed (${result.files.length} files)`, 'info');
-			} else {
-				onToast('Nothing to commit', 'info');
-			}
-		} catch (err) {
-			onToast(`Checkpoint failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
-		}
-	}
 </script>
 
 <div class="status-bar">
@@ -59,9 +48,8 @@
 			<button
 				type="button"
 				class="git-badge"
-				disabled={gitCheckpoint.committing}
-				title={`${changedLabel} — click to commit a checkpoint now`}
-				onclick={handleCheckpointClick}
+				title={`${changedLabel} — click to view history`}
+				onclick={onOpenGitHistory}
 			>
 				<span class="git-dot" aria-hidden="true"></span>
 				{gitCheckpoint.committing ? 'Committing…' : `${gitCheckpoint.changedCount} changed`}

@@ -150,8 +150,8 @@ For an example of a complete customer-facing work workflow, see `docs/example-wo
 - Pull uses fast-forward only — conflicts abort and log a warning instead of attempting resolution.
 - Auto-push always pulls first to minimize conflicts.
 - CLI: `notesmith git {status, pull, push, sync, log}`.
-- HTTP: `GET /api/v/{vault}/git/status`, `POST /api/v/{vault}/git/sync`, `POST /api/v/{vault}/git/commit`.
-- The desktop status bar shows a changed-files badge when git is enabled; clicking it commits a checkpoint immediately.
+- HTTP: `GET /api/v/{vault}/git/status`, `GET /api/v/{vault}/git/log`, `GET /api/v/{vault}/git/diff/{sha}`, `POST /api/v/{vault}/git/sync`, `POST /api/v/{vault}/git/commit`.
+- The desktop status bar shows a changed-files badge when git is enabled; clicking it opens a git-history view (commit list + per-commit diff) with a "Commit now" action.
 - Non-git vaults are completely unaffected.
 
 ## Daemon Diagnostics

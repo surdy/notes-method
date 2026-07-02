@@ -44,6 +44,68 @@ pub struct GitLogEntry {
     pub timestamp: String,
 }
 
+/// Rich per-commit history entry for the git-history UI. Field names are
+/// camelCase to match the frontend `GitLogEntry` contract (`git-island/types.ts`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHistoryEntry {
+    pub sha: String,
+    pub short_sha: String,
+    pub author: String,
+    pub author_email: String,
+    pub timestamp_secs: i64,
+    pub subject: String,
+    pub files_changed: usize,
+    pub insertions: usize,
+    pub deletions: usize,
+}
+
+/// A single line within a commit diff. Mirrors the frontend `DiffLine`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffLine {
+    pub kind: DiffLineKind,
+    pub old_line: Option<u32>,
+    pub new_line: Option<u32>,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DiffLineKind {
+    Context,
+    Added,
+    Removed,
+    Hunk,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DiffFileStatus {
+    Modified,
+    Added,
+    Deleted,
+    Renamed,
+}
+
+/// One file's changes within a commit diff. Mirrors the frontend `DiffFile`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffFile {
+    pub path: String,
+    pub status: DiffFileStatus,
+    pub added: usize,
+    pub removed: usize,
+    pub lines: Vec<DiffLine>,
+}
+
+/// A commit's full file-level diff. Mirrors the frontend `CommitDiff`.
+#[derive(Debug, Clone, Serialize)]
+pub struct CommitDiff {
+    pub sha: String,
+    pub files: Vec<DiffFile>,
+}
+
 /// Result of a commit: the new SHA plus the relative paths that were committed.
 #[derive(Debug, Clone, Serialize)]
 pub struct CommitOutcome {
@@ -465,9 +527,182 @@ pub fn log(path: &Path, limit: usize) -> Result<Vec<GitLogEntry>> {
     Ok(entries)
 }
 
+/// Rich commit history with per-commit diff stats, for the git-history UI.
+/// Newest first, up to `limit` commits. Returns an empty list for a repo with
+/// no commits yet.
+pub fn history(path: &Path, limit: usize) -> Result<Vec<GitHistoryEntry>> {
+    let repo = git2::Repository::open(path).context("failed to open git repo")?;
+
+    let head = match repo.head() {
+        Ok(h) => h,
+        Err(e) if e.code() == git2::ErrorCode::UnbornBranch => return Ok(vec![]),
+        Err(e) => return Err(e.into()),
+    };
+
+    let head_oid = head.target().context("HEAD has no target")?;
+    let mut revwalk = repo.revwalk()?;
+    revwalk.push(head_oid)?;
+    revwalk.set_sorting(git2::Sort::TIME | git2::Sort::TOPOLOGICAL)?;
+
+    let mut entries = Vec::new();
+    for oid in revwalk.take(limit) {
+        let oid = oid?;
+        let commit = repo.find_commit(oid)?;
+        let tree = commit.tree()?;
+        let parent_tree = match commit.parent(0) {
+            Ok(parent) => Some(parent.tree()?),
+            Err(_) => None,
+        };
+
+        let diff =
+            repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_options()))?;
+        let stats = diff.stats()?;
+
+        let message = commit.message().unwrap_or("");
+        let subject = message.lines().next().unwrap_or("").trim().to_string();
+        let sha = oid.to_string();
+        let short_sha = sha.chars().take(7).collect();
+
+        entries.push(GitHistoryEntry {
+            sha,
+            short_sha,
+            author: commit.author().name().unwrap_or("").to_string(),
+            author_email: commit.author().email().unwrap_or("").to_string(),
+            timestamp_secs: commit.time().seconds(),
+            subject,
+            files_changed: stats.files_changed(),
+            insertions: stats.insertions(),
+            deletions: stats.deletions(),
+        });
+    }
+
+    Ok(entries)
+}
+
+/// The full file-level diff of a single commit against its first parent
+/// (or the empty tree for a root commit). `rev` may be a full or abbreviated
+/// SHA, or any revision git can resolve.
+pub fn commit_diff(path: &Path, rev: &str) -> Result<CommitDiff> {
+    let repo = git2::Repository::open(path).context("failed to open git repo")?;
+    let object = repo
+        .revparse_single(rev)
+        .with_context(|| format!("unknown revision: {rev}"))?;
+    let commit = object
+        .peel_to_commit()
+        .with_context(|| format!("revision is not a commit: {rev}"))?;
+
+    let tree = commit.tree()?;
+    let parent_tree = match commit.parent(0) {
+        Ok(parent) => Some(parent.tree()?),
+        Err(_) => None,
+    };
+
+    let diff =
+        repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_options()))?;
+
+    let mut files = Vec::new();
+    let delta_count = diff.deltas().len();
+    for idx in 0..delta_count {
+        let delta = match diff.get_delta(idx) {
+            Some(d) => d,
+            None => continue,
+        };
+        let status = map_delta_status(delta.status());
+        let file_path = delta
+            .new_file()
+            .path()
+            .or_else(|| delta.old_file().path())
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        // Binary files (or unreadable) have no textual patch.
+        let patch = git2::Patch::from_diff(&diff, idx)?;
+        let (added, removed, lines) = match patch {
+            Some(mut patch) => build_diff_lines(&mut patch)?,
+            None => (0, 0, Vec::new()),
+        };
+
+        files.push(DiffFile {
+            path: file_path,
+            status,
+            added,
+            removed,
+            lines,
+        });
+    }
+
+    Ok(CommitDiff {
+        sha: commit.id().to_string(),
+        files,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Diff options shared by history stats and commit-diff rendering.
+fn diff_options() -> git2::DiffOptions {
+    let mut opts = git2::DiffOptions::new();
+    opts.context_lines(3).ignore_whitespace(false);
+    opts
+}
+
+fn map_delta_status(status: git2::Delta) -> DiffFileStatus {
+    match status {
+        git2::Delta::Added | git2::Delta::Copied | git2::Delta::Untracked => DiffFileStatus::Added,
+        git2::Delta::Deleted => DiffFileStatus::Deleted,
+        git2::Delta::Renamed => DiffFileStatus::Renamed,
+        _ => DiffFileStatus::Modified,
+    }
+}
+
+/// Walk a file patch into hunk-header + line rows and count additions/deletions.
+fn build_diff_lines(patch: &mut git2::Patch) -> Result<(usize, usize, Vec<DiffLine>)> {
+    let mut lines = Vec::new();
+    let mut added = 0usize;
+    let mut removed = 0usize;
+
+    for h in 0..patch.num_hunks() {
+        let (hunk, _line_count) = patch.hunk(h)?;
+        let header = String::from_utf8_lossy(hunk.header())
+            .trim_end()
+            .to_string();
+        lines.push(DiffLine {
+            kind: DiffLineKind::Hunk,
+            old_line: None,
+            new_line: None,
+            text: header,
+        });
+
+        let num_lines = patch.num_lines_in_hunk(h)?;
+        for l in 0..num_lines {
+            let line = patch.line_in_hunk(h, l)?;
+            let kind = match line.origin() {
+                '+' => {
+                    added += 1;
+                    DiffLineKind::Added
+                }
+                '-' => {
+                    removed += 1;
+                    DiffLineKind::Removed
+                }
+                _ => DiffLineKind::Context,
+            };
+            let text = String::from_utf8_lossy(line.content())
+                .trim_end_matches(['\n', '\r'])
+                .to_string();
+            lines.push(DiffLine {
+                kind,
+                old_line: line.old_lineno(),
+                new_line: line.new_lineno(),
+                text,
+            });
+        }
+    }
+
+    Ok((added, removed, lines))
+}
 
 fn is_stageable(file_path: &str) -> bool {
     let path = Path::new(file_path);
@@ -655,6 +890,90 @@ mod tests {
         let (_dir, path) = init_test_repo();
         let entries = log(&path, 10).unwrap();
         assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn history_reports_per_commit_stats() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+
+        fs::write(path.join("a.md"), "line1\nline2\n").unwrap();
+        auto_commit(&path, "add a.md").unwrap();
+
+        let entries = history(&path, 10).unwrap();
+        assert_eq!(entries.len(), 2);
+
+        let newest = &entries[0];
+        assert_eq!(newest.subject, "add a.md");
+        assert_eq!(newest.short_sha.len(), 7);
+        assert!(newest.sha.starts_with(&newest.short_sha));
+        assert_eq!(newest.author, "test");
+        assert_eq!(newest.author_email, "test@test.com");
+        assert!(newest.timestamp_secs > 0);
+        assert_eq!(newest.files_changed, 1);
+        assert_eq!(newest.insertions, 2);
+        assert_eq!(newest.deletions, 0);
+    }
+
+    #[test]
+    fn history_empty_repo_returns_empty() {
+        let (_dir, path) = init_test_repo();
+        assert!(history(&path, 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn commit_diff_renders_added_and_removed_lines() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+
+        // Modify the tracked README.md: change one line.
+        fs::write(path.join("README.md"), "# Test\nnew line\n").unwrap();
+        auto_commit(&path, "edit readme").unwrap();
+
+        let head = log(&path, 1).unwrap();
+        let diff = commit_diff(&path, &head[0].sha).unwrap();
+        assert_eq!(diff.sha, head[0].sha);
+
+        let file = diff
+            .files
+            .iter()
+            .find(|f| f.path == "README.md")
+            .expect("README.md in diff");
+        assert!(matches!(file.status, DiffFileStatus::Modified));
+        assert!(file.added >= 1);
+        // The diff must contain at least one hunk header and one added line.
+        assert!(
+            file.lines
+                .iter()
+                .any(|l| matches!(l.kind, DiffLineKind::Hunk))
+        );
+        assert!(
+            file.lines
+                .iter()
+                .any(|l| matches!(l.kind, DiffLineKind::Added) && l.text.contains("new line"))
+        );
+    }
+
+    #[test]
+    fn commit_diff_root_commit_shows_added_file() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+
+        let head = log(&path, 1).unwrap();
+        let diff = commit_diff(&path, &head[0].sha).unwrap();
+        let file = diff
+            .files
+            .iter()
+            .find(|f| f.path == "README.md")
+            .expect("README.md in root diff");
+        assert!(matches!(file.status, DiffFileStatus::Added));
+    }
+
+    #[test]
+    fn commit_diff_unknown_revision_errors() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+        assert!(commit_diff(&path, "deadbeefdeadbeef").is_err());
     }
 
     #[test]

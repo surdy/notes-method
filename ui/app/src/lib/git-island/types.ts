@@ -43,7 +43,15 @@ export interface CommitDiff {
 
 export interface GitHistoryPanelProps {
 	commits: GitLogEntry[];
-	/** Resolve the diff for a commit. In production this calls the daemon/git-core. */
+	/**
+	 * Resolve the diff for a commit from what the host has already loaded.
+	 * Returns `undefined` while the diff is still being fetched.
+	 */
 	diffForCommit: (sha: string) => CommitDiff | undefined;
+	/**
+	 * Notify the host that a commit is selected so it can lazily fetch the diff.
+	 * Fired on the initial selection and on every subsequent selection change.
+	 */
+	onSelectCommit?: (sha: string) => void;
 	initialSelectedSha?: string;
 }

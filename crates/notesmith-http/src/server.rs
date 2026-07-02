@@ -206,6 +206,8 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
         .route("/api/v/{vault}/route/preview", post(route_preview))
         .route("/api/v/{vault}/route/apply", post(route_apply))
         .route("/api/v/{vault}/git/status", get(git_status))
+        .route("/api/v/{vault}/git/log", get(git_log))
+        .route("/api/v/{vault}/git/diff/{sha}", get(git_diff))
         .route("/api/v/{vault}/git/commit", post(git_commit))
         .route("/api/v/{vault}/git/sync", post(git_sync))
         .route(

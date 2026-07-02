@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
 use serde::Deserialize;
@@ -9,6 +9,11 @@ use serde_json::{Value, json};
 use crate::server::SharedAppState;
 
 use super::helpers::internal_error;
+
+/// Default number of commits returned by `git/log` when no limit is given.
+const DEFAULT_LOG_LIMIT: usize = 50;
+/// Upper bound to keep history payloads bounded.
+const MAX_LOG_LIMIT: usize = 500;
 
 pub async fn git_status(
     State(state): State<SharedAppState>,
@@ -31,6 +36,76 @@ pub async fn git_status(
 
     let status = notesmith_git::ops::status(&vault.root).map_err(internal_error)?;
     Ok(Json(serde_json::to_value(status).map_err(internal_error)?))
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct GitLogQuery {
+    /// Maximum number of commits to return (clamped to `MAX_LOG_LIMIT`).
+    pub limit: Option<usize>,
+}
+
+/// Rich commit history with per-commit diff stats, for the git-history UI.
+pub async fn git_log(
+    State(state): State<SharedAppState>,
+    Path(vault_name): Path<String>,
+    Query(query): Query<GitLogQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    if !notesmith_git::ops::is_git_repo(&vault.root) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "vault is not a git repository" })),
+        ));
+    }
+
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_LOG_LIMIT)
+        .clamp(1, MAX_LOG_LIMIT);
+    let root = vault.root.clone();
+    drop(state);
+
+    let entries = notesmith_git::ops::history(&root, limit).map_err(internal_error)?;
+    Ok(Json(serde_json::to_value(entries).map_err(internal_error)?))
+}
+
+/// The full file-level diff of a single commit, for the git-history UI.
+pub async fn git_diff(
+    State(state): State<SharedAppState>,
+    Path((vault_name, sha)): Path<(String, String)>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    if !notesmith_git::ops::is_git_repo(&vault.root) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "vault is not a git repository" })),
+        ));
+    }
+
+    let root = vault.root.clone();
+    drop(state);
+
+    let diff = notesmith_git::ops::commit_diff(&root, &sha).map_err(|_| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("unknown commit: {sha}") })),
+        )
+    })?;
+    Ok(Json(serde_json::to_value(diff).map_err(internal_error)?))
 }
 
 #[derive(Debug, Default, Deserialize)]

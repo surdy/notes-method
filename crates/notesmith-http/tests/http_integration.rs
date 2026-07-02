@@ -3471,3 +3471,103 @@ async fn git_commit_rejected_when_not_a_repo() {
 
     server.server.abort();
 }
+
+#[tokio::test]
+async fn git_log_returns_history_with_stats() {
+    let server = TestServer::with_config_and_files(GIT_ENABLED_CONFIG, &[]).await;
+    init_git_repo(&server.root);
+    write_note(&server.root, "note.md", "# Hello\nworld\n");
+    notesmith_git::ops::commit_all(&server.root, Some("add note"))
+        .unwrap()
+        .expect("commit");
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(server.url("/api/v/test-vault/git/log?limit=10"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let entries = body.as_array().expect("array of entries");
+    assert!(!entries.is_empty());
+    let newest = &entries[0];
+    assert_eq!(newest["subject"], serde_json::json!("add note"));
+    assert!(newest["shortSha"].as_str().unwrap().len() == 7);
+    assert!(newest["filesChanged"].as_u64().unwrap() >= 1);
+    assert!(newest["timestampSecs"].as_i64().unwrap() > 0);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn git_diff_returns_commit_file_changes() {
+    let server = TestServer::with_config_and_files(GIT_ENABLED_CONFIG, &[]).await;
+    init_git_repo(&server.root);
+    write_note(&server.root, "note.md", "# Hello\nworld\n");
+    let outcome = notesmith_git::ops::commit_all(&server.root, Some("add note"))
+        .unwrap()
+        .expect("commit");
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(server.url(&format!("/api/v/test-vault/git/diff/{}", outcome.sha)))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["sha"], serde_json::json!(outcome.sha));
+    let files = body["files"].as_array().expect("files array");
+    let note = files
+        .iter()
+        .find(|f| f["path"] == serde_json::json!("note.md"))
+        .expect("note.md in diff");
+    assert_eq!(note["status"], serde_json::json!("added"));
+    let lines = note["lines"].as_array().unwrap();
+    assert!(lines.iter().any(|l| l["kind"] == serde_json::json!("hunk")));
+    assert!(
+        lines
+            .iter()
+            .any(|l| l["kind"] == serde_json::json!("added"))
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn git_diff_unknown_commit_returns_404() {
+    let server = TestServer::with_config_and_files(GIT_ENABLED_CONFIG, &[]).await;
+    init_git_repo(&server.root);
+    notesmith_git::ops::commit_all(&server.root, Some("seed"))
+        .unwrap()
+        .expect("seed");
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(server.url("/api/v/test-vault/git/diff/deadbeefdeadbeef"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn git_log_rejected_when_not_a_repo() {
+    let server = TestServer::with_config_and_files(GIT_ENABLED_CONFIG, &[]).await;
+    let client = reqwest::Client::new();
+    let response = client
+        .get(server.url("/api/v/test-vault/git/log"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    server.server.abort();
+}

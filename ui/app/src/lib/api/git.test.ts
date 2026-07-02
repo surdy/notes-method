@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { changedFileCount, commitCheckpoint, getGitStatus, type GitStatus } from './git.ts';
+import {
+	changedFileCount,
+	commitCheckpoint,
+	getCommitDiff,
+	getGitLog,
+	getGitStatus,
+	type GitStatus
+} from './git.ts';
 
 function jsonResponse(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), {
@@ -63,5 +70,24 @@ describe('git api client', () => {
 
 		await commitCheckpoint('work', 'manual checkpoint');
 		expect(fetchMock.mock.calls[0][1]!.body).toBe(JSON.stringify({ message: 'manual checkpoint' }));
+	});
+
+	it('getGitLog GETs the log endpoint with a limit', async () => {
+		const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([]));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await getGitLog('work', 25);
+		expect(String(fetchMock.mock.calls[0][0])).toBe('/api/v/work/git/log?limit=25');
+	});
+
+	it('getCommitDiff GETs the diff endpoint for a sha', async () => {
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(jsonResponse({ sha: 'abc123', files: [] }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		const diff = await getCommitDiff('work', 'abc123');
+		expect(String(fetchMock.mock.calls[0][0])).toBe('/api/v/work/git/diff/abc123');
+		expect(diff.sha).toBe('abc123');
 	});
 });

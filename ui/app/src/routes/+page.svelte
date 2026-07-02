@@ -21,6 +21,7 @@
 	import VaultMenu from '$lib/components/VaultMenu.svelte';
 	import VersionBanner from '$lib/components/VersionBanner.svelte';
 	import OpenFolderAsVaultModal from '$lib/components/OpenFolderAsVaultModal.svelte';
+	import GitHistoryModal from '$lib/components/GitHistoryModal.svelte';
 	import { versionMismatch } from '$lib/api/core';
 	import { inputPalette } from '$lib/input-palette.svelte';
 	import { tabStore } from '$lib/tab-store.svelte';
@@ -126,6 +127,7 @@
 	let rightRailRef = $state<{ refresh: () => void } | null>(null);
 	let activeMiddlePaneItem = $state<CustomItem | null>(null);
 	let showOpenFolderModal = $state(false);
+	let showGitHistory = $state(false);
 	let configToastRef = $state<
 		{ show: (message: string, type: 'info' | 'error') => void } | null
 	>(null);
@@ -419,6 +421,7 @@ onClose={() => (activeMiddlePaneItem = null)}
 	currentVault={vaultStore.currentVault}
 	onToast={showConfigToast}
 	restartRequired={Boolean($versionMismatch)}
+	onOpenGitHistory={() => (showGitHistory = true)}
 />
 </div>
 
@@ -443,6 +446,14 @@ onClose={() => (activeMiddlePaneItem = null)}
 
 {#if showOpenFolderModal}
 <OpenFolderAsVaultModal onClose={() => (showOpenFolderModal = false)} />
+{/if}
+
+{#if showGitHistory && vaultStore.currentVault}
+<GitHistoryModal
+	vault={vaultStore.currentVault}
+	onClose={() => (showGitHistory = false)}
+	onToast={showConfigToast}
+/>
 {/if}
 
 <ConfigToast bind:this={configToastRef} />

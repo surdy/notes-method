@@ -1395,6 +1395,65 @@ Returns git working tree status for the vault.
 - `400` — vault is not a git repository
 - `404` — vault not found
 
+### `GET /api/v/{vault}/git/log?limit={n}`
+
+Returns rich commit history (newest first) with per-commit diff stats, for the
+git-history UI. `limit` defaults to 50 and is clamped to 500.
+
+**Response (200):**
+```json
+[
+  {
+    "sha": "9f3a1c4e7b2d...",
+    "shortSha": "9f3a1c4",
+    "author": "surdy",
+    "authorEmail": "surdy@example.com",
+    "timestampSecs": 1782846000,
+    "subject": "notesmith: checkpoint (note-a.md, note-b.md)",
+    "filesChanged": 2,
+    "insertions": 14,
+    "deletions": 3
+  }
+]
+```
+
+**Errors:**
+- `400` — vault is not a git repository
+- `404` — vault not found
+
+### `GET /api/v/{vault}/git/diff/{sha}`
+
+Returns the full file-level diff of a single commit against its first parent
+(or the empty tree for a root commit). `sha` may be a full or abbreviated SHA.
+
+**Response (200):**
+```json
+{
+  "sha": "9f3a1c4e7b2d...",
+  "files": [
+    {
+      "path": "note-a.md",
+      "status": "modified",
+      "added": 9,
+      "removed": 3,
+      "lines": [
+        { "kind": "hunk", "oldLine": null, "newLine": null, "text": "@@ -1,6 +1,9 @@" },
+        { "kind": "context", "oldLine": 1, "newLine": 1, "text": "# Title" },
+        { "kind": "removed", "oldLine": 2, "newLine": null, "text": "old line" },
+        { "kind": "added", "oldLine": null, "newLine": 2, "text": "new line" }
+      ]
+    }
+  ]
+}
+```
+
+- `status` — one of `modified`, `added`, `deleted`, `renamed`.
+- `kind` — one of `context`, `added`, `removed`, `hunk`.
+
+**Errors:**
+- `400` — vault is not a git repository
+- `404` — vault not found, or unknown commit
+
 ### `POST /api/v/{vault}/git/commit`
 
 Stages all changed, stageable files and commits them (a "checkpoint"). Used by

@@ -46,7 +46,13 @@ export type {
 	VaultConfigData
 } from './config.ts';
 
-export { changedFileCount, commitCheckpoint, getGitStatus } from './git.ts';
+export {
+	changedFileCount,
+	commitCheckpoint,
+	getCommitDiff,
+	getGitLog,
+	getGitStatus
+} from './git.ts';
 export type { GitCommitResult, GitStatus } from './git.ts';
 
 export { addVault, listVaults, reindexVault, removeVault, setDefaultVault, updateVault } from './vaults.ts';

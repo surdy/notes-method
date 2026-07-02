@@ -1,4 +1,5 @@
 import { API_BASE, ApiError, apiFetch } from './core.ts';
+import type { CommitDiff, GitLogEntry } from '../git-island/types.ts';
 
 /** Working-tree status for a vault's git repository. */
 export interface GitStatus {
@@ -49,6 +50,28 @@ export async function commitCheckpoint(
 	});
 	if (!res.ok) {
 		throw new ApiError(`Failed to commit: ${res.status}`, res.status);
+	}
+	return res.json();
+}
+
+/** Fetch rich commit history (with per-commit stats) for the git-history UI. */
+export async function getGitLog(vault: string, limit = 50): Promise<GitLogEntry[]> {
+	const res = await apiFetch(
+		`${API_BASE}/api/v/${encodeURIComponent(vault)}/git/log?limit=${limit}`
+	);
+	if (!res.ok) {
+		throw new ApiError(`Failed to load git log: ${res.status}`, res.status);
+	}
+	return res.json();
+}
+
+/** Fetch the full file-level diff for a single commit. */
+export async function getCommitDiff(vault: string, sha: string): Promise<CommitDiff> {
+	const res = await apiFetch(
+		`${API_BASE}/api/v/${encodeURIComponent(vault)}/git/diff/${encodeURIComponent(sha)}`
+	);
+	if (!res.ok) {
+		throw new ApiError(`Failed to load commit diff: ${res.status}`, res.status);
 	}
 	return res.json();
 }
