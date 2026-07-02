@@ -41,6 +41,10 @@ cfg.git.enabled = v;
 })}
 />
 </label>
+<p class="field-hint field-hint--toggle">
+Enabling git initializes a repository in this vault automatically (with a
+minimal <code>.gitignore</code> and an initial commit) if one doesn't exist yet.
+</p>
 <label class="field">
 <span class="field-label">Auto-commit Interval</span>
 <input
@@ -153,6 +157,18 @@ font-size: 11px;
 line-height: 1.5;
 color: var(--text-muted);
 max-width: 400px;
+}
+
+.field-hint--toggle {
+margin: -4px 0 4px;
+}
+
+.field-hint code {
+font-family: var(--font-mono);
+font-size: 10px;
+padding: 1px 4px;
+border-radius: 3px;
+background: var(--bg-secondary);
 }
 
 .subsection-hint code {

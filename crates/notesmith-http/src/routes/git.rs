@@ -174,6 +174,28 @@ pub async fn git_commit(
     }
 }
 
+/// Initialize a git repository for the vault if one does not already exist
+/// (idempotent). Scaffolds a minimal `.gitignore` and makes an initial commit
+/// of existing content. Called automatically when git is enabled via config,
+/// and available as an explicit action.
+pub async fn git_init(
+    State(state): State<SharedAppState>,
+    Path(vault_name): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+    let root = vault.root.clone();
+    drop(state);
+
+    let result = notesmith_git::ops::init_repo(&root).map_err(internal_error)?;
+    Ok(Json(serde_json::to_value(result).map_err(internal_error)?))
+}
+
 pub async fn git_sync(
     State(state): State<SharedAppState>,
     Path(vault_name): Path<String>,

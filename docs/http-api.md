@@ -1395,6 +1395,34 @@ Returns git working tree status for the vault.
 - `400` — vault is not a git repository
 - `404` — vault not found
 
+### `POST /api/v/{vault}/git/init`
+
+Initializes a git repository in the vault if one does not already exist. Idempotent:
+calling it on an existing repository is a no-op. When a new repository is created it
+scaffolds a minimal `.gitignore` (OS cruft only — notes and `.notesmith/` stay tracked)
+and records an initial commit.
+
+Enabling `[git]` in the vault config triggers this automatically (see
+[vault-configuration.md](vault-configuration.md)); this endpoint is available for
+explicit or scripted use.
+
+**Response (200):**
+```json
+{
+  "initialized": true,
+  "alreadyRepo": false,
+  "sha": "9f3a1c4e7b2d..."
+}
+```
+
+- `initialized` — `true` when a new repository was created this call.
+- `alreadyRepo` — `true` when the vault was already a repository (no changes made).
+- `sha` — the initial commit sha when one was created, otherwise `null`.
+
+**Errors:**
+- `404` — vault not found
+- `500` — repository initialization failed
+
 ### `GET /api/v/{vault}/git/log?limit={n}`
 
 Returns rich commit history (newest first) with per-commit diff stats, for the

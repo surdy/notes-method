@@ -243,9 +243,13 @@ and `auto_commit_every`, and leave `auto_pull_every`/`auto_push_every` unset —
 `origin` remote is required. `auto_pull_every` and `auto_push_every` are the only
 fields that talk to a remote (they use `origin`).
 
-Git integration never runs `git init` for you: the vault root must already be a git
-repository, otherwise the timers are skipped with a warning. Initialize it once with
-`git init` in the vault directory.
+Git integration auto-initializes the repository for you: when you set `enabled =
+true` on a vault that isn't a git repository yet, the daemon runs `git init`,
+scaffolds a minimal `.gitignore` (OS cruft only — notes and `.notesmith/` stay
+tracked), and records an initial commit. This happens automatically on save (and is
+idempotent — an existing repository is left untouched). You can also trigger it
+explicitly via `POST /api/v/{vault}/git/init` (see
+[http-api.md](http-api.md)).
 
 ```toml
 [git]

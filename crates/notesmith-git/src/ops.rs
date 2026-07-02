@@ -11,6 +11,21 @@ const STAGEABLE_EXTENSIONS: &[&str] = &[
     "md", "yaml", "yml", "toml", "json", "png", "jpg", "jpeg", "gif", "svg", "pdf",
 ];
 
+/// Exact filenames (no useful extension) we auto-stage for commits.
+const STAGEABLE_FILENAMES: &[&str] = &[".gitignore", ".gitattributes"];
+
+/// Minimal `.gitignore` scaffolded on `init_repo`: OS cruft only. Notes and the
+/// `.notesmith/` config directory stay tracked.
+const DEFAULT_GITIGNORE: &str = "\
+# OS cruft
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+";
+
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
@@ -113,6 +128,16 @@ pub struct CommitOutcome {
     pub files: Vec<String>,
 }
 
+/// Outcome of [`init_repo`]. `already_repo` is true when the vault was already a
+/// git repository (in which case nothing was changed and `sha` is `None`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoInit {
+    pub initialized: bool,
+    pub already_repo: bool,
+    pub sha: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -120,6 +145,40 @@ pub struct CommitOutcome {
 /// Returns `true` if `path` is inside a git repository (has a `.git` directory).
 pub fn is_git_repo(path: &Path) -> bool {
     git2::Repository::open(path).is_ok()
+}
+
+/// Ensure `path` is a git repository, initializing one if needed.
+///
+/// Idempotent: if `path` is already a repo, nothing is changed. Otherwise this
+/// runs `git init`, scaffolds a minimal `.gitignore` (OS cruft only), and makes
+/// an initial commit of the existing note content. Used to make enabling git on
+/// a vault a zero-setup action.
+pub fn init_repo(path: &Path) -> Result<RepoInit> {
+    if is_git_repo(path) {
+        return Ok(RepoInit {
+            initialized: false,
+            already_repo: true,
+            sha: None,
+        });
+    }
+
+    git2::Repository::init(path).context("failed to initialize git repository")?;
+
+    // Scaffold a minimal .gitignore if the vault doesn't already have one.
+    let gitignore = path.join(".gitignore");
+    if !gitignore.exists() {
+        std::fs::write(&gitignore, DEFAULT_GITIGNORE).context("failed to write .gitignore")?;
+    }
+
+    // Initial commit of existing content (notes, config, .gitignore). May be
+    // `None` for a genuinely empty vault, which is fine.
+    let sha = commit_all(path, Some("notesmith: initialize repository"))?.map(|c| c.sha);
+
+    Ok(RepoInit {
+        initialized: true,
+        already_repo: false,
+        sha,
+    })
 }
 
 /// Returns the working-tree status of the repository at `path`.
@@ -706,6 +765,11 @@ fn build_diff_lines(patch: &mut git2::Patch) -> Result<(usize, usize, Vec<DiffLi
 
 fn is_stageable(file_path: &str) -> bool {
     let path = Path::new(file_path);
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if STAGEABLE_FILENAMES.contains(&name) {
+            return true;
+        }
+    }
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| STAGEABLE_EXTENSIONS.contains(&ext))
@@ -922,6 +986,66 @@ mod tests {
     }
 
     #[test]
+    fn init_repo_creates_repo_gitignore_and_initial_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        fs::write(path.join("note.md"), "# Hello\n").unwrap();
+        assert!(!is_git_repo(&path));
+
+        let result = init_repo(&path).unwrap();
+        assert!(result.initialized);
+        assert!(!result.already_repo);
+        assert!(result.sha.is_some(), "expected an initial commit");
+        assert!(is_git_repo(&path));
+
+        let gitignore = fs::read_to_string(path.join(".gitignore")).unwrap();
+        assert!(gitignore.contains(".DS_Store"));
+
+        // The initial commit tracks the note and the .gitignore.
+        let head = log(&path, 1).unwrap();
+        let diff = commit_diff(&path, &head[0].sha).unwrap();
+        let paths: Vec<&str> = diff.files.iter().map(|f| f.path.as_str()).collect();
+        assert!(paths.contains(&"note.md"), "note.md tracked, got {paths:?}");
+        assert!(
+            paths.contains(&".gitignore"),
+            ".gitignore tracked, got {paths:?}"
+        );
+    }
+
+    #[test]
+    fn init_repo_is_idempotent_on_existing_repo() {
+        let (_dir, path) = init_test_repo();
+        make_initial_commit(&path);
+
+        let result = init_repo(&path).unwrap();
+        assert!(!result.initialized);
+        assert!(result.already_repo);
+        assert!(result.sha.is_none());
+    }
+
+    #[test]
+    fn init_repo_preserves_existing_gitignore() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        fs::write(path.join(".gitignore"), "custom-ignore\n").unwrap();
+
+        init_repo(&path).unwrap();
+        let gitignore = fs::read_to_string(path.join(".gitignore")).unwrap();
+        assert_eq!(gitignore, "custom-ignore\n");
+    }
+
+    #[test]
+    fn init_repo_commits_gitignore_for_empty_vault() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+
+        let result = init_repo(&path).unwrap();
+        assert!(result.initialized);
+        // .gitignore is stageable, so even an otherwise-empty vault gets a commit.
+        assert!(result.sha.is_some());
+    }
+
+    #[test]
     fn commit_diff_renders_added_and_removed_lines() {
         let (_dir, path) = init_test_repo();
         make_initial_commit(&path);
@@ -987,6 +1111,12 @@ mod tests {
         assert!(is_stageable("image.jpg"));
         assert!(is_stageable("doc.pdf"));
         assert!(is_stageable("icon.svg"));
+    }
+
+    #[test]
+    fn is_stageable_accepts_git_dotfiles() {
+        assert!(is_stageable(".gitignore"));
+        assert!(is_stageable(".gitattributes"));
     }
 
     #[test]

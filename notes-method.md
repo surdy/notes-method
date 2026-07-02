@@ -145,12 +145,13 @@ For an example of a complete customer-facing work workflow, see `docs/example-wo
 - Opt-in per-vault git sync via `[git]` in `vault.toml` (`enabled`, `auto_commit_every`, `auto_pull_every`, `auto_push_every`, `commit_message`, `commit_on_inactivity`).
 - Auto-commit stages only note-relevant file types (`.md`, `.yaml`, `.yml`, `.toml`, `.json`, images, `.pdf`).
 - Local-only versioning is supported: leave the remote-sync intervals (`auto_pull_every`, `auto_push_every`) empty and only commits happen — no `origin` required.
+- Enabling git auto-initializes the repository: if the vault isn't a git repo yet, saving `enabled = true` runs `git init`, scaffolds a minimal `.gitignore` (OS cruft only; notes and `.notesmith/` stay tracked), and records an initial commit. It is idempotent and also available as `POST /api/v/{vault}/git/init`.
 - Tolaria-style inactivity checkpoints: `commit_on_inactivity` (e.g. `2m`) commits automatically once edits have been idle for that window. The desktop flushes the editor buffer to disk first; a headless daemon timer covers non-desktop clients.
 - When `commit_message` is unset, the message is generated from the changed-file list (e.g. `Update note-a.md, note-b.md and 3 more`).
 - Pull uses fast-forward only — conflicts abort and log a warning instead of attempting resolution.
 - Auto-push always pulls first to minimize conflicts.
 - CLI: `notesmith git {status, pull, push, sync, log}`.
-- HTTP: `GET /api/v/{vault}/git/status`, `GET /api/v/{vault}/git/log`, `GET /api/v/{vault}/git/diff/{sha}`, `POST /api/v/{vault}/git/sync`, `POST /api/v/{vault}/git/commit`.
+- HTTP: `GET /api/v/{vault}/git/status`, `POST /api/v/{vault}/git/init`, `GET /api/v/{vault}/git/log`, `GET /api/v/{vault}/git/diff/{sha}`, `POST /api/v/{vault}/git/sync`, `POST /api/v/{vault}/git/commit`.
 - The desktop status bar shows a changed-files badge when git is enabled; clicking it opens a git-history view (commit list + per-commit diff) with a "Commit now" action.
 - Non-git vaults are completely unaffected.
 

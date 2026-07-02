@@ -3571,3 +3571,82 @@ async fn git_log_rejected_when_not_a_repo() {
 
     server.server.abort();
 }
+
+#[tokio::test]
+async fn git_init_creates_repo_and_is_idempotent() {
+    let server = TestServer::with_config_and_files(GIT_ENABLED_CONFIG, &[]).await;
+    write_note(&server.root, "note.md", "# Hello");
+    assert!(!notesmith_git::ops::is_git_repo(&server.root));
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(server.url("/api/v/test-vault/git/init"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["initialized"], serde_json::json!(true));
+    assert_eq!(body["alreadyRepo"], serde_json::json!(false));
+    assert!(body["sha"].as_str().is_some());
+    assert!(notesmith_git::ops::is_git_repo(&server.root));
+
+    // Second call is a no-op.
+    let again: serde_json::Value = client
+        .post(server.url("/api/v/test-vault/git/init"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(again["initialized"], serde_json::json!(false));
+    assert_eq!(again["alreadyRepo"], serde_json::json!(true));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn enabling_git_via_config_auto_initializes_repo() {
+    // Vault starts without git enabled and without a repo.
+    let server = TestServer::with_files(&[]).await;
+    write_note(&server.root, "note.md", "# Hello");
+    assert!(!notesmith_git::ops::is_git_repo(&server.root));
+
+    let get_body: serde_json::Value = reqwest::get(server.url("/api/v/test-vault/config"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let hash = get_body["hash"].as_str().unwrap();
+
+    let client = reqwest::Client::new();
+    let new_config = serde_json::json!({
+        "name": "test-vault",
+        "capture": { "folder": "Inbox", "template": "generic-note" },
+        "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
+        "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false, "show_line_numbers": true, "hide_duplicate_h1": true, "paste_url_image_whitelist": "" },
+        "git": { "enabled": true },
+        "hooks": {}
+    });
+
+    let response = client
+        .put(server.url("/api/v/test-vault/config"))
+        .header("if-match", format!("\"{hash}\""))
+        .json(&new_config)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["gitInit"]["initialized"], serde_json::json!(true));
+    assert!(
+        notesmith_git::ops::is_git_repo(&server.root),
+        "enabling git should have initialized a repository"
+    );
+
+    server.server.abort();
+}

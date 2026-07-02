@@ -345,11 +345,28 @@ pub async fn put_vault_config(
         )
     })?;
 
+    // Auto-initialize a git repository when git is enabled for a vault that
+    // isn't a repo yet, so enabling versioning is a zero-setup action. Failures
+    // are non-fatal: the config save still succeeds and the outcome is surfaced
+    // in the response.
+    let git_init = if saved_config.git.enabled && !notesmith_git::ops::is_git_repo(&vault.root) {
+        match notesmith_git::ops::init_repo(&vault.root) {
+            Ok(result) => serde_json::to_value(result).ok(),
+            Err(e) => {
+                tracing::warn!(vault = %vault_name, error = %e, "auto git init failed");
+                Some(json!({ "error": e.to_string() }))
+            }
+        }
+    } else {
+        None
+    };
+
     let response_body = json!({
         "config": saved_config,
         "hash": new_hash,
         "path": ".notesmith/vault.toml",
-        "warnings": warnings
+        "warnings": warnings,
+        "gitInit": git_init
     });
 
     Ok(axum::response::Response::builder()
