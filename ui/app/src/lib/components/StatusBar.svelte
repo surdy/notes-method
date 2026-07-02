@@ -4,6 +4,7 @@
 	import SaveIndicator from '$lib/components/SaveIndicator.svelte';
 	import { editorStatus } from '$lib/editor-status.svelte';
 	import { saveQueue, saveState } from '$lib/save-queue';
+	import { gitCheckpoint } from '$lib/git-checkpoint.svelte';
 
 	let {
 		currentVault,
@@ -18,6 +19,25 @@
 	let wordLabel = $derived.by(() =>
 		editorStatus.wordCount === 1 ? '1 word' : `${editorStatus.wordCount} words`
 	);
+
+	let changedLabel = $derived.by(() =>
+		gitCheckpoint.changedCount === 1
+			? '1 changed file'
+			: `${gitCheckpoint.changedCount} changed files`
+	);
+
+	async function handleCheckpointClick() {
+		try {
+			const result = await gitCheckpoint.commitNow();
+			if (result?.committed) {
+				onToast(`Checkpoint committed (${result.files.length} files)`, 'info');
+			} else {
+				onToast('Nothing to commit', 'info');
+			}
+		} catch (err) {
+			onToast(`Checkpoint failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+		}
+	}
 </script>
 
 <div class="status-bar">
@@ -35,6 +55,18 @@
 	<div class="status-center" title={currentVault}>{currentVault || 'No vault selected'}</div>
 
 	<div class="status-right">
+		{#if gitCheckpoint.gitEnabled && gitCheckpoint.changedCount > 0}
+			<button
+				type="button"
+				class="git-badge"
+				disabled={gitCheckpoint.committing}
+				title={`${changedLabel} — click to commit a checkpoint now`}
+				onclick={handleCheckpointClick}
+			>
+				<span class="git-dot" aria-hidden="true"></span>
+				{gitCheckpoint.committing ? 'Committing…' : `${gitCheckpoint.changedCount} changed`}
+			</button>
+		{/if}
 		<span>Ln {editorStatus.line}, Col {editorStatus.col}</span>
 		<span>{wordLabel}</span>
 		<SaveIndicator
@@ -80,5 +112,36 @@
 		gap: 12px;
 		flex-shrink: 0;
 		font-variant-numeric: tabular-nums;
+	}
+
+	.git-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 1px 8px;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-default);
+		border-radius: 4px;
+		color: var(--text-muted);
+		font-size: 12px;
+		font-family: inherit;
+		cursor: pointer;
+	}
+
+	.git-badge:hover:not(:disabled) {
+		color: var(--text-default);
+		border-color: var(--accent);
+	}
+
+	.git-badge:disabled {
+		cursor: default;
+		opacity: 0.7;
+	}
+
+	.git-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--accent);
 	}
 </style>

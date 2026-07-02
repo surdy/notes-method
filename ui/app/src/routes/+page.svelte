@@ -26,6 +26,7 @@
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 	import { settingsStore } from '$lib/settings.svelte';
+	import { gitCheckpoint } from '$lib/git-checkpoint.svelte';
 	import { workspaceChromeLayout } from '$lib/workspace-chrome';
 	import { dockTitle, loadDockSegment, saveDockSegment, type DockSegment } from '$lib/right-dock';
 	import { pushWindowTitle } from '$lib/window-title';
@@ -276,6 +277,14 @@
 		const config = settingsStore.serverConfig;
 		if (config?.appearance) {
 			themeStore.applyFromConfig(config.appearance);
+		}
+	});
+
+	$effect(() => {
+		const vault = vaultStore.currentVault;
+		const git = settingsStore.serverConfig?.git;
+		if (vault && git) {
+			gitCheckpoint.configure(vault, git);
 		}
 	});
 

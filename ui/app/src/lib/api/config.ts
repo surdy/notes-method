@@ -40,6 +40,7 @@ export interface VaultConfigData {
 	git: {
 		enabled: boolean;
 		auto_commit_every?: string | null;
+		commit_on_inactivity?: string | null;
 		auto_pull_every?: string | null;
 		auto_push_every?: string | null;
 		commit_message?: string | null;

@@ -142,12 +142,16 @@ For an example of a complete customer-facing work workflow, see `docs/example-wo
 
 ## Git Integration
 
-- Opt-in per-vault git sync via `[git]` in `vault.toml` (`enabled`, `auto_commit_every`, `auto_pull_every`, `auto_push_every`, `commit_message`).
+- Opt-in per-vault git sync via `[git]` in `vault.toml` (`enabled`, `auto_commit_every`, `auto_pull_every`, `auto_push_every`, `commit_message`, `commit_on_inactivity`).
 - Auto-commit stages only note-relevant file types (`.md`, `.yaml`, `.yml`, `.toml`, `.json`, images, `.pdf`).
+- Local-only versioning is supported: leave the remote-sync intervals (`auto_pull_every`, `auto_push_every`) empty and only commits happen — no `origin` required.
+- Tolaria-style inactivity checkpoints: `commit_on_inactivity` (e.g. `2m`) commits automatically once edits have been idle for that window. The desktop flushes the editor buffer to disk first; a headless daemon timer covers non-desktop clients.
+- When `commit_message` is unset, the message is generated from the changed-file list (e.g. `Update note-a.md, note-b.md and 3 more`).
 - Pull uses fast-forward only — conflicts abort and log a warning instead of attempting resolution.
 - Auto-push always pulls first to minimize conflicts.
 - CLI: `notesmith git {status, pull, push, sync, log}`.
-- HTTP: `GET /api/v/{vault}/git/status`, `POST /api/v/{vault}/git/sync`.
+- HTTP: `GET /api/v/{vault}/git/status`, `POST /api/v/{vault}/git/sync`, `POST /api/v/{vault}/git/commit`.
+- The desktop status bar shows a changed-files badge when git is enabled; clicking it commits a checkpoint immediately.
 - Non-git vaults are completely unaffected.
 
 ## Daemon Diagnostics

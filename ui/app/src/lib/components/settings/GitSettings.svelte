@@ -64,6 +64,22 @@ cfg.git.commit_message = v || null;
 })}
 />
 </label>
+<label class="field">
+<span class="field-label">Inactivity Checkpoint</span>
+<input
+type="text"
+placeholder="e.g. 2m"
+{...textField(markDirty, 'git', cfg.git.commit_on_inactivity, (v) => {
+cfg.git.commit_on_inactivity = v || null;
+})}
+/>
+{#if fieldError('git.commit_on_inactivity')}
+<span class="field-error">{fieldError('git.commit_on_inactivity')}</span>
+{/if}
+<span class="field-hint">
+Commit automatically after this much idle time. Leave empty to disable.
+</span>
+</label>
 <div class="subsection">
 <h3 class="subsection-title">Remote sync (optional)</h3>
 <p class="subsection-hint">
@@ -126,6 +142,13 @@ color: var(--text-default);
 
 .subsection-hint {
 margin: 0;
+font-size: 11px;
+line-height: 1.5;
+color: var(--text-muted);
+max-width: 400px;
+}
+
+.field-hint {
 font-size: 11px;
 line-height: 1.5;
 color: var(--text-muted);

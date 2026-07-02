@@ -46,6 +46,7 @@ import { headingStore } from '$lib/heading-store.svelte';
 import { shouldLoadSelectedNote } from '$lib/note-loading';
 import { isDashboardNote } from '$lib/right-rail';
 import { saveQueue } from '$lib/save-queue';
+import { gitCheckpoint } from '$lib/git-checkpoint.svelte';
 import { settingsStore } from '$lib/settings.svelte';
 import { clearApiError, reportApiError } from '$lib/stores/api-errors.svelte';
 import { tabStore } from '$lib/tab-store.svelte';
@@ -190,6 +191,7 @@ clearApiError();
 if (currentPath) {
 tabStore.markDirty(currentPath, false);
 }
+gitCheckpoint.notifySaved();
 drainOutcomes(externalChangeDedup.recordSavedHash(hash));
 },
 onError: (cause) => {
@@ -204,6 +206,12 @@ drainOutcomes(outcomes);
 setSaveError(cause, 'save-note', () => void retryCurrentSave());
 console.error('Auto-save failed', cause);
 }
+});
+
+gitCheckpoint.registerFlush(async () => {
+	if (view) {
+		await autoSave.flush(view.state.doc.toString());
+	}
 });
 
 function destroyEditor() {
@@ -360,6 +368,7 @@ EditorView.updateListener.of((update) => {
 		if (currentPath) {
 			tabStore.markDirty(currentPath, true);
 		}
+		gitCheckpoint.activity();
 		autoSave.schedule(update.state.doc.toString());
 		scheduleWordCountUpdate();
 		clearHeadingTimer();

@@ -28,6 +28,8 @@ setter: (v: string) => void
 return {
 value: value ?? '',
 autocapitalize: 'off' as const,
+autocorrect: 'off' as const,
+spellcheck: false,
 oninput(e: Event) {
 setter((e.target as HTMLInputElement).value);
 markDirty(section);
