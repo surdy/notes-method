@@ -58,9 +58,13 @@ it **great tools and great context**, which is simpler and benefits any current 
 future ACP agent for free.
 
 **The one asterisk:** semantic retrieval needs an **embeddings** model. That is an
-embeddings model (text → vector), *not* a chat LLM, and it runs daemon-side to back
-the `vault_search` MCP tool. It is the only model Notesmith itself runs. (See backlog
-note below.)
+embeddings model (text → vector), *not* a chat LLM, and it backs the `vault_search`
+MCP tool. It is the only model Notesmith itself runs. **This embeddings-backend
+decision is now resolved by [ADR 0018](0018-embedding-and-vector-search.md)**, which
+refines the original "daemon-side" assumption: embedding runs in a **colocated
+worker process** that owns its own vector store, which the daemon reads (placement
+"B"), rather than inside the daemon itself. See [ADR 0019](0019-media-ingestion-pipeline.md)
+for the media-ingestion side that motivated that scale-driven refinement.
 
 A secondary principle for the target user: **every feature ships with a working
 default and a config escape hatch** — no API key, no setup required by default.
@@ -79,9 +83,10 @@ Impact 🟥 high / 🟧 med / 🟦 nice. Effort S/M/L.
 
 Sequencing rationale: P1 first — almost entirely client-side, no daemon work, and
 the biggest visible "it's a notes assistant now" jump. P2 (RAG) is the first *Large*
-lift and the "second brain" payoff but is **deferred** with the rest of retrieval
-pending the embeddings-backend decision. P3 is modular; P4 monetises Notesmith's
-*structural* advantages (CLI, MCP, customization dirs).
+lift and the "second brain" payoff. Its embeddings-backend blocker is now
+**resolved by [ADR 0018](0018-embedding-and-vector-search.md)** (see the asterisk
+above); remaining P2 work is implementation, not architecture. P3 is modular; P4
+monetises Notesmith's *structural* advantages (CLI, MCP, customization dirs).
 
 ### Active vs. backlog (this iteration)
 
@@ -95,9 +100,12 @@ dependencies:
 - **Backlog (13 issues):** **all of P2** (#198–#202) and **all of P3** (#203–#208),
   plus **P4** Projects (#213) and Terminal (#214).
 
-**Why P2 and P3 are backlogged:** both lean on a bundled/downloaded local model —
+**Why P2 and P3 were backlogged:** both lean on a bundled/downloaded local model —
 *embeddings* for retrieval (P2) and *Whisper* for voice/meeting transcription (P3) —
-which adds binary size and a runtime-selection decision we are not taking on now.
+which adds binary size and a runtime-selection decision. **The embeddings decision is
+now made ([ADR 0018](0018-embedding-and-vector-search.md)); the ingestion/Whisper
+side is scoped by [ADR 0019](0019-media-ingestion-pipeline.md)**, so P2/P3 are now
+architecture-unblocked and gated only by implementation scheduling.
 `time_query` (#200) and `vault_stats` (#202) are embedding-independent and may be
 promoted to active without the embeddings backend.
 
@@ -144,4 +152,6 @@ renders **note** templates and is **not** reused for prompt variables in this sl
 - [ADR 0012 — Agent Transport: ACP + stdio/HTTP MCP](0012-agent-transport-acp-mcp.md)
 - [ADR 0013 — Agent Discovery & Diagnostics](0013-agent-discovery-and-diagnostics.md)
 - [ADR 0009 — Resilience to Malformed Content](0009-resilience-to-malformed-content.md)
+- [ADR 0018 — Embedding & Vector Search Architecture](0018-embedding-and-vector-search.md)
+- [ADR 0019 — Media Ingestion Pipeline](0019-media-ingestion-pipeline.md)
 - Agent Client Protocol: https://agentclientprotocol.com
