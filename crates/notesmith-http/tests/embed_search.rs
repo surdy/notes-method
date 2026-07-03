@@ -7,8 +7,7 @@
 use std::sync::Arc;
 
 use notesmith_core::types::{VaultName, VaultPath};
-use notesmith_embed::{EmbeddingStore, HashEmbedder};
-use notesmith_http::embed_search::{EmbeddingSearch, MetaFilter};
+use notesmith_embed::{EmbeddingSearch, EmbeddingStore, HashEmbedder, MetaFilter};
 use notesmith_index::VaultCache;
 use tempfile::TempDir;
 

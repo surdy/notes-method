@@ -20,7 +20,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
-use notesmith_embed::{BruteForceStore, ChunkRef, Embedder, EmbeddingStore, Filter, VectorStore};
+use crate::{BruteForceStore, ChunkRef, Embedder, EmbeddingStore, Filter, VectorStore};
 use rusqlite::{Connection, OpenFlags};
 
 /// Errors from constructing or running an [`EmbeddingSearch`].
@@ -29,7 +29,7 @@ pub enum EmbeddingSearchError {
     #[error("embeddings sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error("embed store error: {0}")]
-    Store(#[from] notesmith_embed::EmbedError),
+    Store(#[from] crate::EmbedError),
     #[error(
         "query embedder '{query}' does not match the store's '{store}'; \
          re-embed the vault or use the matching model"
