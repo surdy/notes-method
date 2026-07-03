@@ -57,6 +57,22 @@ pub fn run_embed_pass(
     Ok(worker.run()?)
 }
 
+/// Record today's `embed_metrics` trend row (#244): current vector count, the
+/// on-disk `embeddings.db` size, and the rolling p95 search latency for this
+/// vault. Keyed by calendar date so repeated passes in a day update in place.
+/// Best-effort — a failure here must never abort an embed pass.
+pub fn record_daily_trend(vault_name: &str, db_path: &Path) -> anyhow::Result<()> {
+    let store = EmbeddingStore::open(db_path)?;
+    let vector_count = store.chunk_count(vault_name)?;
+    let db_bytes = std::fs::metadata(db_path)
+        .map(|m| m.len() as i64)
+        .unwrap_or(0);
+    let (_p50, p95) = notesmith_embed::metrics_for(vault_name).percentiles();
+    let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    store.record_daily_metric(&date, vault_name, vector_count, db_bytes, p95)?;
+    Ok(())
+}
+
 /// Build the daemon's embedder. Feature-gated: real model with `local-embed`,
 /// otherwise a placeholder.
 /// Build the canonical embedder (delegates to [`notesmith_embed::default_embedder`]
@@ -126,6 +142,13 @@ pub async fn start_embed_workers(state: SharedAppState) -> EmbedSchedulers {
                                 "embed pass complete"
                             );
                         }
+                        if let Err(error) = record_daily_trend(&vault_name_inner, &db_path) {
+                            tracing::warn!(
+                                vault = %vault_name_inner,
+                                reason = %error,
+                                "could not record embed_metrics trend row"
+                            );
+                        }
                     }
                     Err(error) => {
                         tracing::warn!(
@@ -165,6 +188,25 @@ mod tests {
         let report2 = run_embed_pass("sched-test", vault.path(), &db_path, &embedder).unwrap();
         assert_eq!(report2.embedded, 0);
         assert_eq!(report2.skipped, 1);
+    }
+
+    #[test]
+    fn record_daily_trend_writes_a_row() {
+        let data = TempDir::new().unwrap();
+        let db_path = data.path().join("embeddings.db");
+        let vault = TempDir::new().unwrap();
+        std::fs::write(vault.path().join("a.md"), "# A\n\ntrend content").unwrap();
+
+        let embedder = HashEmbedder::new(64);
+        run_embed_pass("trend-test", vault.path(), &db_path, &embedder).unwrap();
+
+        record_daily_trend("trend-test", &db_path).unwrap();
+        let store = EmbeddingStore::open(&db_path).unwrap();
+        assert_eq!(store.metric_row_count().unwrap(), 1);
+
+        // Re-recording the same day replaces (upsert by date), not appends.
+        record_daily_trend("trend-test", &db_path).unwrap();
+        assert_eq!(store.metric_row_count().unwrap(), 1);
     }
 
     #[test]

@@ -99,7 +99,14 @@ impl EmbeddingStore {
                     PRIMARY KEY (vault_name, path, chunk_id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(vault_name, path);
-                CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(vault_name, path, content_hash);",
+                CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(vault_name, path, content_hash);
+                CREATE TABLE IF NOT EXISTS embed_metrics (
+                    date         TEXT PRIMARY KEY,
+                    vault_name   TEXT NOT NULL,
+                    vector_count INTEGER NOT NULL,
+                    db_bytes     INTEGER NOT NULL,
+                    p95_ms       REAL NOT NULL
+                );",
             )?;
 
             conn.execute(
@@ -192,6 +199,37 @@ impl EmbeddingStore {
                 [vault_name],
                 |row| row.get::<_, i64>(0),
             )?;
+            Ok(count)
+        })
+    }
+
+    /// Append (or replace) today's `embed_metrics` trend row (#244). Keyed by
+    /// `date` so a busy day updates in place and quiet days still get a row via
+    /// the daily job's synthetic query.
+    pub fn record_daily_metric(
+        &self,
+        date: &str,
+        vault_name: &str,
+        vector_count: i64,
+        db_bytes: i64,
+        p95_ms: f64,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO embed_metrics \
+                 (date, vault_name, vector_count, db_bytes, p95_ms) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![date, vault_name, vector_count, db_bytes, p95_ms],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// The number of `embed_metrics` trend rows recorded so far.
+    pub fn metric_row_count(&self) -> Result<i64> {
+        self.with_conn(|conn| {
+            let count =
+                conn.query_row("SELECT COUNT(*) FROM embed_metrics", [], |row| row.get(0))?;
             Ok(count)
         })
     }

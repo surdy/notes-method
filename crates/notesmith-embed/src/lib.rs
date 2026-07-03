@@ -17,6 +17,7 @@
 mod bench;
 mod chunker;
 mod embedder;
+mod metrics;
 mod paths;
 mod search;
 mod store;
@@ -29,6 +30,7 @@ pub use bench::{
 };
 pub use chunker::{ChunkSpan, ChunkerOptions, chunk_note};
 pub use embedder::{Embedder, HashEmbedder, default_embedder};
+pub use metrics::{SearchMetrics, SearchSample, metrics_for};
 pub use paths::{data_dir, embeddings_db_path, sanitize_vault_name};
 pub use search::{EmbeddingSearch, EmbeddingSearchError, MetaFilter, ScoredChunk};
 pub use store::{EmbeddingStore, SCHEMA_VERSION};

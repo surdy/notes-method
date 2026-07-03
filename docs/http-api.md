@@ -580,6 +580,52 @@ Title matches are boosted 2× over body matches. Snippets contain HTML `<b>` tag
 
 ---
 
+## Embeddings
+
+### `GET /api/v/{vault}/embeddings/stats`
+
+Observability for a vault's embedding index (ADR 0018, issue #244). Reports the
+scaling signals from [`docs/embeddings/05-scaling-and-monitoring.md`](embeddings/05-scaling-and-monitoring.md)
+— vector count, on-disk size, and rolling search latency — so you can decide when
+to move from the brute-force SQLite store to LanceDB.
+
+Reads `embeddings.db` read-only plus the in-process metrics registry. A vault
+that has never been embedded reports an empty-but-valid index (zero vectors),
+not an error.
+
+**Response:** `200 OK`
+```json
+{
+  "vector_count": 1842,
+  "db_bytes": 3145728,
+  "dim": 384,
+  "embedder_id": "bge-small-en-v1.5",
+  "p50_ms": 12.4,
+  "p95_ms": 31.8,
+  "sample_count": 128,
+  "last_ingest_at": 1731000000
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `vector_count` | integer | Stored chunk vectors for this vault |
+| `db_bytes` | integer | Size of `embeddings.db` on disk |
+| `dim` | integer \| null | Vector dimensionality (null if never embedded) |
+| `embedder_id` | string \| null | Model that produced the vectors (null if never embedded) |
+| `p50_ms` / `p95_ms` | number | Rolling search latency percentiles over the recent query window |
+| `sample_count` | integer | Number of latency samples backing the percentiles |
+| `last_ingest_at` | integer \| null | Unix seconds of the last `embeddings.db` write |
+
+**Errors:** `404 Not Found` if the vault does not exist.
+
+**Example:**
+```bash
+curl http://127.0.0.1:27183/api/v/work/embeddings/stats
+```
+
+---
+
 ## SQL Query
 
 ### `POST /api/v/{vault}/query/sql`

@@ -4,6 +4,7 @@ pub mod capture;
 pub mod config;
 pub mod customizations;
 pub mod daily;
+pub mod embeddings;
 pub mod events;
 pub mod fields;
 pub mod git;

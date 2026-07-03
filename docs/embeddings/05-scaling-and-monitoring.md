@@ -43,12 +43,12 @@ Filtered searches can stay fast much longer because metadata prefiltering reduce
 
 ## Instrumentation
 
-This should become an implementation issue.
+Implemented in issue #244.
 
-Tracing span:
+Tracing span (emitted per vector search):
 
 ```text
-INFO stage=vector_search n_vectors=... k=... duration_ms=...
+INFO stage=vector_search n_vectors=... k=... filtered=... duration_ms=...
 ```
 
 Stats endpoint:
@@ -57,30 +57,39 @@ Stats endpoint:
 GET /api/v/{vault}/embeddings/stats
 ```
 
-Response shape:
+Response shape (see `docs/http-api.md`):
 
 ```json
 {
   "vector_count": 35000,
   "db_bytes": 125000000,
+  "dim": 384,
+  "embedder_id": "bge-small-en-v1.5",
   "p50_ms": 42,
   "p95_ms": 118,
-  "last_ingest_at": "2026-07-02T22:58:57Z"
+  "sample_count": 128,
+  "last_ingest_at": 1751497137
 }
 ```
 
-Daily trend table:
+`last_ingest_at` is Unix seconds of the last `embeddings.db` write. `p50_ms`/
+`p95_ms` are computed from an in-process rolling window (last 256 searches) per
+vault.
+
+Daily trend table (in `embeddings.db`):
 
 ```sql
 CREATE TABLE embed_metrics(
-  date TEXT PRIMARY KEY,
-  count INTEGER NOT NULL,
-  bytes INTEGER NOT NULL,
-  p95_ms REAL NOT NULL
+  date         TEXT PRIMARY KEY,
+  vault_name   TEXT NOT NULL,
+  vector_count INTEGER NOT NULL,
+  db_bytes     INTEGER NOT NULL,
+  p95_ms       REAL NOT NULL
 );
 ```
 
-A daily job should append one row and run one synthetic benchmark query. That gives a trend line instead of one-off guesses.
+The embed scheduler appends (upserts by `date`) one row after each pass, giving
+a trend line instead of one-off guesses.
 
 ## Benchmark harness
 

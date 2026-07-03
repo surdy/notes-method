@@ -75,6 +75,8 @@ pub struct EmbeddingSearch {
     /// so the searcher is `Sync` and can be shared across daemon requests.
     filter_conn: std::sync::Mutex<Connection>,
     has_index: bool,
+    /// Shared rolling-window latency metrics for this vault (#244).
+    metrics: std::sync::Arc<crate::SearchMetrics>,
 }
 
 impl EmbeddingSearch {
@@ -87,6 +89,7 @@ impl EmbeddingSearch {
         embedder: Arc<dyn Embedder>,
     ) -> Result<Self, EmbeddingSearchError> {
         let vault_name = vault_name.into();
+        let metrics = crate::metrics_for(&vault_name);
         let store = Arc::new(EmbeddingStore::open_read_only(embeddings_db_path)?);
 
         // Fail loudly if the query embedder disagrees with the stored model.
@@ -127,6 +130,7 @@ impl EmbeddingSearch {
             embedder,
             filter_conn: std::sync::Mutex::new(filter_conn),
             has_index,
+            metrics,
         })
     }
 
@@ -157,6 +161,14 @@ impl EmbeddingSearch {
         }
 
         let allowed_paths = self.resolve_allowed_paths(filter)?;
+        let filtered = allowed_paths.is_some();
+        let n_vectors = self
+            .ranker
+            .store()
+            .chunk_count(&self.vault_name)
+            .unwrap_or(0) as usize;
+
+        let started = std::time::Instant::now();
         let hits = self.ranker.search(
             &qvec,
             &Filter {
@@ -165,6 +177,14 @@ impl EmbeddingSearch {
             },
             k,
         )?;
+        // Instrument the vector-search step only (ADR 0018 §5, #244).
+        self.metrics.record(crate::SearchSample {
+            n_vectors,
+            k,
+            filtered,
+            duration_ms: started.elapsed().as_secs_f64() * 1000.0,
+        });
+
         Ok(hits
             .into_iter()
             .map(|(chunk, distance)| ScoredChunk { chunk, distance })
