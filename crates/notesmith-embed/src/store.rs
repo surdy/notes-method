@@ -249,6 +249,35 @@ impl EmbeddingStore {
         })
     }
 
+    /// Insert-or-replace individual chunks without first clearing the note.
+    /// Callers that want clean per-note replacement should use
+    /// [`Self::replace_note_chunks`]; this is the lower-level `VectorStore::upsert`
+    /// primitive keyed on the `(vault_name, path, chunk_id)` PK.
+    pub fn upsert_chunks(&self, chunks: &[Chunk]) -> Result<()> {
+        self.with_conn(|conn| {
+            for chunk in chunks {
+                conn.execute(
+                    "INSERT OR REPLACE INTO chunks
+                     (vault_name, path, chunk_id, char_start, char_end,
+                      media_ts_start, media_ts_end, content_hash, vector)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    rusqlite::params![
+                        chunk.vault_name,
+                        chunk.path,
+                        chunk.chunk_id,
+                        chunk.char_start,
+                        chunk.char_end,
+                        chunk.media_ts_start,
+                        chunk.media_ts_end,
+                        chunk.content_hash,
+                        vector_to_blob(&chunk.vector),
+                    ],
+                )?;
+            }
+            Ok(())
+        })
+    }
+
     /// Delete all chunks for a note path (e.g. the note was removed).
     pub fn delete_note(&self, vault_name: &str, path: &str) -> Result<()> {
         self.with_conn(|conn| {

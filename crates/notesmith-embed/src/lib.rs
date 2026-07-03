@@ -15,8 +15,10 @@
 //! continues. No path panics on untrusted `.md` content.
 
 mod store;
+mod vector;
 
 pub use store::{EmbeddingStore, SCHEMA_VERSION};
+pub use vector::{BruteForceStore, ChunkRef, Filter, VectorStore};
 
 /// Errors returned across the embed crate.
 #[derive(Debug, thiserror::Error)]
