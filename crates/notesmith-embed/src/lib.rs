@@ -14,13 +14,17 @@
 //! rather than fail: a bad note is skipped with a `WARN` and the batch
 //! continues. No path panics on untrusted `.md` content.
 
+mod chunker;
 mod embedder;
 mod store;
 mod vector;
+mod worker;
 
+pub use chunker::{ChunkSpan, ChunkerOptions, chunk_note};
 pub use embedder::{Embedder, HashEmbedder};
 pub use store::{EmbeddingStore, SCHEMA_VERSION};
 pub use vector::{BruteForceStore, ChunkRef, Filter, VectorStore};
+pub use worker::{EmbedWorker, WorkerReport};
 
 #[cfg(feature = "local-embed")]
 pub use embedder::LocalFastEmbed;

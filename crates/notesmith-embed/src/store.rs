@@ -222,12 +222,13 @@ impl EmbeddingStore {
         chunks: &[Chunk],
     ) -> Result<()> {
         self.with_conn(|conn| {
-            conn.execute(
+            let tx = conn.unchecked_transaction()?;
+            tx.execute(
                 "DELETE FROM chunks WHERE vault_name = ?1 AND path = ?2",
                 rusqlite::params![vault_name, path],
             )?;
             for chunk in chunks {
-                conn.execute(
+                tx.execute(
                     "INSERT OR REPLACE INTO chunks
                      (vault_name, path, chunk_id, char_start, char_end,
                       media_ts_start, media_ts_end, content_hash, vector)
@@ -245,6 +246,7 @@ impl EmbeddingStore {
                     ],
                 )?;
             }
+            tx.commit()?;
             Ok(())
         })
     }
