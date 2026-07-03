@@ -39,6 +39,7 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `append_to_note` | `path`, `content` |
 | `archive_note` | `path` |
 | `search_notes` | `query`, `limit?` |
+| `vault_search` | `query`, `limit?` |
 | `query_sql` | `sql` |
 | `list_notes` | `type?`, `customer?`, `archived?` |
 | `list_tasks` | `status?`, `customer?` |
@@ -54,6 +55,20 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `note:///{vault-path}` | Read an individual note |
 | `note:///daily/{date}` | Read a daily note by date |
 | `note:///vault/structure` | List all note paths in the vault |
+
+### `vault_search` vs `search_notes`
+
+`search_notes` is pure lexical (Tantivy/BM25) full-text search. `vault_search`
+is **hybrid**: it blends the lexical ranking with semantic (embedding) similarity
+using Reciprocal Rank Fusion (RRF, ADR 0018 §8) and returns note references with
+a `path` and `snippet` for grounding/citation, plus the `lexical_rank` and
+`semantic_rank` that contributed each hit. Until the embed worker has produced a
+vault's `embeddings.db`, `vault_search` transparently degrades to lexical-only.
+
+> **Cloud embeddings** (higher-quality retrieval via a hosted model) are a
+> planned config override and are tracked separately as deferred work; the
+> default is the local embedding model.
+
 
 ## Claude Desktop example
 

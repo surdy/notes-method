@@ -59,22 +59,10 @@ pub fn run_embed_pass(
 
 /// Build the daemon's embedder. Feature-gated: real model with `local-embed`,
 /// otherwise a placeholder.
-#[cfg(feature = "local-embed")]
-pub fn make_embedder() -> anyhow::Result<Box<dyn Embedder>> {
-    let cache = notesmith_embed::data_dir()?.join("models");
-    Ok(Box::new(notesmith_embed::LocalFastEmbed::bge_small(
-        &cache,
-    )?))
-}
-
-/// Build the daemon's embedder (placeholder when `local-embed` is disabled).
-#[cfg(not(feature = "local-embed"))]
-pub fn make_embedder() -> anyhow::Result<Box<dyn Embedder>> {
-    tracing::warn!(
-        "the `local-embed` feature is disabled; the daemon is using a non-semantic \
-         HashEmbedder placeholder. Rebuild with `--features local-embed` for real embeddings."
-    );
-    Ok(Box::new(notesmith_embed::HashEmbedder::default()))
+/// Build the canonical embedder (delegates to [`notesmith_embed::default_embedder`]
+/// so the worker and the daemon's query-time embedding always agree).
+pub fn make_embedder() -> anyhow::Result<std::sync::Arc<dyn Embedder>> {
+    Ok(notesmith_embed::default_embedder()?)
 }
 
 /// Spawn and supervise a per-vault embed worker for every configured vault.

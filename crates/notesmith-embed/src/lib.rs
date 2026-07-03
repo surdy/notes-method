@@ -23,7 +23,7 @@ mod vector;
 mod worker;
 
 pub use chunker::{ChunkSpan, ChunkerOptions, chunk_note};
-pub use embedder::{Embedder, HashEmbedder};
+pub use embedder::{Embedder, HashEmbedder, default_embedder};
 pub use paths::{data_dir, embeddings_db_path, sanitize_vault_name};
 pub use search::{EmbeddingSearch, EmbeddingSearchError, MetaFilter, ScoredChunk};
 pub use store::{EmbeddingStore, SCHEMA_VERSION};

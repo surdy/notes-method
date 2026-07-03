@@ -7,7 +7,7 @@
 
 use clap::Args;
 use notesmith_config::GlobalConfig;
-use notesmith_embed::{EmbedWorker, Embedder, EmbeddingStore};
+use notesmith_embed::{EmbedWorker, EmbeddingStore, default_embedder};
 
 use crate::commands::vault::OutputFormat;
 
@@ -22,7 +22,7 @@ impl EmbedCommand {
         format: OutputFormat,
     ) -> anyhow::Result<()> {
         let vault_names = resolve_vault_names(global_config, explicit_vault)?;
-        let embedder = make_embedder()?;
+        let embedder = default_embedder()?;
         let mut reports = Vec::new();
 
         for vault_name in vault_names {
@@ -68,22 +68,6 @@ impl EmbedCommand {
 
         Ok(())
     }
-}
-
-#[cfg(feature = "local-embed")]
-fn make_embedder() -> anyhow::Result<Box<dyn Embedder>> {
-    let cache = notesmith_embed::data_dir()?.join("models");
-    let embedder = notesmith_embed::LocalFastEmbed::bge_small(&cache)?;
-    Ok(Box::new(embedder))
-}
-
-#[cfg(not(feature = "local-embed"))]
-fn make_embedder() -> anyhow::Result<Box<dyn Embedder>> {
-    tracing::warn!(
-        "the `local-embed` feature is disabled; using a non-semantic HashEmbedder placeholder. \
-         Rebuild with `--features local-embed` for real semantic embeddings."
-    );
-    Ok(Box::new(notesmith_embed::HashEmbedder::default()))
 }
 
 fn resolve_vault_names(

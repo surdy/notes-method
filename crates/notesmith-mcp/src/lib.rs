@@ -211,6 +211,22 @@ impl NotesmithMcp {
                 }),
             ),
             tool_definition(
+                "vault_search",
+                "Hybrid search: blends lexical (full-text) and semantic \
+                 (embedding) ranking via reciprocal rank fusion. Returns note \
+                 references with a path and snippet for grounding/citation. \
+                 Degrades to lexical-only until embeddings are available.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "limit": {"type": "integer", "minimum": 1}
+                    },
+                    "required": ["query"],
+                    "additionalProperties": false
+                }),
+            ),
+            tool_definition(
                 "query_sql",
                 "Execute read-only SQL against the vault cache",
                 json!({
@@ -402,6 +418,10 @@ impl ServerHandler for NotesmithMcp {
             "search_notes" => self
                 .handle_tool_call::<SearchNotesParams, _>(request.arguments, |params| {
                     self.ops.search_notes(&params.query, params.limit)
+                }),
+            "vault_search" => self
+                .handle_tool_call::<SearchNotesParams, _>(request.arguments, |params| {
+                    self.ops.vault_search(&params.query, params.limit)
                 }),
             "query_sql" => self
                 .handle_tool_call::<QuerySqlParams, _>(request.arguments, |params| {
@@ -631,6 +651,32 @@ mod tests {
     }
 
     #[test]
+    fn test_vault_search_lexical_fallback() {
+        // With no embeddings.db present, vault_search degrades to lexical-only
+        // but still returns hybrid-shaped hits (path + snippet + ranks).
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "Inbox/Launch Plan.md",
+            "---\ntype: note\n---\nDiscuss launch timeline",
+        );
+        write_note(
+            temp_dir.path(),
+            "Inbox/Other.md",
+            "---\ntype: note\n---\nUnrelated",
+        );
+        let mcp = build_test_mcp(temp_dir.path());
+
+        let results = mcp.ops().vault_search("launch", Some(10)).unwrap();
+        let results = results.as_array().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["path"], "Inbox/Launch Plan.md");
+        assert!(results[0].get("snippet").is_some());
+        assert_eq!(results[0]["lexical_rank"], 1);
+        assert!(results[0]["semantic_rank"].is_null());
+    }
+
+    #[test]
     fn ensure_structured_object_wraps_non_objects() {
         // MCP requires structuredContent to be a JSON object; arrays/scalars
         // are wrapped so strict clients (e.g. Copilot) don't reject the result.
@@ -707,7 +753,8 @@ mod tests {
         let mcp = build_test_mcp(temp_dir.path());
 
         let tools = mcp.registered_tools();
-        assert_eq!(tools.len(), 13);
+        assert_eq!(tools.len(), 14);
+        assert!(tools.iter().any(|t| t.name == "vault_search"));
     }
 
     #[test]

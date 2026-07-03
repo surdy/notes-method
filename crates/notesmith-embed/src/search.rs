@@ -71,8 +71,9 @@ pub struct EmbeddingSearch {
     embedder: Arc<dyn Embedder>,
     dim: usize,
     /// Separate read-only connection with the note index ATTACHed (if present),
-    /// used only to resolve metadata filters to a path set.
-    filter_conn: Connection,
+    /// used only to resolve metadata filters to a path set. Wrapped in a mutex
+    /// so the searcher is `Sync` and can be shared across daemon requests.
+    filter_conn: std::sync::Mutex<Connection>,
     has_index: bool,
 }
 
@@ -124,7 +125,7 @@ impl EmbeddingSearch {
             ranker: BruteForceStore::new(store),
             dim: embedder.dim(),
             embedder,
-            filter_conn,
+            filter_conn: std::sync::Mutex::new(filter_conn),
             has_index,
         })
     }
@@ -182,6 +183,10 @@ impl EmbeddingSearch {
         }
 
         let mut paths = HashSet::new();
+        let conn = self
+            .filter_conn
+            .lock()
+            .expect("embedding search filter connection poisoned");
 
         match (&filter.tag, self.has_index) {
             (Some(tag), true) => {
@@ -195,7 +200,7 @@ impl EmbeddingSearch {
                 if filter.path_prefix.is_some() {
                     sql.push_str(" AND c.path LIKE ?3 || '%'");
                 }
-                let mut stmt = self.filter_conn.prepare(&sql)?;
+                let mut stmt = conn.prepare(&sql)?;
                 let rows = if let Some(prefix) = &filter.path_prefix {
                     stmt.query_map(rusqlite::params![self.vault_name, tag, prefix], |r| {
                         r.get::<_, String>(0)
@@ -216,7 +221,7 @@ impl EmbeddingSearch {
             (None, _) => {
                 // Path-prefix only: query embeddings.db directly.
                 let prefix = filter.path_prefix.as_deref().unwrap_or("");
-                let mut stmt = self.filter_conn.prepare(
+                let mut stmt = conn.prepare(
                     "SELECT DISTINCT path FROM chunks \
                      WHERE vault_name = ?1 AND path LIKE ?2 || '%'",
                 )?;

@@ -3035,6 +3035,7 @@ dependencies = [
  "chrono",
  "notesmith-config",
  "notesmith-core",
+ "notesmith-embed",
  "notesmith-index",
  "notesmith-query",
  "notesmith-routing",
@@ -3046,6 +3047,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]

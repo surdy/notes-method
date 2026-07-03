@@ -153,6 +153,32 @@ impl Embedder for LocalFastEmbed {
     }
 }
 
+/// Build the canonical query/worker embedder.
+///
+/// Both the embed worker and the daemon's query-time embedding must use the
+/// *same* model, or the stored `embedder_id`/`dim` will not match and searches
+/// will fail loudly ([`EmbeddingSearch`](crate::EmbeddingSearch)). Centralising
+/// construction here keeps the worker and the daemon in lockstep.
+///
+/// With the `local-embed` feature this is a real `fastembed` model; otherwise it
+/// is the non-semantic [`HashEmbedder`] placeholder so lean/offline builds and
+/// `cargo test` keep working.
+#[cfg(feature = "local-embed")]
+pub fn default_embedder() -> Result<std::sync::Arc<dyn Embedder>> {
+    let cache = crate::data_dir()?.join("models");
+    Ok(std::sync::Arc::new(LocalFastEmbed::bge_small(&cache)?))
+}
+
+/// See [`default_embedder`]. Placeholder build (no `local-embed`).
+#[cfg(not(feature = "local-embed"))]
+pub fn default_embedder() -> Result<std::sync::Arc<dyn Embedder>> {
+    tracing::warn!(
+        "the `local-embed` feature is disabled; using a non-semantic HashEmbedder \
+         placeholder. Rebuild with `--features local-embed` for real embeddings."
+    );
+    Ok(std::sync::Arc::new(HashEmbedder::default()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

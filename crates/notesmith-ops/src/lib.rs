@@ -26,6 +26,9 @@ use rusqlite::{Connection, params};
 use serde_json::{Map, Value, json};
 use serde_yaml::{Mapping, Value as YamlValue};
 
+pub mod hybrid;
+pub use hybrid::{DEFAULT_RRF_K, HybridHit, HybridSearch, rrf_fuse};
+
 /// Result alias for vault operations.
 pub type Result<T> = anyhow::Result<T>;
 
@@ -41,6 +44,10 @@ pub trait Ops: Send + Sync {
     fn get_note(&self, path: &str) -> Result<Value>;
     /// Full-text search across the vault.
     fn search_notes(&self, query: &str, limit: Option<usize>) -> Result<Value>;
+    /// Hybrid lexical + semantic search: fuses Tantivy lexical ranking with
+    /// vector similarity via RRF, returning path + snippet hits for grounding.
+    /// Degrades to lexical-only until embeddings are available.
+    fn vault_search(&self, query: &str, limit: Option<usize>) -> Result<Value>;
     /// Run a read-only SQL query against the vault cache.
     fn query_sql(&self, sql: &str) -> Result<Value>;
     /// List notes, optionally filtered by type/customer/archived.
@@ -100,6 +107,10 @@ pub struct LocalOps {
     search_index: Arc<SearchIndex>,
     template_engine: Arc<TemplateEngine>,
     vault_config: VaultConfig,
+    /// Lazily-built hybrid (lexical+semantic) searcher. Memoised once the
+    /// vault's `embeddings.db` exists and opens cleanly; until then each
+    /// `vault_search` degrades to lexical-only.
+    hybrid: std::sync::OnceLock<Arc<HybridSearch>>,
 }
 
 impl LocalOps {
@@ -121,6 +132,7 @@ impl LocalOps {
             search_index: Arc::new(search_index),
             template_engine,
             vault_config,
+            hybrid: std::sync::OnceLock::new(),
         }
     }
 
@@ -142,7 +154,53 @@ impl LocalOps {
             search_index,
             template_engine,
             vault_config,
+            hybrid: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Return the memoised hybrid searcher, building it on first use once the
+    /// vault's `embeddings.db` exists. Returns `None` (⇒ lexical-only) when
+    /// embeddings are not yet available or the embedder/model disagrees with
+    /// the stored one — never an error, so search always works.
+    fn hybrid_search(&self) -> Option<&Arc<HybridSearch>> {
+        if let Some(h) = self.hybrid.get() {
+            return Some(h);
+        }
+        let db_path = notesmith_embed::embeddings_db_path(&self.vault_name).ok()?;
+        if !db_path.exists() {
+            return None; // worker hasn't produced embeddings yet
+        }
+        let cache_path = self.cache.cache_path();
+        if cache_path.as_os_str() == ":memory:" {
+            return None; // no on-disk index to ATTACH for metadata filters
+        }
+        let embedder = match notesmith_embed::default_embedder() {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!(vault = %self.vault_name, error = %e, "embedder init failed; lexical-only search");
+                return None;
+            }
+        };
+        let embedding = match notesmith_embed::EmbeddingSearch::open(
+            self.vault_name.clone(),
+            &db_path,
+            cache_path,
+            embedder,
+        ) {
+            Ok(s) => Arc::new(s),
+            Err(e) => {
+                tracing::warn!(vault = %self.vault_name, error = %e, "opening embedding search failed; lexical-only search");
+                return None;
+            }
+        };
+        let hybrid = Arc::new(HybridSearch::new(
+            self.search_index.clone(),
+            embedding,
+            self.vault_root.clone(),
+        ));
+        // Memoise; if another thread won the race, keep theirs.
+        let _ = self.hybrid.set(hybrid);
+        self.hybrid.get()
     }
 
     fn refresh_indexes(&self, path: &VaultPath) -> Result<()> {
@@ -220,6 +278,32 @@ impl Ops for LocalOps {
     fn search_notes(&self, query: &str, limit: Option<usize>) -> Result<Value> {
         let results = self.search_index.search(query, limit.unwrap_or(20))?;
         Ok(serde_json::to_value(results)?)
+    }
+
+    fn vault_search(&self, query: &str, limit: Option<usize>) -> Result<Value> {
+        let limit = limit.unwrap_or(20);
+        if let Some(hybrid) = self.hybrid_search() {
+            let hits = hybrid.search(query, limit)?;
+            return Ok(serde_json::to_value(hits)?);
+        }
+        // Lexical-only fallback: shape lexical results like hybrid hits so the
+        // tool's response schema is stable whether or not embeddings exist.
+        let lexical = self.search_index.search(query, limit)?;
+        let hits: Vec<HybridHit> = lexical
+            .into_iter()
+            .enumerate()
+            .map(|(idx, r)| HybridHit {
+                path: r.path,
+                title: r.title,
+                snippet: r.snippet,
+                score: 1.0 / (DEFAULT_RRF_K as f32 + (idx + 1) as f32),
+                lexical_rank: Some(idx + 1),
+                semantic_rank: None,
+                char_start: None,
+                char_end: None,
+            })
+            .collect();
+        Ok(serde_json::to_value(hits)?)
     }
 
     fn query_sql(&self, sql: &str) -> Result<Value> {
@@ -561,6 +645,10 @@ impl<O: Ops> Ops for ReadOnlyOps<O> {
 
     fn search_notes(&self, query: &str, limit: Option<usize>) -> Result<Value> {
         self.inner.search_notes(query, limit)
+    }
+
+    fn vault_search(&self, query: &str, limit: Option<usize>) -> Result<Value> {
+        self.inner.vault_search(query, limit)
     }
 
     fn query_sql(&self, sql: &str) -> Result<Value> {
