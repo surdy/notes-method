@@ -12,6 +12,10 @@ These notes capture the reasoning journey behind [ADR 0018 — Embedding & Vecto
 - **Chunks carry citations:** store character offsets and media timestamps so results can point back to exact source spans.
 - **LanceDB is data-triggered:** switch only when monitoring shows sqlite-vec no longer meets latency or resource budgets.
 
+## Resolved for implementation (2026-07-02)
+
+See [ADR 0018 §8](../adr/0018-embedding-and-vector-search.md). Confirmed: query embedding runs **in the daemon** (§7); `embeddings.db` is **persistent** in `data_dir` (not cache); the embed worker is **daemon-spawned** and does its **own fs walk + `content_hash`**; the local embedder is a **`local-embed` Cargo feature** with download-on-first-run; the **cloud embedder is deferred** (P0 is local-only); first slice embeds **existing notes only** (media ingestion / ADR 0019 later).
+
 ## Chapters
 
 | Page | Summary |

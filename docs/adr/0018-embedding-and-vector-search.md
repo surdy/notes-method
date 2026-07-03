@@ -177,6 +177,43 @@ dim      = 384                 # validated; mismatch => full re-embed
 - Recommended defaults: local **`bge-small-en-v1.5`** (384-dim, ~130MB);
   cloud **`text-embedding-3-small`** (1536-dim, ~$0.02/M tokens). Bulk backfill
   of a large media corpus favors **local** ($0, no rate limits).
+- **The cloud embedder (`OpenAiCompatible`) is deferred to a later phase** (see
+  §8). P0 ships **local-only**; the `Embedder` trait exists so cloud can be added
+  without rework, but no API-key handling ships initially — keeping
+  [ADR 0011](0011-embedded-agent-chat.md) Decision 5 ("Notesmith does not manage
+  model credentials") intact for now.
+
+### 7. Query-time embedding runs in the daemon
+
+Indexing (§2) runs in the worker, but **search must embed the query string**, and
+`vault_search` runs **in the daemon**. Therefore the **daemon hosts an `Embedder`
+for query-time embedding only** — it embeds one short query string per search
+using the **same `embedder_id`/`dim`** recorded in the store, then runs the k-NN +
+metadata JOIN over the ATTACHed read-only `embeddings.db`.
+
+This is a deliberate **refinement of [ADR 0015](0015-ai-agent-integration-roadmap.md)'s
+"the daemon runs no model" framing**: the daemon loads the *embeddings* model
+(~130MB for `bge-small`) to vectorize queries. It still runs **no chat LLM** and
+does no bulk/index embedding — that stays in the worker. If `embedder_id` at query
+time does not match the store's, search fails loudly rather than comparing
+incompatible vectors.
+
+### 8. Resolved pre-implementation decisions (2026-07-02)
+
+| # | Decision | Choice |
+|---|----------|--------|
+| 1 | Query-time embedding | **Daemon hosts the embedder** for queries (§7) |
+| 2 | `embeddings.db` location | **Persistent `data_dir/<vault>/embeddings.db`** (the `TranscriptStore` precedent, *not* the rebuildable cache dir); daemon `ATTACH`es it read-only |
+| 3 | Worker scheduling | **Daemon spawns + supervises** an interval embed worker; `notesmith embed` also runnable manually |
+| 4 | Local embedder packaging | **Cargo feature `local-embed`** (cloud/lean builds omit ONNX Runtime) + **download-on-first-run** to `data_dir`, with offline messaging |
+| 5 | Cloud embedder + API key | **Deferred** to a later phase; P0 is local-only, no credential handling |
+| 6 | Change feed | **Worker does its own filesystem walk + `content_hash`** — fully decoupled from the daemon's (rebuildable) cache index |
+
+Defaults also confirmed: embed **all notes + ingested media**; chunk
+heading/paragraph-aware at ~256–512 tokens with ~15% overlap using the model's own
+tokenizer; **first slice = P0 over existing notes only** (media ingestion / ADR 0019
+deferred); `VectorStore::search` returns raw distances so #199 can pick RRF vs
+weighted blending later.
 
 ## Consequences
 
@@ -186,24 +223,27 @@ dim      = 384                 # validated; mismatch => full re-embed
 - The daemon stays lean; a stale/sleeping worker degrades *freshness of the
   embeddings* but never blocks the daemon or search over already-embedded content.
 - Two processes touch `embeddings.db` (worker writes, daemon reads). WAL mode
-  makes one-writer/many-readers safe; the daemon's `ATTACH` is read-only.
-- A cloud API key, when configured, lives in **config/secret store**, referenced
-  from the index — never persisted into the vector DB.
+  makes one-writer/many-readers safe; the daemon's `ATTACH` is read-only. The DB
+  is **persistent** (`data_dir`), not in the rebuildable cache dir.
+- The daemon loads the **embeddings model** (~130MB) for **query-time** embedding
+  only (§7); it still runs no chat LLM and no bulk embedding.
 - Choosing sqlite-vec now does **not** lock us in: LanceDB is a store-swap behind
   `VectorStore`, and metadata stays in SQLite either way.
 
 ## Suggested phasing
 
-1. **P0 — store + local embedder.** `chunks` schema, `SqliteVecStore`,
-   `LocalFastEmbed`, `notesmith embed` worker, incremental via `content_hash`,
-   daemon `ATTACH` read-only. Benchmark on `golden-vault`.
+1. **P0 — store + local embedder (existing notes only).** `chunks` schema,
+   `SqliteVecStore`, `LocalFastEmbed` (Cargo feature `local-embed`), daemon-spawned
+   `notesmith embed` worker (own fs walk + `content_hash`), persistent
+   `data_dir/<vault>/embeddings.db`, daemon `ATTACH` read-only + query-time
+   embedding (§7). Benchmark on `golden-vault`. **Media ingestion deferred to
+   [ADR 0019](0019-media-ingestion-pipeline.md).**
 2. **P1 — hybrid search.** `vault_search` MCP tool: metadata prefilter + vector
    k-NN JOIN, returning chunk citations (char spans / media timestamps).
-3. **P2 — cloud embedder + config.** `OpenAiCompatible`, per-vault config,
-   dimension-mismatch re-embed, secret handling.
-4. **P3 — monitoring.** `stage=vector_search` spans, `/embeddings/stats`,
-   `embed_metrics` daily trend, synthetic benchmark harness (the LanceDB
-   early-warning system).
+3. **P2 — monitoring.** `stage=vector_search` spans, `/embeddings/stats`,
+   `embed_metrics` daily trend, synthetic benchmark harness ([#244](https://github.com/surdy/notes-method/issues/244)) — the LanceDB early-warning system.
+4. **P3 (deferred) — cloud embedder + config.** `OpenAiCompatible`, per-vault
+   config, dimension-mismatch re-embed, credential handling.
 5. **P4 — LanceDB impl.** Only when the compound trigger fires.
 
 ## Alternatives considered
