@@ -38,7 +38,7 @@ fn hybrid_search_over_golden_vault_returns_grounded_hits() {
     let db_path = data.path().join("embeddings.db");
     let store = EmbeddingStore::open(&db_path).unwrap();
     let embedder = HashEmbedder::new(DIM);
-    notesmith_embed::EmbedWorker::new(VAULT, &golden_vault(), &store, &embedder)
+    notesmith_embed::EmbedWorker::new(VAULT, golden_vault(), &store, &embedder)
         .run()
         .unwrap();
     drop(store);

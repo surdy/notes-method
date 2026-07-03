@@ -106,7 +106,7 @@ mod tests {
             });
         }
         let (p50, p95) = m.percentiles();
-        assert!(p50 >= 20.0 && p50 <= 40.0, "p50 was {p50}");
+        assert!((20.0..=40.0).contains(&p50), "p50 was {p50}");
         assert!(p95 >= 40.0, "p95 was {p95}");
         assert_eq!(m.sample_count(), 5);
     }
