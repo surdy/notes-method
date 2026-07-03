@@ -16,12 +16,14 @@
 
 mod chunker;
 mod embedder;
+mod paths;
 mod store;
 mod vector;
 mod worker;
 
 pub use chunker::{ChunkSpan, ChunkerOptions, chunk_note};
 pub use embedder::{Embedder, HashEmbedder};
+pub use paths::{data_dir, embeddings_db_path, sanitize_vault_name};
 pub use store::{EmbeddingStore, SCHEMA_VERSION};
 pub use vector::{BruteForceStore, ChunkRef, Filter, VectorStore};
 pub use worker::{EmbedWorker, WorkerReport};

@@ -582,6 +582,7 @@ pub async fn serve_configured_vaults(
     }
     let _config_watcher = watch_global_config(state.clone(), vault_watchers).await?;
     let _schedulers = crate::scheduler::start_daily_schedulers(state.clone()).await;
+    let _embed_schedulers = crate::embed_scheduler::start_embed_workers(state.clone()).await;
     let hook_vaults: Vec<crate::hooks::HookVaultContext> = {
         let state = state.read().await;
         state

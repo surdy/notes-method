@@ -2,6 +2,7 @@
 
 pub mod config_io;
 pub mod config_watcher;
+pub mod embed_scheduler;
 pub mod events;
 pub mod hooks;
 pub mod logging;

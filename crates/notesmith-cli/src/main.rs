@@ -5,6 +5,7 @@ use notesmith_cli::commands::{
     copy_html::CopyHtmlCommand,
     daemon::DaemonCommand,
     daily::DailyCommand,
+    embed::EmbedCommand,
     mcp::McpCommand,
     note::NoteCommand,
     periodic::PeriodicCommand,
@@ -91,6 +92,8 @@ enum Command {
     Search(SearchCommand),
     /// Rebuild daemon cache and search indexes
     Reindex(ReindexCommand),
+    /// Run the embedding worker over one or more vaults
+    Embed(EmbedCommand),
     /// Task management commands
     Task {
         #[command(subcommand)]
@@ -178,6 +181,11 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
         }
         Command::Reindex(command) => {
+            command
+                .run(&global_config, cli.vault.as_deref(), format)
+                .await?;
+        }
+        Command::Embed(command) => {
             command
                 .run(&global_config, cli.vault.as_deref(), format)
                 .await?;

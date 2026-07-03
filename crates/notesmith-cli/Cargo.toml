@@ -10,6 +10,7 @@ notesmith-core = { workspace = true }
 notesmith-config = { workspace = true }
 notesmith-vault = { workspace = true }
 notesmith-index = { workspace = true }
+notesmith-embed = { workspace = true }
 notesmith-query = { workspace = true }
 notesmith-http = { workspace = true }
 notesmith-mcp = { workspace = true }
@@ -36,3 +37,8 @@ reqwest = { workspace = true }
 [[bin]]
 name = "notesmith"
 path = "src/main.rs"
+
+[features]
+# Enable real local embeddings (fastembed/ONNX) for `notesmith embed`. Off by
+# default so the standard build/tests stay lean (ADR 0018 §8).
+local-embed = ["notesmith-embed/local-embed"]
