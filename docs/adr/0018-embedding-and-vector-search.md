@@ -212,8 +212,21 @@ incompatible vectors.
 Defaults also confirmed: embed **all notes + ingested media**; chunk
 heading/paragraph-aware at ~256–512 tokens with ~15% overlap using the model's own
 tokenizer; **first slice = P0 over existing notes only** (media ingestion / ADR 0019
-deferred); `VectorStore::search` returns raw distances so #199 can pick RRF vs
-weighted blending later.
+deferred).
+
+**Hybrid ranking (P1, [#199](https://github.com/surdy/notes-method/issues/199)):**
+combine Tantivy (BM25) + vector results with **Reciprocal Rank Fusion (RRF), `k=60`,
+equal weights** — chosen because BM25 and cosine are on incommensurable, per-query
+scales, RRF is rank-based (no normalization/calibration), and it cleanly fuses the
+**chunk-level** vector list with the **note-level** lexical list. Concretely:
+retrieve top ~50 from each, fuse via RRF, dedup chunks→note (keep the best chunk per
+note for ranking, return its span for citation), take top-k. `VectorStore::search`
+returns **raw distances** (and Tantivy raw BM25) so magnitude is preserved for two
+deferred upgrades, in order: **weighted RRF** (`Σ wᵢ/(k+rankᵢ)` — a lexical/semantic
+"trust" knob with no normalization, defaulting 1/1) and, only if evaluation shows
+RRF leaving quality on the table, a **cross-encoder re-ranker** over the top-N fused
+results. A weighted *score blend* was rejected: it needs per-corpus α calibration and
+brittle per-query score normalization we have no labeled data to tune.
 
 ## Consequences
 
