@@ -93,6 +93,24 @@ Do this once per target box:
 
 Then production monitoring is simple: watch where the real corpus lands on the curve already measured for that hardware.
 
+This is implemented as `notesmith embed bench` (see `docs/cli.md`). It fills a
+temporary brute-force store with synthetic vectors at each scale, times k-NN,
+and prints the `p50`/`p95`/`mean` per scale plus the vector count at which p95
+first crosses the **150ms warn** and **300ms switch** thresholds. `--baseline`
+additionally embeds and searches the target vault so the synthetic curve is
+anchored to real content (notes embedded, chunks written, embed time, search
+p50/p95).
+
+```bash
+# Representative run (use a release build for real numbers):
+cargo run --release -p notesmith-cli -- embed bench --baseline --format json
+```
+
+The reported `warn_crossover_count` / `switch_crossover_count` are exactly the
+inputs the monitoring thresholds below (and the `embed_metrics` trend) compare
+the live `vector_count` against. Re-run the harness whenever the host hardware
+or the embedding dimension changes.
+
 ## Compound trigger for LanceDB
 
 Switch from sqlite-vec to LanceDB when any of these is true:

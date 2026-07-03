@@ -236,6 +236,54 @@ notesmith query sql "SELECT type, COUNT(*) as count FROM v_notes GROUP BY type O
 
 ---
 
+## embed
+
+Run the embedding worker or benchmark the vector-search latency curve. The
+worker is the sole writer of each vault's `embeddings.db` (ADR 0018 §2); the
+daemon also runs it on an interval, but it is fully runnable by hand.
+
+### `embed`
+
+Run one incremental embedding pass over one or all vaults: changed notes are
+re-embedded, unchanged notes skipped, deleted notes pruned.
+
+```bash
+notesmith embed                 # all registered vaults
+notesmith --vault work embed    # a single vault
+notesmith embed --format json
+```
+
+> Real semantic vectors require building with `--features local-embed` (a local
+> `fastembed` model). Without it, a non-semantic `HashEmbedder` placeholder is
+> used so the pipeline runs offline.
+
+### `embed bench`
+
+Measure this host's brute-force k-NN latency curve so the decision to switch the
+vector store (SQLite brute-force → sqlite-vec / LanceDB) stays **data-triggered**
+(ADR 0018 §5, feeds the monitoring thresholds in issue 244). Inserts synthetic
+vectors at increasing scales, times k-NN, and reports the vector count at which
+p95 latency first crosses 150 ms (warn) and 300 ms (switch).
+
+```bash
+notesmith embed bench
+notesmith embed bench --dim 384 --scales 50000,100000,250000,500000,1000000 --queries 50
+notesmith embed bench --baseline --format json
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--dim <N>` | Synthetic vector dimension | 384 |
+| `--scales <list>` | Comma-separated vector counts to measure | `50000,…,1000000` |
+| `--k <N>` | Neighbours retrieved per query | 10 |
+| `--queries <N>` | Queries sampled per scale | 50 |
+| `--baseline` | Also embed + search the target vault as a real-content baseline | off |
+
+> Run with `cargo run --release` (or an installed release binary) for
+> representative numbers — debug builds are several times slower.
+
+---
+
 ## note
 
 Note CRUD commands go through the daemon and auto-start it when needed.

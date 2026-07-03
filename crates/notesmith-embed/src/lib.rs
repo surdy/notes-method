@@ -14,6 +14,7 @@
 //! rather than fail: a bad note is skipped with a `WARN` and the batch
 //! continues. No path panics on untrusted `.md` content.
 
+mod bench;
 mod chunker;
 mod embedder;
 mod paths;
@@ -22,6 +23,10 @@ mod store;
 mod vector;
 mod worker;
 
+pub use bench::{
+    BaselineResult, SWITCH_P95_MS, ScaleResult, WARN_P95_MS, crossover, golden_baseline,
+    synthetic_knn_bench,
+};
 pub use chunker::{ChunkSpan, ChunkerOptions, chunk_note};
 pub use embedder::{Embedder, HashEmbedder, default_embedder};
 pub use paths::{data_dir, embeddings_db_path, sanitize_vault_name};
