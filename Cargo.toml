@@ -3,6 +3,7 @@ members = [
     "crates/notesmith-core",
     "crates/notesmith-vault",
     "crates/notesmith-index",
+    "crates/notesmith-embed",
     "crates/notesmith-query",
     "crates/notesmith-templates",
     "crates/notesmith-routing",
@@ -38,6 +39,7 @@ repository = "https://github.com/surdy/notes-method"
 notesmith-core = { path = "crates/notesmith-core" }
 notesmith-vault = { path = "crates/notesmith-vault" }
 notesmith-index = { path = "crates/notesmith-index" }
+notesmith-embed = { path = "crates/notesmith-embed" }
 notesmith-query = { path = "crates/notesmith-query" }
 notesmith-templates = { path = "crates/notesmith-templates" }
 notesmith-routing = { path = "crates/notesmith-routing" }

@@ -1,0 +1,27 @@
+[package]
+name = "notesmith-embed"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+# Local, in-process embeddings via fastembed-rs (ONNX Runtime). Off by default
+# so cloud/lean builds omit the heavy native runtime (ADR 0018 §6/§8).
+local-embed = ["dep:fastembed"]
+
+[dependencies]
+notesmith-core = { workspace = true }
+notesmith-vault = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+blake3 = { workspace = true }
+walkdir = { workspace = true }
+dirs = { workspace = true }
+fastembed = { version = "4", optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
