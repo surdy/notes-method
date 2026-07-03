@@ -14,11 +14,16 @@
 //! rather than fail: a bad note is skipped with a `WARN` and the batch
 //! continues. No path panics on untrusted `.md` content.
 
+mod embedder;
 mod store;
 mod vector;
 
+pub use embedder::{Embedder, HashEmbedder};
 pub use store::{EmbeddingStore, SCHEMA_VERSION};
 pub use vector::{BruteForceStore, ChunkRef, Filter, VectorStore};
+
+#[cfg(feature = "local-embed")]
+pub use embedder::LocalFastEmbed;
 
 /// Errors returned across the embed crate.
 #[derive(Debug, thiserror::Error)]
