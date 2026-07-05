@@ -136,7 +136,10 @@ renders **note** templates and is **not** reused for prompt variables in this sl
 - **Copilot-Plus-style in-app LLM/RAG pipeline.** Rejected: duplicates the agent,
   requires provider/key/context management, and contradicts the ACP-only constraint.
 - **Ship semantic search now with a bundled embeddings model.** Deferred to backlog:
-  binary-size and runtime-selection cost not justified this iteration.
+  binary-size and runtime-selection cost not justified this iteration. *(Later
+  reversed: [ADR 0018](0018-embedding-and-vector-search.md) designs the embeddings
+  backend — shipped local/offline by default, with the ONNX model behind the
+  `local-embed` feature so the default build carries no bundled-model cost.)*
 - **Bundle Whisper for voice/meeting notes now.** Deferred for the same
   bundled-model reason, despite being the standout differentiator.
 - **Make all P2 retrieval active, embeddings-independent parts first.** Considered;
