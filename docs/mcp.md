@@ -69,6 +69,10 @@ vault's `embeddings.db`, `vault_search` transparently degrades to lexical-only.
 > planned config override and are tracked separately as deferred work; the
 > default is the local embedding model.
 
+See [Semantic & Hybrid Search](ai-semantic-search.md) for the user-facing guide
+and [Embeddings: Operating & Monitoring](embeddings-operations.md) for running
+the worker, enabling local vectors, and monitoring.
+
 
 ## Claude Desktop example
 

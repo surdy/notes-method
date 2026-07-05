@@ -218,6 +218,8 @@ The desktop app has an embedded AI chat agent plus AI helpers in the editor and 
 | [Slash Commands & @-Mentions](ai-slash-commands.md) | Drive the agent from the composer with `/` prompts and `@` context |
 | [AI in the Editor](ai-editor.md) | Rewrite, summarize, expand, fix, and continue text from a selection |
 | [MCP Servers](ai-mcp-servers.md) | Give the agent extra tools beyond the built-in vault tools |
+| [Semantic & Hybrid Search](ai-semantic-search.md) | How the agent finds notes by meaning via the hybrid `vault_search` tool |
+| [Embeddings: Operating & Monitoring](embeddings-operations.md) | Self-hosting the embedding worker: enabling local vectors, tuning, stats, benchmarks |
 | [CLI `ai` commands](cli.md#ai) | Headless `summarize` and `weekly-digest` for scripting and cron |
 
 ## Philosophy
