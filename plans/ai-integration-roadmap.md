@@ -17,15 +17,19 @@ Tracked by umbrella epic **#183** and phase epics **#184–#188**.
 - ⚙️ **Daemon infra** — indexing/storage backing the tools.
 - 🧩 **CLI** — headless surface that drives the agent.
 
-The only daemon-side model is a local **embeddings** model (backlogged with P2).
+The only daemon-adjacent model is a local **embeddings** model (ADR 0018);
+the backend now ships (P2 partially delivered — see Status).
 
 ## Status at a glance
 
 - **Active (13):** all P0, all P1, and P4 model-free items.
-- **Backlog (13):** all P2, all P3, plus P4 Projects + Terminal.
-- **Why backlog:** P2 needs an embeddings model; P3's headline (voice) needs
-  Whisper — both add bundled-model cost we are deferring. `time_query` (#200) and
-  `vault_stats` (#202) are embedding-independent and can be promoted.
+- **Shipped since:** the P2 embeddings backend (#198) + hybrid `vault_search`
+  (#199) + observability (#244).
+- **Backlog:** remaining P2 (`time_query` #200, Relevant Notes #201,
+  `vault_stats` #202), all P3, plus P4 Projects + Terminal.
+- **Why backlog:** P3's headline (voice) needs Whisper — bundled-model cost we
+  are deferring. `time_query` (#200) and `vault_stats` (#202) are
+  embedding-independent and can be promoted.
 
 ## Phase 0 — Foundation polish & verification (#184, active)
 
@@ -50,14 +54,14 @@ Prompts are **static** in this slice (no `{{variables}}` yet); the file format i
 forward-compatible with variables. `@url` (#197) passes the URL as text until the
 daemon-side `web_fetch` tool (#207, backlog) lands.
 
-## Phase 2 — Retrieval / second brain (#186, BACKLOG)
+## Phase 2 — Retrieval / second brain (#186, PARTIALLY SHIPPED)
 
 | Issue | Item | Note |
 |---|---|---|
-| #198 | Embedding backend: local model runtime + vector store | blocks #199/#201 |
-| #199 | `vault_search` MCP tool (hybrid lexical + semantic) | needs #198 |
+| #198 | Embedding backend: local model runtime + vector store | ✅ shipped (ADR 0018; brute-force store + `HashEmbedder`/`LocalFastEmbed`) |
+| #199 | `vault_search` MCP tool (hybrid lexical + semantic) | ✅ shipped (RRF fusion) |
 | #200 | `time_query` MCP tool | **embedding-independent** |
-| #201 | Relevant Notes panel (similarity + graph-link scoring) | needs #198 |
+| #201 | Relevant Notes panel (similarity + graph-link scoring) | needs #198 (backlog) |
 | #202 | `vault_stats` / structure MCP tool | **embedding-independent** |
 
 ## Phase 3 — Memory & multimodal (#187, BACKLOG)

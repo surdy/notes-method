@@ -243,6 +243,42 @@ brittle per-query score normalization we have no labeled data to tune.
 - Choosing sqlite-vec now does **not** lock us in: LanceDB is a store-swap behind
   `VectorStore`, and metadata stays in SQLite either way.
 
+## Implementation status
+
+P0–P2 shipped (2026-07); P3/P4 deferred as planned. Two deliberate de-risking
+divergences from the framing above, made during implementation:
+
+- **VectorStore ships as brute-force cosine, not `SqliteVecStore`.** The
+  `VectorStore` trait is in place (§5 always allowed brute-force "to begin"), and
+  `BruteForceStore` is the current impl — a linear scan over the stored vectors,
+  the same asymptotic behavior sqlite-vec would give at this scale, with no
+  loadable-extension dependency. sqlite-vec and LanceDB remain store-swaps behind
+  the trait; metadata stays in SQLite either way, so nothing about the hybrid
+  JOIN or the LanceDB trigger changes.
+- **Default embedder is `HashEmbedder` (384-dim, non-semantic); `LocalFastEmbed`
+  is behind the `local-embed` Cargo feature.** The default build embeds with a
+  deterministic hash so CI, tests, and lean/offline builds need no ONNX runtime
+  or first-run model download. `bge-small-en-v1.5` (384-dim) is the real model
+  when `local-embed` is enabled. Both defaults are 384-dim, and
+  `notesmith_embed::default_embedder()` is the single factory the worker and the
+  daemon's query-time path share, so `embedder_id`/`dim` always agree (a mismatch
+  fails loud and forces a re-embed, per §7).
+
+Shipped units: `embeddings.db` schema + store scaffolding
+([#245](https://github.com/surdy/notes-method/issues/245)), `VectorStore` +
+brute-force store ([#246](https://github.com/surdy/notes-method/issues/246)),
+`Embedder` + `HashEmbedder`/`LocalFastEmbed`
+([#247](https://github.com/surdy/notes-method/issues/247)), `notesmith embed`
+worker ([#248](https://github.com/surdy/notes-method/issues/248)), daemon
+read-only `ATTACH` + query-time embedding
+([#249](https://github.com/surdy/notes-method/issues/249)), benchmark harness
+([#250](https://github.com/surdy/notes-method/issues/250)), hybrid `vault_search`
+via RRF ([#199](https://github.com/surdy/notes-method/issues/199), §8), and
+observability ([#244](https://github.com/surdy/notes-method/issues/244)).
+Deferred: `OpenAiCompatible` cloud embedder
+([#251](https://github.com/surdy/notes-method/issues/251)) and LanceDB
+([#252](https://github.com/surdy/notes-method/issues/252)).
+
 ## Suggested phasing
 
 1. **P0 — store + local embedder (existing notes only).** `chunks` schema,
