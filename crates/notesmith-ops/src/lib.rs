@@ -160,9 +160,17 @@ impl LocalOps {
 
     /// Return the memoised hybrid searcher, building it on first use once the
     /// vault's `embeddings.db` exists. Returns `None` (⇒ lexical-only) when
-    /// embeddings are not yet available or the embedder/model disagrees with
-    /// the stored one — never an error, so search always works.
+    /// embeddings are disabled for this vault, not yet available, or the
+    /// embedder/model disagrees with the stored one — never an error, so search
+    /// always works.
     fn hybrid_search(&self) -> Option<&Arc<HybridSearch>> {
+        // Per-vault gate (ADR 0018 §9.1): a disabled vault is lexical-only even
+        // if a stale `embeddings.db` exists on disk or a hybrid searcher was
+        // previously memoised. Checked before the memo so `enabled = false`
+        // always short-circuits.
+        if !self.vault_config.embed.enabled {
+            return None;
+        }
         if let Some(h) = self.hybrid.get() {
             return Some(h);
         }
@@ -1099,5 +1107,96 @@ mod tests {
         // Reading the broken note degrades gracefully rather than panicking.
         let fetched = ops.get_note("Inbox/Broken.md").unwrap();
         assert!(fetched["content"].as_str().unwrap().contains("Body text"));
+    }
+
+    /// Build `LocalOps` with an on-disk cache and a populated `embeddings.db`,
+    /// so that `hybrid_search()` *could* construct a hybrid searcher. The embed
+    /// flag is the only thing gating it. Data dir is overridden to `data_root`
+    /// so `embeddings_db_path` resolves under the temp dir.
+    fn build_gated_ops(
+        root: &Path,
+        cache_dir: &Path,
+        vault: &str,
+        embed_enabled: bool,
+    ) -> LocalOps {
+        let engine = NativeVaultEngine;
+        let notes = engine.scan(root).unwrap();
+
+        // On-disk cache is required for the hybrid path (it ATTACHes the cache
+        // for metadata filters; an in-memory cache short-circuits to lexical).
+        let cache = VaultCache::open(&cache_dir.join("cache.db")).unwrap();
+        cache
+            .reindex_with_periodic(vault, &notes, &vault_config().periodic)
+            .unwrap();
+        let search_index = SearchIndex::open_in_memory().unwrap();
+        search_index.reindex(vault, &notes).unwrap();
+
+        let mut config = vault_config();
+        config.name = vault.to_string();
+        config.embed.enabled = embed_enabled;
+
+        LocalOps::new(
+            vault.to_string(),
+            root.to_path_buf(),
+            cache,
+            search_index,
+            config,
+        )
+    }
+
+    /// The per-vault `[embed] enabled` flag gates the query-time hybrid path
+    /// (ADR 0018 §9.1): a disabled vault is lexical-only even with a populated
+    /// `embeddings.db` on disk; enabling it lets the hybrid searcher be built.
+    #[test]
+    fn hybrid_search_gated_by_embed_enabled_flag() {
+        let vault_name = "ops-embed-gate";
+        let data_root = TempDir::new().unwrap();
+        // SAFETY: env override for a single, self-contained test path. Other
+        // tests use disabled vaults and never resolve embeddings_db_path.
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", data_root.path());
+        }
+
+        let vault = TempDir::new().unwrap();
+        write_note(
+            vault.path(),
+            "Inbox/Semantic.md",
+            "---\ntype: note\n---\nSemantic content worth embedding",
+        );
+
+        // Populate a real embeddings.db with the same (hash) embedder the
+        // query path uses, so a hybrid searcher would open cleanly.
+        let db_path = notesmith_embed::embeddings_db_path(vault_name).unwrap();
+        std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+        {
+            let store = notesmith_embed::EmbeddingStore::open(&db_path).unwrap();
+            let embedder = notesmith_embed::HashEmbedder::default();
+            let worker = notesmith_embed::EmbedWorker::new(
+                vault_name.to_string(),
+                vault.path().to_path_buf(),
+                &store,
+                &embedder,
+            );
+            worker.run().unwrap();
+        }
+
+        let cache_disabled = TempDir::new().unwrap();
+        let disabled = build_gated_ops(vault.path(), cache_disabled.path(), vault_name, false);
+        assert!(
+            disabled.hybrid_search().is_none(),
+            "disabled vault must stay lexical-only despite embeddings.db"
+        );
+
+        let cache_enabled = TempDir::new().unwrap();
+        let enabled = build_gated_ops(vault.path(), cache_enabled.path(), vault_name, true);
+        assert!(
+            enabled.hybrid_search().is_some(),
+            "enabled vault with embeddings.db must use the hybrid searcher"
+        );
+
+        // SAFETY: paired with the set_var above.
+        unsafe {
+            std::env::remove_var("XDG_DATA_HOME");
+        }
     }
 }

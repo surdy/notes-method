@@ -18,6 +18,7 @@ pub use global::{
 };
 pub use lockfile::DaemonLockfile;
 pub use vault::{
-    AppearanceConfig, CURRENT_SCHEMA_VERSION, CaptureConfig, DailyConfig, EditorConfig, GitConfig,
-    HooksConfig, PeriodKindConfig, PeriodicConfig, PeriodicNoteMatch, VaultConfig,
+    AppearanceConfig, CURRENT_SCHEMA_VERSION, CaptureConfig, DailyConfig, EditorConfig,
+    EmbedConfig, GitConfig, HooksConfig, PeriodKindConfig, PeriodicConfig, PeriodicNoteMatch,
+    VaultConfig,
 };

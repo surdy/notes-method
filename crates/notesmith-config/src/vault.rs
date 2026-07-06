@@ -18,6 +18,7 @@ pub struct VaultConfig {
     pub appearance: AppearanceConfig,
     pub git: GitConfig,
     pub hooks: HooksConfig,
+    pub embed: EmbedConfig,
 }
 
 fn default_schema_version() -> u32 {
@@ -42,6 +43,7 @@ impl Default for VaultConfig {
             appearance: Default::default(),
             git: Default::default(),
             hooks: Default::default(),
+            embed: Default::default(),
         }
     }
 }
@@ -387,6 +389,20 @@ pub struct HooksConfig {
     pub on_daily_create: Option<String>,
 }
 
+/// Per-vault embedding / semantic-search settings (ADR 0018 §9.1). Gates both
+/// the embed worker scheduler and the query-time hybrid search path for this
+/// vault, in every build. Off by default so embedding cost (disk, worker CPU,
+/// first-run model load) is paid only where it's wanted.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct EmbedConfig {
+    /// When `true`, the daemon runs embed passes for this vault and serves
+    /// hybrid (lexical + semantic) search. When `false` (default), the vault is
+    /// lexical-only and no embedding work is scheduled. `#[serde(default)]` so
+    /// older `vault.toml` files without an `[embed]` table still parse.
+    #[serde(default)]
+    pub enabled: bool,
+}
+
 #[derive(Debug, Deserialize)]
 struct RawVaultConfig {
     #[serde(default = "default_schema_version")]
@@ -408,6 +424,8 @@ struct RawVaultConfig {
     git: GitConfig,
     #[serde(default)]
     hooks: HooksConfig,
+    #[serde(default)]
+    embed: EmbedConfig,
 }
 
 #[derive(Serialize)]
@@ -423,6 +441,12 @@ struct PersistedVaultConfig<'a> {
     appearance: &'a AppearanceConfig,
     git: &'a GitConfig,
     hooks: &'a HooksConfig,
+    #[serde(skip_serializing_if = "embed_config_is_default")]
+    embed: &'a EmbedConfig,
+}
+
+fn embed_config_is_default(config: &EmbedConfig) -> bool {
+    *config == EmbedConfig::default()
 }
 
 fn periodic_config_is_empty(config: &PeriodicConfig) -> bool {
@@ -489,6 +513,7 @@ impl<'de> Deserialize<'de> for VaultConfig {
             appearance: raw.appearance,
             git: raw.git,
             hooks: raw.hooks,
+            embed: raw.embed,
         })
     }
 }
@@ -533,6 +558,7 @@ impl VaultConfig {
             appearance: &self.appearance,
             git: &self.git,
             hooks: &self.hooks,
+            embed: &self.embed,
         })
         .map_err(|error| ConfigError::SerializeError {
             message: error.to_string(),
@@ -743,6 +769,7 @@ on_note_create = "hooks/create.py"
                 on_note_create: Some("hooks/create.py".to_string()),
                 ..HooksConfig::default()
             },
+            embed: EmbedConfig::default(),
         }
     }
 
@@ -974,5 +1001,45 @@ filename = ""
         config.yearly = Some(PeriodKindConfig::for_kind(PeriodKind::Yearly));
 
         assert!(!periodic_config_is_empty(&config));
+    }
+
+    #[test]
+    fn embed_is_disabled_by_default() {
+        let config = VaultConfig::default();
+        assert!(!config.embed.enabled);
+    }
+
+    #[test]
+    fn embed_defaults_to_disabled_when_table_absent() {
+        let toml = r#"
+            name = "no-embed-table"
+        "#;
+        let config: VaultConfig = toml::from_str(toml).unwrap();
+        assert!(!config.embed.enabled);
+    }
+
+    #[test]
+    fn embed_enabled_parses_from_table() {
+        let toml = r#"
+            name = "with-embed"
+
+            [embed]
+            enabled = true
+        "#;
+        let config: VaultConfig = toml::from_str(toml).unwrap();
+        assert!(config.embed.enabled);
+    }
+
+    #[test]
+    fn embed_enabled_round_trips_through_disk() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().join("vault.toml");
+        let mut config = VaultConfig::default();
+        config.name = "round-trip".to_string();
+        config.embed.enabled = true;
+
+        config.save_to(&path).unwrap();
+        let loaded = VaultConfig::load_from(&path).unwrap();
+        assert!(loaded.embed.enabled);
     }
 }

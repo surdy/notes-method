@@ -8,11 +8,11 @@ For the end-user explanation of semantic search in chat, see [semantic search](a
 
 ## How embedding runs
 
-The colocated embed worker is the **sole writer** of each vault's `embeddings.db`. The daemon starts this worker automatically for every configured vault; no separate service is required.
+The colocated embed worker is the **sole writer** of each vault's `embeddings.db`. The daemon starts a supervised worker task for every configured vault; no separate service is required. Each task only does embedding work while that vault has `[embed] enabled = true` in its `vault.toml` (off by default, issue #253) — a disabled vault costs nothing and never loads the model. The flag is re-read every pass, so toggling it takes effect within one interval without a daemon restart.
 
 | Runner | What it does |
 |--------|--------------|
-| Daemon scheduler | Starts after a 10s initial delay, then runs every 300s by default. |
+| Daemon scheduler | Starts after a 10s initial delay, then runs every 300s by default. Skips passes for vaults with `[embed] enabled = false`. |
 | `notesmith embed` | Runs one incremental pass by hand. See the [CLI reference](cli.md#embed). |
 
 Each pass is incremental:

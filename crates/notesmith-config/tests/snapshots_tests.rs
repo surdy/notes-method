@@ -66,6 +66,7 @@ fn snapshot_vault_config_full() {
             watch_fields: None,
             on_daily_create: Some("Assets/scripts/on-daily-create.py".to_string()),
         },
+        embed: EmbedConfig::default(),
     };
     let temp_dir = tempfile::tempdir().unwrap();
     let path = temp_dir.path().join("vault.toml");

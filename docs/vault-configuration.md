@@ -196,6 +196,9 @@ auto_pull_every = "10m"       # Auto-pull interval (optional)
 auto_push_every = "10m"       # Auto-push interval (optional)
 commit_message = "vault sync" # Custom commit message (optional)
 
+[embed]
+enabled = false               # Enable semantic (vector) search for this vault (default: false)
+
 [hooks]
 on_note_create = "scripts/on-create.sh"   # Script to run when a note is created (optional)
 on_daily_create = "scripts/on-daily.sh"   # Script to run when a daily note is created (optional)
@@ -258,6 +261,17 @@ auto_commit_every = "15m"
 commit_message = "notesmith: {{ operation }}"
 # auto_pull_every / auto_push_every omitted → local-only, no remote sync
 ```
+
+`[embed]`:
+- `enabled` — enable semantic (vector) search for this vault (default: `false`).
+  When `true`, the daemon runs incremental embed passes to keep the vault's
+  `embeddings.db` fresh and serves hybrid (lexical + semantic) search; when
+  `false`, the vault is lexical-only and no embedding work is scheduled. The flag
+  is per-vault and read fresh each pass, so toggling it takes effect within one
+  worker interval without a daemon restart. Semantic search additionally requires
+  a build with embedding support compiled in (see
+  [ai-semantic-search.md](ai-semantic-search.md)); on a build without it, the flag
+  has no effect. See [ADR 0018](adr/0018-embedding-and-vector-search.md) §9.
 
 `[hooks]`:
 - `on_note_create` — script to run when a note is created

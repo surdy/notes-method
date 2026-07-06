@@ -51,7 +51,16 @@ For the full tool reference, including how `vault_search` differs from the older
 
 ## Turning on real semantic vectors
 
-By default, Notesmith ships with a zero-setup placeholder embedder. This keeps the indexing pipeline available everywhere, but matches are effectively keyword-ish rather than truly semantic.
+Semantic search is **off by default and enabled per vault**. Set `[embed] enabled = true`
+in that vault's `.notesmith/vault.toml` (see [vault-configuration.md](vault-configuration.md))
+to have the daemon build and maintain its `embeddings.db` and serve hybrid search. Leaving
+it `false` keeps the vault lexical-only, so a large research vault can have semantic search on
+while a throwaway scratch vault stays un-embedded. The flag is read fresh each worker pass, so
+toggling it takes effect within one interval without a daemon restart.
+
+Enabling the flag only has an effect on a build with embedding support compiled in. By default,
+Notesmith ships with a zero-setup placeholder embedder. This keeps the indexing pipeline
+available everywhere, but matches are effectively keyword-ish rather than truly semantic.
 
 For real semantic search, run Notesmith with the `local-embed` feature enabled. That mode uses a local fastembed ONNX model (`bge-small-en-v1.5`, 384-dim) and downloads it automatically on first run.
 
@@ -69,6 +78,7 @@ Cloud embedders, such as sending text to an external provider for higher-quality
 
 ## Current limitations
 
+- Semantic search must be enabled per vault via `[embed] enabled = true` (off by default).
 - Real conceptual similarity requires local embeddings to be enabled.
 - The default placeholder mode is useful for exercising the pipeline, but it is not a high-quality semantic search model.
 - Embedding coverage depends on the worker finishing an index for the vault; before that, search falls back to lexical-only.

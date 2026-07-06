@@ -81,6 +81,26 @@ pub fn make_embedder() -> anyhow::Result<std::sync::Arc<dyn Embedder>> {
     Ok(notesmith_embed::default_embedder()?)
 }
 
+/// Whether this vault currently has embeddings enabled via its `vault.toml`
+/// `[embed] enabled` flag (ADR 0018 §9.1). Read fresh from disk on every tick so
+/// toggling at runtime takes effect within one interval without a daemon
+/// restart. Defaults to `false` (lexical-only, no embed work) when the config
+/// can't be loaded — a per-vault error must never enable embedding by accident
+/// or abort the scheduler (resilience policy, ADR 0009).
+fn vault_embed_enabled(root: &Path) -> bool {
+    match notesmith_config::VaultConfig::load_from_vault(root) {
+        Ok(config) => config.embed.enabled,
+        Err(error) => {
+            tracing::warn!(
+                vault = %root.display(),
+                reason = %error,
+                "could not load vault config; skipping embed pass"
+            );
+            false
+        }
+    }
+}
+
 /// Spawn and supervise a per-vault embed worker for every configured vault.
 pub async fn start_embed_workers(state: SharedAppState) -> EmbedSchedulers {
     let vaults: Vec<(String, PathBuf)> = {
@@ -97,27 +117,45 @@ pub async fn start_embed_workers(state: SharedAppState) -> EmbedSchedulers {
 
     for (vault_name, root) in vaults {
         let task = tokio::spawn(async move {
-            // Build the embedder once per vault task. If it can't be built
-            // (e.g. offline model download), log and give up on this vault
-            // rather than spinning.
-            let embedder = match make_embedder() {
-                Ok(embedder) => embedder,
-                Err(error) => {
-                    tracing::warn!(
-                        vault = %vault_name,
-                        reason = %error,
-                        "could not initialise embedder; embedding disabled for this vault"
-                    );
-                    return;
-                }
-            };
-
             tokio::time::sleep(Duration::from_secs(INITIAL_DELAY_SECS)).await;
             let mut ticker = tokio::time::interval(interval);
+            // The embedder (and its ~130MB model) is built lazily: only on the
+            // first tick where this vault is actually enabled, then memoised and
+            // shared across passes. With no vault enabled, nothing loads.
+            let mut embedder: Option<std::sync::Arc<dyn Embedder>> = None;
             loop {
                 ticker.tick().await;
                 let root = root.clone();
                 let vault_name_inner = vault_name.clone();
+
+                // Re-read the per-vault flag each tick so runtime toggling takes
+                // effect within one interval. A disabled vault does no embed
+                // work and never loads the model.
+                if !vault_embed_enabled(&root) {
+                    continue;
+                }
+
+                // Build the embedder on the first enabled tick and memoise it.
+                // If it can't be built (e.g. offline model download), log and
+                // retry next interval rather than spinning or giving up.
+                if embedder.is_none() {
+                    match make_embedder() {
+                        Ok(e) => embedder = Some(e),
+                        Err(error) => {
+                            tracing::warn!(
+                                vault = %vault_name_inner,
+                                reason = %error,
+                                "could not initialise embedder; will retry next interval"
+                            );
+                            continue;
+                        }
+                    }
+                }
+                let embedder = match &embedder {
+                    Some(e) => e.clone(),
+                    None => continue,
+                };
+
                 let db_path = match notesmith_embed::embeddings_db_path(&vault_name_inner) {
                     Ok(path) => path,
                     Err(error) => {
@@ -219,5 +257,45 @@ mod tests {
         unsafe {
             std::env::remove_var("NOTESMITH_EMBED_INTERVAL_SECS");
         }
+    }
+
+    fn write_vault_config(root: &Path, body: &str) {
+        let dir = root.join(".notesmith");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("vault.toml"), body).unwrap();
+    }
+
+    #[test]
+    fn vault_embed_enabled_true_when_flag_set() {
+        let vault = TempDir::new().unwrap();
+        write_vault_config(
+            vault.path(),
+            "name = \"enabled\"\n\n[embed]\nenabled = true\n",
+        );
+        assert!(vault_embed_enabled(vault.path()));
+    }
+
+    #[test]
+    fn vault_embed_enabled_false_when_flag_absent() {
+        let vault = TempDir::new().unwrap();
+        write_vault_config(vault.path(), "name = \"no-embed\"\n");
+        assert!(!vault_embed_enabled(vault.path()));
+    }
+
+    #[test]
+    fn vault_embed_enabled_false_when_flag_disabled() {
+        let vault = TempDir::new().unwrap();
+        write_vault_config(
+            vault.path(),
+            "name = \"disabled\"\n\n[embed]\nenabled = false\n",
+        );
+        assert!(!vault_embed_enabled(vault.path()));
+    }
+
+    #[test]
+    fn vault_embed_enabled_false_when_config_missing() {
+        // No vault.toml on disk: must default to disabled, never panic.
+        let vault = TempDir::new().unwrap();
+        assert!(!vault_embed_enabled(vault.path()));
     }
 }
