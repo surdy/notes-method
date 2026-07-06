@@ -29,6 +29,7 @@ pub use bench::{
     synthetic_knn_bench,
 };
 pub use chunker::{ChunkSpan, ChunkerOptions, chunk_note};
+pub use embedder::{CANONICAL_DIM, CANONICAL_MODEL_ID};
 pub use embedder::{Embedder, HashEmbedder, default_embedder};
 pub use metrics::{SearchMetrics, SearchSample, metrics_for};
 pub use paths::{data_dir, embeddings_db_path, sanitize_vault_name};

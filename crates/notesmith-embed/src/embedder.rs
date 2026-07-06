@@ -93,6 +93,14 @@ fn hash_embed(text: &str, dim: usize) -> Vec<f32> {
 /// `local-embed` feature. Default model `bge-small-en-v1.5` (384-dim). The model
 /// is downloaded to `cache_dir` on first construction; if the machine is offline
 /// and the model is not cached, construction returns a clear error.
+/// The canonical local embedding model and its vector dimension, advertised via
+/// `/api/capabilities` regardless of whether `local-embed` is compiled in. When
+/// the feature is off this is the model an embed-capable build *would* use; when
+/// on it is the model actually loaded (see [`LocalFastEmbed::DEFAULT_MODEL_ID`]).
+pub const CANONICAL_MODEL_ID: &str = "bge-small-en-v1.5";
+/// Vector dimension of [`CANONICAL_MODEL_ID`].
+pub const CANONICAL_DIM: usize = 384;
+
 #[cfg(feature = "local-embed")]
 pub struct LocalFastEmbed {
     model: fastembed::TextEmbedding,
@@ -103,9 +111,9 @@ pub struct LocalFastEmbed {
 #[cfg(feature = "local-embed")]
 impl LocalFastEmbed {
     /// The default model id used when none is specified.
-    pub const DEFAULT_MODEL_ID: &'static str = "bge-small-en-v1.5";
+    pub const DEFAULT_MODEL_ID: &'static str = CANONICAL_MODEL_ID;
     /// The default model's vector dimension.
-    pub const DEFAULT_DIM: usize = 384;
+    pub const DEFAULT_DIM: usize = CANONICAL_DIM;
 
     /// Construct the default `bge-small-en-v1.5` embedder, downloading the model
     /// into `cache_dir` on first run.

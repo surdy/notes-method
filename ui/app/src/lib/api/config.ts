@@ -8,6 +8,11 @@ export interface Capabilities {
 	restart_required_fields: string[];
 	folder_picker: boolean;
 	vaults_root: string | null;
+	embeddings: {
+		compiled_in: boolean;
+		model: string;
+		dim: number;
+	};
 }
 
 export interface VaultConfigData {
@@ -48,6 +53,9 @@ export interface VaultConfigData {
 	hooks: {
 		on_note_create?: string | null;
 		on_daily_create?: string | null;
+	};
+	embed: {
+		enabled: boolean;
 	};
 }
 
