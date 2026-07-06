@@ -18,6 +18,7 @@
 	import GeneralSettings from '$lib/components/settings/GeneralSettings.svelte';
 	import GitSettings from '$lib/components/settings/GitSettings.svelte';
 	import HooksSettings from '$lib/components/settings/HooksSettings.svelte';
+	import EmbeddingsSettings from '$lib/components/settings/EmbeddingsSettings.svelte';
 	import ToastStack from '$lib/components/ToastStack.svelte';
 
 	type Section =
@@ -27,6 +28,7 @@
 		| 'sidebar'
 		| 'git'
 		| 'hooks'
+		| 'embed'
 		| 'appearance'
 		| 'vaults'
 		| 'connection'
@@ -51,7 +53,8 @@
 		{ id: 'editor', label: 'Editor' },
 		{ id: 'sidebar', label: 'Sidebar' },
 		{ id: 'git', label: 'Git Sync' },
-		{ id: 'hooks', label: 'Hooks' }
+		{ id: 'hooks', label: 'Hooks' },
+		{ id: 'embed', label: 'Semantic Search' }
 	];
 
 	const appSections: { id: Section; label: string }[] = [
@@ -284,6 +287,8 @@
 					/>
 				{:else if selectedSection === 'hooks'}
 					<HooksSettings {cfg} {sectionIsDirty} {saveSection} {revert} {markDirty} />
+				{:else if selectedSection === 'embed'}
+					<EmbeddingsSettings {cfg} capabilities={caps} {saveImmediate} />
 				{/if}
 			</div>
 
