@@ -64,6 +64,14 @@ available everywhere, but matches are effectively keyword-ish rather than truly 
 
 For real semantic search, run Notesmith with the `local-embed` feature enabled. That mode uses a local fastembed ONNX model (`bge-small-en-v1.5`, 384-dim) and downloads it automatically on first run.
 
+**On the desktop app** the sidecar is always built embed-capable, so you never
+compile anything: open **Settings → Semantic Search**, pick the vault, and flip
+the toggle on. The toggle writes that vault's `[embed] enabled` on the daemon the
+window is connected to. If you're connected to a server that was built *without*
+embedding support (a lean image), the toggle is disabled and explains why —
+switch to an embed-enabled build (the `*-embed` container image) to turn it on.
+The first enable loads the model (downloaded on first run unless pre-seeded).
+
 Keep setup, worker operation, and monitoring details in one place: see [running & monitoring](embeddings-operations.md).
 
 ---

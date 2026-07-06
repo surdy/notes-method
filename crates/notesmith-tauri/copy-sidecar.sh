@@ -31,7 +31,8 @@ DEST="$BINARIES_DIR/notesmith-${TARGET_TRIPLE}${EXTENSION}"
 
 if [[ ! -f "$SOURCE" ]]; then
   echo "Error: notesmith binary not found at $SOURCE"
-  echo "Build it first: cargo build --release -p notesmith-cli"
+  echo "Build it first (embed-capable, matching the shipped app):"
+  echo "  cargo build --release -p notesmith-cli --features local-embed"
   exit 1
 fi
 

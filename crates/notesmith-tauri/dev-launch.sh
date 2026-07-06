@@ -22,13 +22,20 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 PROFILE="debug"
 CARGO_PROFILE_FLAG=()
-if [[ "${1:-}" == "--release" ]]; then
-  PROFILE="release"
-  CARGO_PROFILE_FLAG=(--release)
-fi
+# The shipped desktop app is always embed-capable (ADR 0018 §9.2): the sidecar
+# is built with `--features local-embed` so the Settings → Semantic Search toggle
+# can turn embeddings on without a rebuild. ONNX is heavy to compile, so
+# `--no-embed` opts out for fast dev iteration when you're not touching search.
+EMBED_FEATURE=(--features local-embed)
+for arg in "$@"; do
+  case "$arg" in
+    --release) PROFILE="release"; CARGO_PROFILE_FLAG=(--release) ;;
+    --no-embed) EMBED_FEATURE=() ;;
+  esac
+done
 
-echo "[dev-launch] Building notesmith CLI (profile: $PROFILE)..."
-(cd "$REPO_ROOT" && cargo build -p notesmith-cli "${CARGO_PROFILE_FLAG[@]}")
+echo "[dev-launch] Building notesmith CLI (profile: $PROFILE${EMBED_FEATURE:+, local-embed})..."
+(cd "$REPO_ROOT" && cargo build -p notesmith-cli "${CARGO_PROFILE_FLAG[@]}" "${EMBED_FEATURE[@]}")
 
 echo "[dev-launch] Copying sidecar..."
 "$SCRIPT_DIR/copy-sidecar.sh" --profile "$PROFILE"
