@@ -11,6 +11,12 @@ design for [#198](https://github.com/surdy/notes-method/issues/198)
 **daemon-is-the-sole-index-owner** invariant and [ADR 0009](0009-resilience-to-malformed-content.md)'s
 per-item resilience policy.
 
+**Addendum (2026-07-06):** §9 adds the **enablement, packaging, and adaptive-settings**
+decision — how `local-embed` is turned on per surface (desktop vs server), how the
+runtime `embed.enabled` flag decouples "compiled in" from "running", and how the
+desktop Settings UI adapts to the *connected* daemon's advertised capabilities
+under [ADR 0017](0017-per-window-daemon-connections.md)'s per-window model.
+
 **Refines** ADR 0015's assumption that the embeddings model runs *in-daemon*
 (placement "A"). At the corpus scale we are now targeting (long-form media, not
 just hand-written notes), embedding moves to a **colocated worker process**
@@ -228,6 +234,58 @@ RRF leaving quality on the table, a **cross-encoder re-ranker** over the top-N f
 results. A weighted *score blend* was rejected: it needs per-corpus α calibration and
 brittle per-query score normalization we have no labeled data to tune.
 
+### 9. Enablement, packaging & adaptive settings (addendum 2026-07-06)
+
+§8.4 settled *how* the local model is compiled in (`local-embed` feature) but left
+open *how a user turns embeddings on* — which matters once the desktop connects to
+remote daemons (ADR 0017). Decision:
+
+**9.1 Embeddings are off by default; enabling must not require a recompile.**
+The on/off a *user* sees is a **runtime flag**, not a build flag. A new global config
+key **`embed.enabled` (default `false`)** gates both the scheduler (worker passes) and
+the query-time path in *every* build. "Compiled in but idle" is a real, cheap state:
+when `embed.enabled=false` nothing loads, no model downloads, no worker runs — the
+cost of a capable build sitting idle is binary size only, not runtime.
+
+**9.2 Compile-time vs runtime differ per surface** — because a user can only "enable
+it in the app" if the runtime is already in the binary they hold:
+
+| Surface | Packaging (compile-time) | Enablement (runtime) |
+|---------|--------------------------|----------------------|
+| **Desktop app** | Sidecar **always built with `local-embed`** so the toggle can exist; **bundle the model** with the app so first-enable is offline/instant (no HuggingFace fetch) | **Settings toggle**, default off; writes the connected daemon's `embed.enabled` |
+| **Server / container** | **Two image flavors along an embed axis**: lean `latest`/`api-latest` (no ONNX) and a `*-embed` tag built with `local-embed`. Keeps the lean image lean (its whole reason to exist) | `embed.enabled` via config / `NOTESMITH_EMBED_ENABLED`; the lean image can't enable (nothing compiled in) and says so |
+
+Rejected: flipping the **crate default** to on (ships ONNX + a first-run HuggingFace
+download to *everyone*, including Pi/tiny-VPS and air-gapped self-hosters, and kills
+the lean `api` image). Rejected: **compile-time-only** gating for desktop (would mean
+shipping two separate desktop apps — no in-app opt-in).
+
+**9.3 Capabilities are advertised, and the desktop Settings UI is adaptive.**
+Embeddings run on **the daemon the window is bound to** (ADR 0017), not the desktop
+shell, so the desktop cannot decide this locally — it asks the server.
+`GET /api/capabilities` gains an **`embeddings` block**:
+
+```json
+"embeddings": { "compiled_in": true, "enabled": false, "model": "bge-small-en-v1.5", "dim": 384 }
+```
+
+The Settings embed section renders from it. Because switching connections does a
+**full webview reload** (ADR 0017 — `API_BASE` is read once per window), capabilities
+re-fetch per connection automatically:
+
+| Connected daemon | Settings shows |
+|------------------|----------------|
+| Embed-capable (`compiled_in=true`) | Full toggle + model info; reflects/edits `embed.enabled` |
+| Lean server (`compiled_in=false`) | Section **disabled** with "this server was built without embedding support — use an embed-enabled build / `*-embed` image" |
+| Capable but `can_edit_global_config=false` (e.g. read-only remote) | Toggle **read-only**, reflecting current server state |
+| Local desktop daemon | Same as embed-capable (bundled sidecar has the feature) |
+
+**9.4 The toggle is server-side state, not a desktop preference.** Enabling it
+`PUT`s the *connected* daemon's global `embed.enabled` (hence the
+`can_edit_global_config` gate). This prevents a "silent lie" — a user connected to a
+lean server can never flip a switch that does nothing, because `compiled_in=false`
+disables it with an explanation.
+
 ## Consequences
 
 - Phase 2 retrieval ([#199](https://github.com/surdy/notes-method/issues/199)
@@ -242,6 +300,10 @@ brittle per-query score normalization we have no labeled data to tune.
   only (§7); it still runs no chat LLM and no bulk embedding.
 - Choosing sqlite-vec now does **not** lock us in: LanceDB is a store-swap behind
   `VectorStore`, and metadata stays in SQLite either way.
+- **(§9)** Embeddings are off by default via a runtime `embed.enabled` flag; the
+  desktop ships a model-bundled, embed-capable sidecar and adapts its Settings UI
+  to the *connected* daemon's advertised `embeddings` capability, while servers
+  choose a lean or `*-embed` image. "Compiled in but off" costs binary size only.
 
 ## Implementation status
 
@@ -278,6 +340,12 @@ observability ([#244](https://github.com/surdy/notes-method/issues/244)).
 Deferred: `OpenAiCompatible` cloud embedder
 ([#251](https://github.com/surdy/notes-method/issues/251)) and LanceDB
 ([#252](https://github.com/surdy/notes-method/issues/252)).
+
+**Not yet implemented (§9 addendum, 2026-07-06):** the runtime `embed.enabled`
+flag, the `/api/capabilities` `embeddings` block, the desktop Settings toggle +
+adaptive UI, model bundling in the desktop app, and the server `*-embed` image
+flavor. Tracked separately; until then, enabling embeddings means building with
+`--features local-embed` (see `docs/embeddings-operations.md`).
 
 ## Suggested phasing
 
