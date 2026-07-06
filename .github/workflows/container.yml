@@ -57,7 +57,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # ── Tags & labels ─────────────────────────────────────────────────────
-      # Two image flavors:
+      # Four image flavors along two axes (frontend, embeddings):
       #
       #   app (default / latest)  — binary + SvelteKit frontend bundled
       #                             Use this for browser access on the same network.
@@ -66,11 +66,19 @@ jobs:
       #                             For CLI/MCP/API-only access or Tauri desktop
       #                             clients that embed their own frontend.
       #
+      #   *-embed                 — same as app/api but built with
+      #                             `--features local-embed` (ONNX/fastembed).
+      #                             Required for real semantic embeddings; per-vault
+      #                             `[embed] enabled = true` in vault.toml then turns
+      #                             it on. Larger image; lean flavors omit ONNX
+      #                             entirely (ADR 0018 §9.2).
+      #
       # Versioning strategy (pre-release, no semver):
       #
       #   latest / api-latest       — most recent build from main
       #   sha-<7> / api-sha-<7>     — immutable; use in Compose/Quadlet for rollback
       #   YYYY.MM.DD / api-YYYY.MM.DD — date tag; helps reason about when a change shipped
+      #   *-embed                    — the embed-capable counterpart of each tag above
       - name: Generate tags for app flavor
         id: meta-app
         uses: docker/metadata-action@v5
@@ -101,6 +109,40 @@ jobs:
           labels: |
             org.opencontainers.image.title=Notesmith (API only)
             org.opencontainers.image.description=Notesmith daemon without frontend (API/CLI/MCP)
+            org.opencontainers.image.url=https://github.com/surdy/notes-method
+            org.opencontainers.image.source=https://github.com/surdy/notes-method
+            org.opencontainers.image.vendor=surdy
+
+      - name: Generate tags for app-embed flavor
+        id: meta-app-embed
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest-embed
+            type=raw,value=edge-embed
+            type=sha,prefix=sha-,suffix=-embed,format=short
+            type=raw,value={{date 'YYYY.MM.DD'}}-embed
+          labels: |
+            org.opencontainers.image.title=Notesmith (embed)
+            org.opencontainers.image.description=Notesmith daemon with bundled frontend and local embeddings (ONNX/fastembed)
+            org.opencontainers.image.url=https://github.com/surdy/notes-method
+            org.opencontainers.image.source=https://github.com/surdy/notes-method
+            org.opencontainers.image.vendor=surdy
+
+      - name: Generate tags for api-embed flavor
+        id: meta-api-embed
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=api-latest-embed
+            type=raw,value=api-edge-embed
+            type=sha,prefix=api-sha-,suffix=-embed,format=short
+            type=raw,value=api-{{date 'YYYY.MM.DD'}}-embed
+          labels: |
+            org.opencontainers.image.title=Notesmith (API only, embed)
+            org.opencontainers.image.description=Notesmith daemon without frontend, with local embeddings (ONNX/fastembed)
             org.opencontainers.image.url=https://github.com/surdy/notes-method
             org.opencontainers.image.source=https://github.com/surdy/notes-method
             org.opencontainers.image.vendor=surdy
@@ -136,6 +178,45 @@ jobs:
           # Reuse layers already built for the app flavor above.
           cache-from: type=registry,ref=${{ env.IMAGE }}:edge
 
+      # ── Build & push: app-embed flavor (frontend + local embeddings) ─────
+      - name: Build and push (app-embed)
+        id: build-app-embed
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          target: app-embed
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            CARGO_FEATURES=local-embed
+          tags: ${{ steps.meta-app-embed.outputs.tags }}
+          labels: ${{ steps.meta-app-embed.outputs.labels }}
+          # Separate registry-backed layer cache for the embed (ONNX) build so
+          # it does not evict the lean cache. Also read the lean edge cache for
+          # the shared frontend/base layers.
+          cache-from: |
+            type=registry,ref=${{ env.IMAGE }}:edge-embed
+            type=registry,ref=${{ env.IMAGE }}:edge
+          cache-to: type=registry,ref=${{ env.IMAGE }}:edge-embed,mode=max
+
+      # ── Build & push: api-embed flavor (local embeddings, no frontend) ───
+      - name: Build and push (api-embed)
+        id: build-api-embed
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          target: api-embed
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            CARGO_FEATURES=local-embed
+          tags: ${{ steps.meta-api-embed.outputs.tags }}
+          labels: ${{ steps.meta-api-embed.outputs.labels }}
+          # Reuse layers already built for the app-embed flavor above.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:edge-embed
+
       # ── Summary ──────────────────────────────────────────────────────────
       - name: Write job summary
         run: |
@@ -148,3 +229,9 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### \`api\` flavor (binary only)" >> "$GITHUB_STEP_SUMMARY"
           echo '${{ steps.meta-api.outputs.tags }}' | tr ',' '\n' | sed 's/^/- `/' | sed 's/$/`/' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### \`app-embed\` flavor (frontend + local embeddings)" >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.meta-app-embed.outputs.tags }}' | tr ',' '\n' | sed 's/^/- `/' | sed 's/$/`/' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### \`api-embed\` flavor (binary only + local embeddings)" >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.meta-api-embed.outputs.tags }}' | tr ',' '\n' | sed 's/^/- `/' | sed 's/$/`/' >> "$GITHUB_STEP_SUMMARY"

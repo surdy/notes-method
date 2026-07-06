@@ -47,6 +47,33 @@ To get real semantic retrieval, build the binary with `--features local-embed`. 
 
 ---
 
+## Container image flavors
+
+The published images come in **lean** and **embed-capable** flavors so operators pick embeddings at deploy time without a bespoke build (ADR 0018 §9.2). The lean images omit ONNX entirely; the `*-embed` images are built with `--features local-embed`.
+
+| Want | Pull tag | Notes |
+|------|----------|-------|
+| Frontend + browser UI, no embeddings | `ghcr.io/surdy/notesmith:latest` | Lean default. `local-embed` **not** compiled in. |
+| API/CLI/MCP only, no embeddings | `ghcr.io/surdy/notesmith:api-latest` | Lean, no frontend. |
+| Frontend + browser UI **with embeddings** | `ghcr.io/surdy/notesmith:latest-embed` | Ships fastembed/ONNX runtime. |
+| API/CLI/MCP only **with embeddings** | `ghcr.io/surdy/notesmith:api-latest-embed` | Embed-capable, no frontend. |
+
+Every lean tag has an embed counterpart with the `-embed` suffix (`edge-embed`, `sha-<7>-embed`, `YYYY.MM.DD-embed`, and the `api-*` equivalents).
+
+```bash
+# Embed-capable, API-only server
+podman run -d --name notesmith \
+  -p 27183:27183 \
+  -v ./vaults:/vaults -v ./config:/config -v ./data:/data -v ./logs:/logs \
+  ghcr.io/surdy/notesmith:api-latest-embed
+```
+
+Compiling the runtime in is **necessary but not sufficient** — embeddings stay off until you also set the per-vault runtime flag `[embed] enabled = true` in that vault's `vault.toml` (issue #253). A lean image can never enable embeddings because nothing is compiled in, and it says so via `GET /api/capabilities` (`embeddings.compiled_in = false`).
+
+The embed images do **not** bake the model in: `bge-small-en-v1.5` is downloaded from HuggingFace into `<data_dir>/models/` on first use, so the container needs outbound network access on first run (pre-seed that directory for air-gapped hosts).
+
+---
+
 ## Where data lives
 
 Embedding data is durable application data. It lives outside the vault and outside the rebuildable `cache.sqlite` index.

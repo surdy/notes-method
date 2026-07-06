@@ -19,6 +19,12 @@ RUN pnpm build
 # ── Stage 2: build Rust binary ───────────────────────────────────────────────
 FROM rust:1-bookworm AS rust-builder
 
+# Cargo features to compile into the CLI binary. Empty by default so the lean
+# `api`/`app` flavors stay small (no ONNX). The embed flavors pass
+# `--build-arg CARGO_FEATURES=local-embed`, which pulls in fastembed/ort
+# (ONNX Runtime), hf-hub, and tokenizers (ADR 0018 §9.2).
+ARG CARGO_FEATURES=""
+
 # Install cross-compilation target for linux/amd64 (no-op when already on amd64)
 RUN rustup target add x86_64-unknown-linux-gnu
 
@@ -26,8 +32,11 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 
-# Build only the CLI crate (notesmith-tauri is excluded from workspace members)
-RUN cargo build --release -p notesmith-cli --target x86_64-unknown-linux-gnu
+# Build only the CLI crate (notesmith-tauri is excluded from workspace members).
+# `${CARGO_FEATURES:+--features ${CARGO_FEATURES}}` expands to nothing when the
+# arg is empty, keeping the lean build byte-for-byte unchanged.
+RUN cargo build --release -p notesmith-cli --target x86_64-unknown-linux-gnu \
+    ${CARGO_FEATURES:+--features ${CARGO_FEATURES}}
 
 # ── Stage 3: api — runtime with Rust binary only ────────────────────────────
 # Use this image when you access Notesmith through CLI/MCP/API clients or the
@@ -85,4 +94,36 @@ COPY --from=frontend-builder --chown=notesmith:notesmith /src/build /app-ui
 USER notesmith
 
 # Tell the daemon where to find the pre-built frontend assets.
+ENV NOTESMITH_APP_DIR=/app-ui
+
+# ── Stage 5: api-embed — API runtime, embed-capable ─────────────────────────
+# Same as `api` but built with `--features local-embed` (pass
+# `--build-arg CARGO_FEATURES=local-embed`). Ships the real fastembed/ONNX
+# runtime so per-vault `[embed] enabled = true` can take effect (ADR 0018 §9.2).
+#
+# ONNX Runtime is statically linked into the binary by `ort`/fastembed, but it
+# still dynamically links libgomp1 (OpenMP) and libstdc++6 at runtime, so those
+# are installed here (they are NOT in the lean image, keeping it small).
+#
+# Model provisioning: the bge-small-en-v1.5 model is NOT baked in. On first use
+# it is downloaded from HuggingFace into <data_dir>/models/. This image
+# therefore needs outbound network access on first run; pre-seed that directory
+# for air-gapped deployments.
+FROM api AS api-embed
+
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libgomp1 libstdc++6 && \
+    rm -rf /var/lib/apt/lists/*
+USER notesmith
+
+# ── Stage 6: app-embed — embed-capable runtime with frontend bundled ────────
+# The embed-capable counterpart of `app`: fastembed/ONNX runtime plus the
+# SvelteKit frontend served at /app.
+FROM api-embed AS app-embed
+
+USER root
+COPY --from=frontend-builder --chown=notesmith:notesmith /src/build /app-ui
+USER notesmith
+
 ENV NOTESMITH_APP_DIR=/app-ui
