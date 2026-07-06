@@ -240,20 +240,26 @@ brittle per-query score normalization we have no labeled data to tune.
 open *how a user turns embeddings on* — which matters once the desktop connects to
 remote daemons (ADR 0017). Decision:
 
-**9.1 Embeddings are off by default; enabling must not require a recompile.**
-The on/off a *user* sees is a **runtime flag**, not a build flag. A new global config
-key **`embed.enabled` (default `false`)** gates both the scheduler (worker passes) and
-the query-time path in *every* build. "Compiled in but idle" is a real, cheap state:
-when `embed.enabled=false` nothing loads, no model downloads, no worker runs — the
-cost of a capable build sitting idle is binary size only, not runtime.
+**9.1 Embeddings are off by default and enabled per vault; enabling must not
+require a recompile.** The on/off a *user* sees is a **runtime, per-vault flag**, not
+a build flag. A new **per-vault `vault.toml` key `[embed] enabled` (default `false`)**
+gates both the scheduler (worker passes for that vault) and the query-time path for
+that vault, in *every* build. Per-vault (not global) so a user can turn semantic
+search on for a large research vault while leaving a throwaway scratch vault
+un-embedded — embedding cost (disk, worker CPU, first-run model load) is paid only
+where it's wanted, and it pairs naturally with future per-vault cloud embedder keys
+(#251). "Compiled in but idle" is a real, cheap state: with no vault enabled nothing
+loads, no model downloads, no worker runs — the cost of a capable build sitting idle
+is binary size only, not runtime. The model is process-global and loaded lazily on
+the first enabled vault, then shared across all enabled vaults.
 
 **9.2 Compile-time vs runtime differ per surface** — because a user can only "enable
 it in the app" if the runtime is already in the binary they hold:
 
 | Surface | Packaging (compile-time) | Enablement (runtime) |
 |---------|--------------------------|----------------------|
-| **Desktop app** | Sidecar **always built with `local-embed`** so the toggle can exist; **bundle the model** with the app so first-enable is offline/instant (no HuggingFace fetch) | **Settings toggle**, default off; writes the connected daemon's `embed.enabled` |
-| **Server / container** | **Two image flavors along an embed axis**: lean `latest`/`api-latest` (no ONNX) and a `*-embed` tag built with `local-embed`. Keeps the lean image lean (its whole reason to exist) | `embed.enabled` via config / `NOTESMITH_EMBED_ENABLED`; the lean image can't enable (nothing compiled in) and says so |
+| **Desktop app** | Sidecar **always built with `local-embed`** so the toggle can exist; **bundle the model** with the app so first-enable is offline/instant (no HuggingFace fetch) | **Per-vault Settings toggle**, default off; writes the connected daemon's `vault.toml` `[embed] enabled` for that vault |
+| **Server / container** | **Two image flavors along an embed axis**: lean `latest`/`api-latest` (no ONNX) and a `*-embed` tag built with `local-embed`. Keeps the lean image lean (its whole reason to exist) | Per-vault `[embed] enabled` in each `vault.toml`; the lean image can't enable (nothing compiled in) and says so |
 
 Rejected: flipping the **crate default** to on (ships ONNX + a first-run HuggingFace
 download to *everyone*, including Pi/tiny-VPS and air-gapped self-hosters, and kills
@@ -263,28 +269,34 @@ shipping two separate desktop apps — no in-app opt-in).
 **9.3 Capabilities are advertised, and the desktop Settings UI is adaptive.**
 Embeddings run on **the daemon the window is bound to** (ADR 0017), not the desktop
 shell, so the desktop cannot decide this locally — it asks the server.
-`GET /api/capabilities` gains an **`embeddings` block**:
+`GET /api/capabilities` gains an **`embeddings` block** carrying the process-global
+facts (whether the runtime is compiled in, and which model it would use):
 
 ```json
-"embeddings": { "compiled_in": true, "enabled": false, "model": "bge-small-en-v1.5", "dim": 384 }
+"embeddings": { "compiled_in": true, "model": "bge-small-en-v1.5", "dim": 384 }
 ```
 
-The Settings embed section renders from it. Because switching connections does a
-**full webview reload** (ADR 0017 — `API_BASE` is read once per window), capabilities
-re-fetch per connection automatically:
+The per-vault **`enabled`** state is *not* in this global block — it lives in each
+vault's config and is read/written through the per-vault config API alongside the
+other `vault.toml` settings. The Settings embed section renders from both: the
+capability gates *whether a toggle can exist at all*; the vault config supplies its
+*current value*. Because switching connections does a **full webview reload**
+(ADR 0017 — `API_BASE` is read once per window), capabilities re-fetch per connection
+automatically:
 
 | Connected daemon | Settings shows |
 |------------------|----------------|
-| Embed-capable (`compiled_in=true`) | Full toggle + model info; reflects/edits `embed.enabled` |
+| Embed-capable (`compiled_in=true`) | Per-vault toggle + model info; reflects/edits that vault's `[embed] enabled` |
 | Lean server (`compiled_in=false`) | Section **disabled** with "this server was built without embedding support — use an embed-enabled build / `*-embed` image" |
-| Capable but `can_edit_global_config=false` (e.g. read-only remote) | Toggle **read-only**, reflecting current server state |
+| Capable but vault config read-only (e.g. read-only remote) | Toggle **read-only**, reflecting the vault's current state |
 | Local desktop daemon | Same as embed-capable (bundled sidecar has the feature) |
 
-**9.4 The toggle is server-side state, not a desktop preference.** Enabling it
-`PUT`s the *connected* daemon's global `embed.enabled` (hence the
-`can_edit_global_config` gate). This prevents a "silent lie" — a user connected to a
-lean server can never flip a switch that does nothing, because `compiled_in=false`
-disables it with an explanation.
+**9.4 The toggle is server-side, per-vault state, not a desktop preference.**
+Enabling it writes the *connected* daemon's `vault.toml` `[embed] enabled` for the
+selected vault (through the same config-write path as other per-vault settings, hence
+subject to whether that vault's config is editable). This prevents a "silent lie" — a
+user connected to a lean server can never flip a switch that does nothing, because
+`compiled_in=false` disables it with an explanation.
 
 ## Consequences
 
@@ -300,10 +312,11 @@ disables it with an explanation.
   only (§7); it still runs no chat LLM and no bulk embedding.
 - Choosing sqlite-vec now does **not** lock us in: LanceDB is a store-swap behind
   `VectorStore`, and metadata stays in SQLite either way.
-- **(§9)** Embeddings are off by default via a runtime `embed.enabled` flag; the
-  desktop ships a model-bundled, embed-capable sidecar and adapts its Settings UI
-  to the *connected* daemon's advertised `embeddings` capability, while servers
-  choose a lean or `*-embed` image. "Compiled in but off" costs binary size only.
+- **(§9)** Embeddings are off by default via a per-vault `[embed] enabled` flag; the
+  desktop ships a model-bundled, embed-capable sidecar and adapts its per-vault
+  Settings toggle to the *connected* daemon's advertised `embeddings` capability,
+  while servers choose a lean or `*-embed` image. "Compiled in but off" costs binary
+  size only.
 
 ## Implementation status
 
@@ -341,10 +354,10 @@ Deferred: `OpenAiCompatible` cloud embedder
 ([#251](https://github.com/surdy/notes-method/issues/251)) and LanceDB
 ([#252](https://github.com/surdy/notes-method/issues/252)).
 
-**Not yet implemented (§9 addendum, 2026-07-06):** the runtime `embed.enabled`
-flag, the `/api/capabilities` `embeddings` block, the desktop Settings toggle +
-adaptive UI, model bundling in the desktop app, and the server `*-embed` image
-flavor. Tracked separately; until then, enabling embeddings means building with
+**Not yet implemented (§9 addendum, 2026-07-06):** the per-vault `[embed] enabled`
+flag, the `/api/capabilities` `embeddings` block, the desktop per-vault Settings
+toggle + adaptive UI, model bundling in the desktop app, and the server `*-embed`
+image flavor. Tracked separately; until then, enabling embeddings means building with
 `--features local-embed` (see `docs/embeddings-operations.md`).
 
 ## Suggested phasing
