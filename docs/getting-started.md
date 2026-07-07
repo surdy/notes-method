@@ -206,6 +206,7 @@ Use these docs as you go deeper:
 | [SQL Views](sql-views.md) | Queryable SQL views |
 | [MCP Adapter](mcp.md) | Model Context Protocol tools |
 | [Vault Configuration](vault-configuration.md) | Configuration files and options |
+| [Server Deployment](../deploy/README.md) | Self-hosting: [container image flavors](../deploy/README.md#image-flavors) (app/api × lean/`*-embed`), Docker Compose, Podman Quadlet |
 
 ### AI & Agents
 
