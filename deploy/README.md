@@ -25,14 +25,37 @@ CLI, MCP server, and desktop app.
 
 ## Image flavors
 
-Two flavors are published from the same `Containerfile`:
+Four flavors are published from the same `Containerfile`, across two independent
+axes — **frontend** (does the daemon serve the browser UI?) and **embeddings**
+(is the local semantic-search runtime compiled in?):
 
-| Flavor | Tag prefix | Contents | Use case |
-|--------|------------|----------|----------|
-| **app** (default) | `latest`, `sha-*`, `YYYY.MM.DD` | Binary + SvelteKit frontend | Browser on the same network, or desktop app |
-| **api** | `api-latest`, `api-sha-*`, `api-YYYY.MM.DD` | Binary only (smaller) | CLI / MCP / API-only access, or desktop app with embedded frontend |
+| Flavor | Tag prefix | Frontend | Embeddings | Use case |
+|--------|------------|----------|------------|----------|
+| **app** (default) | `latest`, `sha-*`, `YYYY.MM.DD` | ✅ SvelteKit | ❌ lean | Browser on the same network, or desktop app |
+| **api** | `api-latest`, `api-sha-*`, `api-YYYY.MM.DD` | ❌ binary only (smaller) | ❌ lean | CLI / MCP / API-only access, or desktop app with embedded frontend |
+| **app-embed** | `latest-embed`, `sha-*-embed`, `YYYY.MM.DD-embed` | ✅ SvelteKit | ✅ `local-embed` | Browser access **and** semantic / hybrid search |
+| **api-embed** | `api-latest-embed`, `api-sha-*-embed`, `api-YYYY.MM.DD-embed` | ❌ binary only | ✅ `local-embed` | API-only / desktop-served, **and** semantic / hybrid search |
 
-> **Browser access:** Use the `app` flavor if you want to open
+**Which one do I want?**
+
+1. **Do you need browser access to `/app/`?** Yes → an `app*` flavor. No (CLI/MCP/API
+   only, or you drive it from the Tauri desktop app which ships its own frontend) →
+   an `api*` flavor (smaller).
+2. **Do you want semantic / hybrid search on this server?** No → the lean flavor
+   (`app` / `api`). Yes → the matching `*-embed` flavor.
+
+> **Embeddings are opt-in, twice.** The `*-embed` images only *compile in* the
+> embedding runtime (ONNX + `bge-small-en-v1.5`, a larger image with a first-run
+> model download). Embeddings are then still **off by default per vault** — flip
+> `[embed] enabled = true` in each `vault.toml` (or use the desktop **Settings →
+> Semantic Search** toggle) to actually turn them on. A **lean** image reports
+> `embeddings.compiled_in: false` on `GET /api/capabilities`, and the Settings
+> toggle shows a "this server was built without embedding support" note. Prefer a
+> lean image on tiny/air-gapped hosts where you don't need vectors. See
+> [ADR 0018 §9](../docs/adr/0018-embedding-and-vector-search.md) and
+> [Embeddings: Operating & Monitoring](../docs/embeddings-operations.md).
+
+> **Browser access:** Use an `app` flavor if you want to open
 > `http://server:27183/app/` directly in a browser. The `api` flavor has no
 > daemon-served frontend, but the Tauri desktop app supplies its own embedded
 > frontend when connected to the server (see
@@ -46,6 +69,7 @@ Two flavors are published from the same `Containerfile`:
 | `edge` | Same as `latest`; signals active development |
 | `sha-<7chars>` | Immutable — pinned to a specific git commit |
 | `YYYY.MM.DD` | Date the image was built |
+| `*-embed` | The embed-capable counterpart of any tag above (`latest-embed`, `api-latest-embed`, `sha-<7chars>-embed`, …) — same build with `--features local-embed` |
 
 Use `sha-*` tags in production (Compose file, Quadlet unit) so an accidental
 `latest` pull never surprises you mid-week.  Update deliberately by picking
@@ -67,16 +91,25 @@ docker pull ghcr.io/surdy/notesmith:sha-a1b2c3d
 
 # api flavor (binary only; still works with the Tauri desktop app)
 docker pull ghcr.io/surdy/notesmith:api-latest
+
+# embed-capable flavors (compile in semantic/hybrid search — larger image)
+docker pull ghcr.io/surdy/notesmith:latest-embed      # app + embeddings
+docker pull ghcr.io/surdy/notesmith:api-latest-embed  # api + embeddings
 ```
 
 To build locally from source instead:
 
 ```bash
-# Docker
+# Docker — lean app flavor (default target)
 docker build -f Containerfile -t notesmith:latest .
 
 # Podman
 podman build -f Containerfile -t notesmith:latest .
+
+# Embed-capable flavor: pick the target + pass the local-embed feature
+docker build -f Containerfile --target app-embed \
+  --build-arg CARGO_FEATURES=local-embed -t notesmith:latest-embed .
+# (use --target api-embed for the binary-only embed flavor)
 ```
 
 > The Containerfile cross-compiles to `linux/amd64` regardless of the build
