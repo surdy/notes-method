@@ -354,11 +354,18 @@ Deferred: `OpenAiCompatible` cloud embedder
 ([#251](https://github.com/surdy/notes-method/issues/251)) and LanceDB
 ([#252](https://github.com/surdy/notes-method/issues/252)).
 
-**Not yet implemented (§9 addendum, 2026-07-06):** the per-vault `[embed] enabled`
-flag, the `/api/capabilities` `embeddings` block, the desktop per-vault Settings
-toggle + adaptive UI, model bundling in the desktop app, and the server `*-embed`
-image flavor. Tracked separately; until then, enabling embeddings means building with
-`--features local-embed` (see `docs/embeddings-operations.md`).
+**Implemented (§9 addendum):** the per-vault `[embed] enabled` flag
+([#253](https://github.com/surdy/notes-method/issues/253)), the
+`/api/capabilities` `embeddings` block
+([#254](https://github.com/surdy/notes-method/issues/254)), the desktop per-vault
+Settings → Semantic Search toggle + adaptive UI
+([#255](https://github.com/surdy/notes-method/issues/255)), the embed-capable
+desktop sidecar ([#256](https://github.com/surdy/notes-method/issues/256) Part A),
+and the server `*-embed` container image flavor
+([#257](https://github.com/surdy/notes-method/issues/257)). Still open: bundling
+the model in the desktop app for a fully-offline first-enable
+([#256](https://github.com/surdy/notes-method/issues/256) Part B, deferred — the
+first enable otherwise downloads the model once).
 
 ## Suggested phasing
 

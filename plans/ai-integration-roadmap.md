@@ -24,7 +24,10 @@ the backend now ships (P2 partially delivered — see Status).
 
 - **Active (13):** all P0, all P1, and P4 model-free items.
 - **Shipped since:** the P2 embeddings backend (#198) + hybrid `vault_search`
-  (#199) + observability (#244).
+  (#199) + observability (#244), and the §9 enablement work — per-vault
+  `[embed] enabled` (#253), capabilities advertisement (#254), the adaptive
+  desktop Settings → Semantic Search toggle (#255), an embed-capable desktop
+  sidecar (#256 Part A), and the `*-embed` server image (#257).
 - **Backlog:** remaining P2 (`time_query` #200, Relevant Notes #201,
   `vault_stats` #202), all P3, plus P4 Projects + Terminal.
 - **Why backlog:** P3's headline (voice) needs Whisper — bundled-model cost we

@@ -99,9 +99,20 @@ Returns server capabilities and deployment mode. Used by the frontend to determi
   "can_open_local_paths": true,
   "restart_required_fields": ["daemon.bind"],
   "folder_picker": false,
-  "vaults_root": null
+  "vaults_root": null,
+  "embeddings": {
+    "compiled_in": false,
+    "model": "bge-small-en-v1.5",
+    "dim": 384
+  }
 }
 ```
+
+The `embeddings` block advertises process-global facts only: `compiled_in` is
+`true` when the daemon was built with the `local-embed` feature (embed-capable),
+and `model`/`dim` name the model an embed-capable build uses. Whether embeddings
+are actually *on* is **per vault** — read `embed.enabled` from
+`GET /api/v/{vault}/config`, not from here (ADR 0018 §9.3).
 
 **Example:**
 ```bash
