@@ -4,16 +4,25 @@ Tracks the features delivered under the **AI Agent Integration Roadmap** epic
 ([#183](https://github.com/surdy/notes-method/issues/183)) and gives you a
 hands-on checklist for validating each one manually.
 
-**As of this checklist, 13 of 26 leaf features are implemented** (all of
-Phase 0, Phase 1, and the active Phase 4 items). Phases 2 and 3 are fully
-backlogged pending the local-embeddings/transcription model decision (ADR 0015),
-and two Phase 4 items remain backlogged — these are listed at the end as **Not
-yet implemented** so the checklist stays exhaustive.
+**As of this checklist, 15 of 26 leaf features are implemented** (all of
+Phase 0, Phase 1, the active Phase 4 items, and — new — the Phase 2 **embeddings
+backend + hybrid `vault_search`**, delivered under the embeddings epic and
+ADR 0018). The remaining Phase 2 items (`time_query`, Relevant Notes panel,
+`vault_stats`) and all of Phase 3 stay backlogged — Phase 3 pending the
+transcription/multimodal model decision (ADR 0019) — and two Phase 4 items
+remain backlogged. Everything still open is listed at the end as **Not yet
+implemented** so the checklist stays exhaustive.
 
 > **Setup once before validating:** Launch the desktop app, open a vault, and
 > make sure an ACP agent (Copilot CLI / Claude Code / Codex / Gemini) is detected
 > in the agent picker. Most chat/editor checks happen in the **Right Dock → Chat**
 > segment. CLI checks use the `notesmith` binary.
+>
+> **For the Phase 2 embeddings checks below** you additionally need a build with
+> embedding support compiled in: the desktop sidecar is always embed-capable, and
+> server deployments must run an **`*-embed`** container image (a lean image
+> reports `embeddings.compiled_in: false`). Real semantic vectors also require the
+> per-vault `[embed] enabled = true` flag — see each check.
 
 ---
 
@@ -76,6 +85,35 @@ yet implemented** so the checklist stays exhaustive.
 
 ---
 
+## Phase 2 — Retrieval / second brain ([#186](https://github.com/surdy/notes-method/issues/186))
+
+> The embeddings backend and hybrid search shipped under ADR 0018. The remaining
+> Phase 2 items (`time_query`, Relevant Notes panel, `vault_stats`) are still
+> backlogged — see **Not yet implemented**.
+
+- [ ] **Embedding backend: local model runtime + per-vault vector store** ([#198](https://github.com/surdy/notes-method/issues/198)) — Ref: [docs/ai-semantic-search.md](ai-semantic-search.md), [docs/embeddings-operations.md](embeddings-operations.md), [docs/cli.md › `embed`](cli.md)
+  - **Verify compiled-in:** `curl <daemon>/api/capabilities` → the `embeddings` block reports `compiled_in: true`, `model: bge-small-en-v1.5`, `dim: 384` (on a lean build it is `false`).
+  - **Enable per vault:** open **Settings → Semantic Search**, pick a vault, flip the toggle on (or set `[embed] enabled = true` in that vault's `.notesmith/vault.toml`).
+  - **Verify model + index build:** first enable downloads the model to `data_dir/notesmith/models` (~1 min), then the worker builds `data_dir/notesmith/<vault>/embeddings.db`. Confirm via the stats check below (vectors climb from 0).
+  - **Verify CLI worker:** `notesmith --vault <name> embed` runs one incremental pass — changed notes re-embedded, unchanged skipped, deleted pruned; `--format json` prints the `WorkerReport`.
+  - **Hint — lean build:** connect the desktop to a server built *without* embeddings → the toggle is **disabled** and explains why (`compiled_in: false`).
+  - **Hint — placeholder vs real:** a build without the `local-embed` feature falls back to a non-semantic `HashEmbedder` so the pipeline still runs offline; `embedder_id` then reflects the placeholder, not `bge-small-en-v1.5`.
+
+- [ ] **`vault_search` MCP tool (hybrid lexical + semantic)** ([#199](https://github.com/surdy/notes-method/issues/199)) — Ref: [docs/ai-semantic-search.md](ai-semantic-search.md), [docs/mcp.md](mcp.md)
+  - In chat (with an embedded vault), ask a **meaning-based** recall question, e.g. *"Search my vault for notes about our database migration strategy and summarize them."*
+  - **Verify:** the agent calls `vault_search` and returns results grounded in note **paths + snippets** it can cite.
+  - **Verify hybrid ranking:** results fuse **lexical** (full-text) and **semantic** signals via Reciprocal Rank Fusion; each result carries rank fields showing whether lexical, semantic, or both contributed.
+  - **Hint — graceful fallback:** run the same query against a vault with **no** embedding index → `vault_search` returns **lexical-only** results and does **not** error.
+  - **Hint:** `vault_search` is the hybrid successor to the older lexical-only `search_notes` tool (see [MCP Adapter](mcp.md)).
+
+- [ ] **Embedding observability: stats endpoint + latency span + benchmark** ([#244](https://github.com/surdy/notes-method/issues/244)) — Ref: [docs/http-api.md › `/embeddings/stats`](http-api.md), [docs/cli.md › `embed bench`](cli.md), [docs/embeddings/05-scaling-and-monitoring.md](embeddings/05-scaling-and-monitoring.md)
+  - **Verify stats endpoint:** `curl <daemon>/api/v/<vault>/embeddings/stats` → `{vector_count, db_bytes, dim, embedder_id, p50_ms, p95_ms, sample_count, last_ingest_at}`. A never-embedded vault returns a **zero-but-valid** index (not an error); a missing vault returns **404**.
+  - **Verify latency percentiles populate:** run a few chat searches, re-fetch stats → `sample_count` and `p50_ms`/`p95_ms` update from the rolling query window.
+  - **Verify benchmark harness:** `notesmith embed bench` (use a `--release` build) inserts synthetic vectors at increasing scales, times k-NN, and reports the vector count where p95 first crosses **150 ms** (warn) and **300 ms** (switch). `--baseline` also embeds + searches the real vault.
+  - **Hint — tracing:** with verbose logs, each vector search emits a `stage=vector_search` span (`N`, `k`, `filtered`, `duration_ms`) — the signal behind the p95 percentiles.
+
+---
+
 ## Phase 4 — Scale & CLI edge ([#188](https://github.com/surdy/notes-method/issues/188))
 
 - [ ] **Headless CLI `notes ai` commands** ([#209](https://github.com/surdy/notes-method/issues/209)) — Ref: [docs/cli.md › `ai`](cli.md)
@@ -114,12 +152,14 @@ yet implemented** so the checklist stays exhaustive.
 
 These remain **open / backlogged** and are out of scope for this validation pass.
 
-### Phase 2 — Retrieval / second brain ([#186](https://github.com/surdy/notes-method/issues/186)) — *fully backlogged*
-- [#198](https://github.com/surdy/notes-method/issues/198) Embedding backend: local model runtime + vector store
-- [#199](https://github.com/surdy/notes-method/issues/199) `vault_search` MCP tool (hybrid lexical + semantic)
+### Phase 2 — Retrieval / second brain ([#186](https://github.com/surdy/notes-method/issues/186)) — *embeddings shipped; these remain backlogged*
 - [#200](https://github.com/surdy/notes-method/issues/200) `time_query` MCP tool
 - [#201](https://github.com/surdy/notes-method/issues/201) Relevant Notes panel (similarity + graph-link scoring)
 - [#202](https://github.com/surdy/notes-method/issues/202) `vault_stats` / structure MCP tool
+
+> The Phase 2 embeddings backend ([#198](https://github.com/surdy/notes-method/issues/198))
+> and hybrid `vault_search` ([#199](https://github.com/surdy/notes-method/issues/199))
+> are **implemented** — see the Phase 2 checklist above.
 
 ### Phase 3 — Memory & multimodal ([#187](https://github.com/surdy/notes-method/issues/187)) — *fully backlogged*
 - [#203](https://github.com/surdy/notes-method/issues/203) `memory` MCP tool (save / recall)
