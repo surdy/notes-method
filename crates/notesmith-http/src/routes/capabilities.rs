@@ -15,7 +15,7 @@ pub async fn get_capabilities() -> Json<Value> {
         "folder_picker": false,
         "vaults_root": null,
         "embeddings": {
-            "compiled_in": cfg!(feature = "local-embed"),
+            "compiled_in": notesmith_embed::LOCAL_EMBED_COMPILED,
             "model": notesmith_embed::CANONICAL_MODEL_ID,
             "dim": notesmith_embed::CANONICAL_DIM,
         }
@@ -36,7 +36,7 @@ mod tests {
         assert!(embeddings.get("enabled").is_none());
         assert_eq!(
             embeddings["compiled_in"],
-            Value::Bool(cfg!(feature = "local-embed"))
+            Value::Bool(notesmith_embed::LOCAL_EMBED_COMPILED)
         );
         assert_eq!(embeddings["model"], notesmith_embed::CANONICAL_MODEL_ID);
         assert_eq!(embeddings["dim"], notesmith_embed::CANONICAL_DIM);

@@ -101,6 +101,16 @@ pub const CANONICAL_MODEL_ID: &str = "bge-small-en-v1.5";
 /// Vector dimension of [`CANONICAL_MODEL_ID`].
 pub const CANONICAL_DIM: usize = 384;
 
+/// Whether the real local embedding runtime (fastembed/ONNX) is compiled into
+/// this build — i.e. whether [`default_embedder`] returns [`LocalFastEmbed`]
+/// rather than the [`HashEmbedder`] placeholder. This is the single source of
+/// truth `/api/capabilities` advertises as `embeddings.compiled_in`: because it
+/// is evaluated in `notesmith-embed` (the crate that owns embedder selection),
+/// it stays correct no matter which upstream crate enabled the feature, so a
+/// binary that pulls in the real embedder can never mis-report itself as lean
+/// (ADR 0018 §9.3).
+pub const LOCAL_EMBED_COMPILED: bool = cfg!(feature = "local-embed");
+
 #[cfg(feature = "local-embed")]
 pub struct LocalFastEmbed {
     model: fastembed::TextEmbedding,
