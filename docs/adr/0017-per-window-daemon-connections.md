@@ -135,7 +135,10 @@ grouped by server, each entry showing a local/remote icon and the server name
   last-seen timestamp. Refresh asynchronously with short timeouts and bounded
   concurrency; render **stale data when a server is offline** and grey it out;
   offer a manual refresh. Rebuild the menu on server config / auth / vault
-  changes.
+  changes. Because Tauri does not expose a native "menu about to open" hook,
+  also refresh **on window focus** (debounced) and on a **low-frequency
+  periodic tick** (aligned to the cache TTL) so vaults added out-of-band (API,
+  another client/window) surface without an app restart.
 - Menu item ids carry the structured `(server_id, vault)` identity (encoded so
   delimiters / unicode / duplicate vault names across servers are unambiguous).
 

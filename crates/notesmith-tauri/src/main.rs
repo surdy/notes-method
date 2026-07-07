@@ -315,6 +315,31 @@ impl VaultCacheState {
     }
 }
 
+/// Debounce gate for focus-triggered vault-cache refreshes.
+///
+/// A `WindowEvent::Focused(true)` fires whenever the app regains focus — the
+/// exact moment before a user reaches for the "New Window" menu — so we refresh
+/// the remote vault list then. But focus can toggle rapidly (e.g. during a
+/// window drag), so this gate ensures we re-fetch at most once per
+/// [`VAULT_FOCUS_REFRESH_DEBOUNCE`].
+#[derive(Default)]
+struct VaultRefreshGate(Mutex<Option<Instant>>);
+
+impl VaultRefreshGate {
+    /// Returns `true` (and stamps `now`) when at least `min_interval` has
+    /// elapsed since the last allowed refresh; `false` to skip this one.
+    fn should_refresh(&self, now: Instant, min_interval: Duration) -> bool {
+        let mut last = self.0.lock().expect("vault refresh gate poisoned");
+        match *last {
+            Some(prev) if now.duration_since(prev) < min_interval => false,
+            _ => {
+                *last = Some(now);
+                true
+            }
+        }
+    }
+}
+
 /// The authoritative window → connection registry (ADR 0017).
 ///
 /// Wraps the pure [`WindowRegistry`] in a mutex for use as Tauri managed state.
@@ -439,6 +464,7 @@ fn main() {
         .manage(DaemonProcessState::default())
         .manage(ServersState::default())
         .manage(VaultCacheState::default())
+        .manage(VaultRefreshGate::default())
         .manage(WindowConnections::default())
         .manage(WindowsPersistState::default())
         .manage(agent_bridge::AgentBridge::default())
@@ -523,6 +549,19 @@ fn main() {
                         handle_vault_window_destroyed(window.app_handle(), &label);
                     }
                 }
+                tauri::WindowEvent::Focused(true) => {
+                    // Returning to the app is the moment before a user opens the
+                    // "New Window" menu — refresh the remote vault list so
+                    // vaults added out-of-band (API, another client/window)
+                    // appear without a restart. Debounced against focus churn.
+                    let app = window.app_handle().clone();
+                    if app
+                        .state::<VaultRefreshGate>()
+                        .should_refresh(Instant::now(), VAULT_FOCUS_REFRESH_DEBOUNCE)
+                    {
+                        tauri::async_runtime::spawn(refresh_vault_cache(app));
+                    }
+                }
                 tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_)
                     if is_vault_window_label(&label) =>
                 {
@@ -604,6 +643,13 @@ fn initialize_app(app: &tauri::App) -> Result<(), DynError> {
     // Kick off an initial remote vault-list refresh so the multi-server "New
     // Window" menu has data to show. Best-effort and off the startup path.
     tauri::async_runtime::spawn(refresh_vault_cache(handle.clone()));
+
+    // Standing-in for a native "menu about to open" hook (which Tauri v2 does
+    // not expose): a low-frequency background refresh, aligned to the menu's
+    // cache TTL, so the "New Window" list is never more than one interval stale
+    // even while the app stays frontmost. Focus events (above) make it instant
+    // on refocus; this covers the already-focused, out-of-band case.
+    tauri::async_runtime::spawn(periodic_vault_cache_refresh(handle.clone()));
     Ok(())
 }
 
@@ -3096,6 +3142,21 @@ const VAULT_REFRESH_CONCURRENCY: usize = 6;
 /// server never stalls the whole refresh (and, transitively, the menu).
 const VAULT_REFRESH_TIMEOUT: Duration = Duration::from_secs(4);
 
+/// Minimum spacing between focus-triggered vault-cache refreshes, so rapid
+/// focus toggles (e.g. a window drag) don't hammer remote servers.
+const VAULT_FOCUS_REFRESH_DEBOUNCE: Duration = Duration::from_secs(5);
+
+/// Background loop that refreshes the remote vault-list cache at the menu's
+/// cache-TTL cadence, so the "New Window" list stays current even while the app
+/// stays frontmost and no focus event fires. Runs for the life of the app;
+/// each pass is best-effort (`refresh_vault_cache` never errors).
+async fn periodic_vault_cache_refresh(app: tauri::AppHandle) {
+    loop {
+        tokio::time::sleep(VAULT_CACHE_TTL).await;
+        refresh_vault_cache(app.clone()).await;
+    }
+}
+
 /// Refresh the cached vault list for every **remote** server, concurrently and
 /// with a short per-server timeout, then fold the outcomes into the
 /// [`VaultCacheState`] (ADR 0017 B.3).
@@ -3261,9 +3322,9 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        CrashAction, CrashTracker, DaemonSettings, QuitRequestAction, admin_route_url,
-        classify_vault_response, daemon_error_detail, evaluate_quit_request, find_sidecar_in,
-        open_windows_guard_message, should_use_local_vault_state,
+        CrashAction, CrashTracker, DaemonSettings, QuitRequestAction, VaultRefreshGate,
+        admin_route_url, classify_vault_response, daemon_error_detail, evaluate_quit_request,
+        find_sidecar_in, open_windows_guard_message, should_use_local_vault_state,
     };
     use notesmith_tauri::vault_cache::RefreshOutcome;
 
@@ -3277,6 +3338,23 @@ mod tests {
             open_windows_guard_message("Memory Server", 3, "changing its URL"),
             "Close the 3 open windows connected to \u{201c}Memory Server\u{201d} before changing its URL."
         );
+    }
+
+    #[test]
+    fn vault_refresh_gate_debounces_within_interval_and_reopens_after() {
+        let gate = VaultRefreshGate::default();
+        let start = Instant::now();
+        let interval = Duration::from_secs(5);
+
+        // First call always refreshes.
+        assert!(gate.should_refresh(start, interval));
+        // A second call within the interval is suppressed.
+        assert!(!gate.should_refresh(start + Duration::from_secs(1), interval));
+        assert!(!gate.should_refresh(start + Duration::from_secs(4), interval));
+        // Once the interval has elapsed, refreshing is allowed again...
+        assert!(gate.should_refresh(start + Duration::from_secs(6), interval));
+        // ...and the window restarts from that last allowed refresh.
+        assert!(!gate.should_refresh(start + Duration::from_secs(9), interval));
     }
 
     #[test]
