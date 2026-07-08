@@ -288,7 +288,7 @@
 				{:else if selectedSection === 'hooks'}
 					<HooksSettings {cfg} {sectionIsDirty} {saveSection} {revert} {markDirty} />
 				{:else if selectedSection === 'embed'}
-					<EmbeddingsSettings {cfg} capabilities={caps} {saveImmediate} />
+					<EmbeddingsSettings {cfg} capabilities={caps} {saveImmediate} {vault} />
 				{/if}
 			</div>
 

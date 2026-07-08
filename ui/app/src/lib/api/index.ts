@@ -38,6 +38,8 @@ export type {
 export { capture } from './capture.ts';
 
 export { getCapabilities, getVaultConfig, putVaultConfig } from './config.ts';
+export { getEmbeddingStats } from './embeddings.ts';
+export type { EmbeddingStats } from './embeddings.ts';
 export type {
 	Capabilities,
 	ConfigConflictError,

@@ -1,19 +1,58 @@
 <script lang="ts">
-import type { Capabilities, VaultConfigData } from '$lib/api';
+import { onDestroy, onMount } from 'svelte';
+import type { Capabilities, EmbeddingStats, VaultConfigData } from '$lib/api';
+import { getEmbeddingStats } from '$lib/api';
 import { toggleField, type SaveImmediateFn } from '$lib/settings-helpers';
+import { deriveEmbeddingStatusView, isIndexingInProgress } from '$lib/embeddings-status';
 
 interface Props {
 cfg: VaultConfigData;
 capabilities: Capabilities | null;
 saveImmediate: SaveImmediateFn;
+vault: string;
 }
 
-let { cfg, capabilities, saveImmediate }: Props = $props();
+let { cfg, capabilities, saveImmediate, vault }: Props = $props();
 
 let compiledIn = $derived(capabilities?.embeddings?.compiled_in ?? false);
 let canEdit = $derived(capabilities?.can_edit_vault_config ?? false);
 let model = $derived(capabilities?.embeddings?.model ?? '');
 let dim = $derived(capabilities?.embeddings?.dim ?? 0);
+
+const STATS_POLL_MS = 5_000;
+
+let stats = $state<EmbeddingStats | null>(null);
+let statsError = $state<string | null>(null);
+let indexing = $state(false);
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+let previousStats: EmbeddingStats | null = null;
+
+let statusView = $derived(deriveEmbeddingStatusView(cfg.embed.enabled, stats, indexing));
+
+async function refreshStats() {
+	if (!vault || !cfg.embed.enabled || !compiledIn) return;
+	try {
+		const next = await getEmbeddingStats(vault);
+		indexing = isIndexingInProgress(previousStats, next);
+		previousStats = next;
+		stats = next;
+		statsError = null;
+	} catch {
+		statsError = 'Could not load embedding index status.';
+	}
+}
+
+onMount(() => {
+	void refreshStats();
+	pollTimer = setInterval(() => void refreshStats(), STATS_POLL_MS);
+});
+
+onDestroy(() => {
+	if (pollTimer) {
+		clearInterval(pollTimer);
+		pollTimer = null;
+	}
+});
 </script>
 
 <section class="config-section">
@@ -60,6 +99,40 @@ let dim = $derived(capabilities?.embeddings?.dim ?? 0);
 				<code>{model}</code>{#if dim} · {dim} dimensions{/if}
 			</p>
 		</div>
+		{#if cfg.embed.enabled}
+			<div class="subsection">
+				<h3 class="subsection-title">Index status</h3>
+				{#if statsError}
+					<p class="subsection-hint status-error">{statsError}</p>
+				{:else if statusView.state === 'never-indexed'}
+					<p class="subsection-hint">
+						<span class="status-dot status-dot--pending"></span>
+						Not yet indexed. The background worker hasn't embedded this vault yet.
+					</p>
+				{:else if statusView.state === 'indexing'}
+					<p class="subsection-hint">
+						<span class="status-dot status-dot--active"></span>
+						Indexing… {statusView.vectorCount} vectors so far.
+					</p>
+				{:else if statusView.state === 'ready'}
+					<p class="subsection-hint">
+						<span class="status-dot status-dot--ready"></span>
+						{statusView.vectorCount} vectors indexed{#if statusView.lastIndexedLabel}
+							· last indexed {statusView.lastIndexedLabel}{/if}
+					</p>
+					{#if statusView.embedderId}
+						<p class="subsection-hint">Embedder: <code>{statusView.embedderId}</code></p>
+					{/if}
+					{#if statusView.p50Ms !== null && statusView.p95Ms !== null}
+						<p class="subsection-hint">
+							Search latency: p50 {statusView.p50Ms.toFixed(0)}ms · p95 {statusView.p95Ms.toFixed(
+								0
+							)}ms
+						</p>
+					{/if}
+				{/if}
+			</div>
+		{/if}
 	{/if}
 </section>
 
@@ -148,6 +221,41 @@ code {
 	padding: 1px 4px;
 	border-radius: 3px;
 	background: var(--bg-secondary);
+}
+
+.status-dot {
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	margin-right: 6px;
+}
+
+.status-dot--pending {
+	background: var(--text-muted);
+}
+
+.status-dot--active {
+	background: var(--accent-bg);
+	animation: pulse 1.2s ease-in-out infinite;
+}
+
+.status-dot--ready {
+	background: var(--color-success);
+}
+
+.status-error {
+	color: var(--text-muted);
+}
+
+@keyframes pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.35;
+	}
 }
 
 @media (max-width: 600px) {
