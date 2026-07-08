@@ -28,6 +28,35 @@ use agent_client_protocol::schema::{EnvVariable, McpServer, McpServerHttp, McpSe
 /// Server name surfaced to the agent for the vault's MCP server.
 pub const MCP_SERVER_NAME: &str = "notesmith";
 
+/// Build the per-vault MCP server name surfaced to the agent, e.g.
+/// `notesmith-work` (issue #259).
+///
+/// Naming the built-in server after the vault lets an agent that also has other
+/// MCP servers available (e.g. a globally-registered server for a different
+/// vault) tell which server maps to the vault it is working in, and prefer it.
+/// The vault name is sanitized to the identifier-safe set `[A-Za-z0-9_-]` (other
+/// characters become `-`); an empty result falls back to the bare
+/// [`MCP_SERVER_NAME`].
+pub fn server_name_for_vault(vault: &str) -> String {
+    let slug: String = vault
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() {
+        MCP_SERVER_NAME.to_string()
+    } else {
+        format!("{MCP_SERVER_NAME}-{slug}")
+    }
+}
+
 /// How a spawned agent reaches the active vault's MCP server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McpBinding {
@@ -117,7 +146,7 @@ impl McpBinding {
         if read_only {
             args.push("--read-only".to_string());
         }
-        Self::stdio(MCP_SERVER_NAME, notesmith_bin, args, read_only)
+        Self::stdio(server_name_for_vault(vault), notesmith_bin, args, read_only)
     }
 
     /// The server name surfaced to the agent.
@@ -185,7 +214,7 @@ mod tests {
     fn local_bridge_builds_the_read_write_mcp_start_command() {
         let binding = McpBinding::local_bridge("notesmith", "work", false);
         assert!(!binding.read_only());
-        assert_eq!(binding.name(), "notesmith");
+        assert_eq!(binding.name(), "notesmith-work");
         match &binding {
             McpBinding::Stdio { command, args, .. } => {
                 assert_eq!(command, "notesmith");
@@ -199,6 +228,7 @@ mod tests {
     fn local_bridge_appends_read_only_flag_for_the_read_only_scope() {
         let binding = McpBinding::local_bridge("/usr/bin/notesmith", "journal", true);
         assert!(binding.read_only());
+        assert_eq!(binding.name(), "notesmith-journal");
         match &binding {
             McpBinding::Stdio { command, args, .. } => {
                 assert_eq!(command, "/usr/bin/notesmith");
@@ -212,11 +242,23 @@ mod tests {
     fn stdio_binding_serializes_as_a_stdio_transport() {
         let binding = McpBinding::local_bridge("notesmith", "work", false);
         let value = serde_json::to_value(binding.to_mcp_server()).unwrap();
-        assert_eq!(value["name"], json!("notesmith"));
+        assert_eq!(value["name"], json!("notesmith-work"));
         assert_eq!(value["command"], json!("notesmith"));
         assert_eq!(value["args"], json!(["--vault", "work", "mcp", "start"]));
         // The stdio variant is untagged: it carries no `type` discriminator.
         assert!(value.get("type").is_none());
+    }
+
+    #[test]
+    fn server_name_for_vault_slugs_and_falls_back() {
+        assert_eq!(server_name_for_vault("work"), "notesmith-work");
+        assert_eq!(server_name_for_vault("embed-test"), "notesmith-embed-test");
+        // Non-identifier characters (spaces, slashes) become `-`, trimmed.
+        assert_eq!(server_name_for_vault("My Vault"), "notesmith-My-Vault");
+        assert_eq!(server_name_for_vault(" a/b "), "notesmith-a-b");
+        // Empty / all-invalid names fall back to the bare server name.
+        assert_eq!(server_name_for_vault(""), "notesmith");
+        assert_eq!(server_name_for_vault("///"), "notesmith");
     }
 
     #[test]

@@ -33,7 +33,7 @@ pub use context::{EditorContext, VaultSummary};
 pub use diag_log::{AgentDiagnosticsLog, DiagEntry, DiagKind};
 pub use error::AgentError;
 pub use event::{AgentEvent, ToolCall, ToolResult};
-pub use mcp::McpBinding;
+pub use mcp::{McpBinding, server_name_for_vault};
 pub use model::{ModelOption, ModelPicker};
 pub use permission::{
     DenyAll, DiffPreview, PermissionDecider, PermissionDecision, PermissionRequest, PermissionState,

@@ -96,20 +96,32 @@ type ReadySlot = Mutex<Option<oneshot::Sender<HandshakeResult>>>;
 /// tools. It is prepended to the first prompt of a session so the agent prefers
 /// vault-aware tools over guessing at the filesystem.
 ///
-/// The wording adapts to the session: whether the vault MCP endpoint is wired,
-/// and whether the agent also has scoped local filesystem/terminal access.
-pub(crate) fn session_preamble(has_mcp: bool, local_io: bool) -> String {
-    let mut text = String::from(
-        "You are an assistant operating inside a Notesmith vault (a directory of \
-         Markdown notes).",
+/// The wording adapts to the session: the active vault name (so the agent knows
+/// which vault it is in and prefers this vault's tools over any other MCP
+/// server, issue #259), whether the vault MCP endpoint is wired, and whether
+/// the agent also has scoped local filesystem/terminal access.
+pub(crate) fn session_preamble(vault_name: Option<&str>, has_mcp: bool, local_io: bool) -> String {
+    let vault = vault_name
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("this vault");
+    let mut text = format!(
+        "You are an assistant operating inside the Notesmith vault `{vault}` (a \
+         directory of Markdown notes).",
     );
     if has_mcp {
-        text.push_str(
-            " To read, search, or modify notes, use the Notesmith MCP tools \
-             (for example `search_notes`, `get_note`, `list_notes`, `query_sql`, \
-             and `list_tasks`); they are vault-aware and respect the vault's \
-             indexes and read-only scope.",
-        );
+        text.push_str(&format!(
+            " To read, search, or modify notes in the `{vault}` vault, use its \
+             built-in Notesmith MCP tools (for example `vault_search`, \
+             `search_notes`, `get_note`, `list_notes`, `query_sql`, and \
+             `list_tasks`); they are vault-aware and respect the vault's indexes \
+             and read-only scope. These built-in tools are the authoritative \
+             source for questions about the `{vault}` vault — always prefer them, \
+             and only use a different MCP server if the user explicitly asks. If \
+             a search returns no results, broaden the query or try another \
+             built-in tool for this vault before concluding that nothing exists; \
+             do NOT answer from another vault or server.",
+        ));
     }
     if local_io {
         text.push_str(
@@ -527,6 +539,7 @@ pub struct AcpSession {
     local_io: bool,
     pub(crate) setup_hint: Option<String>,
     skill: Option<String>,
+    vault_name: Option<String>,
     vault_summary: Option<VaultSummary>,
     decider: Arc<dyn PermissionDecider>,
     permission_state: PermissionState,
@@ -554,6 +567,7 @@ impl AcpSession {
             local_io: false,
             setup_hint: None,
             skill: None,
+            vault_name: None,
             vault_summary: None,
             decider: Arc::new(DenyAll),
             permission_state: PermissionState::new(),
@@ -650,6 +664,15 @@ impl AcpSession {
     /// The body is bounded when assembled, keeping the preamble small.
     pub fn with_skill(mut self, skill: Option<String>) -> Self {
         self.skill = skill;
+        self
+    }
+
+    /// Name the active vault so the one-time session preamble can ground the
+    /// agent in it (issue #259): the steering text names the vault and tells
+    /// the agent to prefer this vault's built-in Notesmith MCP tools over any
+    /// other MCP server. When `None`, the preamble falls back to "this vault".
+    pub fn with_vault_name(mut self, vault_name: impl Into<String>) -> Self {
+        self.vault_name = Some(vault_name.into());
         self
     }
 
@@ -827,6 +850,7 @@ impl AcpSession {
         ));
         let preamble = assemble_preamble(
             &session_preamble(
+                self.vault_name.as_deref(),
                 self.mcp.is_some()
                     || self.mcp_stdio_fallback.is_some()
                     || !self.extra_mcp.is_empty(),
@@ -1497,12 +1521,33 @@ mod tests {
 
     #[test]
     fn session_preamble_steers_to_mcp_and_reflects_local_io() {
-        let with_mcp = session_preamble(true, false);
+        let with_mcp = session_preamble(Some("work"), true, false);
         assert!(with_mcp.contains("Notesmith MCP tools"));
         assert!(with_mcp.contains("do not attempt to run shell commands"));
 
-        let with_io = session_preamble(true, true);
+        let with_io = session_preamble(Some("work"), true, true);
         assert!(with_io.contains("scoped filesystem and terminal access"));
+    }
+
+    #[test]
+    fn session_preamble_names_the_vault_and_prefers_its_tools() {
+        // Grounding fix (issue #259): the preamble must name the active vault
+        // and steer the agent to prefer this vault's built-in tools over any
+        // other MCP server, and not give up / cross vaults on an empty search.
+        let p = session_preamble(Some("embed-test"), true, false);
+        assert!(p.contains("`embed-test`"), "preamble names the vault: {p}");
+        assert!(
+            p.contains("only use a different MCP server if the user explicitly asks"),
+            "preamble prefers built-in tools: {p}"
+        );
+        assert!(
+            p.contains("before concluding that nothing exists"),
+            "preamble discourages first-empty-result surrender: {p}"
+        );
+
+        // No vault name still produces a valid, generic preamble.
+        let generic = session_preamble(None, true, false);
+        assert!(generic.contains("this vault"));
     }
 
     #[test]
