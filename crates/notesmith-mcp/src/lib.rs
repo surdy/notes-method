@@ -135,10 +135,17 @@ impl NotesmithMcp {
     }
 
     fn registered_tools(&self) -> Vec<Tool> {
+        // Ground every tool in the active vault so an agent that also has other
+        // MCP servers available (e.g. a different vault) can tell these tools
+        // apply to *this* vault and prefer them (issue #259).
+        let vault = self.ops.vault_name();
+        let scoped = |base: &str| -> String {
+            format!("{base} (operates on the `{vault}` Notesmith vault)")
+        };
         vec![
             tool_definition(
                 "create_note",
-                "Create a new note in the vault",
+                scoped("Create a new note in the vault"),
                 json!({
                     "type": "object",
                     "properties": {
@@ -153,7 +160,7 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "get_note",
-                "Read a note by vault-relative path",
+                scoped("Read a note by vault-relative path"),
                 json!({
                     "type": "object",
                     "properties": {"path": {"type": "string"}},
@@ -163,7 +170,7 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "update_note",
-                "Replace a note's content",
+                scoped("Replace a note's content"),
                 json!({
                     "type": "object",
                     "properties": {
@@ -176,7 +183,7 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "append_to_note",
-                "Append content to an existing note",
+                scoped("Append content to an existing note"),
                 json!({
                     "type": "object",
                     "properties": {
@@ -189,7 +196,7 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "archive_note",
-                "Apply routing rules and archive a note",
+                scoped("Apply routing rules and archive a note"),
                 json!({
                     "type": "object",
                     "properties": {"path": {"type": "string"}},
@@ -199,7 +206,7 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "search_notes",
-                "Search notes by title and body content",
+                scoped("Search notes by title and body content"),
                 json!({
                     "type": "object",
                     "properties": {
@@ -212,10 +219,14 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "vault_search",
-                "Hybrid search: blends lexical (full-text) and semantic \
-                 (embedding) ranking via reciprocal rank fusion. Returns note \
-                 references with a path and snippet for grounding/citation. \
-                 Degrades to lexical-only until embeddings are available.",
+                scoped(
+                    "Hybrid search (lexical full-text + semantic embedding \
+                     ranking via reciprocal rank fusion) over this vault's \
+                     notes. Returns note references with a path and snippet for \
+                     grounding/citation. Prefer this for open-ended questions \
+                     about the vault's content; it degrades to lexical-only \
+                     until embeddings are available",
+                ),
                 json!({
                     "type": "object",
                     "properties": {
@@ -228,7 +239,7 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "query_sql",
-                "Execute read-only SQL against the vault cache",
+                scoped("Execute read-only SQL against the vault cache"),
                 json!({
                     "type": "object",
                     "properties": {"sql": {"type": "string"}},
@@ -238,7 +249,7 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "list_notes",
-                "List notes with optional type, customer, and archive filters",
+                scoped("List notes with optional type, customer, and archive filters"),
                 json!({
                     "type": "object",
                     "properties": {
@@ -251,7 +262,7 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "list_tasks",
-                "List tasks with optional status and customer filters",
+                scoped("List tasks with optional status and customer filters"),
                 json!({
                     "type": "object",
                     "properties": {
@@ -263,7 +274,7 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "update_task_status",
-                "Set the status of a task in a note",
+                scoped("Set the status of a task in a note"),
                 json!({
                     "type": "object",
                     "properties": {
@@ -277,7 +288,7 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "inbox_add",
-                "Quick-capture content into the inbox folder",
+                scoped("Quick-capture content into the inbox folder"),
                 json!({
                     "type": "object",
                     "properties": {
@@ -290,7 +301,7 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "create_daily_note",
-                "Ensure a daily note exists for a date",
+                scoped("Ensure a daily note exists for a date"),
                 json!({
                     "type": "object",
                     "properties": {
@@ -301,7 +312,7 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "create_from_template",
-                "Instantiate a note from a configured template",
+                scoped("Instantiate a note from a configured template"),
                 json!({
                     "type": "object",
                     "properties": {
@@ -550,8 +561,8 @@ fn ensure_structured_object(value: Value) -> Value {
     }
 }
 
-fn tool_definition(name: &'static str, description: &'static str, schema: Value) -> Tool {
-    Tool::new(name, description, schema_object(schema))
+fn tool_definition(name: &'static str, description: impl Into<String>, schema: Value) -> Tool {
+    Tool::new(name, description.into(), schema_object(schema))
 }
 
 fn resource_definition(uri: &str, name: &str, description: Option<&str>) -> Resource {
@@ -755,6 +766,28 @@ mod tests {
         let tools = mcp.registered_tools();
         assert_eq!(tools.len(), 14);
         assert!(tools.iter().any(|t| t.name == "vault_search"));
+    }
+
+    #[test]
+    fn tool_descriptions_name_the_active_vault() {
+        // Every tool description must ground the agent in the active vault so a
+        // session that also has other MCP servers can prefer these tools for
+        // this vault (issue #259).
+        let temp_dir = TempDir::new().unwrap();
+        let mcp = build_test_mcp(temp_dir.path());
+
+        for tool in mcp.registered_tools() {
+            let desc = tool
+                .description
+                .as_ref()
+                .map(|d| d.as_ref())
+                .unwrap_or_default();
+            assert!(
+                desc.contains("test-vault"),
+                "tool `{}` description does not name the vault: {desc:?}",
+                tool.name
+            );
+        }
     }
 
     #[test]
