@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Memory Merge: Chat-LLM-in-app vs. ACP agent — explainer</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #171a23;
+    --surface-2: #1e222d;
+    --text: #e6e8ee;
+    --muted: #9aa3b2;
+    --border: #2a2f3c;
+    --accent: #6ea8fe;
+    --accent-2: #7ee0b8;
+    --warn: #f0b866;
+    --danger: #f08a8a;
+    --daemon: #7ee0b8;
+    --agent: #6ea8fe;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--font); line-height: 1.55;
+    padding: 40px 20px 80px;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 28px; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 40px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { font-size: 16px; margin: 0 0 8px; }
+  p { color: var(--text); }
+  .lede { color: var(--muted); font-size: 16px; margin-top: 0; }
+  code { font-family: var(--mono); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px 22px; margin: 16px 0;
+  }
+  .tldr {
+    background: linear-gradient(180deg, rgba(110,168,254,0.08), rgba(126,224,184,0.05));
+    border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 10px; padding: 16px 20px; margin: 18px 0;
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+
+  /* Flow diagram */
+  .flow { display: flex; flex-direction: column; gap: 0; margin: 10px 0; }
+  .node {
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; background: var(--surface-2);
+    font-size: 13px; position: relative;
+  }
+  .node .who { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); display: block; margin-bottom: 2px; }
+  .node.agent { border-color: rgba(110,168,254,0.5); box-shadow: inset 0 0 0 1px rgba(110,168,254,0.12); }
+  .node.daemon { border-color: rgba(126,224,184,0.5); box-shadow: inset 0 0 0 1px rgba(126,224,184,0.12); }
+  .node.file { border-style: dashed; }
+  .arrow { text-align: center; color: var(--muted); font-size: 18px; line-height: 1; padding: 6px 0; }
+  .arrow small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+  .dot.agent { background: var(--agent); }
+  .dot.daemon { background: var(--daemon); }
+  .dot.file { background: transparent; border: 1px dashed var(--muted); }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+  .pill.good { color: var(--accent-2); border-color: rgba(126,224,184,0.4); }
+  .pill.bad { color: var(--danger); border-color: rgba(240,138,138,0.4); }
+  .muted { color: var(--muted); }
+  .example {
+    background: #10131b; border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; font-family: var(--mono); font-size: 13px; color: var(--muted);
+    white-space: pre-wrap; margin: 10px 0;
+  }
+  .example b { color: var(--accent-2); }
+  .example .old { color: var(--danger); text-decoration: line-through; }
+  .example .new { color: var(--accent); }
+  .footer { margin-top: 40px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Who does the “thinking” when memory is merged?</h1>
+  <p class="lede">Chat-LLM-in-app (Obsidian Copilot) vs. pushing the work to the calling ACP agent (Notesmith / ADR&nbsp;0015)</p>
+
+  <div class="tldr">
+    <strong>The one-sentence version.</strong> Merging memory facts intelligently
+    (“user likes tea” + “user now prefers coffee” → keep coffee) requires an LLM to
+    <em>reason</em>. The only question is <strong>whose</strong> LLM does it:
+    the app runs its <strong>own</strong> LLM to do the merge (Obsidian Copilot),
+    or the app stays dumb and lets the <strong>user’s already-connected agent</strong>
+    (Copilot, Claude, Gemini…) do the reasoning and hand back the result (Notesmith).
+  </div>
+
+  <h2>Why an LLM is needed at all</h2>
+  <p>
+    Storing a fact is easy — just append a line to a file. The hard part is
+    <strong>de-duplicating and resolving conflicts</strong> so the memory doesn’t rot into
+    a pile of contradictions. That needs judgement:
+  </p>
+  <div class="example">Before:
+  - User drinks <span class="old">tea</span> in the morning
+  - User is based in Seattle
+
+New fact to add: "Actually I switched to coffee"
+
+After (a smart merge):
+  - User drinks <span class="new">coffee</span> in the morning
+  - User is based in Seattle</div>
+  <p>
+    A plain database can’t decide that “switched to coffee” <em>replaces</em> the tea line
+    rather than adding a fourth contradictory bullet. Only a language model reasons that out.
+    So both designs agree an LLM is required — they disagree on <strong>where it lives</strong>.
+  </p>
+
+  <div class="legend">
+    <span><span class="dot agent"></span> LLM / agent (does reasoning)</span>
+    <span><span class="dot daemon"></span> App / daemon (dumb plumbing)</span>
+    <span><span class="dot file"></span> Storage file (<code>Saved Memories.md</code>)</span>
+  </div>
+
+  <div class="grid2">
+    <!-- Option A -->
+    <div class="card">
+      <h3>A · Chat-LLM in the app <span class="muted">(Obsidian Copilot)</span></h3>
+      <div class="flow">
+        <div class="node agent"><span class="who">User</span>“Remember I switched to coffee”</div>
+        <div class="arrow">↓</div>
+        <div class="node daemon"><span class="who">Plugin (app)</span>Reads current <code>Saved Memories.md</code></div>
+        <div class="arrow">↓<small>plugin calls <b>its own</b> LLM + your API key</small></div>
+        <div class="node agent"><span class="who">App-owned LLM</span>Reasons &amp; produces a fully merged bullet list</div>
+        <div class="arrow">↓</div>
+        <div class="node daemon"><span class="who">Plugin (app)</span>Overwrites the file with merged list</div>
+        <div class="arrow">↓</div>
+        <div class="node file"><span class="who">Storage</span>Saved Memories.md</div>
+      </div>
+      <p class="muted" style="font-size:13px;margin-bottom:0">
+        The app is <em>in charge</em>: it owns the model, the prompt, and the API key.
+        The merge always happens the same way, even outside a chat.
+      </p>
+    </div>
+
+    <!-- Option B -->
+    <div class="card">
+      <h3>B · Push to the calling agent <span class="muted">(Notesmith)</span></h3>
+      <div class="flow">
+        <div class="node agent"><span class="who">User → their agent</span>“Remember I switched to coffee”</div>
+        <div class="arrow">↓</div>
+        <div class="node agent"><span class="who">ACP agent (Copilot/Claude…)</span>Calls <code>memory.recall</code> to read current list</div>
+        <div class="arrow">↓<small>daemon just returns text — no thinking</small></div>
+        <div class="node daemon"><span class="who">Notesmith daemon</span>Returns current memory (dumb read)</div>
+        <div class="arrow">↓<small>the agent <b>is</b> the LLM — it reasons here</small></div>
+        <div class="node agent"><span class="who">ACP agent</span>Merges in its head, calls <code>memory.save(merged)</code></div>
+        <div class="arrow">↓</div>
+        <div class="node daemon"><span class="who">Notesmith daemon</span>Writes bytes to file (dumb write)</div>
+        <div class="arrow">↓</div>
+        <div class="node file"><span class="who">Storage</span>memory.md (in the vault)</div>
+      </div>
+      <p class="muted" style="font-size:13px;margin-bottom:0">
+        The daemon never runs a model. It only offers <em>tools</em>; the user’s agent —
+        which is already an LLM — does all the reasoning.
+      </p>
+    </div>
+  </div>
+
+  <h2>The key mental model</h2>
+  <div class="card">
+    <p style="margin-top:0">
+      Think of the merge as a <strong>chore that needs a brain</strong>. There are two brains available:
+    </p>
+    <ul>
+      <li><span class="dot agent"></span><strong>Option A</strong> hires a brain <em>inside the app</em> (the plugin bundles/pays for its own LLM). The app is a self-contained appliance.</li>
+      <li><span class="dot agent"></span><strong>Option B</strong> borrows the brain <em>you already brought</em> (your Copilot/Claude/Gemini agent). The app is just hands — it fetches and files paper, the borrowed brain does the thinking.</li>
+    </ul>
+    <p style="margin-bottom:0">
+      Notesmith picks B on purpose (<code>ADR&nbsp;0015</code>): <em>“the daemon never runs its own chat LLM.”</em>
+      It ships great <strong>tools</strong> and lets whatever agent you brought do the reasoning — so it
+      works with any agent, needs no API key of its own, and stays simple.
+    </p>
+  </div>
+
+  <h2>Trade-offs side by side</h2>
+  <table>
+    <tr><th></th><th>A · Chat-LLM in app</th><th>B · Push to ACP agent</th></tr>
+    <tr>
+      <td><strong>Who runs the model</strong></td>
+      <td>The app, using its own/your API key</td>
+      <td>The agent you already connected</td>
+    </tr>
+    <tr>
+      <td><strong>Merge without a chat open</strong></td>
+      <td><span class="pill good">Yes</span> app can merge anytime</td>
+      <td><span class="pill bad">No</span> needs an agent in the loop</td>
+    </tr>
+    <tr>
+      <td><strong>Cost / keys</strong></td>
+      <td>App must own a model + manage keys</td>
+      <td><span class="pill good">None</span> reuses the agent’s model</td>
+    </tr>
+    <tr>
+      <td><strong>Consistency of merges</strong></td>
+      <td><span class="pill good">High</span> one fixed prompt/model</td>
+      <td>Varies by which agent you use</td>
+    </tr>
+    <tr>
+      <td><strong>Works with any agent</strong></td>
+      <td>Locked to the app’s model</td>
+      <td><span class="pill good">Yes</span> agent-agnostic</td>
+    </tr>
+    <tr>
+      <td><strong>Daemon complexity</strong></td>
+      <td>App owns model calls, context, keys</td>
+      <td><span class="pill good">Low</span> daemon is dumb read/write</td>
+    </tr>
+  </table>
+
+  <h2>Where Notesmith lands</h2>
+  <div class="card">
+    <p style="margin-top:0">
+      For <code>#203</code>, the daemon exposes dumb-but-safe tools —
+      <code>memory.save</code>, <code>memory.recall</code>, <code>memory.list</code>, <code>memory.delete</code> —
+      over an inspectable markdown file. The <strong>reasoning</strong> parts
+      (deciding what’s worth remembering, and merging/conflict-resolving on save)
+      are done by the <strong>calling ACP agent</strong>, because per ADR&nbsp;0015 the daemon
+      won’t run a chat LLM.
+    </p>
+    <p style="margin-bottom:0">
+      Bonus: Notesmith can make <code>memory.recall</code> smarter than Obsidian’s
+      “dump the whole file into the prompt” approach by backing it with the existing
+      <strong>embeddings</strong> — so recall scales past a fixed buffer without needing an LLM at all.
+    </p>
+  </div>
+
+  <div class="footer">
+    Reference: Obsidian Copilot memory design —
+    <code>github.com/logancyang/obsidian-copilot/blob/master/src/memory/memory-design.md</code><br/>
+    Notesmith principle: <code>docs/adr/0015-ai-agent-integration-roadmap.md</code> (Option A).
+  </div>
+
+</div>
+</body>
+</html>
