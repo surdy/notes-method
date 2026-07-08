@@ -31,6 +31,17 @@ function sanitizeUrl(url: string): string | null {
 	return null;
 }
 
+/**
+ * Display label for a note wikilink target: the file's base name without its
+ * folder path or `.md` extension (e.g. `work/Zero-downtime cutover.md` →
+ * `Zero-downtime cutover`). Falls back to the raw target when empty.
+ */
+function noteLinkLabel(target: string): string {
+	const base = target.trim().replace(/\/+$/, '');
+	const name = base.slice(base.lastIndexOf('/') + 1);
+	return name.replace(/\.md$/i, '') || base;
+}
+
 const PLACEHOLDER = '\u0000';
 
 function renderInline(text: string): string {
@@ -39,6 +50,19 @@ function renderInline(text: string): string {
 	const codes: string[] = [];
 	let s = text.replace(/`([^`]+)`/g, (_match, code: string) => {
 		codes.push(`<code>${escapeHtml(code)}</code>`);
+		return `${PLACEHOLDER}${codes.length - 1}${PLACEHOLDER}`;
+	});
+
+	// Note wikilinks `[[path]]` / `[[path|label]]` → clickable note links. Pulled
+	// out before escaping so path characters (`/`, spaces, `.`) survive intact;
+	// the chat component resolves `data-note-target` to the note and opens it on
+	// click. Extracted after code spans so a `[[…]]` inside backticks stays code.
+	s = s.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_match, target: string, label?: string) => {
+		const attr = escapeHtml(target.trim());
+		const display = escapeHtml((label ?? noteLinkLabel(target)).trim());
+		codes.push(
+			`<a class="agent-notelink" data-note-target="${attr}" role="link" tabindex="0">${display}</a>`
+		);
 		return `${PLACEHOLDER}${codes.length - 1}${PLACEHOLDER}`;
 	});
 

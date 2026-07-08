@@ -32,6 +32,31 @@ describe('renderMarkdown', () => {
 		expect(renderMarkdown('1. first\n2. second')).toBe('<ol><li>first</li><li>second</li></ol>');
 	});
 
+	it('renders wikilinks as clickable note links', () => {
+		expect(renderMarkdown('see [[work/Zero-downtime Postgres cutover.md]]')).toBe(
+			'<p>see <a class="agent-notelink" data-note-target="work/Zero-downtime Postgres cutover.md" role="link" tabindex="0">Zero-downtime Postgres cutover</a></p>'
+		);
+	});
+
+	it('supports an explicit wikilink label', () => {
+		expect(renderMarkdown('[[work/Foo.md|the plan]]')).toBe(
+			'<p><a class="agent-notelink" data-note-target="work/Foo.md" role="link" tabindex="0">the plan</a></p>'
+		);
+	});
+
+	it('escapes wikilink targets and labels', () => {
+		const out = renderMarkdown('[[a"b/n.md|<x>]]');
+		expect(out).toContain('data-note-target="a&quot;b/n.md"');
+		expect(out).toContain('>&lt;x&gt;</a>');
+		expect(out).not.toContain('<x>');
+	});
+
+	it('does not treat wikilinks inside inline code as note links', () => {
+		expect(renderMarkdown('use `[[a.md]]` literally')).toBe(
+			'<p>use <code>[[a.md]]</code> literally</p>'
+		);
+	});
+
 	it('renders headings', () => {
 		expect(renderMarkdown('## Title')).toBe('<h2>Title</h2>');
 	});

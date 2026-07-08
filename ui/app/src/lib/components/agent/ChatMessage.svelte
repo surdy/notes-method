@@ -4,6 +4,8 @@
 	import { activeEditorStore } from '$lib/editor/active-editor.svelte';
 	import type { ApplyMode } from '$lib/editor/apply-output';
 	import { toastStore } from '$lib/toast-store.svelte';
+	import { vaultStore } from '$lib/stores.svelte';
+	import { tabStore } from '$lib/tab-store.svelte';
 
 	let { item }: { item: MessageItem } = $props();
 
@@ -11,6 +13,34 @@
 	let html = $derived(isAgent && item.text ? renderMarkdown(item.text) : '');
 	// Only finished assistant turns with text can be applied to the note.
 	let canApply = $derived(isAgent && !item.streaming && item.text.trim().length > 0);
+
+	/** Open the note a chat wikilink (`[[path]]`) points at, resolving the target
+	 * against the loaded note list the same way the editor's wikilinks do. */
+	function openNoteLink(rawTarget: string) {
+		const target = rawTarget.trim();
+		if (!target) return;
+		const base = target.replace(/\.md$/i, '');
+		const notes = vaultStore.notes;
+		const match =
+			notes.find((n) => n.path === target) ??
+			notes.find((n) => n.path === `${base}.md`) ??
+			notes.find((n) => n.path.endsWith(`/${target}`) || n.path.endsWith(`/${base}.md`)) ??
+			notes.find((n) => n.title === target || n.title === base) ??
+			notes.find((n) => n.path.includes(target));
+		if (match) {
+			tabStore.selectNote(match.path);
+		} else {
+			toastStore.add(`Couldn't find a note matching "${target}".`, 'warning');
+		}
+	}
+
+	function onNoteLink(event: MouseEvent | KeyboardEvent) {
+		const el = (event.target as HTMLElement | null)?.closest('a.agent-notelink') as HTMLElement | null;
+		if (!el) return;
+		if (event instanceof KeyboardEvent && event.key !== 'Enter' && event.key !== ' ') return;
+		event.preventDefault();
+		openNoteLink(el.dataset.noteTarget ?? '');
+	}
 
 	function apply(mode: ApplyMode) {
 		const applied = activeEditorStore.applyOutput(mode, item.text);
@@ -40,7 +70,9 @@
 		{#if item.text}
 			{#if isAgent}
 				<!-- renderMarkdown HTML-escapes all input before injecting tags -->
-				<div class="text markdown">{@html html}</div>
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="text markdown" onclick={onNoteLink} onkeydown={onNoteLink}>{@html html}</div>
 			{:else}
 				<p class="text">{item.text}</p>
 			{/if}
@@ -226,6 +258,10 @@
 	.markdown :global(a) {
 		color: var(--accent-bg);
 		text-decoration: underline;
+	}
+
+	.markdown :global(a.agent-notelink) {
+		cursor: pointer;
 	}
 
 	.markdown :global(code) {
