@@ -120,7 +120,10 @@ pub(crate) fn session_preamble(vault_name: Option<&str>, has_mcp: bool, local_io
              and only use a different MCP server if the user explicitly asks. If \
              a search returns no results, broaden the query or try another \
              built-in tool for this vault before concluding that nothing exists; \
-             do NOT answer from another vault or server.",
+             do NOT answer from another vault or server. When your answer refers \
+             to a specific note, cite it as a wikilink containing its exact \
+             vault-relative path, e.g. `[[work/Zero-downtime Postgres cutover.md]]`, \
+             so the user can click it to open the note.",
         ));
     }
     if local_io {
@@ -1548,6 +1551,21 @@ mod tests {
         // No vault name still produces a valid, generic preamble.
         let generic = session_preamble(None, true, false);
         assert!(generic.contains("this vault"));
+    }
+
+    #[test]
+    fn session_preamble_asks_for_clickable_note_citations() {
+        // Clickable note links: the agent must cite referenced notes as
+        // `[[vault-relative path]]` wikilinks so the chat UI can open them.
+        let p = session_preamble(Some("embed-test"), true, false);
+        assert!(
+            p.contains("cite it as a wikilink"),
+            "preamble steers wikilink citations: {p}"
+        );
+        assert!(
+            p.contains("[[work/Zero-downtime Postgres cutover.md]]"),
+            "preamble shows a vault-relative wikilink example: {p}"
+        );
     }
 
     #[test]
