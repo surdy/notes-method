@@ -167,6 +167,7 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
         .route("/api/v/{vault}/notes-rename/{*path}", post(rename_note))
         .route("/api/v/{vault}/capture", post(capture_note))
         .route("/api/v/{vault}/search", get(search_notes))
+        .route("/api/v/{vault}/related/{*path}", get(related_notes))
         .route(
             "/api/v/{vault}/sidebar-config",
             get(get_sidebar_config).put(put_sidebar_config),
@@ -476,7 +477,7 @@ async fn mcp_ro_service_handler(
     dispatch_mcp(state, vault, true, request).await
 }
 
-fn local_ops_for(name: &str, vault: &VaultState) -> notesmith_ops::LocalOps {
+pub(crate) fn local_ops_for(name: &str, vault: &VaultState) -> notesmith_ops::LocalOps {
     notesmith_ops::LocalOps::from_shared(
         name.to_string(),
         vault.root.clone(),

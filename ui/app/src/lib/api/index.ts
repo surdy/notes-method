@@ -91,6 +91,9 @@ export type { RouteApplyResponse, RouteResult } from './routing.ts';
 export { executeSql } from './sql.ts';
 export type { SqlQueryResult } from './sql.ts';
 
+export { getRelatedNotes } from './related.ts';
+export type { RelatedNote, RelatedNotesResult } from './related.ts';
+
 export {
 	appendMessage,
 	createThread,

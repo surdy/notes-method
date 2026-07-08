@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { executeSql, getNote, type SqlQueryResult } from '$lib/api';
+	import { executeSql, getNote, getRelatedNotes, type SqlQueryResult } from '$lib/api';
+	import type { RelatedNote } from '$lib/api';
 	import TocPanel from '$lib/components/TocPanel.svelte';
 	import { buildBacklinksQuery, buildOutgoingLinksQuery, buildRailMetadata } from '$lib/right-rail';
 	import type { RailTab } from '$lib/right-dock';
@@ -12,6 +13,7 @@
 		$props();
 	let backlinks = $state<SqlQueryResult>(emptySqlResult());
 	let outgoingLinks = $state<SqlQueryResult>(emptySqlResult());
+	let relatedNotes = $state<RelatedNote[]>([]);
 	let metadata = $state<Record<string, unknown> | null>(null);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
@@ -39,10 +41,11 @@
 		loading = true;
 		error = null;
 
-		const [backlinksResult, outgoingResult, noteResult] = await Promise.allSettled([
+		const [backlinksResult, outgoingResult, noteResult, relatedResult] = await Promise.allSettled([
 			executeSql(vault, buildBacklinksQuery(path)),
 			executeSql(vault, buildOutgoingLinksQuery(path)),
-			getNote(vault, path)
+			getNote(vault, path),
+			getRelatedNotes(vault, path)
 		]);
 
 		if (token !== loadToken || tabStore.selectedPath !== path || vaultStore.currentVault !== vault) {
@@ -51,6 +54,7 @@
 
 		backlinks = backlinksResult.status === 'fulfilled' ? backlinksResult.value : emptySqlResult();
 		outgoingLinks = outgoingResult.status === 'fulfilled' ? outgoingResult.value : emptySqlResult();
+		relatedNotes = relatedResult.status === 'fulfilled' ? relatedResult.value.related : [];
 		metadata = buildRailMetadata(
 			summary,
 			noteResult.status === 'fulfilled' ? noteResult.value.frontmatter : null
@@ -59,13 +63,15 @@
 		if (
 			backlinksResult.status === 'rejected' ||
 			outgoingResult.status === 'rejected' ||
-			noteResult.status === 'rejected'
+			noteResult.status === 'rejected' ||
+			relatedResult.status === 'rejected'
 		) {
 			error = 'Some context is unavailable.';
 			console.error('Failed to load right rail data', {
 				backlinks: backlinksResult.status === 'rejected' ? backlinksResult.reason : null,
 				outgoingLinks: outgoingResult.status === 'rejected' ? outgoingResult.reason : null,
-				note: noteResult.status === 'rejected' ? noteResult.reason : null
+				note: noteResult.status === 'rejected' ? noteResult.reason : null,
+				related: relatedResult.status === 'rejected' ? relatedResult.reason : null
 			});
 		}
 
@@ -76,6 +82,7 @@
 		loadToken += 1;
 		backlinks = emptySqlResult();
 		outgoingLinks = emptySqlResult();
+		relatedNotes = [];
 		metadata = null;
 		loading = false;
 		error = null;
@@ -187,6 +194,28 @@
 										<button class="link-item" type="button" onclick={() => navigateTo(item.path)}>
 											<span class="link-label">{item.label}</span>
 											<span class="link-path">{item.path}</span>
+										</button>
+									{/each}
+								</div>
+							{/if}
+						</div>
+
+						<div class="links-group">
+							<h3 class="links-heading">Relevant ({relatedNotes.length})</h3>
+							{#if relatedNotes.length === 0}
+								<div class="section-empty">No related notes</div>
+							{:else}
+								<div class="link-list">
+									{#each relatedNotes as item (item.path)}
+										<button class="link-item" type="button" onclick={() => navigateTo(item.path)}>
+											<span class="link-label">{item.title}</span>
+											<span class="link-path">{item.path}</span>
+											<span class="related-signals">
+												{#if item.directly_linked}<span class="related-tag">linked</span>{/if}
+												{#if item.shared_neighbors > 0}<span class="related-tag"
+														>{item.shared_neighbors} shared</span
+													>{/if}
+											</span>
 										</button>
 									{/each}
 								</div>
@@ -338,6 +367,21 @@
 		color: var(--text-muted);
 		font-size: 12px;
 		word-break: break-word;
+	}
+
+	.related-signals {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 2px;
+	}
+
+	.related-tag {
+		padding: 1px 6px;
+		border-radius: 999px;
+		background: var(--accent-bg);
+		color: var(--accent-text);
+		font-size: 11px;
 	}
 
 	.section-empty {

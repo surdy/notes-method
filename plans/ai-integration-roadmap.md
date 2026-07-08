@@ -27,8 +27,9 @@ the backend now ships (P2 partially delivered — see Status).
   (#199) + observability (#244), and the §9 enablement work — per-vault
   `[embed] enabled` (#253), capabilities advertisement (#254), the adaptive
   desktop Settings → Semantic Search toggle (#255), an embed-capable desktop
-  sidecar (#256 Part A), and the `*-embed` server image (#257).
-- **Backlog:** remaining P2 (Relevant Notes #201, `vault_stats` #202), all P3,
+  sidecar (#256 Part A), and the `*-embed` server image (#257). Since then,
+  `time_query` (#200) and the Relevant Notes panel (#201) have also shipped.
+- **Backlog:** remaining P2 (`vault_stats` #202), all P3,
   plus P4 Projects + Terminal.
 - **Why backlog:** P3's headline (voice) needs Whisper — bundled-model cost we
   are deferring. `time_query` (#200) shipped as embedding-independent;
@@ -64,7 +65,7 @@ daemon-side `web_fetch` tool (#207, backlog) lands.
 | #198 | Embedding backend: local model runtime + vector store | ✅ shipped (ADR 0018; brute-force store + `HashEmbedder`/`LocalFastEmbed`) |
 | #199 | `vault_search` MCP tool (hybrid lexical + semantic) | ✅ shipped (RRF fusion) |
 | #200 | `time_query` MCP tool | ✅ shipped (embedding-independent; two_timer NL ranges over mtime/created/updated + periodic overlap) |
-| #201 | Relevant Notes panel (similarity + graph-link scoring) | needs #198 (backlog) |
+| #201 | Relevant Notes panel (similarity + graph-link scoring) | ✅ shipped (HTTP `GET /related/{path}`; embedding similarity blended with link-graph proximity, graph-only fallback; RightRail Links tab) |
 | #202 | `vault_stats` / structure MCP tool | **embedding-independent** |
 
 ## Phase 3 — Memory & multimodal (#187, BACKLOG)

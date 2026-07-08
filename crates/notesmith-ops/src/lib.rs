@@ -27,6 +27,7 @@ use serde_json::{Map, Value, json};
 use serde_yaml::{Mapping, Value as YamlValue};
 
 pub mod hybrid;
+pub mod related;
 pub mod time_query;
 pub use hybrid::{DEFAULT_RRF_K, HybridHit, HybridSearch, rrf_fuse};
 
@@ -175,6 +176,201 @@ impl LocalOps {
             vault_config,
             hybrid: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Rank notes related to `path` by blending embedding similarity with
+    /// link-graph proximity (issue #201). Degrades to graph-only ranking when
+    /// the vault has no usable embeddings. See [`crate::related`].
+    pub fn related_notes(&self, path: &str, limit: usize) -> Result<Value> {
+        use std::collections::{HashMap, HashSet};
+
+        let active_full = path.to_string();
+        let active_stem = stem_of(&active_full);
+        let conn = self.cache.connection();
+
+        // Candidate universe: every note, plus title and stem lookups.
+        let mut stmt = conn.prepare("SELECT path, title FROM notes")?;
+        let note_rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(stmt);
+        if !note_rows.iter().any(|(p, _)| p == &active_full) {
+            anyhow::bail!("note not found: {active_full}");
+        }
+        let mut title_by_path: HashMap<String, String> = HashMap::new();
+        for (p, t) in &note_rows {
+            title_by_path.insert(p.clone(), t.clone().unwrap_or_else(|| stem_of(p)));
+        }
+
+        // Link graph. `target_path` holds the wikilink target (a stem), while
+        // `source_path` is a full note path, so targets are compared by stem.
+        let mut out_stems: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut citers: HashMap<String, Vec<String>> = HashMap::new();
+        let mut stmt = conn.prepare(
+            "SELECT source_path, target_path FROM links \
+             WHERE vault_name = ?1 AND target_path IS NOT NULL",
+        )?;
+        let link_rows = stmt
+            .query_map([&self.vault_name], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(stmt);
+        for (source, target) in link_rows {
+            let target_stem = stem_of(&target);
+            out_stems
+                .entry(source.clone())
+                .or_default()
+                .insert(target_stem.clone());
+            citers.entry(target_stem).or_default().push(source);
+        }
+
+        let empty_out: HashSet<String> = HashSet::new();
+        let active_out = out_stems.get(&active_full).unwrap_or(&empty_out);
+
+        // Bibliographic coupling: candidates that link to a target the active
+        // note also links to.
+        let mut coupling: HashMap<String, u32> = HashMap::new();
+        for target in active_out {
+            if let Some(sources) = citers.get(target) {
+                for source in sources {
+                    if source != &active_full {
+                        *coupling.entry(source.clone()).or_default() += 1;
+                    }
+                }
+            }
+        }
+
+        // Co-citation: candidates linked to by a note that also links to the
+        // active note. Keyed by candidate stem (the linked-to targets).
+        let mut cocitation: HashMap<String, u32> = HashMap::new();
+        if let Some(active_citers) = citers.get(&active_stem) {
+            for source in active_citers {
+                if source == &active_full {
+                    continue;
+                }
+                if let Some(source_out) = out_stems.get(source) {
+                    for target in source_out {
+                        if target != &active_stem {
+                            *cocitation.entry(target.clone()).or_default() += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Candidates directly linking *to* the active note.
+        let direct_in: HashSet<&String> = citers
+            .get(&active_stem)
+            .map(|sources| sources.iter().collect())
+            .unwrap_or_default();
+
+        // Embedding centroids (mean chunk vector per note); only meaningful when
+        // the active note itself has a stored vector.
+        let centroids = self.note_centroids();
+        let active_vec = centroids
+            .as_ref()
+            .and_then(|map| map.get(&active_full).cloned());
+        let embeddings_used = active_vec.is_some();
+
+        let mut candidates: Vec<related::CandidateSignals> = Vec::new();
+        for (p, _) in &note_rows {
+            if p == &active_full {
+                continue;
+            }
+            let candidate_stem = stem_of(p);
+            let directly_linked = active_out.contains(&candidate_stem) || direct_in.contains(p);
+            let shared_neighbors = coupling.get(p).copied().unwrap_or(0)
+                + cocitation.get(&candidate_stem).copied().unwrap_or(0);
+            let embedding_similarity = match (&active_vec, &centroids) {
+                (Some(av), Some(map)) => map.get(p).map(|cv| related::cosine_similarity(av, cv)),
+                _ => None,
+            };
+            if !directly_linked
+                && shared_neighbors == 0
+                && embedding_similarity.unwrap_or(0.0) <= 0.0
+            {
+                continue;
+            }
+            candidates.push(related::CandidateSignals {
+                path: p.clone(),
+                title: title_by_path
+                    .get(p)
+                    .cloned()
+                    .unwrap_or_else(|| candidate_stem.clone()),
+                embedding_similarity,
+                directly_linked,
+                shared_neighbors,
+            });
+        }
+
+        let ranked = related::rank_related(candidates, embeddings_used, limit);
+        let related_json: Vec<Value> = ranked
+            .iter()
+            .map(|r| {
+                json!({
+                    "path": r.path,
+                    "title": r.title,
+                    "score": r.score,
+                    "embedding_similarity": r.embedding_similarity,
+                    "directly_linked": r.directly_linked,
+                    "shared_neighbors": r.shared_neighbors,
+                })
+            })
+            .collect();
+
+        Ok(json!({
+            "path": active_full,
+            "embeddings_used": embeddings_used,
+            "related": related_json,
+        }))
+    }
+
+    /// Load every note's centroid (mean chunk vector) from the vault's
+    /// `embeddings.db`, or `None` when embeddings are disabled/absent. Mirrors
+    /// the [`Self::hybrid_search`] gate so relatedness and search agree on
+    /// whether a vault has usable vectors.
+    fn note_centroids(&self) -> Option<std::collections::HashMap<String, Vec<f32>>> {
+        if !self.vault_config.embed.enabled {
+            return None;
+        }
+        let db_path = notesmith_embed::embeddings_db_path(&self.vault_name).ok()?;
+        if !db_path.exists() {
+            return None;
+        }
+        let store = notesmith_embed::EmbeddingStore::open_read_only(&db_path).ok()?;
+        let chunks = store.load_chunks(&self.vault_name).ok()?;
+        if chunks.is_empty() {
+            return None;
+        }
+        let mut sums: std::collections::HashMap<String, (Vec<f32>, usize)> =
+            std::collections::HashMap::new();
+        for chunk in chunks {
+            let entry = sums
+                .entry(chunk.path)
+                .or_insert_with(|| (vec![0.0; chunk.vector.len()], 0));
+            if entry.0.len() == chunk.vector.len() {
+                for (acc, v) in entry.0.iter_mut().zip(chunk.vector.iter()) {
+                    *acc += v;
+                }
+                entry.1 += 1;
+            }
+        }
+        let centroids = sums
+            .into_iter()
+            .filter_map(|(path, (mut sum, count))| {
+                if count == 0 {
+                    return None;
+                }
+                for value in sum.iter_mut() {
+                    *value /= count as f32;
+                }
+                Some((path, sum))
+            })
+            .collect();
+        Some(centroids)
     }
 
     /// Return the memoised hybrid searcher, building it on first use once the
@@ -1093,6 +1289,18 @@ fn escape_sql_string(input: &str) -> String {
     input.replace('\'', "''")
 }
 
+/// The filename stem of a note path: drop the directory and a trailing `.md`
+/// (case-insensitive). Wikilink targets are stored as stems, so link-graph
+/// comparisons operate on stems rather than full paths.
+fn stem_of(path: &str) -> String {
+    let file = path.rsplit('/').next().unwrap_or(path);
+    if file.len() >= 3 && file[file.len() - 3..].eq_ignore_ascii_case(".md") {
+        file[..file.len() - 3].to_string()
+    } else {
+        file.to_string()
+    }
+}
+
 /// Which indexed date a [`Ops::time_query`] filters notes on.
 #[derive(Clone, Copy)]
 enum DateField {
@@ -1342,6 +1550,75 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let ops = build_test_ops(temp_dir.path());
         assert!(ops.time_query("not a time zzz", None, None, None).is_err());
+    }
+
+    #[test]
+    fn related_notes_ranks_by_link_graph() {
+        let temp_dir = TempDir::new().unwrap();
+        // Hub links to two spokes; Spoke A links back to Hub; Cousin shares the
+        // Spoke A neighbour with Hub (bibliographic coupling).
+        write_note(
+            temp_dir.path(),
+            "Hub.md",
+            "---\ntype: note\n---\nSee [[Spoke A]] and [[Spoke B]].",
+        );
+        write_note(
+            temp_dir.path(),
+            "Spoke A.md",
+            "---\ntype: note\n---\nBack to [[Hub]].",
+        );
+        write_note(temp_dir.path(), "Spoke B.md", "---\ntype: note\n---\nLeaf.");
+        write_note(
+            temp_dir.path(),
+            "Cousin.md",
+            "---\ntype: note\n---\nAlso mentions [[Spoke A]].",
+        );
+        let ops = build_test_ops(temp_dir.path());
+
+        let result = ops.related_notes("Hub.md", 10).unwrap();
+        assert_eq!(result["path"], "Hub.md");
+        assert_eq!(result["embeddings_used"], false);
+        let related = result["related"].as_array().unwrap();
+        let paths: Vec<&str> = related
+            .iter()
+            .map(|r| r["path"].as_str().unwrap())
+            .collect();
+        // Directly-linked spokes outrank the coupling-only cousin.
+        assert_eq!(paths, vec!["Spoke A.md", "Spoke B.md", "Cousin.md"]);
+
+        let cousin = related.iter().find(|r| r["path"] == "Cousin.md").unwrap();
+        assert_eq!(cousin["directly_linked"], false);
+        assert_eq!(cousin["shared_neighbors"], 1);
+        assert_eq!(cousin["embedding_similarity"], Value::Null);
+
+        let spoke_a = related.iter().find(|r| r["path"] == "Spoke A.md").unwrap();
+        assert_eq!(spoke_a["directly_linked"], true);
+    }
+
+    #[test]
+    fn related_notes_respects_limit_and_excludes_self() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "A.md",
+            "---\ntype: note\n---\n[[B]] [[C]] [[D]]",
+        );
+        write_note(temp_dir.path(), "B.md", "---\ntype: note\n---\nb");
+        write_note(temp_dir.path(), "C.md", "---\ntype: note\n---\nc");
+        write_note(temp_dir.path(), "D.md", "---\ntype: note\n---\nd");
+        let ops = build_test_ops(temp_dir.path());
+
+        let result = ops.related_notes("A.md", 2).unwrap();
+        let related = result["related"].as_array().unwrap();
+        assert_eq!(related.len(), 2);
+        assert!(related.iter().all(|r| r["path"] != "A.md"));
+    }
+
+    #[test]
+    fn related_notes_errors_for_missing_note() {
+        let temp_dir = TempDir::new().unwrap();
+        let ops = build_test_ops(temp_dir.path());
+        assert!(ops.related_notes("Nope.md", 10).is_err());
     }
 
     #[test]

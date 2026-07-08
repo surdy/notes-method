@@ -64,7 +64,7 @@ For an example of a complete customer-facing work workflow, see `docs/example-wo
 - Views support an optional `badge_query` for tab-level badge counts (SQL-driven).
 - Folder-backed items in the middle pane default to `modified_at DESC` sort, configurable via YAML.
 - When `.notesmith/sidebar.yaml` does not exist, the app behaves as a plain Files-only notes app.
-- The main note workspace should also include a contextual, collapsible **right dock** on the right. The dock presents a single unified tab row — **Metadata**, **Links**, and **TOC** (the **Context** surface for the active note) plus **Chat** (the embedded AI agent). Both surfaces share one column so opening chat never squeezes the editor with a second panel, and the last-used tab is remembered per vault.
+- The main note workspace should also include a contextual, collapsible **right dock** on the right. The dock presents a single unified tab row — **Metadata**, **Links**, and **TOC** (the **Context** surface for the active note) plus **Chat** (the embedded AI agent). Both surfaces share one column so opening chat never squeezes the editor with a second panel, and the last-used tab is remembered per vault. The **Links** tab also surfaces a **Relevant** section: notes related to the active note, ranked by embedding similarity blended with link-graph proximity (degrading to graph-only when the vault has no embeddings).
 - Notes can set `_icon:` in frontmatter to override their emoji in file trees, quick switchers, and editor tabs. Frontmatter keys prefixed with `_` are reserved for system/UI use and should stay hidden from metadata panels.
 - The **TOC** tab should be driven from live editor headings so it can highlight the current section and jump the editor to a selected heading.
 

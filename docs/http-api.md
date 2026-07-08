@@ -591,6 +591,56 @@ Title matches are boosted 2× over body matches. Snippets contain HTML `<b>` tag
 
 ---
 
+## Related Notes
+
+### `GET /api/v/{vault}/related/{path...}`
+
+Notes related to the given note (issue #201), ranked by embedding similarity
+blended with link-graph proximity (direct links + shared neighbours). Backs the
+Relevant section of the desktop right dock. When the vault has no usable
+embeddings the ranking degrades to graph-only and `embeddings_used` is `false`.
+
+**Query parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `limit` | integer | no | 10 | Maximum results (clamped to 100) |
+
+**Example:**
+```bash
+curl "http://127.0.0.1:27183/api/v/work/related/Customers/Acme%20Corp/Acme%20Corp.md?limit=5"
+```
+
+**Response:** `200 OK`
+```json
+{
+  "path": "Customers/Acme Corp/Acme Corp.md",
+  "embeddings_used": true,
+  "related": [
+    {
+      "path": "Customers/Acme Corp/Q3 Review.md",
+      "title": "Q3 Review",
+      "score": 0.82,
+      "embedding_similarity": 0.79,
+      "directly_linked": true,
+      "shared_neighbors": 2
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `embeddings_used` | boolean | `false` when the ranking is graph-only (no embedding for the active note) |
+| `score` | number | Blended relevance score in `[0, 1]` |
+| `embedding_similarity` | number \| null | Cosine similarity to the active note, or null when embeddings weren't used |
+| `directly_linked` | boolean | Whether the candidate links to (or is linked from) the active note |
+| `shared_neighbors` | integer | Count of shared link neighbours (bibliographic coupling + co-citation) |
+
+**Errors:** `404 Not Found` if the vault or note does not exist.
+
+---
+
 ## Embeddings
 
 ### `GET /api/v/{vault}/embeddings/stats`
