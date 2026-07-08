@@ -2055,6 +2055,21 @@ fn window_server_id<R: Runtime>(app: &AppHandle<R>, label: &str) -> String {
         .unwrap_or_else(|| active_server_id(app))
 }
 
+/// Resolve the daemon URL and local-state flag for the connection a specific
+/// window is bound to (ADR 0017). Agent MCP bindings must target the window's
+/// *own* daemon: a remote vault (e.g. `embed-test` on the Clusterfault daemon)
+/// is absent from the local sidecar, so binding the vault's MCP server to the
+/// global active connection points it at the wrong daemon and it fails to
+/// connect — leaving the agent with only unrelated global MCP servers to answer
+/// from (issue #259 follow-up).
+pub(crate) fn window_daemon_target<R: Runtime>(app: &AppHandle<R>, label: &str) -> (String, bool) {
+    let settings = settings_for_server(app, &window_server_id(app, label));
+    (
+        daemon::resolve_daemon_url(&settings),
+        should_use_local_vault_state(&settings),
+    )
+}
+
 /// Report the **calling window's** connection identity (id, display name,
 /// local/remote) for its status-bar badge (ADR 0017 C.1). Resolved from the
 /// window's own registry context, not the global active connection — so a local

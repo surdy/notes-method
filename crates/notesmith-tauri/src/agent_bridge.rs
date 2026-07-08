@@ -741,12 +741,14 @@ fn resolve_session(agent: &str, cfg: &AgentsConfig) -> Result<AcpSession, String
     }
 }
 
-/// Build (but do not start) an [`AcpSession`] for `opts`, wired to the local
-/// daemon's HTTP MCP endpoint and a UI permission decider.
+/// Build (but do not start) an [`AcpSession`] for `opts`, wired to the MCP
+/// endpoint of the daemon the calling window (`window_label`) is connected to,
+/// plus a UI permission decider.
 fn build_session(
     app: &AppHandle,
     opts: &StartSessionOptions,
     session_id: &str,
+    window_label: &str,
     pending: Arc<PendingPermissions>,
 ) -> Result<AcpSession, String> {
     let mut session = resolve_session(opts.agent.as_str(), &load_agents_config())?;
@@ -768,8 +770,13 @@ fn build_session(
     //     bridge forwards to the same daemon over HTTP so indexes stay shared
     //     (ADR 0010 Phase 3).
     // Read-only vs read-write scope is carried on each binding.
-    let local = crate::should_use_local_vault_state(&crate::DaemonSettings::default());
-    let http = http_binding(&crate::active_daemon_url(app), opts);
+    //
+    // Resolve the daemon from the *calling window's* connection (ADR 0017), not
+    // the global active one: the vault the window shows may live only on a
+    // remote daemon, so binding its MCP server to the local sidecar would point
+    // at the wrong daemon and fail to connect (issue #259 follow-up).
+    let (daemon_url, local) = crate::window_daemon_target(app, window_label);
+    let http = http_binding(&daemon_url, opts);
     session = session.with_mcp(http);
     if local {
         let bin = crate::resolve_sidecar_path()
@@ -879,9 +886,10 @@ async fn spawn_session(
     app: &AppHandle,
     bridge: &AgentBridge,
     session_id: &str,
+    window_label: &str,
     opts: StartSessionOptions,
 ) -> Result<(SessionEntry, Option<ModelPickerDto>), String> {
-    let mut session = build_session(app, &opts, session_id, bridge.pending.clone())?;
+    let mut session = build_session(app, &opts, session_id, window_label, bridge.pending.clone())?;
 
     // Eagerly run the handshake so the model picker is available immediately.
     session.start().await.map_err(|e| e.to_string())?;
@@ -961,6 +969,7 @@ pub async fn mcp_servers_set(config: McpConfigDto) -> Result<(), String> {
 #[tauri::command]
 pub async fn agent_start(
     app: AppHandle,
+    window: tauri::Window,
     bridge: tauri::State<'_, AgentBridge>,
     opts: StartSessionOptions,
 ) -> Result<StartSessionResult, String> {
@@ -969,7 +978,7 @@ pub async fn agent_start(
         bridge.next_session.fetch_add(1, Ordering::Relaxed)
     );
 
-    let (entry, models) = spawn_session(&app, &bridge, &session_id, opts).await?;
+    let (entry, models) = spawn_session(&app, &bridge, &session_id, window.label(), opts).await?;
 
     bridge
         .sessions
@@ -1026,6 +1035,7 @@ pub async fn agent_select_model(
 #[tauri::command]
 pub async fn agent_set_read_only(
     app: AppHandle,
+    window: tauri::Window,
     bridge: tauri::State<'_, AgentBridge>,
     session_id: String,
     read_only: bool,
@@ -1048,7 +1058,7 @@ pub async fn agent_set_read_only(
     };
     opts.read_only = read_only;
 
-    let (entry, _models) = spawn_session(&app, &bridge, &session_id, opts).await?;
+    let (entry, _models) = spawn_session(&app, &bridge, &session_id, window.label(), opts).await?;
     bridge.sessions.lock().await.insert(session_id, entry);
     Ok(())
 }
