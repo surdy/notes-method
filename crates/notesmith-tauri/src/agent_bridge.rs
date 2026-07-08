@@ -795,6 +795,7 @@ fn build_session(
 
     Ok(session
         .read_only(opts.read_only)
+        .with_vault_name(opts.vault.clone())
         .with_skill(opts.preamble.clone())
         .with_local_io(opts.break_glass)
         .with_granted_tools(opts.persisted_grants.clone())
@@ -808,7 +809,7 @@ fn http_binding(daemon_url: &str, opts: &StartSessionOptions) -> McpBinding {
     let base = daemon_url.trim_end_matches('/');
     let scope = if opts.read_only { "mcp-ro" } else { "mcp" };
     let url = format!("{base}/{scope}/{}", opts.vault);
-    McpBinding::http("notesmith", url)
+    McpBinding::http(notesmith_agent::server_name_for_vault(&opts.vault), url)
 }
 
 fn vault_root(vault: &str) -> Option<PathBuf> {
@@ -1586,6 +1587,7 @@ mod tests {
     #[test]
     fn http_binding_uses_the_read_write_endpoint_for_a_read_write_scope() {
         let binding = http_binding("http://127.0.0.1:27183", &session_opts("work", false));
+        assert_eq!(binding.name(), "notesmith-work");
         match binding {
             McpBinding::Http { url, read_only, .. } => {
                 assert_eq!(url, "http://127.0.0.1:27183/mcp/work");
@@ -1598,6 +1600,7 @@ mod tests {
     #[test]
     fn http_binding_uses_the_read_only_endpoint_and_trims_a_trailing_slash() {
         let binding = http_binding("https://notes.example.com/", &session_opts("journal", true));
+        assert_eq!(binding.name(), "notesmith-journal");
         match binding {
             McpBinding::Http { url, read_only, .. } => {
                 assert_eq!(url, "https://notes.example.com/mcp-ro/journal");
