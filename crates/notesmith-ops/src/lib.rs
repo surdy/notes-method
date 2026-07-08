@@ -38,6 +38,13 @@ pub type Result<T> = anyhow::Result<T>;
 /// move or delete note content. [`ReadOnlyOps`] exploits this split to expose
 /// a surface where the write operations are unavailable.
 pub trait Ops: Send + Sync {
+    // --- identity ---
+
+    /// The name of the vault this operation surface is bound to. Used to ground
+    /// agents/tools in the active vault (e.g. naming the vault in MCP tool
+    /// descriptions) so they don't confuse it with another vault's tools.
+    fn vault_name(&self) -> &str;
+
     // --- reads ---
 
     /// Read a single note's raw content and parsed frontmatter.
@@ -267,6 +274,10 @@ impl LocalOps {
 }
 
 impl Ops for LocalOps {
+    fn vault_name(&self) -> &str {
+        &self.vault_name
+    }
+
     fn get_note(&self, path: &str) -> Result<Value> {
         let note_path = VaultPath::new(path.to_string());
         let content = self.engine.read(&self.vault_root, &note_path)?;
@@ -647,6 +658,10 @@ impl<O: Ops> ReadOnlyOps<O> {
 }
 
 impl<O: Ops> Ops for ReadOnlyOps<O> {
+    fn vault_name(&self) -> &str {
+        self.inner.vault_name()
+    }
+
     fn get_note(&self, path: &str) -> Result<Value> {
         self.inner.get_note(path)
     }
