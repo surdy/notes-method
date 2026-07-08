@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
-use chrono::{Local, NaiveDate};
+use chrono::{Local, NaiveDate, NaiveDateTime};
 use notesmith_config::VaultConfig;
 use notesmith_core::{Note, NotesmithError, VaultEngine, VaultName, VaultPath, WriteResult};
 use notesmith_index::{SearchIndex, VaultCache};
@@ -27,6 +27,7 @@ use serde_json::{Map, Value, json};
 use serde_yaml::{Mapping, Value as YamlValue};
 
 pub mod hybrid;
+pub mod time_query;
 pub use hybrid::{DEFAULT_RRF_K, HybridHit, HybridSearch, rrf_fuse};
 
 /// Result alias for vault operations.
@@ -55,6 +56,17 @@ pub trait Ops: Send + Sync {
     /// vector similarity via RRF, returning path + snippet hits for grounding.
     /// Degrades to lexical-only until embeddings are available.
     fn vault_search(&self, query: &str, limit: Option<usize>) -> Result<Value>;
+    /// Resolve a natural-language time expression (e.g. "last week", "in May")
+    /// into a date range and return note references whose chosen date field
+    /// (or, for periodic notes, whose period) falls within it. An optional
+    /// `query` further restricts results to notes matching a keyword.
+    fn time_query(
+        &self,
+        when: &str,
+        date_field: Option<&str>,
+        query: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Value>;
     /// Run a read-only SQL query against the vault cache.
     fn query_sql(&self, sql: &str) -> Result<Value>;
     /// List notes, optionally filtered by type/customer/archived.
@@ -327,6 +339,170 @@ impl Ops for LocalOps {
 
     fn query_sql(&self, sql: &str) -> Result<Value> {
         Ok(serde_json::to_value(execute_sql(&self.cache, sql)?)?)
+    }
+
+    fn time_query(
+        &self,
+        when: &str,
+        date_field: Option<&str>,
+        query: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Value> {
+        let now = Local::now().naive_local();
+        let (start, end) = time_query::parse_time_range(when, now)?;
+        let field = match date_field.unwrap_or("mtime") {
+            "mtime" => DateField::Mtime,
+            "updated" => DateField::Updated,
+            "created" => DateField::Created,
+            other => anyhow::bail!(
+                "invalid date_field '{other}': expected one of mtime, updated, created"
+            ),
+        };
+        let limit = limit.unwrap_or(50);
+
+        // Optional keyword restriction: map path -> lexical snippet.
+        let text_filter: Option<HashMap<String, String>> = match query {
+            Some(q) if !q.trim().is_empty() => {
+                let hits = self.search_index.search(q, 500)?;
+                Some(hits.into_iter().map(|h| (h.path, h.snippet)).collect())
+            }
+            _ => None,
+        };
+
+        let conn = self.cache.connection();
+        let mut matches: Vec<Value> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // 1) Regular notes filtered on the chosen date field.
+        let mut stmt = conn.prepare(
+            "SELECT path, title, created_at, updated_at, mtime_unix, body_excerpt \
+             FROM notes ORDER BY mtime_unix DESC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(stmt);
+
+        for (path, title, created_at, updated_at, mtime_unix, excerpt) in rows {
+            let matched = match field {
+                DateField::Mtime => unix_to_naive(mtime_unix),
+                DateField::Updated => updated_at
+                    .as_deref()
+                    .and_then(parse_flexible_datetime)
+                    .or_else(|| unix_to_naive(mtime_unix)),
+                DateField::Created => created_at.as_deref().and_then(parse_flexible_datetime),
+            };
+            let Some(matched_dt) = matched else {
+                continue;
+            };
+            if matched_dt < start || matched_dt >= end {
+                continue;
+            }
+            if let Some(ref tf) = text_filter {
+                if !tf.contains_key(&path) {
+                    continue;
+                }
+            }
+            let snippet = text_filter
+                .as_ref()
+                .and_then(|tf| tf.get(&path).cloned())
+                .unwrap_or(excerpt);
+            seen.insert(path.clone());
+            matches.push(json!({
+                "path": path,
+                "title": title,
+                "source": "note",
+                "date_field": field.as_str(),
+                "matched_date": matched_dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "mtime_unix": mtime_unix,
+                "snippet": snippet,
+            }));
+        }
+
+        // 2) Periodic notes whose period overlaps the range, regardless of the
+        // chosen date field (so "in May" surfaces May's daily/weekly notes even
+        // if their file mtime is later).
+        let query_end_inclusive = (end - chrono::Duration::seconds(1)).date();
+        let query_start_date = start.date();
+        let mut stmt = conn.prepare(
+            "SELECT p.note_path, n.title, p.period_kind, p.period_key, p.period_start, \
+                    p.period_end, n.body_excerpt \
+             FROM periodic_notes p \
+             JOIN notes n ON n.vault_name = p.vault_name AND n.path = p.note_path \
+             WHERE p.vault_name = ?1 ORDER BY p.period_start DESC",
+        )?;
+        let periodic_rows = stmt
+            .query_map([&self.vault_name], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(stmt);
+
+        for (path, title, kind, key, period_start, period_end, excerpt) in periodic_rows {
+            if seen.contains(&path) {
+                continue;
+            }
+            let (Some(ps), Some(pe)) = (
+                parse_flexible_date(&period_start),
+                parse_flexible_date(&period_end),
+            ) else {
+                continue;
+            };
+            // Inclusive period [ps, pe] overlaps half-open query [start, end).
+            if ps > query_end_inclusive || pe < query_start_date {
+                continue;
+            }
+            if let Some(ref tf) = text_filter {
+                if !tf.contains_key(&path) {
+                    continue;
+                }
+            }
+            let snippet = text_filter
+                .as_ref()
+                .and_then(|tf| tf.get(&path).cloned())
+                .unwrap_or(excerpt);
+            seen.insert(path.clone());
+            matches.push(json!({
+                "path": path,
+                "title": title,
+                "source": "periodic",
+                "period_kind": kind,
+                "period_key": key,
+                "period_start": period_start,
+                "period_end": period_end,
+                "snippet": snippet,
+            }));
+        }
+
+        let total = matches.len();
+        matches.truncate(limit);
+        Ok(json!({
+            "expression": when,
+            "date_field": field.as_str(),
+            "range_start": start.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            "range_end": end.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            "match_count": total,
+            "notes": matches,
+        }))
     }
 
     fn list_notes(
@@ -674,6 +850,16 @@ impl<O: Ops> Ops for ReadOnlyOps<O> {
         self.inner.vault_search(query, limit)
     }
 
+    fn time_query(
+        &self,
+        when: &str,
+        date_field: Option<&str>,
+        query: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Value> {
+        self.inner.time_query(when, date_field, query, limit)
+    }
+
     fn query_sql(&self, sql: &str) -> Result<Value> {
         self.inner.query_sql(sql)
     }
@@ -907,6 +1093,70 @@ fn escape_sql_string(input: &str) -> String {
     input.replace('\'', "''")
 }
 
+/// Which indexed date a [`Ops::time_query`] filters notes on.
+#[derive(Clone, Copy)]
+enum DateField {
+    /// `notes.mtime_unix` — the file modification time (always present).
+    Mtime,
+    /// Frontmatter `updated`, falling back to mtime when absent.
+    Updated,
+    /// Frontmatter `created`.
+    Created,
+}
+
+impl DateField {
+    fn as_str(self) -> &'static str {
+        match self {
+            DateField::Mtime => "mtime",
+            DateField::Updated => "updated",
+            DateField::Created => "created",
+        }
+    }
+}
+
+/// Convert a Unix timestamp (seconds) to a local naive datetime for range
+/// comparison. Returns `None` for out-of-range timestamps rather than panicking
+/// on untrusted index data.
+fn unix_to_naive(secs: i64) -> Option<NaiveDateTime> {
+    chrono::DateTime::from_timestamp(secs, 0).map(|dt| dt.with_timezone(&Local).naive_local())
+}
+
+/// Parse a frontmatter date/datetime string flexibly.
+///
+/// Frontmatter dates are untrusted free text and appear in several shapes:
+/// RFC 3339 (`2026-07-08T09:30:00Z`), space-separated (`2026-07-08 09:30:00`),
+/// or a bare date (`2026-07-08`). Unparseable values yield `None` so the note
+/// is simply skipped rather than aborting the query.
+fn parse_flexible_datetime(raw: &str) -> Option<NaiveDateTime> {
+    let raw = raw.trim();
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(raw) {
+        return Some(dt.with_timezone(&Local).naive_local());
+    }
+    for fmt in [
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y/%m/%d %H:%M:%S",
+    ] {
+        if let Ok(dt) = NaiveDateTime::parse_from_str(raw, fmt) {
+            return Some(dt);
+        }
+    }
+    parse_flexible_date(raw).map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+}
+
+/// Parse a bare date string (`YYYY-MM-DD` or `YYYY/MM/DD`), tolerating a
+/// trailing time component.
+fn parse_flexible_date(raw: &str) -> Option<NaiveDate> {
+    let raw = raw.trim();
+    let date_part = raw.split(['T', ' ']).next().unwrap_or(raw);
+    for fmt in ["%Y-%m-%d", "%Y/%m/%d"] {
+        if let Ok(d) = NaiveDate::parse_from_str(date_part, fmt) {
+            return Some(d);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1001,6 +1251,97 @@ mod tests {
             .unwrap();
         assert_eq!(result["columns"], json!(["path", "title"]));
         assert_eq!(result["row_count"], 1);
+    }
+
+    #[test]
+    fn time_query_filters_by_created_field() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "Journal/May Note.md",
+            "---\ntype: note\ncreated: 2020-05-15\n---\nSpring planning",
+        );
+        write_note(
+            temp_dir.path(),
+            "Journal/June Note.md",
+            "---\ntype: note\ncreated: 2020-06-15\n---\nSummer planning",
+        );
+        let ops = build_test_ops(temp_dir.path());
+
+        let result = ops
+            .time_query("May 2020", Some("created"), None, None)
+            .unwrap();
+        assert_eq!(result["date_field"], "created");
+        assert_eq!(result["match_count"], 1);
+        let notes = result["notes"].as_array().unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0]["path"], "Journal/May Note.md");
+        assert_eq!(notes[0]["source"], "note");
+
+        // A whole-year range captures both notes.
+        let year = ops.time_query("2020", Some("created"), None, None).unwrap();
+        assert_eq!(year["match_count"], 2);
+    }
+
+    #[test]
+    fn time_query_combines_with_keyword() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "Journal/Launch.md",
+            "---\ntype: note\ncreated: 2020-05-10\n---\nLaunch timeline discussion",
+        );
+        write_note(
+            temp_dir.path(),
+            "Journal/Groceries.md",
+            "---\ntype: note\ncreated: 2020-05-11\n---\nBuy milk and eggs",
+        );
+        let ops = build_test_ops(temp_dir.path());
+
+        let result = ops
+            .time_query("May 2020", Some("created"), Some("launch"), None)
+            .unwrap();
+        let notes = result["notes"].as_array().unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0]["path"], "Journal/Launch.md");
+    }
+
+    #[test]
+    fn time_query_includes_periodic_notes_by_period() {
+        let temp_dir = TempDir::new().unwrap();
+        // Daily note with a period-parseable filename but no `created` field.
+        write_note(
+            temp_dir.path(),
+            "2020-05-10.md",
+            "---\ntype: daily\n---\nDaily log entry",
+        );
+        let ops = build_test_ops(temp_dir.path());
+
+        let result = ops
+            .time_query("May 2020", Some("created"), None, None)
+            .unwrap();
+        let notes = result["notes"].as_array().unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0]["path"], "2020-05-10.md");
+        assert_eq!(notes[0]["source"], "periodic");
+        assert_eq!(notes[0]["period_kind"], "daily");
+    }
+
+    #[test]
+    fn time_query_rejects_bad_date_field() {
+        let temp_dir = TempDir::new().unwrap();
+        let ops = build_test_ops(temp_dir.path());
+        let err = ops
+            .time_query("last week", Some("bogus"), None, None)
+            .unwrap_err();
+        assert!(err.to_string().contains("invalid date_field"));
+    }
+
+    #[test]
+    fn time_query_rejects_unparseable_expression() {
+        let temp_dir = TempDir::new().unwrap();
+        let ops = build_test_ops(temp_dir.path());
+        assert!(ops.time_query("not a time zzz", None, None, None).is_err());
     }
 
     #[test]

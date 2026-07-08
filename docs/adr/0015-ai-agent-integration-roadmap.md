@@ -106,8 +106,9 @@ which adds binary size and a runtime-selection decision. **The embeddings decisi
 now made ([ADR 0018](0018-embedding-and-vector-search.md)); the ingestion/Whisper
 side is scoped by [ADR 0019](0019-media-ingestion-pipeline.md)**, so P2/P3 are now
 architecture-unblocked and gated only by implementation scheduling.
-`time_query` (#200) and `vault_stats` (#202) are embedding-independent and may be
-promoted to active without the embeddings backend.
+`time_query` (#200) shipped as an embedding-independent MCP tool; `vault_stats`
+(#202) is likewise embedding-independent and may be promoted without the
+embeddings backend.
 
 ### Static prompts now, variables later
 

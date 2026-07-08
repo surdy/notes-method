@@ -67,6 +67,14 @@ struct QuerySqlParams {
 }
 
 #[derive(Debug, Deserialize)]
+struct TimeQueryParams {
+    when: String,
+    date_field: Option<String>,
+    query: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ListNotesParams {
     #[serde(rename = "type")]
     note_type: Option<String>,
@@ -244,6 +252,39 @@ impl NotesmithMcp {
                     "type": "object",
                     "properties": {"sql": {"type": "string"}},
                     "required": ["sql"],
+                    "additionalProperties": false
+                }),
+            ),
+            tool_definition(
+                "time_query",
+                scoped(
+                    "Resolve a natural-language time expression (e.g. 'last \
+                     week', 'in May', 'yesterday', 'last 3 days', 'May 2021') \
+                     into a date range and return note references dated within \
+                     it. Pairs with vault_search so the agent can cite real, \
+                     dated notes. Use `date_field` to choose which date to \
+                     filter on (mtime [default], updated, created); pass an \
+                     optional `query` to also keyword-filter the results",
+                ),
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "when": {
+                            "type": "string",
+                            "description": "Natural-language time expression, e.g. 'last week'"
+                        },
+                        "date_field": {
+                            "type": "string",
+                            "enum": ["mtime", "updated", "created"],
+                            "description": "Which note date to filter on (default: mtime)"
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Optional keyword to further filter matches"
+                        },
+                        "limit": {"type": "integer", "minimum": 1}
+                    },
+                    "required": ["when"],
                     "additionalProperties": false
                 }),
             ),
@@ -438,6 +479,16 @@ impl ServerHandler for NotesmithMcp {
                 .handle_tool_call::<QuerySqlParams, _>(request.arguments, |params| {
                     self.ops.query_sql(&params.sql)
                 }),
+            "time_query" => {
+                self.handle_tool_call::<TimeQueryParams, _>(request.arguments, |params| {
+                    self.ops.time_query(
+                        &params.when,
+                        params.date_field.as_deref(),
+                        params.query.as_deref(),
+                        params.limit,
+                    )
+                })
+            }
             "list_notes" => {
                 self.handle_tool_call::<ListNotesParams, _>(request.arguments, |params| {
                     self.ops.list_notes(
@@ -722,6 +773,31 @@ mod tests {
     }
 
     #[test]
+    fn test_time_query() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "Journal/Old.md",
+            "---\ntype: note\ncreated: 2019-03-02\n---\nArchived thought",
+        );
+        write_note(
+            temp_dir.path(),
+            "Journal/May.md",
+            "---\ntype: note\ncreated: 2020-05-05\n---\nSpring thought",
+        );
+        let mcp = build_test_mcp(temp_dir.path());
+
+        let result = mcp
+            .ops()
+            .time_query("May 2020", Some("created"), None, None)
+            .unwrap();
+        assert_eq!(result["match_count"], 1);
+        let notes = result["notes"].as_array().unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0]["path"], "Journal/May.md");
+    }
+
+    #[test]
     fn test_list_notes_with_filter() {
         let temp_dir = TempDir::new().unwrap();
         write_note(
@@ -764,8 +840,9 @@ mod tests {
         let mcp = build_test_mcp(temp_dir.path());
 
         let tools = mcp.registered_tools();
-        assert_eq!(tools.len(), 14);
+        assert_eq!(tools.len(), 15);
         assert!(tools.iter().any(|t| t.name == "vault_search"));
+        assert!(tools.iter().any(|t| t.name == "time_query"));
     }
 
     #[test]

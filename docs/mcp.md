@@ -41,6 +41,7 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `search_notes` | `query`, `limit?` |
 | `vault_search` | `query`, `limit?` |
 | `query_sql` | `sql` |
+| `time_query` | `when`, `date_field?` (`mtime`\|`updated`\|`created`), `query?`, `limit?` |
 | `list_notes` | `type?`, `customer?`, `archived?` |
 | `list_tasks` | `status?`, `customer?` |
 | `update_task_status` | `note_path`, `task_hash`, `status` |
@@ -72,6 +73,26 @@ vault's `embeddings.db`, `vault_search` transparently degrades to lexical-only.
 See [Semantic & Hybrid Search](ai-semantic-search.md) for the user-facing guide
 and [Embeddings: Operating & Monitoring](embeddings-operations.md) for running
 the worker, enabling local vectors, and monitoring.
+
+### `time_query`
+
+Turns a natural-language time expression into a date range and returns note
+references dated within it — pairs with `vault_search` so an agent can cite
+real, dated notes.
+
+- `when` — the expression, e.g. `last week`, `yesterday`, `in May`, `May 2021`,
+  `this month`, `last 3 days`, `2021`.
+- `date_field?` — which indexed date to filter on: `mtime` (file modification
+  time, default), `updated` (frontmatter `updated`, falling back to mtime), or
+  `created` (frontmatter `created`).
+- `query?` — optional keyword to further restrict results (title/body).
+- `limit?` — maximum notes to return (default 50).
+
+Periodic notes (daily/weekly/monthly/…) are always included when their period
+overlaps the range, regardless of `date_field`, so "in May" surfaces May's
+daily notes even when their file mtime is later. Each result carries a `source`
+of `note` or `periodic`. The response also echoes the resolved `range_start` /
+`range_end` and total `match_count`. This tool is embedding-independent.
 
 
 ## Claude Desktop example
