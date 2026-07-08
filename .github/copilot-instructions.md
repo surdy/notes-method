@@ -77,11 +77,11 @@ The desktop shell (`crates/notesmith-tauri`) spawns the daemon as a sidecar; the
 
 ## Frontend Styling — Design Tokens
 
-- All UI colors are defined as `--ns-*` CSS custom properties in `:root {}` in `ui/app/src/app.css`. Components must reference these tokens — never define ad-hoc color values.
-- When adding new UI elements, use existing tokens (`var(--ns-bg)`, `var(--ns-text)`, `var(--ns-border)`, etc.). If no token fits, add a new `--ns-*` token to `app.css` and reference it.
-- Do not use inline fallback values (e.g., `var(--ns-bg, #1e1e1e)`) — tokens are centrally defined.
-- Five themes exist as CSS class overrides (`.theme-dark`, `.theme-light`, `.theme-manuscript`, `.theme-hc-dark`, plus System mode). New components must look correct across all themes.
-- Editor-specific colors use separate `--ns-editor-*` tokens so the Manuscript theme (dark chrome + light editor) works.
+- All UI colors use bare semantic tokens (`--bg-default`, `--text-default`, `--border-default`, `--accent`, `--danger-*`, `--font-mono`, etc.) declared in `ui/app/src/styles/tokens-semantic.css` and mapped in `mode-default.css` / `mode-high-contrast.css`. Components must reference these tokens — never define ad-hoc color values. The `--ns-*` compatibility tokens have been removed; do not reintroduce them.
+- When adding new UI elements, use an existing semantic token (`var(--bg-default)`, `var(--text-default)`, `var(--border-default)`, etc.). If no token fits, add a new semantic token to `tokens-semantic.css` and map it per mode, then reference it.
+- Do not use inline fallback values (e.g., `var(--bg-default, #1e1e1e)`) — tokens are centrally defined.
+- Themes are catalog-driven: palettes live in `ui/app/src/styles/theme-catalog.json` (37+ themes), compiled by the `theme-gen` binary into `ui/app/src/styles/themes/*.css` under `[data-theme][data-tone]` selectors. The active theme is applied via `data-theme`/`data-tone`/`data-mode` attributes on `<html>` (see `theme.svelte.ts`), not CSS class overrides. There is no separate light/dark "mode" toggle — a self-contained theme plus optional follow-system dark/light pairing (`followSystem` + `darkTheme`/`lightTheme`) and a `visualMode` high-contrast overlay. New components must look correct across all themes and both visual modes.
+- Split-surface themes (e.g. Manuscript) emit a dedicated `.editor-surface` ramp via `--editor-*` tokens so the editor can stay light while the outer chrome is dark.
 - The global CSS reset in `app.css` sets `color: inherit; font: inherit;` on form elements. Do not remove this.
 - Never leave a `<button>` or `<input>` without an explicit `color` declaration in its scoped CSS — the global reset is a safety net, not a substitute.
 
