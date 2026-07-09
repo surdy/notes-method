@@ -1,0 +1,24 @@
+[package]
+name = "notesmith-clip"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+url = "2"
+dom_smoothie = "0.18"
+htmd = "0.5"
+
+[dev-dependencies]
+tokio = { workspace = true }
+pretty_assertions = { workspace = true }
