@@ -18,6 +18,7 @@ reqwest = { workspace = true }
 url = "2"
 dom_smoothie = "0.18"
 htmd = "0.5"
+minijinja = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

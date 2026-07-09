@@ -13,16 +13,20 @@
 mod error;
 mod extract;
 mod fetch;
+mod images;
 mod note;
 mod ssrf;
+mod template;
 mod url;
 
 pub use error::ClipError;
 pub use extract::{ClipDocument, extract_from_html};
-pub use fetch::{FetchLimits, FetchedPage, fetch_html};
-pub use note::{SOURCE_TYPE_ARTICLE, render_note};
+pub use fetch::{FetchLimits, FetchedBytes, FetchedPage, fetch_bytes, fetch_html};
+pub use images::{DownloadedImage, download_and_rewrite_images};
+pub use note::{SOURCE_TYPE_ARTICLE, render_note, render_note_with_template};
 pub use ssrf::{is_blocked_ip, resolve_public_addrs};
-pub use url::canonicalize_url;
+pub use template::{ClipTemplate, select_template};
+pub use url::{canonicalize_url, host_of};
 
 use chrono::Local;
 

@@ -580,6 +580,14 @@ stripped, and query parameters are sorted).
 **Destination:** `[clip].folder` if set, otherwise the capture folder.
 **Filename format:** `{folder}/{YYYY-MM-DD HH-MM-SS} - {title-slug}.md`
 
+**Images:** when `[clip].download_images` is `true` (default), remote images in
+the article are downloaded into `[clip].attachments_folder` (default
+`attachments/clips`) and their links rewritten to the local copies. A failed
+image download leaves that image's remote URL in place.
+
+**Templates:** per-domain templates (`[[clip.templates]]`) can customize the
+frontmatter and body per source host — see `docs/vault-configuration.md`.
+
 **Dedup:** if a note already carries the same canonical `source_url` (checked
 both for the requested URL and the post-redirect final URL), no new note is
 written.
@@ -591,6 +599,7 @@ written.
   "hash": "a1b2c3...",
   "source_url": "https://example.com/some-article",
   "title": "Some Article",
+  "images": 3,
   "duplicate": false
 }
 ```

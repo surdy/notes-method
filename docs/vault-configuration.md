@@ -278,6 +278,38 @@ commit_message = "notesmith: {{ operation }}"
 - `on_periodic_create` — script to run when a periodic note is created
 - `on_daily_create` — legacy alias for `on_periodic_create`
 
+`[clip]` — web clipper ([ADR 0020](adr/0020-web-clipper.md)); see the
+[`POST /clip` endpoint](http-api.md#web-clipper):
+- `enabled` — accept web clips via `POST /clip` (default: `true`).
+- `folder` — folder clips are written to; when empty, the capture folder is used.
+- `download_images` — download remote article images into the vault and rewrite
+  links to the local copies (default: `true`).
+- `attachments_folder` — where downloaded clip images are stored (default:
+  `attachments/clips`).
+- `[[clip.templates]]` — ordered per-domain templates. The most specific matching
+  `match` (host suffix) wins; a `match = "*"` entry is the fallback. Each template
+  may set `frontmatter` (a table of extra frontmatter keys → minijinja value
+  templates) and/or a `body` minijinja template. Template context: `title`,
+  `author`, `published`, `excerpt`, `site_name`, `source_url`, `host`,
+  `ingested_at`, `tags`, and `content` (the extracted Markdown).
+
+```toml
+[clip]
+enabled = true
+folder = "Inbox"
+download_images = true
+attachments_folder = "attachments/clips"
+
+[[clip.templates]]
+match = "*"
+body = "# {{ title }}\n\n[Source]({{ source_url }}) · {{ site_name }}\n\n{{ content }}"
+
+[[clip.templates]]
+match = "arxiv.org"
+[clip.templates.frontmatter]
+category = "paper"
+```
+
 ---
 ## `sidebar-views.yaml`
 Custom sidebar views with SQL-powered data sources.

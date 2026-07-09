@@ -6,48 +6,49 @@
 //! existing routing engine can file them ([ADR 0020](../../docs/adr/0020-web-clipper.md)).
 
 use chrono::{DateTime, Local};
-use serde_yaml::{Mapping, Value};
+use serde_yaml::Value;
 
 use crate::extract::ClipDocument;
+use crate::template::{ClipTemplate, render_with_template};
 
 /// The `source_type` value used for web-article clips.
 pub const SOURCE_TYPE_ARTICLE: &str = "article";
+
+/// Resolve the tag list for a clip: mandatory `inbox` first, then de-duplicated
+/// non-empty extras. Returns both YAML values (for frontmatter) and strings
+/// (for template context).
+fn resolve_tags(extra_tags: &[String]) -> (Vec<Value>, Vec<String>) {
+    let mut strings = vec!["inbox".to_string()];
+    for tag in extra_tags {
+        let tag = tag.trim();
+        if !tag.is_empty() && tag != "inbox" && !strings.iter().any(|t| t == tag) {
+            strings.push(tag.to_string());
+        }
+    }
+    let values = strings.iter().cloned().map(Value::from).collect();
+    (values, strings)
+}
 
 /// Render `doc` as a full Markdown note (frontmatter + body).
 ///
 /// `extra_tags` are appended after the mandatory `inbox` tag. `now` is injected
 /// so callers (and tests) control the `ingested_at` timestamp.
 pub fn render_note(doc: &ClipDocument, extra_tags: &[String], now: DateTime<Local>) -> String {
-    let mut fm = Mapping::new();
-    fm.insert(Value::from("title"), Value::from(doc.title.clone()));
-    fm.insert(
-        Value::from("source_url"),
-        Value::from(doc.source_url.clone()),
-    );
-    fm.insert(Value::from("source_type"), Value::from(SOURCE_TYPE_ARTICLE));
-    if let Some(author) = &doc.author {
-        fm.insert(Value::from("author"), Value::from(author.clone()));
-    }
-    if let Some(published) = &doc.published {
-        fm.insert(Value::from("published"), Value::from(published.clone()));
-    }
-    fm.insert(Value::from("ingested_at"), Value::from(now.to_rfc3339()));
+    render_note_with_template(doc, extra_tags, now, None)
+}
 
-    let mut tags = vec![Value::from("inbox")];
-    for tag in extra_tags {
-        let tag = tag.trim();
-        if !tag.is_empty() && tag != "inbox" {
-            tags.push(Value::from(tag.to_string()));
-        }
-    }
-    fm.insert(Value::from("tags"), Value::Sequence(tags));
-
-    let yaml = serde_yaml::to_string(&Value::Mapping(fm))
-        .unwrap_or_default()
-        .trim_end()
-        .to_string();
-
-    format!("---\n{yaml}\n---\n\n{}\n", doc.markdown.trim())
+/// Render `doc` as a full Markdown note, optionally applying a per-domain
+/// `template` ([`ClipTemplate`]). When `template` is `None`, this is identical
+/// to [`render_note`].
+pub fn render_note_with_template(
+    doc: &ClipDocument,
+    extra_tags: &[String],
+    now: DateTime<Local>,
+    template: Option<&ClipTemplate>,
+) -> String {
+    let ingested_at = now.to_rfc3339();
+    let (tag_values, tag_strings) = resolve_tags(extra_tags);
+    render_with_template(doc, &ingested_at, &tag_values, &tag_strings, template)
 }
 
 #[cfg(test)]

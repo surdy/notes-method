@@ -2997,6 +2997,7 @@ dependencies = [
  "chrono",
  "dom_smoothie",
  "htmd",
+ "minijinja",
  "pretty_assertions",
  "regex",
  "reqwest 0.12.28",

@@ -405,6 +405,26 @@ pub struct EmbedConfig {
     pub enabled: bool,
 }
 
+/// A per-domain clip template ([ADR 0020](../../docs/adr/0020-web-clipper.md)).
+///
+/// Serialized in `vault.toml` as an array-of-tables under `[[clip.templates]]`.
+/// The `match` key is a host suffix (or `*` for the fallback); `frontmatter`
+/// adds/overrides frontmatter entries (minijinja value templates); `body` is an
+/// optional minijinja body template.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ClipTemplate {
+    /// Host suffix to match (e.g. `example.com`), or `*`/empty for the fallback.
+    #[serde(rename = "match", default)]
+    pub match_host: String,
+    /// Extra frontmatter entries: key → minijinja value template.
+    #[serde(default)]
+    pub frontmatter: std::collections::BTreeMap<String, String>,
+    /// Optional minijinja body template. When absent, the extracted Markdown is
+    /// used verbatim.
+    #[serde(default)]
+    pub body: Option<String>,
+}
+
 /// Web-clipper configuration ([ADR 0020](../../docs/adr/0020-web-clipper.md)).
 ///
 /// `#[serde(default)]` throughout so older `vault.toml` files without a `[clip]`
@@ -418,9 +438,21 @@ pub struct ClipConfig {
     #[serde(default)]
     pub folder: String,
     /// When `true` (default), images in clipped pages are downloaded into the
-    /// vault; when `false`, remote image URLs are kept. (Download is P2.)
+    /// vault; when `false`, remote image URLs are kept.
     #[serde(default = "default_true")]
     pub download_images: bool,
+    /// Folder (relative to the vault root) that downloaded clip images are
+    /// written to. Defaults to `attachments/clips`.
+    #[serde(default = "default_attachments_folder")]
+    pub attachments_folder: String,
+    /// Ordered per-domain templates; the most specific matching `match` wins,
+    /// with a `*` entry as the fallback.
+    #[serde(default)]
+    pub templates: Vec<ClipTemplate>,
+}
+
+fn default_attachments_folder() -> String {
+    "attachments/clips".to_string()
 }
 
 impl Default for ClipConfig {
@@ -429,6 +461,8 @@ impl Default for ClipConfig {
             enabled: true,
             folder: String::new(),
             download_images: true,
+            attachments_folder: default_attachments_folder(),
+            templates: Vec::new(),
         }
     }
 }

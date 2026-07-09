@@ -3,7 +3,10 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use notesmith_clip::{FetchLimits, canonicalize_url, clip_url_to_note};
+use notesmith_clip::{
+    ClipTemplate, FetchLimits, canonicalize_url, clip_url, download_and_rewrite_images, host_of,
+    render_note_with_template, select_template,
+};
 use notesmith_core::VaultPath;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -45,7 +48,14 @@ pub async fn clip_note(
     // Snapshot the config and dedup-check under the read lock, then release it
     // before the (potentially slow) network fetch so we never hold the lock
     // across `.await` on the network.
-    let (clip_folder, capture_folder, existing_for_input) = {
+    let (
+        clip_folder,
+        capture_folder,
+        download_images,
+        attachments_folder,
+        templates,
+        existing_for_input,
+    ) = {
         let state = state.read().await;
         let vault = state.vaults.get(&vault_name).ok_or_else(|| {
             (
@@ -64,9 +74,14 @@ pub async fn clip_note(
 
         let canonical_input = canonicalize_url(&request.url);
         let existing = find_existing(&vault.cache, &canonical_input);
+        let templates: Vec<ClipTemplate> =
+            config.clip.templates.iter().map(to_clip_template).collect();
         (
             config.clip.folder.clone(),
             config.capture.folder.clone(),
+            config.clip.download_images,
+            config.clip.attachments_folder.clone(),
+            templates,
             existing,
         )
     };
@@ -79,11 +94,31 @@ pub async fn clip_note(
         ));
     }
 
-    // Fetch + extract + render (no lock held across the network await).
-    let (note_content, doc) =
-        clip_url_to_note(&request.url, &request.tags, &FetchLimits::default())
-            .await
-            .map_err(map_clip_error)?;
+    // Fetch + extract (no lock held across the network await).
+    let mut doc = clip_url(&request.url, &FetchLimits::default())
+        .await
+        .map_err(map_clip_error)?;
+
+    // Download and rewrite images before rendering, so a template body sees the
+    // local links. Failures degrade to keeping the remote URL.
+    let mut images = Vec::new();
+    if download_images {
+        let (rewritten, downloaded) = download_and_rewrite_images(
+            &doc.markdown,
+            &doc.source_url,
+            &attachments_folder,
+            &FetchLimits::default(),
+        )
+        .await;
+        doc.markdown = rewritten;
+        images = downloaded;
+    }
+
+    // Select the per-domain template (if any) by host and render.
+    let host = host_of(&doc.source_url);
+    let template = select_template(&templates, &host);
+    let note_content =
+        render_note_with_template(&doc, &request.tags, chrono::Local::now(), template);
 
     // Re-acquire the lock to dedup against the post-redirect canonical URL and
     // to write the note.
@@ -122,6 +157,10 @@ pub async fn clip_note(
         VaultPath::new(format!("{folder}/{filename}"))
     };
 
+    // Persist downloaded images into the attachments folder (best-effort: a
+    // failed write leaves the note's local link dangling but never aborts).
+    let saved_images = write_images(&vault.root, &attachments_folder, &images);
+
     let response = write_note(&vault.engine, &vault.root, &note_path, None, &note_content)?;
 
     events::emit(
@@ -137,9 +176,48 @@ pub async fn clip_note(
             "hash": response.hash,
             "source_url": doc.source_url,
             "title": doc.title,
+            "images": saved_images,
             "duplicate": false,
         })),
     ))
+}
+
+/// Map a config-layer [`notesmith_config::ClipTemplate`] to the clip crate's
+/// template model.
+fn to_clip_template(template: &notesmith_config::ClipTemplate) -> ClipTemplate {
+    ClipTemplate {
+        match_host: template.match_host.clone(),
+        frontmatter: template.frontmatter.clone(),
+        body: template.body.clone(),
+    }
+}
+
+/// Write downloaded clip images into `<root>/<folder>/`. Returns the number of
+/// images successfully written. Best-effort per image.
+fn write_images(
+    root: &std::path::Path,
+    folder: &str,
+    images: &[notesmith_clip::DownloadedImage],
+) -> usize {
+    if images.is_empty() {
+        return 0;
+    }
+    let dir = root.join(folder);
+    if let Err(reason) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(folder = %folder, reason = %reason, "clip image folder create failed");
+        return 0;
+    }
+    let mut written = 0;
+    for image in images {
+        let path = dir.join(&image.filename);
+        match std::fs::write(&path, &image.bytes) {
+            Ok(()) => written += 1,
+            Err(reason) => {
+                tracing::warn!(file = %image.filename, reason = %reason, "clip image write failed");
+            }
+        }
+    }
+    written
 }
 
 fn map_clip_error(error: notesmith_clip::ClipError) -> (StatusCode, Json<Value>) {

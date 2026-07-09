@@ -75,9 +75,24 @@ pub fn canonicalize_url(input: &str) -> String {
     url.to_string()
 }
 
+/// Extract the lowercased host of `input`, or an empty string when it cannot be
+/// parsed. Used for per-domain template selection.
+pub fn host_of(input: &str) -> String {
+    Url::parse(input.trim())
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()))
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_of_extracts_lowercased_host() {
+        assert_eq!(host_of("https://News.Example.com/post"), "news.example.com");
+        assert_eq!(host_of("not a url"), "");
+    }
 
     #[test]
     fn strips_utm_and_click_ids() {

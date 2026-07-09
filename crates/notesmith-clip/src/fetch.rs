@@ -46,6 +46,17 @@ pub struct FetchedPage {
     pub html: String,
 }
 
+/// Result of a successful raw fetch: final URL, bytes, and content type.
+#[derive(Debug, Clone)]
+pub struct FetchedBytes {
+    /// The final URL after following redirects.
+    pub final_url: String,
+    /// The raw response body.
+    pub bytes: Vec<u8>,
+    /// The `Content-Type` header value, when present.
+    pub content_type: Option<String>,
+}
+
 fn require_http(url: &Url) -> Result<(), ClipError> {
     match url.scheme() {
         "http" | "https" => Ok(()),
@@ -58,6 +69,17 @@ fn require_http(url: &Url) -> Result<(), ClipError> {
 /// Fetch HTML from `url`, following redirects manually with SSRF validation and
 /// size/time bounds.
 pub async fn fetch_html(url: &str, limits: &FetchLimits) -> Result<FetchedPage, ClipError> {
+    let raw = fetch_bytes(url, limits).await?;
+    Ok(FetchedPage {
+        final_url: raw.final_url,
+        html: String::from_utf8_lossy(&raw.bytes).into_owned(),
+    })
+}
+
+/// Fetch raw bytes from `url` (e.g. an image), following redirects manually with
+/// SSRF validation and size/time bounds. Shares the redirect/SSRF loop with
+/// [`fetch_html`].
+pub async fn fetch_bytes(url: &str, limits: &FetchLimits) -> Result<FetchedBytes, ClipError> {
     let mut current = Url::parse(url).map_err(|e| ClipError::InvalidUrl(e.to_string()))?;
 
     for _ in 0..=limits.max_redirects {
@@ -103,9 +125,18 @@ pub async fn fetch_html(url: &str, limits: &FetchLimits) -> Result<FetchedPage, 
             return Err(ClipError::Fetch(format!("http status {status}")));
         }
 
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
         let final_url = current.to_string();
-        let html = read_body_capped(resp, limits.max_bytes).await?;
-        return Ok(FetchedPage { final_url, html });
+        let bytes = read_body_capped(resp, limits.max_bytes).await?;
+        return Ok(FetchedBytes {
+            final_url,
+            bytes,
+            content_type,
+        });
     }
 
     Err(ClipError::Fetch(format!(
@@ -117,7 +148,7 @@ pub async fn fetch_html(url: &str, limits: &FetchLimits) -> Result<FetchedPage, 
 async fn read_body_capped(
     mut resp: reqwest::Response,
     max_bytes: usize,
-) -> Result<String, ClipError> {
+) -> Result<Vec<u8>, ClipError> {
     let mut buf: Vec<u8> = Vec::new();
     while let Some(chunk) = resp
         .chunk()
@@ -129,7 +160,7 @@ async fn read_body_capped(
         }
         buf.extend_from_slice(&chunk);
     }
-    Ok(String::from_utf8_lossy(&buf).into_owned())
+    Ok(buf)
 }
 
 #[cfg(test)]
