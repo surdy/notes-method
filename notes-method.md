@@ -117,6 +117,7 @@ For an example of a complete customer-facing work workflow, see `docs/example-wo
 ## Capture Workflow
 
 - All captured notes start in the configured capture location (configurable in `vault.toml`).
+- **Web clipping** extends capture to web pages: the daemon fetches a URL (SSRF-guarded, bounded), extracts the readable article server-side, and writes a Markdown note with provenance frontmatter (`source_url`, `source_type: article`, …) tagged `inbox` so the routing engine files it like any other capture. Clips are deduplicated by canonical `source_url`, can download images into the vault, and support per-domain templates (`[clip]` config). Triggers: `POST /clip`, `notesmith clip <url>`, and a Manifest V3 browser extension (`ui/extension/`). See `docs/adr/0020-web-clipper.md`.
 - Once a note is enriched with fields and tags, it can be routed to its permanent location.
 - **Routing engine** (`.notesmith/routing.yaml`) determines each note's destination based on field values, tag presence, and path globs. Supports full mutations: move, set/remove fields, add/remove tags.
 - Both manual routing (`notesmith route apply <path>`) and auto-routing (opt-in per rule) are supported.

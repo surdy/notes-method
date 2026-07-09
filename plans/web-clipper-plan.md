@@ -1,6 +1,6 @@
 # Web Clipper — Feature Plan
 
-Status: planned (2026-07-09). Tracking issue:
+Status: **implemented** (2026-07-09) across P1–P4. Tracking issue:
 [#261](https://github.com/surdy/notes-method/issues/261). Architecture:
 [ADR 0020](../docs/adr/0020-web-clipper.md),
 which amends [ADR 0019](../docs/adr/0019-media-ingestion-pipeline.md) §4 and
@@ -85,16 +85,21 @@ token (or token-when-remote) is the defined fast follow.
 
 ## Phasing
 
-- **P1 — foundation.** `notesmith-clip` crate + `POST /clip` + fixed default
-  template + canonical-URL dedup + SSRF guard + bounded fetch. TDD: happy-path,
-  malformed-HTML, SPA-shell (empty article), no-panic on pathological input,
-  dedup-detect. Docs: `http-api.md`.
-- **P2 — templating + images.** Per-domain template config + image-download
-  toggle. Tests for template selection + image rewrite. Docs: config reference.
-- **P3 — CLI.** `notesmith clip <url>`. Docs: `cli.md`.
-- **P4 — browser extension.** Manifest V3, vault picker, configurable base URL.
-  Decide home: `ui/extension/` vs. a separate repo (cf. `purza`/`debugging`
-  patterns).
+- **P1 — foundation.** ✅ Done. `notesmith-clip` crate + `POST /clip` + default
+  rendering + canonical-URL dedup + SSRF guard + bounded fetch. Tests:
+  happy-path, malformed-HTML, empty-article, no-panic on pathological input
+  (deep nesting), dedup-detect. Docs: `http-api.md`.
+- **P2 — templating + images.** ✅ Done. Per-domain `[[clip.templates]]`
+  (minijinja frontmatter/body, longest host-suffix match + `*` fallback) +
+  image download (`download_images`, `attachments_folder`) with link rewrite.
+  Tests for template selection/rendering + image find/rewrite/SSRF-block.
+  Docs: `vault-configuration.md`.
+- **P3 — CLI.** ✅ Done. `notesmith clip <url> [--tag ...]`. Docs: `cli.md`.
+- **P4 — browser extension.** ✅ Done. Manifest V3 in **`ui/extension/`** (chosen
+  over a separate repo to keep it colocated with the daemon it targets):
+  toolbar popup, live vault picker (`GET /api/app/vaults`), configurable base
+  URL, runtime host-permission request. Plain ES modules, no build step. Docs:
+  `ui/extension/README.md`.
 
 ## Risks
 

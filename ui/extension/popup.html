@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clip to Notesmith</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        width: 320px;
+        margin: 0;
+        padding: 14px;
+        font-size: 13px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 10px;
+      }
+      label {
+        display: block;
+        margin: 10px 0 4px;
+        font-weight: 600;
+      }
+      select,
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 8px;
+        font: inherit;
+      }
+      .url {
+        margin: 6px 0 0;
+        color: #888;
+        word-break: break-all;
+        font-size: 12px;
+      }
+      button {
+        margin-top: 14px;
+        width: 100%;
+        padding: 8px;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .status {
+        margin-top: 10px;
+        min-height: 16px;
+        font-size: 12px;
+      }
+      .status.error {
+        color: #c0392b;
+      }
+      .status.ok {
+        color: #27ae60;
+      }
+      .footer {
+        margin-top: 12px;
+        text-align: right;
+      }
+      .footer a {
+        color: #888;
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Clip to Notesmith</h1>
+
+    <label for="vault">Vault</label>
+    <select id="vault"></select>
+
+    <label for="tags">Tags (comma-separated)</label>
+    <input id="tags" type="text" placeholder="reading, ml" autocapitalize="off" autocorrect="off" spellcheck="false" />
+
+    <p class="url" id="url"></p>
+
+    <button id="clip" disabled>Clip this page</button>
+    <div class="status" id="status"></div>
+
+    <div class="footer"><a href="#" id="open-options">Settings</a></div>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

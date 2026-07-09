@@ -251,6 +251,7 @@ notesmith/
 │   ├── notesmith-hooks/       # subprocess hook runner + payload contracts
 │   ├── notesmith-git/         # opt-in git timers and sync helpers
 │   ├── notesmith-html/        # comrak-based HTML rendering and clipboard helpers
+│   ├── notesmith-clip/        # server-side web clipping (SSRF-guarded fetch, readability, HTML→Markdown)
 │   ├── notesmith-config/      # global/per-vault config loading and validation
 │   ├── notesmith-http/        # Axum daemon, REST endpoints, SSE, static app serving
 │   ├── notesmith-mcp/         # MCP adapter on top of VaultOps
@@ -258,7 +259,8 @@ notesmith/
 │   ├── theme-gen/             # build-time theme CSS generator from the catalog JSON
 │   └── notesmith-tauri/       # thin desktop shell
 ├── ui/
-│   └── app/                   # SvelteKit frontend
+│   ├── app/                   # SvelteKit frontend
+│   └── extension/             # Manifest V3 web-clipper browser extension
 └── plans/
 ```
 

@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Notesmith Web Clipper",
+  "version": "0.1.0",
+  "description": "Clip the current page into your Notesmith vault. Extraction runs server-side in the Notesmith daemon.",
+  "permissions": ["activeTab", "storage", "tabs"],
+  "optional_host_permissions": ["*://*/*"],
+  "action": {
+    "default_title": "Clip to Notesmith",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html"
+}
