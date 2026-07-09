@@ -166,6 +166,7 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
         .route("/api/v/{vault}/notes-move/{*path}", post(move_note))
         .route("/api/v/{vault}/notes-rename/{*path}", post(rename_note))
         .route("/api/v/{vault}/capture", post(capture_note))
+        .route("/api/v/{vault}/clip", post(clip_note))
         .route("/api/v/{vault}/search", get(search_notes))
         .route("/api/v/{vault}/related/{*path}", get(related_notes))
         .route(

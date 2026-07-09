@@ -336,6 +336,7 @@ fn vault_config_roundtrip() {
         git: GitConfig::default(),
         hooks: HooksConfig::default(),
         embed: EmbedConfig::default(),
+        clip: ClipConfig::default(),
     };
 
     config.save_to(&path).unwrap();

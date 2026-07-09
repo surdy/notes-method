@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod capabilities;
 pub mod capture;
+pub mod clip;
 pub mod config;
 pub mod customizations;
 pub mod daily;
@@ -25,6 +26,7 @@ pub mod vaults;
 pub use admin::*;
 pub use capabilities::*;
 pub use capture::*;
+pub use clip::*;
 pub use config::*;
 pub use daily::*;
 pub use events::*;

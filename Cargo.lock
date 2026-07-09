@@ -3128,6 +3128,7 @@ dependencies = [
  "futures",
  "git2",
  "libc",
+ "notesmith-clip",
  "notesmith-config",
  "notesmith-core",
  "notesmith-customization",

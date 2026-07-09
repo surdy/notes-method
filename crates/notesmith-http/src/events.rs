@@ -97,6 +97,8 @@ pub enum EventType {
     TaskUpdated,
     #[serde(rename = "note.captured")]
     NoteCaptured,
+    #[serde(rename = "note.clipped")]
+    NoteClipped,
     #[serde(rename = "daily.created")]
     DailyCreated,
     #[serde(rename = "periodic.created")]
@@ -126,6 +128,7 @@ impl EventType {
             EventType::NoteDeleted => "note.deleted",
             EventType::TaskUpdated => "task.updated",
             EventType::NoteCaptured => "note.captured",
+            EventType::NoteClipped => "note.clipped",
             EventType::DailyCreated => "daily.created",
             EventType::PeriodicCreated => "periodic.created",
             EventType::CacheRebuilt => "cache.rebuilt",

@@ -555,6 +555,70 @@ Only `text` is required. `title` is optional — when provided it's used as the 
 
 ---
 
+## Web Clipper
+
+### `POST /api/v/{vault}/clip`
+
+Clip a web article into the vault. The daemon fetches the URL, extracts the
+readable article (title, author, published date, body), converts it to
+Markdown, and writes a new note with `source_url`/`source_type: article`
+frontmatter and an `inbox` tag.
+
+**Request body:**
+```json
+{
+  "url": "https://example.com/some-article?utm_source=news#top",
+  "tags": ["reading"]
+}
+```
+
+Only `url` is required. `tags` (optional) are added alongside the mandatory
+`inbox` tag. The URL is canonicalized before dedup and storage (tracking
+parameters such as `utm_*`/click IDs, the fragment, and trailing slashes are
+stripped, and query parameters are sorted).
+
+**Destination:** `[clip].folder` if set, otherwise the capture folder.
+**Filename format:** `{folder}/{YYYY-MM-DD HH-MM-SS} - {title-slug}.md`
+
+**Dedup:** if a note already carries the same canonical `source_url` (checked
+both for the requested URL and the post-redirect final URL), no new note is
+written.
+
+**Response:** `201 Created` — new note written
+```json
+{
+  "path": "Inbox/2026-05-09 16-30-00 - Some Article.md",
+  "hash": "a1b2c3...",
+  "source_url": "https://example.com/some-article",
+  "title": "Some Article",
+  "duplicate": false
+}
+```
+
+**Response:** `200 OK` — URL already clipped (no write)
+```json
+{
+  "path": "Inbox/2026-05-01 09-00-00 - Some Article.md",
+  "duplicate": true
+}
+```
+
+**Errors:**
+
+| Status | Meaning |
+| --- | --- |
+| `400 Bad Request` | Invalid URL, or blocked by the SSRF guard (loopback, private, or link-local address) |
+| `403 Forbidden` | Clipping disabled for this vault (`[clip].enabled = false`) |
+| `404 Not Found` | Vault not found |
+| `413 Payload Too Large` | Fetched page exceeded the size limit |
+| `422 Unprocessable Entity` | Page could not be parsed into a readable article |
+| `502 Bad Gateway` | Upstream fetch failed |
+
+> The daemon fetch is bounded (timeout, max body size, redirect cap) and every
+> redirect hop is re-validated against the SSRF guard.
+
+---
+
 ## Search
 
 ### `GET /api/v/{vault}/search`

@@ -3650,3 +3650,70 @@ async fn enabling_git_via_config_auto_initializes_repo() {
 
     server.server.abort();
 }
+
+#[tokio::test]
+async fn clip_blocked_url_is_rejected() {
+    let server = TestServer::empty().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/clip"))
+        .json(&serde_json::json!({ "url": "http://127.0.0.1:80/secret" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert!(
+        body["error"].as_str().unwrap().contains("blocked"),
+        "expected SSRF block error, got {body}"
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn clip_disabled_vault_returns_forbidden() {
+    let server = TestServer::with_config_and_files(
+        "name = \"test-vault\"\n\n[capture]\nfolder = \"Inbox\"\n\n[clip]\nenabled = false\n",
+        &[],
+    )
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/clip"))
+        .json(&serde_json::json!({ "url": "https://example.com/post" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn clip_duplicate_url_returns_existing_note() {
+    // A note already carrying the canonical source_url is indexed at startup;
+    // clipping the same URL must short-circuit to that note without fetching.
+    let existing = "---\nsource_url: https://example.com/post\ntags: [inbox]\n---\n\nBody.\n";
+    let server = TestServer::with_files(&[("Inbox/existing-clip.md", existing)]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/clip"))
+        // Tracking params + fragment must canonicalize to the stored URL.
+        .json(&serde_json::json!({ "url": "https://example.com/post?utm_source=x#top" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["duplicate"], serde_json::json!(true));
+    assert_eq!(body["path"], serde_json::json!("Inbox/existing-clip.md"));
+
+    server.server.abort();
+}

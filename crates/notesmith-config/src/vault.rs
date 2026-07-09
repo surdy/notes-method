@@ -19,6 +19,7 @@ pub struct VaultConfig {
     pub git: GitConfig,
     pub hooks: HooksConfig,
     pub embed: EmbedConfig,
+    pub clip: ClipConfig,
 }
 
 fn default_schema_version() -> u32 {
@@ -44,6 +45,7 @@ impl Default for VaultConfig {
             git: Default::default(),
             hooks: Default::default(),
             embed: Default::default(),
+            clip: Default::default(),
         }
     }
 }
@@ -403,6 +405,34 @@ pub struct EmbedConfig {
     pub enabled: bool,
 }
 
+/// Web-clipper configuration ([ADR 0020](../../docs/adr/0020-web-clipper.md)).
+///
+/// `#[serde(default)]` throughout so older `vault.toml` files without a `[clip]`
+/// table still parse and clipping is available out of the box.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ClipConfig {
+    /// When `true` (default), the vault accepts web clips via `POST /clip`.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Folder clips are written to. When empty, the capture folder is used.
+    #[serde(default)]
+    pub folder: String,
+    /// When `true` (default), images in clipped pages are downloaded into the
+    /// vault; when `false`, remote image URLs are kept. (Download is P2.)
+    #[serde(default = "default_true")]
+    pub download_images: bool,
+}
+
+impl Default for ClipConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            folder: String::new(),
+            download_images: true,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct RawVaultConfig {
     #[serde(default = "default_schema_version")]
@@ -426,6 +456,8 @@ struct RawVaultConfig {
     hooks: HooksConfig,
     #[serde(default)]
     embed: EmbedConfig,
+    #[serde(default)]
+    clip: ClipConfig,
 }
 
 #[derive(Serialize)]
@@ -443,10 +475,16 @@ struct PersistedVaultConfig<'a> {
     hooks: &'a HooksConfig,
     #[serde(skip_serializing_if = "embed_config_is_default")]
     embed: &'a EmbedConfig,
+    #[serde(skip_serializing_if = "clip_config_is_default")]
+    clip: &'a ClipConfig,
 }
 
 fn embed_config_is_default(config: &EmbedConfig) -> bool {
     *config == EmbedConfig::default()
+}
+
+fn clip_config_is_default(config: &ClipConfig) -> bool {
+    *config == ClipConfig::default()
 }
 
 fn periodic_config_is_empty(config: &PeriodicConfig) -> bool {
@@ -514,6 +552,7 @@ impl<'de> Deserialize<'de> for VaultConfig {
             git: raw.git,
             hooks: raw.hooks,
             embed: raw.embed,
+            clip: raw.clip,
         })
     }
 }
@@ -559,6 +598,7 @@ impl VaultConfig {
             git: &self.git,
             hooks: &self.hooks,
             embed: &self.embed,
+            clip: &self.clip,
         })
         .map_err(|error| ConfigError::SerializeError {
             message: error.to_string(),
@@ -770,6 +810,7 @@ on_note_create = "hooks/create.py"
                 ..HooksConfig::default()
             },
             embed: EmbedConfig::default(),
+            clip: ClipConfig::default(),
         }
     }
 
