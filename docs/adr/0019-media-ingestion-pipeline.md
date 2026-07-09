@@ -138,6 +138,13 @@ daemon-is-the-sole-index-owner invariant: there is no second daemon-owned index
 writer. Heavy, bursty, network- and CPU-bound work stays out of the long-running
 interactive daemon.
 
+> **Amended by [ADR 0020](0020-web-clipper.md):** this placement rule is narrowed
+> for one case. A **user-initiated, single, bounded article clip** may fetch and
+> extract inside the daemon, synchronously, behind strict timeout/size/concurrency
+> limits and an SSRF guard. Audio/video ingestion, Whisper transcription, and all
+> batch/scheduled refresh remain worker-only; the daemon still never runs Whisper
+> or fetches media in bulk.
+
 ### 5. Per-item resilience for untrusted external content
 
 Every fetched article, transcript, caption file, and audio-derived transcript is
