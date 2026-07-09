@@ -240,8 +240,12 @@
 
 	.folder-disclosure-button.selected,
 	.folder-name-button.selected {
-		background: var(--bg-selected);
-		color: var(--text-inverse);
+		background: var(--accent-bg);
+		color: var(--text-default);
+	}
+
+	.folder-disclosure-button.selected {
+		box-shadow: inset 2px 0 0 var(--accent);
 	}
 
 	.disclosure {
@@ -277,6 +281,7 @@
 		width: 100%;
 		padding: 3px 8px;
 		border: none;
+		border-radius: 6px;
 		background: none;
 		cursor: pointer;
 		font-size: 13px;
@@ -289,8 +294,9 @@
 	}
 
 	.note-item.selected {
-		background: var(--bg-selected);
-		color: var(--text-inverse);
+		background: var(--accent-bg);
+		color: var(--text-default);
+		box-shadow: inset 2px 0 0 var(--accent);
 	}
 
 	.folder-context-menu {

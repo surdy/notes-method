@@ -278,6 +278,7 @@ gap: 2px;
 width: 100%;
 padding: 7px 12px;
 border: none;
+border-radius: 6px;
 background: none;
 color: var(--text-secondary);
 text-align: left;
@@ -289,8 +290,9 @@ background: var(--bg-hover);
 }
 
 .list-item.selected {
-background: var(--bg-selected);
-color: var(--text-inverse);
+background: var(--accent-bg);
+color: var(--text-default);
+box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .item-primary {

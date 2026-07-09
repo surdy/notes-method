@@ -175,6 +175,7 @@
 		width: 100%;
 		padding: 8px 12px;
 		border: none;
+		border-radius: 6px;
 		background: none;
 		color: var(--text-secondary);
 		text-align: left;
@@ -189,8 +190,9 @@
 	}
 
 	.view-row.selected {
-		background: var(--bg-selected);
-		color: var(--text-inverse);
+		background: var(--accent-bg);
+		color: var(--text-default);
+		box-shadow: inset 2px 0 0 var(--accent);
 	}
 
 	.view-row:disabled {

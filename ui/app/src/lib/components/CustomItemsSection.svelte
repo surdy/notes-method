@@ -41,6 +41,7 @@ gap: 8px;
 width: 100%;
 padding: 6px 12px;
 border: none;
+border-radius: 6px;
 background: none;
 color: var(--text-secondary);
 font-size: 13px;
@@ -53,8 +54,9 @@ background: var(--bg-hover);
 }
 
 .item.active {
-background: var(--bg-selected);
-color: var(--text-inverse);
+background: var(--accent-bg);
+color: var(--text-default);
+box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .item-icon {

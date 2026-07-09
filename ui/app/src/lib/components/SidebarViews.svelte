@@ -306,9 +306,9 @@ background: var(--bg-hover);
 }
 
 .tab-button.active {
-background: var(--bg-selected);
-color: var(--text-inverse);
-border-color: var(--accent-bg);
+background: var(--accent-bg);
+color: var(--text-default);
+border-color: var(--accent);
 }
 
 .tab-icon {

@@ -106,9 +106,9 @@
 		display: flex;
 		align-items: stretch;
 		flex: 1;
-		gap: 1px;
+		gap: 4px;
 		min-height: 36px;
-		padding: 0 8px;
+		padding: 4px 8px 0;
 		overflow-x: auto;
 		overflow-y: hidden;
 		background: transparent;
@@ -122,16 +122,17 @@
 		flex: 0 0 auto;
 		min-width: 0;
 		max-width: 240px;
-		margin-top: 1px;
+		overflow: hidden;
 		background: var(--bg-elevated);
 		border-top: 2px solid transparent;
+		border-radius: 10px 10px 0 0;
 		transition:
 			background-color 120ms ease,
 			border-color 120ms ease;
 	}
 
 	.tab-shell.active {
-		background: var(--bg-default);
+		background: var(--editor-bg);
 		border-top-color: var(--accent);
 	}
 
