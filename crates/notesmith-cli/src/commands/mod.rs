@@ -2,6 +2,7 @@
 
 pub mod ai;
 pub mod capture;
+pub mod clip;
 pub mod copy_html;
 pub mod daemon;
 pub mod daily;

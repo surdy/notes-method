@@ -392,6 +392,40 @@ notesmith capture "Quick thought" --format json
 
 ---
 
+## clip
+
+Clip a web page into the vault. Extraction runs **server-side** in the daemon
+(fetch → readable-article extraction → Markdown), so the CLI only hands over the
+URL. The clip is written to the `[clip].folder` (or the capture folder), tagged
+`inbox`, with `source_url`/`source_type: article` provenance frontmatter. See the
+[`POST /clip` endpoint](http-api.md#web-clipper) and
+[ADR 0020](adr/0020-web-clipper.md).
+
+### `clip`
+
+```bash
+notesmith clip <url> [--tag <tag>]...
+```
+
+| Arg/Flag | Description |
+|----------|-------------|
+| `<url>` | URL of the page to clip |
+| `--tag <tag>` | Extra tag alongside the mandatory `inbox` tag (repeatable) |
+
+Re-clipping a URL that already exists (matched by canonical `source_url`) prints
+`already clipped: <path>` and does not write a duplicate. Images are downloaded
+into the vault when `[clip].download_images` is enabled (default).
+
+**Examples:**
+
+```bash
+notesmith clip "https://example.com/some-article"
+notesmith clip "https://example.com/post" --tag reading --tag ml
+notesmith clip "https://example.com/post" --format json
+```
+
+---
+
 ## task
 
 Task commands go through the daemon and auto-start it when needed.

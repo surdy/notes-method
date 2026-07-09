@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use notesmith_cli::commands::{
     ai::AiCommand,
     capture::CaptureCommand,
+    clip::ClipCommand,
     copy_html::CopyHtmlCommand,
     daemon::DaemonCommand,
     daily::DailyCommand,
@@ -101,6 +102,8 @@ enum Command {
     },
     /// Capture a note quickly
     Capture(CaptureCommand),
+    /// Clip a web page into the vault
+    Clip(ClipCommand),
     /// Template management commands
     Template {
         #[command(subcommand)]
@@ -196,6 +199,11 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
         }
         Command::Capture(command) => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
+        Command::Clip(command) => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;
