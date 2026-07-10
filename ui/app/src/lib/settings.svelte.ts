@@ -8,7 +8,10 @@ import {
 	ApiError
 } from './api';
 
-export type SettingsStatus = 'idle' | 'loading' | 'saving' | 'error';
+export type SettingsStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
+
+/** How long the transient "Saved" confirmation stays visible before clearing. */
+const SAVED_DISPLAY_MS = 2000;
 
 class SettingsStore {
 	capabilities = $state<Capabilities | null>(null);
@@ -26,11 +29,21 @@ class SettingsStore {
 
 	dirtySections = $state<Set<string>>(new Set());
 
+	private savedTimer: ReturnType<typeof setTimeout> | null = null;
+
+	private clearSavedTimer() {
+		if (this.savedTimer !== null) {
+			clearTimeout(this.savedTimer);
+			this.savedTimer = null;
+		}
+	}
+
 	get isDirty(): boolean {
 		return this.dirtySections.size > 0;
 	}
 
 	resetState() {
+		this.clearSavedTimer();
 		this.conflict = null;
 		this.fieldErrors = {};
 		this.error = null;
@@ -46,6 +59,7 @@ class SettingsStore {
 	}
 
 	async loadConfig(vault: string) {
+		this.clearSavedTimer();
 		this.status = 'loading';
 		this.error = null;
 		this.fieldErrors = {};
@@ -69,6 +83,7 @@ class SettingsStore {
 	async saveConfig(vault: string) {
 		if (!this.draftConfig) return;
 
+		this.clearSavedTimer();
 		this.status = 'saving';
 		this.error = null;
 		this.fieldErrors = {};
@@ -81,7 +96,11 @@ class SettingsStore {
 			this.etag = result.etag;
 			this.warnings = result.warnings;
 			this.dirtySections = new Set();
-			this.status = 'idle';
+			this.status = 'saved';
+			this.savedTimer = setTimeout(() => {
+				if (this.status === 'saved') this.status = 'idle';
+				this.savedTimer = null;
+			}, SAVED_DISPLAY_MS);
 			return true;
 		} catch (e) {
 			if (e instanceof ApiError && e.status === 409) {

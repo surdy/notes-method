@@ -36,6 +36,7 @@
 		| 'mcp';
 
 	let selectedSection = $state<Section>('general');
+	let navQuery = $state('');
 	let vault = $derived(vaultStore.currentVault);
 	let cfg = $derived(settingsStore.draftConfig);
 	let status = $derived(settingsStore.status);
@@ -63,6 +64,33 @@
 		{ id: 'connection', label: 'Connection' },
 		{ id: 'vaults', label: 'Vaults' }
 	];
+
+	function matchesQuery(label: string): boolean {
+		const q = navQuery.trim().toLowerCase();
+		return q === '' || label.toLowerCase().includes(q);
+	}
+
+	let filteredVaultSections = $derived(vaultSections.filter((s) => matchesQuery(s.label)));
+	let filteredAppSections = $derived(appSections.filter((s) => matchesQuery(s.label)));
+	let hasNavMatches = $derived(
+		(hasVault && filteredVaultSections.length > 0) || filteredAppSections.length > 0
+	);
+
+	function focusFirstMatch() {
+		const first = (hasVault ? filteredVaultSections[0] : undefined) ?? filteredAppSections[0];
+		if (first) selectedSection = first.id;
+	}
+
+	function onNavSearchKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			focusFirstMatch();
+		} else if (event.key === 'Escape' && navQuery !== '') {
+			event.preventDefault();
+			event.stopPropagation();
+			navQuery = '';
+		}
+	}
 
 	function navigateBack() {
 		settingsStore.resetState();
@@ -167,10 +195,34 @@
 			>{hasVault ? '← Back to vault' : '← Close'}</button
 		>
 
-		{#if hasVault}
+		<div class="nav-search">
+			<input
+				type="text"
+				class="nav-search-input"
+				placeholder="Search settings…"
+				aria-label="Search settings"
+				autocapitalize="off"
+				autocorrect="off"
+				autocomplete="off"
+				spellcheck="false"
+				bind:value={navQuery}
+				onkeydown={onNavSearchKeydown}
+			/>
+			{#if navQuery !== ''}
+				<button
+					class="nav-search-clear"
+					type="button"
+					aria-label="Clear search"
+					title="Clear search"
+					onclick={() => (navQuery = '')}>×</button
+				>
+			{/if}
+		</div>
+
+		{#if hasVault && filteredVaultSections.length > 0}
 			<div class="nav-group">
 				<h3 class="nav-group-title">VAULT: {vault}</h3>
-				{#each vaultSections as section}
+				{#each filteredVaultSections as section}
 					<button
 						class="nav-item"
 						class:active={selectedSection === section.id}
@@ -186,19 +238,25 @@
 			</div>
 		{/if}
 
-		<div class="nav-group">
-			<h3 class="nav-group-title">APP</h3>
-			{#each appSections as section}
-				<button
-					class="nav-item"
-					class:active={selectedSection === section.id}
-					type="button"
-					onclick={() => (selectedSection = section.id)}
-				>
-					{section.label}
-				</button>
-			{/each}
-		</div>
+		{#if filteredAppSections.length > 0}
+			<div class="nav-group">
+				<h3 class="nav-group-title">APP</h3>
+				{#each filteredAppSections as section}
+					<button
+						class="nav-item"
+						class:active={selectedSection === section.id}
+						type="button"
+						onclick={() => (selectedSection = section.id)}
+					>
+						{section.label}
+					</button>
+				{/each}
+			</div>
+		{/if}
+
+		{#if !hasNavMatches}
+			<p class="nav-empty">No settings match “{navQuery}”.</p>
+		{/if}
 	</nav>
 
 	<main class="settings-content">
@@ -208,6 +266,8 @@
 				<span class="status-badge">Loading…</span>
 			{:else if status === 'saving'}
 				<span class="status-badge">Saving…</span>
+			{:else if status === 'saved'}
+				<span class="status-badge status-badge--saved">Saved ✓</span>
 			{/if}
 		</header>
 
@@ -345,6 +405,54 @@
 		color: var(--text-default);
 	}
 
+	.nav-search {
+		position: relative;
+		padding: 10px 12px 4px;
+	}
+
+	.nav-search-input {
+		width: 100%;
+		padding: 6px 26px 6px 10px;
+		background: var(--bg-input);
+		border: 1px solid var(--border-input);
+		border-radius: var(--radius-sm);
+		color: var(--text-default);
+		font-size: 13px;
+	}
+
+	.nav-search-input:focus {
+		outline: none;
+		border-color: var(--accent);
+	}
+
+	.nav-search-clear {
+		position: absolute;
+		top: 10px;
+		right: 16px;
+		width: 22px;
+		height: 30px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		font-size: 16px;
+		line-height: 1;
+		cursor: pointer;
+	}
+
+	.nav-search-clear:hover {
+		color: var(--text-default);
+	}
+
+	.nav-empty {
+		margin: 8px 16px;
+		color: var(--text-muted);
+		font-size: 12.5px;
+	}
+
 	.nav-group {
 		padding: 12px 0 4px;
 	}
@@ -413,6 +521,11 @@
 	.status-badge {
 		font-size: 12px;
 		color: var(--text-muted);
+	}
+
+	.status-badge--saved {
+		color: var(--color-success);
+		font-weight: 500;
 	}
 
 	.error-banner {
