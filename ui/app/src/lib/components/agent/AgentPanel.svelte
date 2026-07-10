@@ -30,6 +30,7 @@
 	} from '$lib/agent/context-attachments';
 	import type { EditorContext } from '$lib/agent/types';
 	import { tabStore } from '$lib/tab-store.svelte';
+	import { suggestedPrompts } from '$lib/agent/agent-onboarding';
 	import { activeEditorStore } from '$lib/editor/active-editor.svelte';
 	import { activeSession } from '$lib/agent/active-session.svelte';
 	import { listFolderPickerItems } from '$lib/folder-notes';
@@ -369,15 +370,70 @@
 	function openSettings() {
 		void goto(settingsRoute(base, vaultStore.currentVault));
 	}
+
+	// Onboarding: example prompts for an empty conversation, tailored to the
+	// active note when one is open.
+	const activeNoteTitle = $derived.by(() => {
+		const path = tabStore.selectedPath;
+		if (!path) return null;
+		const note = vaultStore.notes.find((n) => n.path === path);
+		if (note?.title) return note.title;
+		const file = path.split('/').pop() ?? path;
+		return file.replace(/\.md$/, '');
+	});
+	const promptSuggestions = $derived(suggestedPrompts(activeNoteTitle));
+
+	async function useSuggestion(prompt: string) {
+		if (!store) return;
+		store.input = prompt;
+		await tick();
+		inputEl?.focus();
+		const end = inputEl?.value.length ?? 0;
+		inputEl?.setSelectionRange(end, end);
+	}
 </script>
+
 
 <div class="agent-shell" class:collapsed>
 	<div class="agent-panel">
 		{#if !store}
 			<div class="empty">Loading agent…</div>
 		{:else if !store.available}
-			<div class="empty">
-				The AI agent is only available in the Notesmith desktop app.
+			<div class="onboard">
+				<div class="onboard-card">
+					<div class="onboard-icon" aria-hidden="true">
+						<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M12 8V4H8" />
+							<rect width="16" height="12" x="4" y="8" rx="2" />
+							<path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
+						</svg>
+					</div>
+					<h2 class="onboard-title">Chat runs in the desktop app</h2>
+					<p class="onboard-lead">
+						The AI agent talks to a local agent CLI (Copilot, Claude, Codex, or
+						Gemini), so it's only available in the Notesmith desktop app — not the
+						browser.
+					</p>
+					<div class="onboard-section">
+						<span class="onboard-label">Once you're in the desktop app you can</span>
+						<ul class="onboard-list">
+							<li><strong>Ask</strong> read-only questions about your vault, or switch to <strong>Agent</strong> to create and edit notes.</li>
+							<li>Attach context with <kbd>@</kbd> and run saved prompts with <kbd>/</kbd>.</li>
+							<li>The active note is included automatically as context.</li>
+						</ul>
+					</div>
+					<div class="onboard-section">
+						<span class="onboard-label">Try prompts like</span>
+						<div class="onboard-examples">
+							{#each suggestedPrompts(activeNoteTitle) as suggestion (suggestion.label)}
+								<span class="onboard-example">{suggestion.label}</span>
+							{/each}
+						</div>
+					</div>
+					<button type="button" class="onboard-cta" onclick={openSettings}>
+						Configure AI agent settings
+					</button>
+				</div>
 			</div>
 		{:else}
 			<header class="bar">
@@ -564,7 +620,30 @@
 
 			<div class="messages" bind:this={listEl}>
 				{#if store.conversation.items.length === 0}
-					<div class="empty">Ask the agent about your vault.</div>
+					<div class="chat-onboard">
+						<p class="chat-onboard-lead">
+							{#if activeNoteTitle}
+								Ask about <strong>{activeNoteTitle}</strong> or your whole vault.
+							{:else}
+								Ask a question about your vault to get started.
+							{/if}
+						</p>
+						<div class="chat-suggestions">
+							{#each promptSuggestions as suggestion (suggestion.label)}
+								<button
+									type="button"
+									class="chat-suggestion"
+									onclick={() => void useSuggestion(suggestion.prompt)}
+								>
+									{suggestion.label}
+								</button>
+							{/each}
+						</div>
+						<p class="chat-onboard-hint">
+							<kbd>@</kbd> add context · <kbd>/</kbd> saved prompts ·
+							<strong>{modeIsWrite ? 'Agent' : 'Ask'}</strong> mode below
+						</p>
+					</div>
 				{/if}
 				{#each store.conversation.items as item (item.id)}
 					{#if item.kind === 'message'}
@@ -994,6 +1073,178 @@
 		color: var(--text-muted);
 		font-size: 13px;
 		text-align: center;
+	}
+
+	.onboard {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 20px 16px;
+		overflow-y: auto;
+	}
+
+	.onboard-card {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		max-width: 340px;
+		padding: 20px;
+		border: 1px solid var(--border-default);
+		border-radius: 12px;
+		background: var(--bg-default);
+	}
+
+	.onboard-icon {
+		display: inline-grid;
+		place-items: center;
+		width: 40px;
+		height: 40px;
+		border-radius: 10px;
+		background: var(--accent-bg);
+		color: var(--accent);
+	}
+
+	.onboard-title {
+		margin: 0;
+		font-size: 15px;
+		font-weight: 600;
+		color: var(--text-default);
+	}
+
+	.onboard-lead {
+		margin: 0;
+		font-size: 12.5px;
+		line-height: 1.5;
+		color: var(--text-secondary);
+	}
+
+	.onboard-section {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.onboard-label {
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
+	}
+
+	.onboard-list {
+		margin: 0;
+		padding-left: 18px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		font-size: 12.5px;
+		line-height: 1.5;
+		color: var(--text-secondary);
+	}
+
+	.onboard-list strong {
+		color: var(--text-default);
+	}
+
+	.onboard-examples {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+
+	.onboard-example {
+		padding: 3px 8px;
+		border: 1px solid var(--border-default);
+		border-radius: 999px;
+		background: var(--bg-secondary);
+		font-size: 11.5px;
+		color: var(--text-secondary);
+	}
+
+	.onboard-cta {
+		align-self: flex-start;
+		margin-top: 2px;
+		padding: 7px 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: 8px;
+		background: var(--button-bg);
+		color: var(--button-text);
+		font-size: 12.5px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.onboard-cta:hover {
+		background: var(--button-hover);
+		color: var(--text-default);
+	}
+
+	.chat-onboard {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		padding: 20px 16px;
+	}
+
+	.chat-onboard-lead {
+		margin: 0;
+		font-size: 13px;
+		line-height: 1.5;
+		color: var(--text-secondary);
+	}
+
+	.chat-onboard-lead strong {
+		color: var(--text-default);
+	}
+
+	.chat-suggestions {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.chat-suggestion {
+		text-align: left;
+		padding: 8px 10px;
+		border: 1px solid var(--border-default);
+		border-radius: 8px;
+		background: var(--bg-default);
+		color: var(--text-default);
+		font-size: 12.5px;
+		cursor: pointer;
+		transition: border-color 0.12s ease, background 0.12s ease;
+	}
+
+	.chat-suggestion:hover {
+		border-color: var(--accent);
+		background: var(--bg-hover);
+	}
+
+	.chat-onboard-hint {
+		margin: 0;
+		font-size: 11.5px;
+		line-height: 1.6;
+		color: var(--text-muted);
+	}
+
+	.chat-onboard-hint strong {
+		color: var(--text-secondary);
+	}
+
+	.chat-onboard-hint kbd,
+	.onboard-list kbd {
+		display: inline-block;
+		min-width: 16px;
+		padding: 0 4px;
+		border: 1px solid var(--border-default);
+		border-radius: 4px;
+		background: var(--bg-secondary);
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		text-align: center;
+		color: var(--text-secondary);
 	}
 
 	.status {
