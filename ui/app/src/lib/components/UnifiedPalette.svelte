@@ -3,6 +3,7 @@
 
 	import type { NoteSummary } from '$lib/api';
 	import type { Command } from '$lib/commands';
+	import { groupHeaderAt, orderEmptyCommands, type GroupedCommand } from '$lib/command-palette';
 	import { fuzzyFilter } from '$lib/fuzzy';
 	import { noteIcon } from '$lib/note-icons';
 	import { getRecentlyViewed } from '$lib/recently-viewed';
@@ -51,6 +52,7 @@
 	type PaletteItem = FileItem | CreateItem | CommandItem | ThemeItem;
 
 	const RECENT_COMMAND_LIMIT = 10;
+	const EMPTY_STATE_RECENT_LIMIT = 5;
 	const themeCatalog = themeStore.getCatalog();
 
 	let { commands, initialMode, onClose, onSelectNote, onCreateNote }:
@@ -354,18 +356,21 @@
 		return items;
 	});
 
+	let emptyCommandOrder = $derived.by((): GroupedCommand[] | null => {
+		if (activeMode !== 'commands' || trimmedQuery) return null;
+		return orderEmptyCommands(commands, recentCommandIds, EMPTY_STATE_RECENT_LIMIT);
+	});
+
 	let commandResults = $derived.by((): CommandItem[] => {
 		const currentQuery = trimmedQuery;
 		if (!currentQuery) {
-			return recentCommandIds
-				.map((id) => commands.find((command) => command.id === id))
-				.filter((command): command is Command => !!command)
-				.slice(0, RECENT_COMMAND_LIMIT)
-				.map((command): CommandItem => ({
+			return orderEmptyCommands(commands, recentCommandIds, EMPTY_STATE_RECENT_LIMIT).map(
+				({ command }): CommandItem => ({
 					kind: 'command',
 					id: command.id,
 					command
-				}));
+				})
+			);
 		}
 
 		const recentBoost = new Map(
@@ -502,6 +507,9 @@
 				<div class="no-results">No matches</div>
 			{:else}
 				{#each results as item, index (item.id)}
+					{#if emptyCommandOrder && groupHeaderAt(emptyCommandOrder, index)}
+						<div class="palette-group">{groupHeaderAt(emptyCommandOrder, index)}</div>
+					{/if}
 					<button
 						class="palette-item"
 						class:selected={index === selectedIndex}
@@ -514,7 +522,9 @@
 						{#if item.kind === 'command'}
 							<span class="item-label">{item.command.label}</span>
 							<span class="item-meta">
-								<span class="cmd-category">{item.command.category}</span>
+								{#if !emptyCommandOrder}
+									<span class="cmd-category">{item.command.category}</span>
+								{/if}
 								{#if item.command.shortcut}
 									<kbd class="item-shortcut">{item.command.shortcut}</kbd>
 								{/if}
@@ -769,6 +779,19 @@
 		padding: 24px;
 		text-align: center;
 		color: var(--text-muted);
+	}
+
+	.palette-group {
+		padding: 10px 16px 4px;
+		font-size: 10.5px;
+		font-weight: 600;
+		letter-spacing: 0.09em;
+		text-transform: uppercase;
+		color: var(--text-muted);
+	}
+
+	.palette-group:first-child {
+		padding-top: 4px;
 	}
 
 	.palette-footer {
