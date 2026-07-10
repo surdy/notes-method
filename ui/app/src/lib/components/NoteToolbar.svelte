@@ -36,6 +36,7 @@
 					class="view-mode"
 					class:active={viewMode === 'source'}
 					aria-pressed={viewMode === 'source'}
+					aria-label="Source Mode"
 					title="Source Mode (⌘E)"
 					onclick={() => selectMode('source')}
 				>
@@ -43,12 +44,12 @@
 						<polyline points="16 18 22 12 16 6" />
 						<polyline points="8 6 2 12 8 18" />
 					</svg>
-					<span class="view-mode-label">Source</span>
 				</button>
 				<button
 					class="view-mode"
 					class:active={viewMode === 'live-preview'}
 					aria-pressed={viewMode === 'live-preview'}
+					aria-label="Live Preview"
 					title="Live Preview (⌘E)"
 					onclick={() => selectMode('live-preview')}
 				>
@@ -56,12 +57,12 @@
 						<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
 						<path d="m15 5 4 4" />
 					</svg>
-					<span class="view-mode-label">Preview</span>
 				</button>
 				<button
 					class="view-mode"
 					class:active={viewMode === 'reading'}
 					aria-pressed={viewMode === 'reading'}
+					aria-label="Reading View"
 					title="Reading View (⌘E)"
 					onclick={() => selectMode('reading')}
 				>
@@ -69,7 +70,6 @@
 						<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
 						<path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
 					</svg>
-					<span class="view-mode-label">Read</span>
 				</button>
 			</div>
 		</div>
@@ -135,14 +135,14 @@
 	.view-mode {
 		display: flex;
 		align-items: center;
-		gap: 4px;
+		justify-content: center;
 		height: 26px;
-		padding: 0 10px;
+		width: 26px;
+		padding: 0;
 		border: none;
 		border-radius: var(--radius-sm);
 		background: transparent;
 		color: var(--text-muted);
-		font-size: 12px;
 		line-height: 1;
 		cursor: pointer;
 		transition: background 0.15s, color 0.15s;
@@ -156,9 +156,5 @@
 	.view-mode.active {
 		background: var(--accent-bg);
 		color: var(--text-default);
-	}
-
-	.view-mode-label {
-		white-space: nowrap;
 	}
 </style>
