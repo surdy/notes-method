@@ -327,7 +327,7 @@
 	}
 
 	.links-group + .links-group {
-		border-top: 1px solid var(--border-default);
+		border-top: 1px solid var(--border-subtle);
 	}
 
 	.links-heading {

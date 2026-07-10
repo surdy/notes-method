@@ -273,7 +273,7 @@
 		top: 0;
 		bottom: 0;
 		width: 1px;
-		background: var(--border-default);
+		background: var(--border-subtle);
 		pointer-events: none;
 	}
 

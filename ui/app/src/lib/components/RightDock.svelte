@@ -144,7 +144,7 @@
 		flex-shrink: 0;
 		background: var(--bg-secondary);
 		border-left: 1px solid var(--border-default);
-		border-bottom: 1px solid var(--border-default);
+		border-bottom: 1px solid var(--border-subtle);
 	}
 
 	.dock-tab {

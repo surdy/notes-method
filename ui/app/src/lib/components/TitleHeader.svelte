@@ -133,7 +133,7 @@
 		font-weight: 700;
 		line-height: 1.2;
 		color: var(--editor-text);
-		border-bottom: 1px solid var(--border-default);
+		border-bottom: 1px solid var(--border-subtle);
 		margin-bottom: 4px;
 		user-select: text;
 		cursor: text;

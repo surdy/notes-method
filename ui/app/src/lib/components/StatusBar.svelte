@@ -72,7 +72,7 @@
 		height: 28px;
 		padding: 0 12px;
 		background: var(--bg-secondary);
-		border-top: 1px solid var(--border-default);
+		border-top: 1px solid var(--border-subtle);
 		font-size: 12px;
 		color: var(--text-muted);
 		flex-shrink: 0;
