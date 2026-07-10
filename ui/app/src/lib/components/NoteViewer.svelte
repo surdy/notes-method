@@ -325,7 +325,7 @@
 		margin: 1em 0;
 		padding: 1em;
 		border: 1px solid var(--editor-border);
-		border-radius: 8px;
+		border-radius: var(--radius-sm);
 		background: var(--bg-panel);
 		overflow-x: auto;
 	}
@@ -340,7 +340,7 @@
 		--callout-icon: '✎';
 		border: 1px solid color-mix(in srgb, var(--callout-current) 42%, transparent);
 		border-left: 4px solid var(--callout-current);
-		border-radius: 8px;
+		border-radius: var(--radius-sm);
 		padding: 12px 16px;
 		margin: 1em 0;
 		background: color-mix(in srgb, var(--callout-current) 13%, var(--editor-bg));

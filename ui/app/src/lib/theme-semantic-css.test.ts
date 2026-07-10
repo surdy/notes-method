@@ -155,7 +155,29 @@ const semanticContract = [
 '--font-mono',
 '--line-height-normal',
 '--line-height-tight',
-'--paragraph-spacing'
+'--paragraph-spacing',
+'--radius-sm',
+'--radius-md',
+'--radius-lg',
+'--radius-pill',
+'--space-1',
+'--space-2',
+'--space-3',
+'--space-4',
+'--space-5',
+'--font-reading',
+'--reading-measure',
+'--reading-font-size',
+'--reading-line-height',
+'--reading-h1-size',
+'--reading-h1-line',
+'--reading-h1-weight',
+'--reading-h1-tracking',
+'--reading-h2-size',
+'--reading-h2-line',
+'--reading-h3-size',
+'--shadow-card',
+'--shadow-pop'
 ] as const;
 
 const defaultMappings = {
@@ -287,7 +309,29 @@ const defaultMappings = {
 '--font-mono': "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
 '--line-height-normal': '1.5',
 '--line-height-tight': '1.3',
-'--paragraph-spacing': '1rem'
+'--paragraph-spacing': '1rem',
+'--radius-sm': '8px',
+'--radius-md': '10px',
+'--radius-lg': '14px',
+'--radius-pill': '999px',
+'--space-1': '4px',
+'--space-2': '8px',
+'--space-3': '12px',
+'--space-4': '16px',
+'--space-5': '24px',
+'--font-reading': "ui-serif, Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif",
+'--reading-measure': '46rem',
+'--reading-font-size': '16.5px',
+'--reading-line-height': '1.62',
+'--reading-h1-size': '2.35rem',
+'--reading-h1-line': '1.12',
+'--reading-h1-weight': '700',
+'--reading-h1-tracking': '-0.02em',
+'--reading-h2-size': '1.55rem',
+'--reading-h2-line': '1.2',
+'--reading-h3-size': '1.2rem',
+'--shadow-card': '0 6px 18px rgba(0, 0, 0, 0.28)',
+'--shadow-pop': '0 14px 34px rgba(0, 0, 0, 0.5)'
 } as const;
 
 describe('semantic theme CSS', () => {

@@ -290,16 +290,23 @@
 		flex-direction: column;
 	}
 
-	.metadata-list,
 	.links-section {
 		padding: 8px 0;
+	}
+
+	.metadata-list {
+		margin: var(--space-3);
+		padding: var(--space-3) 0 var(--space-1);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-lg);
+		background: var(--bg-surface);
 	}
 
 	.metadata-row {
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
-		padding: 0 16px 10px;
+		padding: 0 var(--space-3) 10px;
 	}
 
 	.metadata-key {
@@ -320,7 +327,7 @@
 
 	.tag-chip {
 		padding: 2px 8px;
-		border-radius: 999px;
+		border-radius: var(--radius-pill);
 		background: var(--accent-bg);
 		color: var(--accent-text);
 		font-size: 12px;

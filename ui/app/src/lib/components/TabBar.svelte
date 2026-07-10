@@ -163,7 +163,7 @@
 		overflow: hidden;
 		background: var(--bg-elevated);
 		border-top: 2px solid transparent;
-		border-radius: 10px 10px 0 0;
+		border-radius: var(--radius-md) var(--radius-md) 0 0;
 		transition:
 			background-color 120ms ease,
 			border-color 120ms ease;
@@ -233,7 +233,7 @@
 		height: 18px;
 		padding: 0;
 		border: none;
-		border-radius: 4px;
+		border-radius: var(--radius-sm);
 		background: transparent;
 		color: var(--text-muted);
 		cursor: pointer;
@@ -264,7 +264,7 @@
 		min-width: 160px;
 		padding: 4px;
 		border: 1px solid var(--border-default);
-		border-radius: 6px;
+		border-radius: var(--radius-md);
 		background: var(--bg-elevated);
 		box-shadow: var(--shadow-soft);
 	}
@@ -274,7 +274,7 @@
 		width: 100%;
 		padding: 6px 8px;
 		border: none;
-		border-radius: 4px;
+		border-radius: var(--radius-sm);
 		background: transparent;
 		color: var(--text-default);
 		cursor: pointer;

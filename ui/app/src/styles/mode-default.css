@@ -162,7 +162,7 @@
   --paragraph-spacing: 1rem;
 
   /* Radius scale */
-  --radius-sm: 6px;
+  --radius-sm: 8px;
   --radius-md: 10px;
   --radius-lg: 14px;
   --radius-pill: 999px;

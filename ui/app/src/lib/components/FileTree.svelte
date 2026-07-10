@@ -211,6 +211,7 @@
 		display: flex;
 		align-items: center;
 		border: none;
+		border-radius: var(--radius-sm);
 		background: none;
 		cursor: pointer;
 		font-size: 14px;
@@ -219,9 +220,9 @@
 	}
 
 	.folder-toggle {
-		gap: 4px;
+		gap: var(--space-2);
 		width: 100%;
-		padding: 4px 8px;
+		padding: 5px 8px;
 	}
 
 	.folder-disclosure-button {
@@ -281,11 +282,11 @@
 		position: relative;
 		display: flex;
 		align-items: center;
-		gap: 4px;
+		gap: var(--space-2);
 		width: 100%;
-		padding: 3px 8px;
+		padding: 5px 8px;
 		border: none;
-		border-radius: 6px;
+		border-radius: var(--radius-sm);
 		background: none;
 		cursor: pointer;
 		font-size: 13px;
@@ -309,7 +310,7 @@
 		min-width: 160px;
 		padding: 4px;
 		border: 1px solid var(--border-default);
-		border-radius: 6px;
+		border-radius: var(--radius-md);
 		background: var(--bg-elevated);
 		box-shadow: var(--shadow-soft);
 	}
@@ -319,7 +320,7 @@
 		width: 100%;
 		padding: 6px 8px;
 		border: none;
-		border-radius: 4px;
+		border-radius: var(--radius-sm);
 		background: transparent;
 		color: var(--text-default);
 		cursor: pointer;
