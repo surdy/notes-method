@@ -233,4 +233,5 @@ Use **Refresh** to reload the log and **Clear** to wipe it.
 - [AI Permissions](ai-permissions.md)
 - [AI Slash Commands](ai-slash-commands.md)
 - [AI Editor Integration](ai-editor.md)
+- [Using Fact Memory](fact-memory.md)
 - [Vault Configuration — Customizations (Personas)](vault-configuration.md)
