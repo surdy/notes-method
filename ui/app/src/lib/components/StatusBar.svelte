@@ -69,20 +69,20 @@
 	.status-bar {
 		display: flex;
 		align-items: center;
-		height: 28px;
-		padding: 0 12px;
+		height: 32px;
+		padding: 0 16px;
 		background: var(--bg-secondary);
 		border-top: 1px solid var(--border-subtle);
 		font-size: 12px;
 		color: var(--text-muted);
 		flex-shrink: 0;
-		gap: 16px;
+		gap: 20px;
 	}
 
 	.status-left {
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		gap: 8px;
 		min-width: 0;
 	}
 
@@ -97,7 +97,7 @@
 	.status-right {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: 18px;
 		flex-shrink: 0;
 		font-variant-numeric: tabular-nums;
 	}
@@ -106,7 +106,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		padding: 1px 8px;
+		padding: 3px 10px;
 		background: var(--bg-secondary);
 		border: 1px solid var(--border-default);
 		border-radius: 4px;

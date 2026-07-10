@@ -80,11 +80,11 @@
 	.note-toolbar {
 		display: flex;
 		align-items: center;
-		height: 32px;
-		padding: 0 12px;
+		height: 40px;
+		padding: 0 16px;
 		background: var(--bg-default);
 		border-bottom: 1px solid var(--border-subtle);
-		font-size: 12px;
+		font-size: 12.5px;
 		color: var(--text-muted);
 		flex-shrink: 0;
 	}
@@ -125,10 +125,10 @@
 	.view-modes {
 		display: flex;
 		align-items: center;
-		gap: 2px;
-		padding: 2px;
+		gap: 3px;
+		padding: 3px;
 		border: 1px solid var(--border-default);
-		border-radius: 6px;
+		border-radius: var(--radius-sm);
 		background: var(--bg-default);
 	}
 
@@ -136,13 +136,13 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		height: 20px;
-		padding: 0 6px;
+		height: 26px;
+		padding: 0 10px;
 		border: none;
-		border-radius: 4px;
+		border-radius: var(--radius-sm);
 		background: transparent;
 		color: var(--text-muted);
-		font-size: 11px;
+		font-size: 12px;
 		line-height: 1;
 		cursor: pointer;
 		transition: background 0.15s, color 0.15s;
