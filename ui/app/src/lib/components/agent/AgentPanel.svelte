@@ -43,6 +43,14 @@
 	let listEl = $state<HTMLDivElement | null>(null);
 	let currentVault = $state('');
 
+	// One ChatStore (and its live ACP session) per vault, kept for the life of
+	// this panel instance (issue #262). Switching vaults used to dispose the
+	// store and eagerly `prepareSession()` a brand-new ACP session/subprocess
+	// every time — including flipping back to a vault already visited this
+	// run. Reusing the cached store avoids that redundant spawn; the process
+	// is only actually stopped (via `ChatStore.stop()`) on real teardown.
+	const storesByVault = new Map<string, ChatStore>();
+
 	// Mode dropdown (Ask = read-only, Agent = read-write) shown in the composer.
 	// Custom-agent personas are folded into the same menu as write-capable agents.
 	let modeOpen = $state(false);
@@ -267,25 +275,39 @@
 	async function initFor(vault: string) {
 		if (!vault) return;
 		currentVault = vault;
-		store?.dispose();
-		activeSession.set(null);
+
+		const cached = storesByVault.get(vault);
+		if (cached) {
+			// Already live (or being lazily started) for this vault — reuse it
+			// rather than spawning a second ACP session/subprocess.
+			store = cached;
+			activeSession.set(cached);
+			return;
+		}
+
 		const next = new ChatStore(vault, createAgentClient(), {
 			breakGlass: () => breakGlassStore.enabled,
 			applyToEditor: (mode, text) => activeEditorStore.applyOutput(mode, text)
 		});
 		next.start();
+		storesByVault.set(vault, next);
 		store = next;
 		activeSession.set(next);
 		await next.loadAgents();
 		await next.loadThreads();
 		await next.loadCustomizations();
 		// Establish the session up front so the model picker is available before
-		// the first message (ACP exposes models only after session/new).
+		// the first message (ACP exposes models only after session/new). This
+		// still happens exactly once per vault for the life of the panel.
 		void next.prepareSession();
 	}
 
 	onDestroy(() => {
-		store?.dispose();
+		for (const cached of storesByVault.values()) {
+			void cached.endSession();
+			cached.dispose();
+		}
+		storesByVault.clear();
 		activeSession.set(null);
 	});
 

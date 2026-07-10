@@ -489,6 +489,31 @@ export class ChatStore {
 		if (this.sessionId) await this.client.selectModel(this.sessionId, value);
 	}
 
+	/**
+	 * Tear down the live ACP session (if any), releasing the underlying agent
+	 * subprocess (issue #262). Unlike `stop()` (issue #191's cancel-the-turn),
+	 * this runs unconditionally — not just while `busy` — because it is used
+	 * when this store is genuinely being discarded (panel cache eviction,
+	 * app/window teardown), not to interrupt a running turn. Distinct from
+	 * `dispose()`, which only detaches event listeners: a cached-but-inactive
+	 * store (a background vault in the panel's per-vault cache) should keep
+	 * listening for its own session's events without its process being
+	 * killed, so `dispose()` alone must not stop the session. Best-effort:
+	 * swallows failures since the process may already be gone.
+	 */
+	async endSession(): Promise<void> {
+		const sessionId = this.sessionId;
+		this.sessionId = null;
+		this.sessionStartPromise = null;
+		this.modelPicker = null;
+		if (!sessionId) return;
+		try {
+			await this.client.stop(sessionId);
+		} catch {
+			// Best-effort — nothing to clean up if the process already exited.
+		}
+	}
+
 	async toggleReadOnly(): Promise<void> {
 		await this.setReadOnly(!this.readOnly);
 	}

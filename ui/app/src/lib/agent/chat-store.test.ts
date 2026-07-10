@@ -250,6 +250,38 @@ describe('ChatStore orchestration', () => {
 		expect(store.busy).toBe(false);
 	});
 
+	it('endSession stops an idle live session and clears session state (#262)', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		store.start();
+		store.input = 'hi';
+		await store.send();
+		client.emit('sess-1', { type: 'done', result: null });
+		// The turn has already finished — unlike `stop()`, `endSession()` must
+		// still release the process even though the store is idle.
+		expect(store.busy).toBe(false);
+
+		await store.endSession();
+
+		expect(client.stopped).toEqual(['sess-1']);
+		expect(store.sessionId).toBeNull();
+		expect(store.modelPicker).toBeNull();
+	});
+
+	it('endSession is a no-op when no session was ever started (#262)', async () => {
+		const client = new MockAgentClient();
+		const { api } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		store.start();
+
+		await store.endSession();
+
+		expect(client.stopped).toEqual([]);
+	});
+
 	it('forks a saved thread, copying prior messages into a new continuable thread', async () => {
 		const client = new MockAgentClient();
 		const { api, appended } = fakeTranscripts();
