@@ -1,12 +1,16 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { getNote, getNoteHtml, toggleTaskStatus, type NoteTask, type TaskMutationStatus } from '$lib/api';
+	import { createNote, getNote, getNoteHtml, toggleTaskStatus, type NoteTask, type TaskMutationStatus } from '$lib/api';
 	import { applySyntaxHighlighting } from '$lib/editor/code-highlighting';
 	import { displayTitleFor } from '$lib/display-title';
 	import TitleHeader from '$lib/components/TitleHeader.svelte';
+	import WikilinkResolvePopup from '$lib/components/WikilinkResolvePopup.svelte';
+	import type { UnresolvedWikilink } from '$lib/editor/ofm-decorations';
+	import { resolveWikilink, splitWikilinkTarget } from '$lib/editor/wikilink-resolver';
 	import { stripFirstH1IfMatchesTitle } from '$lib/duplicate-h1';
 	import { settingsStore } from '$lib/settings.svelte';
 	import { tabStore } from '$lib/tab-store.svelte';
+	import { toastStore } from '$lib/toast-store.svelte';
 	import { vaultStore } from '$lib/stores.svelte';
 
 	let html = $state('');
@@ -15,6 +19,7 @@
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let contentElement = $state<HTMLElement | null>(null);
+	let wikilinkPopup = $state<UnresolvedWikilink | null>(null);
 
 	interface Props {
 		path: string | null;
@@ -106,14 +111,33 @@
 		const noteTarget = link.dataset.target;
 		if (!noteTarget) return;
 
-		const match = vaultStore.notes.find(
-			(note) =>
-				note.path.includes(noteTarget) ||
-				note.title === noteTarget ||
-				note.path.endsWith(`${noteTarget}.md`)
-		);
-		if (match) {
-			tabStore.selectNote(match.path);
+		const resolution = resolveWikilink(noteTarget, vaultStore.notes);
+		if (resolution.path) {
+			tabStore.selectNote(resolution.path);
+			return;
+		}
+		wikilinkPopup = {
+			target: resolution.name,
+			candidates: resolution.candidates,
+			x: event.clientX,
+			y: event.clientY
+		};
+	}
+
+	// Create a note for a clicked dead wikilink, then open it.
+	async function createNoteFromWikilink(target: string) {
+		wikilinkPopup = null;
+		const vault = vaultStore.currentVault;
+		if (!vault) return;
+		const { folder, title } = splitWikilinkTarget(target);
+		if (!title) return;
+		try {
+			const created = await createNote(vault, title, '', folder ?? 'Inbox');
+			await vaultStore.loadNotes();
+			tabStore.selectNote(created.path);
+			toastStore.add(`Created “${title}”.`);
+		} catch (err) {
+			toastStore.add(err instanceof Error ? err.message : 'Failed to create note.', 'error');
 		}
 	}
 
@@ -160,6 +184,21 @@
 		</div>
 	{/if}
 </div>
+
+{#if wikilinkPopup}
+	<WikilinkResolvePopup
+		target={wikilinkPopup.target}
+		candidates={wikilinkPopup.candidates}
+		x={wikilinkPopup.x}
+		y={wikilinkPopup.y}
+		onNavigate={(p) => {
+			wikilinkPopup = null;
+			tabStore.selectNote(p);
+		}}
+		onCreate={() => createNoteFromWikilink(wikilinkPopup?.target ?? '')}
+		onClose={() => (wikilinkPopup = null)}
+	/>
+{/if}
 
 <style>
 	.note-viewer {

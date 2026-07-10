@@ -247,6 +247,11 @@ textDecoration: 'underline',
 textDecorationStyle: 'dotted',
 cursor: 'pointer'
 },
+'.cm-ofm-wikilink-unresolved': {
+color: 'var(--text-muted)',
+textDecorationStyle: 'dashed',
+textDecorationColor: 'var(--text-muted)'
+},
 '.cm-ofm-tag': {
 color: '#d7ba7d',
 fontWeight: '600'

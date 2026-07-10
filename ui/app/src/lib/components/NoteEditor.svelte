@@ -16,6 +16,7 @@ import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { onMount, tick, untrack } from 'svelte';
 import {
 ApiError,
+createNote,
 getNote,
 toggleTaskStatus,
 type NoteDetail,
@@ -37,7 +38,10 @@ import {
 } from '$lib/editor/duplicate-h1-extension';
 import { activeEditorStore } from '$lib/editor/active-editor.svelte';
 import EditorContextMenu from '$lib/components/agent/EditorContextMenu.svelte';
-import { createOFMDecorations } from '$lib/editor/ofm-decorations';
+import WikilinkResolvePopup from '$lib/components/WikilinkResolvePopup.svelte';
+import { createOFMDecorations, type UnresolvedWikilink } from '$lib/editor/ofm-decorations';
+import { splitWikilinkTarget } from '$lib/editor/wikilink-resolver';
+import { toastStore } from '$lib/toast-store.svelte';
 import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-blocks';
 import { headingHighlightOverride, notesmithTheme } from '$lib/editor/theme';
 import { displayTitleFor } from '$lib/display-title';
@@ -65,6 +69,7 @@ let { onOpenQuickSwitcher }: { onOpenQuickSwitcher?: () => void } = $props();
 
 let editorContainer = $state<HTMLDivElement | undefined>();
 let contextMenu = $state<{ x: number; y: number } | null>(null);
+let wikilinkPopup = $state<UnresolvedWikilink | null>(null);
 let view: EditorView | null = null;
 let currentPath: string | null = null;
 let loadingPath = $state<string | null>(null);
@@ -354,7 +359,10 @@ createOFMDecorations({
 notes: () => vaultStore.notes,
 taskHashes: () => currentTaskHashes,
 onNavigate: (path) => tabStore.selectNote(path),
-onTaskToggle: handleTaskToggle
+onTaskToggle: handleTaskToggle,
+onUnresolvedWikilink: (info) => {
+	wikilinkPopup = info;
+}
 }),
 duplicateH1HideExtension(),
 livePreviewCompartment.of(
@@ -625,10 +633,43 @@ function handleContextMenu(event: MouseEvent) {
 	event.preventDefault();
 	contextMenu = { x: event.clientX, y: event.clientY };
 }
+
+// Create a note for a clicked dead wikilink, then open it (UX review:
+// "Link navigation should help create and disambiguate").
+async function createNoteFromWikilink(target: string) {
+	wikilinkPopup = null;
+	const vault = vaultStore.currentVault;
+	if (!vault) return;
+	const { folder, title } = splitWikilinkTarget(target);
+	if (!title) return;
+	try {
+		const created = await createNote(vault, title, '', folder ?? 'Inbox');
+		await vaultStore.loadNotes();
+		tabStore.selectNote(created.path);
+		toastStore.add(`Created “${title}”.`);
+	} catch (err) {
+		toastStore.add(err instanceof Error ? err.message : 'Failed to create note.', 'error');
+	}
+}
 </script>
 
 {#if contextMenu}
 <EditorContextMenu x={contextMenu.x} y={contextMenu.y} onClose={() => (contextMenu = null)} />
+{/if}
+
+{#if wikilinkPopup}
+<WikilinkResolvePopup
+	target={wikilinkPopup.target}
+	candidates={wikilinkPopup.candidates}
+	x={wikilinkPopup.x}
+	y={wikilinkPopup.y}
+	onNavigate={(path) => {
+		wikilinkPopup = null;
+		tabStore.selectNote(path);
+	}}
+	onCreate={() => createNoteFromWikilink(wikilinkPopup?.target ?? '')}
+	onClose={() => (wikilinkPopup = null)}
+/>
 {/if}
 
 <div class="note-editor">

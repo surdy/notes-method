@@ -2,6 +2,7 @@ import { type Extension, type Range, RangeSet, StateField, type Text } from '@co
 import { Decoration, type DecorationSet, EditorView, GutterMarker, ViewPlugin, WidgetType, gutterLineClass } from '@codemirror/view';
 import type { NoteSummary, TaskMutationStatus } from '$lib/api';
 import { nextTaskStatus, TASK_MARKER_PATTERN, taskMarkerToStatus, taskStatusClass } from './task-markers';
+import { resolveWikilink } from './wikilink-resolver';
 
 const WIKILINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
 const TAG_RE = /(^|[\s([{])#([A-Za-z0-9/_-]+)/g;
@@ -10,11 +11,22 @@ const CALLOUT_RE = /^>\s+\[!([A-Za-z0-9_-]+)\]/;
 const TASK_RE = new RegExp(`^(\\s*[-*+]\\s+)\\[([${TASK_MARKER_PATTERN}])\\]`);
 const FENCE_RE = /^(```|~~~)/;
 
+export interface UnresolvedWikilink {
+	/** The link target with any `#anchor` stripped. */
+	target: string;
+	/** Existing notes that fuzzily match, for a "did you mean" list. */
+	candidates: NoteSummary[];
+	/** Viewport coordinates of the click, for positioning a popup. */
+	x: number;
+	y: number;
+}
+
 export interface OFMDecorationOptions {
 notes: () => NoteSummary[];
 taskHashes: () => Map<string, string>;
 onNavigate: (path: string) => void;
 onTaskToggle: (taskHash: string, status: TaskMutationStatus) => Promise<void> | void;
+onUnresolvedWikilink?: (info: UnresolvedWikilink) => void;
 }
 
 class FrontmatterGutterMarker extends GutterMarker {
@@ -92,13 +104,18 @@ if (!rawTarget) {
 return;
 }
 
-const resolved = resolveWikilink(rawTarget, options.notes());
-if (!resolved) {
+const resolution = resolveWikilink(rawTarget, options.notes());
+event.preventDefault();
+if (resolution.path) {
+options.onNavigate(resolution.path);
 return;
 }
-
-event.preventDefault();
-options.onNavigate(resolved);
+options.onUnresolvedWikilink?.({
+target: resolution.name,
+candidates: resolution.candidates,
+x: event.clientX,
+y: event.clientY
+});
 }
 }
 }
@@ -181,15 +198,20 @@ addMark(decorations, from, from + calloutText.length, 'cm-ofm-callout');
 }
 }
 
+const notesForLinks = options.notes();
 for (const match of text.matchAll(WIKILINK_RE)) {
 const raw = match[0];
 const target = match[1]?.trim();
 if (!target || match.index === undefined) continue;
+const unresolved = resolveWikilink(target, notesForLinks).path === null;
+const className = unresolved
+? 'cm-ofm-wikilink cm-ofm-wikilink-unresolved'
+: 'cm-ofm-wikilink';
 addMark(
 decorations,
 line.from + match.index,
 line.from + match.index + raw.length,
-'cm-ofm-wikilink',
+className,
 { 'data-wikilink-target': target }
 );
 }
@@ -274,22 +296,4 @@ function buildFrontmatterGutterMarkers(doc: Text): RangeSet<GutterMarker> {
 		if (line.text === '---') break;
 	}
 	return RangeSet.of(markers, true);
-}
-
-function resolveWikilink(target: string, notes: NoteSummary[]): string | null {
-const noteTarget = target.split('#')[0]?.trim();
-if (!noteTarget) {
-return null;
-}
-
-return (
-notes.find((note) => note.path === noteTarget)?.path ??
-notes.find((note) => note.path === `${noteTarget}.md`)?.path ??
-notes.find((note) => note.path.replace(/\.md$/i, '') === noteTarget)?.path ??
-notes.find((note) => note.title === noteTarget)?.path ??
-notes.find((note) => note.path.endsWith(`/${noteTarget}.md`) || note.path.endsWith(`${noteTarget}.md`))
-?.path ??
-notes.find((note) => note.path.includes(noteTarget))?.path ??
-null
-);
 }
