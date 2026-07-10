@@ -255,7 +255,7 @@
 		background: var(--bg-elevated);
 		border: 1px solid var(--border-strong);
 		border-radius: 8px;
-		box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
+		box-shadow: var(--shadow-pop);
 		z-index: 1000;
 	}
 

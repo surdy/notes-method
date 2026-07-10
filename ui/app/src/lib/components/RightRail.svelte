@@ -300,6 +300,7 @@
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-lg);
 		background: var(--bg-surface);
+		box-shadow: var(--shadow-card);
 	}
 
 	.metadata-row {

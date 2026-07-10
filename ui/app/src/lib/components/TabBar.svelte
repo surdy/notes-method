@@ -266,7 +266,7 @@
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-md);
 		background: var(--bg-elevated);
-		box-shadow: var(--shadow-soft);
+		box-shadow: var(--shadow-pop);
 	}
 
 	.tab-context-menu button {
