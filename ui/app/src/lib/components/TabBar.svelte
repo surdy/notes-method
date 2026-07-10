@@ -5,6 +5,7 @@
 
 	let dragIndex = $state<number | null>(null);
 	let dropIndex = $state<number | null>(null);
+	let contextMenu = $state<{ x: number; y: number; index: number } | null>(null);
 	let tabs = $derived(tabStore.tabs as Tab[]);
 	let notesByPath = $derived.by(
 		() => new Map(vaultStore.notes.map((note) => [note.path, note] as const))
@@ -13,6 +14,25 @@
 	function handleClose(event: MouseEvent, index: number) {
 		event.stopPropagation();
 		tabStore.closeTab(index);
+	}
+
+	function handleContextMenu(event: MouseEvent, index: number) {
+		event.preventDefault();
+		contextMenu = { x: event.clientX, y: event.clientY, index };
+	}
+
+	function closeFromMenu() {
+		if (contextMenu) {
+			tabStore.closeTab(contextMenu.index);
+		}
+		contextMenu = null;
+	}
+
+	function closeOthersFromMenu() {
+		if (contextMenu) {
+			tabStore.closeOtherTabs(contextMenu.index);
+		}
+		contextMenu = null;
 	}
 
 	function handleMousedown(event: MouseEvent, index: number) {
@@ -79,6 +99,7 @@
 					ondrop={(event) => handleDrop(event, index)}
 					ondragend={handleDragEnd}
 					onmousedown={(event) => handleMousedown(event, index)}
+					oncontextmenu={(event) => handleContextMenu(event, index)}
 				>
 					<span class="tab-title">
 						<span class="tab-icon">{note ? noteIcon(note) : '📄'}</span>
@@ -99,6 +120,23 @@
 			</div>
 		{/each}
 	</div>
+	{#if contextMenu}
+		<div
+			class="tab-context-menu"
+			role="menu"
+			tabindex="-1"
+			style={`left: ${contextMenu.x}px; top: ${contextMenu.y}px`}
+			onmouseleave={() => (contextMenu = null)}
+		>
+			<button type="button" role="menuitem" onclick={closeFromMenu}>Close</button>
+			<button
+				type="button"
+				role="menuitem"
+				onclick={closeOthersFromMenu}
+				disabled={tabs.length <= 1}>Close Others</button
+			>
+		</div>
+	{/if}
 {/if}
 
 <style>
@@ -218,5 +256,37 @@
 		background: var(--surface-translucent);
 		color: var(--text-default);
 		outline: none;
+	}
+
+	.tab-context-menu {
+		position: fixed;
+		z-index: 1000;
+		min-width: 160px;
+		padding: 4px;
+		border: 1px solid var(--border-default);
+		border-radius: 6px;
+		background: var(--bg-elevated);
+		box-shadow: var(--shadow-soft);
+	}
+
+	.tab-context-menu button {
+		display: block;
+		width: 100%;
+		padding: 6px 8px;
+		border: none;
+		border-radius: 4px;
+		background: transparent;
+		color: var(--text-default);
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.tab-context-menu button:hover:not(:disabled) {
+		background: var(--bg-hover);
+	}
+
+	.tab-context-menu button:disabled {
+		color: var(--text-muted);
+		cursor: default;
 	}
 </style>

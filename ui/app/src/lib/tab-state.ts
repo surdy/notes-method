@@ -74,6 +74,30 @@ export function closeTab(state: TabState, index: number): TabState {
 	};
 }
 
+export function closeOtherTabs(state: TabState, keepIndex: number): TabState {
+	if (keepIndex < 0 || keepIndex >= state.tabs.length) {
+		return state;
+	}
+
+	const keptTab = state.tabs[keepIndex];
+	const closedPaths = state.tabs
+		.filter((_, tabIndex) => tabIndex !== keepIndex)
+		.map((tab) => tab.path);
+
+	if (closedPaths.length === 0) {
+		return state;
+	}
+
+	const recentlyClosed = [...state.recentlyClosed, ...closedPaths].slice(-10);
+
+	return {
+		tabs: [keptTab],
+		activeTabIndex: 0,
+		selectedPath: keptTab.path,
+		recentlyClosed
+	};
+}
+
 export function reopenLastClosedTab(state: TabState, notes: NoteSummary[]): TabState {
 	const path = state.recentlyClosed.at(-1);
 	if (!path) {

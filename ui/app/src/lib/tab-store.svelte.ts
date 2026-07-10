@@ -3,6 +3,7 @@ import { displayTitleFor } from './display-title';
 import { recordView } from './recently-viewed';
 import {
 closeTab as closeTabState,
+closeOtherTabs as closeOtherTabsState,
 markTabDirty as markTabDirtyState,
 moveTab as moveTabState,
 openTab,
@@ -62,6 +63,11 @@ closeActiveTab() {
 if (this.activeTabIndex >= 0) {
 this.closeTab(this.activeTabIndex);
 }
+}
+
+closeOtherTabs(index: number) {
+this._applyTabState(closeOtherTabsState(this._tabState(), index));
+this._persistTabs();
 }
 
 reopenLastTab() {

@@ -46,6 +46,8 @@ export interface AppShellTabStore {
 	restoreTabs: () => void;
 	closeActiveTab: () => void;
 	reopenLastTab: () => void;
+	switchToTab: (index: number) => void;
+	tabs: { length: number };
 }
 
 export interface AppShellWindowTarget {
@@ -160,6 +162,15 @@ function buildHotkeys(
 		{ key: 's', meta: true, action: () => {} },
 		{ key: 'e', meta: true, action: () => void callbacks.onToggleView() },
 		{ key: 't', meta: true, shift: true, action: () => tabStore.reopenLastTab() },
+		{ key: '1', meta: true, action: () => tabStore.switchToTab(0) },
+		{ key: '2', meta: true, action: () => tabStore.switchToTab(1) },
+		{ key: '3', meta: true, action: () => tabStore.switchToTab(2) },
+		{ key: '4', meta: true, action: () => tabStore.switchToTab(3) },
+		{ key: '5', meta: true, action: () => tabStore.switchToTab(4) },
+		{ key: '6', meta: true, action: () => tabStore.switchToTab(5) },
+		{ key: '7', meta: true, action: () => tabStore.switchToTab(6) },
+		{ key: '8', meta: true, action: () => tabStore.switchToTab(7) },
+		{ key: '9', meta: true, action: () => tabStore.switchToTab(tabStore.tabs.length - 1) },
 		{ key: '\\', meta: true, action: callbacks.onToggleRightRail },
 		{ key: 'f', meta: true, shift: true, action: callbacks.onFocusSidebarFilter },
 		{ key: ',', meta: true, action: callbacks.onOpenSettings }

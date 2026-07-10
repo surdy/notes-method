@@ -39,7 +39,13 @@ function makeDeps(
 		connectSSE: vi.fn().mockReturnValue({ close: vi.fn() }),
 		listVaults: vi.fn().mockResolvedValue([]),
 		registerHotkeys: vi.fn().mockReturnValue(() => {}),
-		tabStore: { restoreTabs: vi.fn(), closeActiveTab: vi.fn(), reopenLastTab: vi.fn() },
+		tabStore: {
+			restoreTabs: vi.fn(),
+			closeActiveTab: vi.fn(),
+			reopenLastTab: vi.fn(),
+			switchToTab: vi.fn(),
+			tabs: { length: 0 }
+		},
 		targetWindow: {
 			addEventListener: vi.fn(),
 			removeEventListener: vi.fn()
