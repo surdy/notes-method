@@ -387,7 +387,7 @@ onClose={() => (activeMiddlePaneItem = null)}
 {#if tabStore.activeViewMode === 'reading'}
 <NoteViewer path={tabStore.selectedPath} />
 {:else}
-<NoteEditor bind:this={noteEditorRef} />
+<NoteEditor bind:this={noteEditorRef} onOpenQuickSwitcher={() => openPalette('files')} />
 {/if}
 </main>
 

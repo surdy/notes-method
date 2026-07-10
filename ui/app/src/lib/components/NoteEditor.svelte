@@ -42,6 +42,7 @@ import { createSqlBlockPlugin, refreshSqlBlockResults } from '$lib/editor/sql-bl
 import { headingHighlightOverride, notesmithTheme } from '$lib/editor/theme';
 import { displayTitleFor } from '$lib/display-title';
 import TitleHeader from '$lib/components/TitleHeader.svelte';
+import WorkspaceStart from '$lib/components/WorkspaceStart.svelte';
 import { headingStore } from '$lib/heading-store.svelte';
 import { shouldLoadSelectedNote } from '$lib/note-loading';
 import { isDashboardNote } from '$lib/right-rail';
@@ -59,6 +60,8 @@ cause: unknown;
 endpointHint: 'note-detail' | 'save-note' | 'toggle-task';
 onAction?: () => void;
 };
+
+let { onOpenQuickSwitcher }: { onOpenQuickSwitcher?: () => void } = $props();
 
 let editorContainer = $state<HTMLDivElement | undefined>();
 let contextMenu = $state<{ x: number; y: number } | null>(null);
@@ -630,9 +633,7 @@ function handleContextMenu(event: MouseEvent) {
 
 <div class="note-editor">
 {#if !tabStore.selectedPath}
-<div class="empty-state">
-<p>Select a note from the sidebar to edit</p>
-</div>
+<WorkspaceStart {onOpenQuickSwitcher} />
 {:else if loading}
 <div class="loading">Loading...</div>
 {:else if error}
@@ -693,17 +694,12 @@ margin-top: 6px;
 margin-bottom: 10px;
 }
 
-.empty-state,
 .loading {
 flex: 1;
 display: flex;
 align-items: center;
 justify-content: center;
 padding: 24px 32px;
-}
-
-.empty-state {
-color: var(--text-muted);
 }
 
 .conflict-banner {
