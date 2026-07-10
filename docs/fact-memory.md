@@ -7,8 +7,9 @@ notes, links, search, or ADRs.
 The architecture is defined in
 [ADR 0021](adr/0021-fact-memory-over-markdown-notes.md). Specialized memory MCP
 tools are tracked by [#203](https://github.com/surdy/notes-method/issues/203).
-Until those tools ship, the workflow uses ordinary templates, note operations,
-SQL, and hybrid vault search.
+The first shipped slice is read-only `memory_recall`; write/update/supersede/
+delete flows still use ordinary note operations, templates, SQL, and hybrid
+vault search.
 
 ## The central question
 
@@ -115,9 +116,10 @@ content in the fact.
 
 When preferences, identity, environment, or prior choices may matter:
 
-1. Search active facts using terms from the task.
-2. Apply scope: `user` plus any matching `vault:<name>`.
-3. Open the returned fact rather than trusting a search snippet.
+1. Start with `memory_recall(query, scope?, limit?)`.
+2. When you know the active workspace scope, pass it so recall includes
+   `scope: user` plus matching `scope: vault:<name>` facts.
+3. Open the returned fact rather than trusting only the snippet.
 4. Follow `source` when explanation or evidence is required.
 5. Search the broader wiki when fact recall is insufficient.
 
@@ -175,13 +177,14 @@ The personal `memory` vault currently provides:
 - a `facts/` segment and `fact` template;
 - the routing and lifecycle rules in `.notesmith/memory-index.md`;
 - ordinary MCP note, template, SQL, lexical, and hybrid-search tools;
+- read-only MCP `memory_recall` over active non-example fact notes;
 - a schema example tagged `example`;
 - real facts stored as normal Markdown notes.
 
 Start a **New Chat** after changing `.notesmith/skill.md` or the memory index,
 because the skill is injected when the ACP session starts.
 
-An agent can list active facts with:
+An agent can still list active facts with SQL when it needs custom reporting:
 
 ```sql
 SELECT n.path, n.title, d.value AS claim, s.value AS scope
@@ -205,7 +208,8 @@ the `example` tag.
 
 The following parts of ADR 0021 are not implemented yet:
 
-- no `memory_recall` or specialized fact CRUD tools;
+- no specialized fact mutation/list tools (`memory_save`, `memory_list`,
+  `memory_update`, `memory_supersede`, `memory_delete`);
 - no automatic similar-fact/conflict response before writes;
 - no companion memory vault automatically attached to other vault sessions;
 - no automatic scope filtering by the active vault;

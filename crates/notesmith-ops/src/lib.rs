@@ -8,7 +8,7 @@
 //!
 //! See `docs/adr/0010-agent-access-architecture.md`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -27,9 +27,14 @@ use serde_json::{Map, Value, json};
 use serde_yaml::{Mapping, Value as YamlValue};
 
 pub mod hybrid;
+pub mod memory;
 pub mod related;
 pub mod time_query;
 pub use hybrid::{DEFAULT_RRF_K, HybridHit, HybridSearch, rrf_fuse};
+pub use memory::{
+    DEFAULT_MEMORY_RECALL_LIMIT, FactNoteMeta, MAX_MEMORY_RECALL_LIMIT, MemoryRecallHit,
+    MemoryRecallResponse,
+};
 
 /// Result alias for vault operations.
 pub type Result<T> = anyhow::Result<T>;
@@ -57,6 +62,14 @@ pub trait Ops: Send + Sync {
     /// vector similarity via RRF, returning path + snippet hits for grounding.
     /// Degrades to lexical-only until embeddings are available.
     fn vault_search(&self, query: &str, limit: Option<usize>) -> Result<Value>;
+    /// Recall active fact-memory notes matching a query, optionally scoped to
+    /// `user` plus an exact companion scope such as `vault:<name>`.
+    fn memory_recall(
+        &self,
+        query: &str,
+        scope: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Value>;
     /// Resolve a natural-language time expression (e.g. "last week", "in May")
     /// into a date range and return note references whose chosen date field
     /// (or, for periodic notes, whose period) falls within it. An optional
@@ -426,6 +439,126 @@ impl LocalOps {
         self.hybrid.get()
     }
 
+    fn active_fact_candidates(&self, scope: Option<&str>) -> Result<HashMap<String, FactNoteMeta>> {
+        let conn = self.cache.connection();
+        let mut stmt = conn.prepare(
+            "SELECT n.path,
+                    COALESCE(n.title, ''),
+                    COALESCE(NULLIF(TRIM(d.value), ''), NULLIF(TRIM(n.body_excerpt), ''), ''),
+                    NULLIF(TRIM(sc.value), ''),
+                    NULLIF(TRIM(cert.value), ''),
+                    NULLIF(TRIM(src.value), '')
+             FROM notes n
+             JOIN fields ty
+               ON ty.vault_name = n.vault_name
+              AND ty.note_path = n.path
+              AND ty.key = 'type'
+              AND ty.value = 'fact'
+             LEFT JOIN fields st
+               ON st.vault_name = n.vault_name
+              AND st.note_path = n.path
+              AND st.key = 'status'
+             LEFT JOIN fields d
+               ON d.vault_name = n.vault_name
+              AND d.note_path = n.path
+              AND d.key = 'description'
+             LEFT JOIN fields sc
+               ON sc.vault_name = n.vault_name
+              AND sc.note_path = n.path
+              AND sc.key = 'scope'
+             LEFT JOIN fields cert
+               ON cert.vault_name = n.vault_name
+              AND cert.note_path = n.path
+              AND cert.key = 'certainty'
+             LEFT JOIN fields src
+               ON src.vault_name = n.vault_name
+              AND src.note_path = n.path
+              AND src.key = 'source'
+             WHERE n.vault_name = ?1
+               AND COALESCE(st.value, 'active') = 'active'
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM tags t
+                   WHERE t.vault_name = n.vault_name
+                     AND t.note_path = n.path
+                     AND lower(t.tag) = 'example'
+               )
+             ORDER BY n.path",
+        )?;
+        let rows = stmt
+            .query_map([&self.vault_name], |row| {
+                Ok(FactNoteMeta {
+                    path: row.get::<_, String>(0)?,
+                    title: row.get::<_, String>(1)?,
+                    claim: row.get::<_, String>(2)?,
+                    scope: row.get::<_, Option<String>>(3)?,
+                    certainty: row.get::<_, Option<String>>(4)?,
+                    source: row.get::<_, Option<String>>(5)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(stmt);
+
+        let mut facts = HashMap::new();
+        for mut fact in rows {
+            if is_example_fact_path(&fact.path) {
+                continue;
+            }
+            if let Some(scope_filter) = scope {
+                let Some(fact_scope) = fact.scope.as_deref() else {
+                    continue;
+                };
+                if fact_scope != "user" && fact_scope != scope_filter {
+                    continue;
+                }
+            }
+            if fact.title.trim().is_empty() {
+                fact.title = stem_of(&fact.path);
+            }
+            if fact.claim.trim().is_empty() {
+                fact.claim = fact.title.clone();
+            }
+            facts.insert(fact.path.clone(), fact);
+        }
+
+        Ok(facts)
+    }
+
+    fn search_memory_facts(
+        &self,
+        query: &str,
+        limit: usize,
+        allowed_paths: &HashSet<String>,
+    ) -> Result<(bool, Vec<HybridHit>)> {
+        if allowed_paths.is_empty() {
+            return Ok((self.hybrid_search().is_some(), Vec::new()));
+        }
+
+        if let Some(hybrid) = self.hybrid_search() {
+            let hits = hybrid.search_filtered(query, limit, Some(allowed_paths))?;
+            return Ok((true, hits));
+        }
+
+        let lexical = self
+            .search_index
+            .search_in_paths(query, limit, allowed_paths)?;
+        let hits = lexical
+            .into_iter()
+            .enumerate()
+            .map(|(idx, r)| HybridHit {
+                path: r.path,
+                title: r.title,
+                snippet: r.snippet,
+                score: 1.0 / (DEFAULT_RRF_K as f32 + (idx + 1) as f32),
+                lexical_rank: Some(idx + 1),
+                semantic_rank: None,
+                char_start: None,
+                char_end: None,
+            })
+            .collect();
+        Ok((false, hits))
+    }
+
     fn refresh_indexes(&self, path: &VaultPath) -> Result<()> {
         let note = self.load_note(path)?;
         self.cache.update_note_with_periodic(
@@ -531,6 +664,62 @@ impl Ops for LocalOps {
             })
             .collect();
         Ok(serde_json::to_value(hits)?)
+    }
+
+    fn memory_recall(
+        &self,
+        query: &str,
+        scope: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Value> {
+        let query = query.trim();
+        if query.is_empty() {
+            anyhow::bail!("empty memory recall query");
+        }
+        let limit = validate_limit(
+            limit,
+            DEFAULT_MEMORY_RECALL_LIMIT,
+            MAX_MEMORY_RECALL_LIMIT,
+            "memory_recall",
+        )?;
+        let facts = self.active_fact_candidates(scope)?;
+        let allowed_paths = facts.keys().cloned().collect::<HashSet<_>>();
+        let (embeddings_used, hits) = self.search_memory_facts(query, limit, &allowed_paths)?;
+        let facts = hits
+            .into_iter()
+            .enumerate()
+            .filter_map(|(idx, hit)| {
+                let meta = facts.get(&hit.path)?;
+                Some(MemoryRecallHit {
+                    path: hit.path,
+                    title: if meta.title.is_empty() {
+                        hit.title
+                    } else {
+                        meta.title.clone()
+                    },
+                    claim: meta.claim.clone(),
+                    scope: meta.scope.clone(),
+                    certainty: meta.certainty.clone(),
+                    source: meta.source.clone(),
+                    snippet: hit.snippet,
+                    score: hit.score,
+                    rank: idx + 1,
+                    lexical_rank: hit.lexical_rank,
+                    semantic_rank: hit.semantic_rank,
+                    char_start: hit.char_start,
+                    char_end: hit.char_end,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Ok(serde_json::to_value(MemoryRecallResponse {
+            query: query.to_string(),
+            scope: scope.map(ToOwned::to_owned),
+            limit,
+            match_count: facts.len(),
+            embeddings_used,
+            facts,
+        })?)
     }
 
     fn query_sql(&self, sql: &str) -> Result<Value> {
@@ -1046,6 +1235,15 @@ impl<O: Ops> Ops for ReadOnlyOps<O> {
         self.inner.vault_search(query, limit)
     }
 
+    fn memory_recall(
+        &self,
+        query: &str,
+        scope: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Value> {
+        self.inner.memory_recall(query, scope, limit)
+    }
+
     fn time_query(
         &self,
         when: &str,
@@ -1289,6 +1487,19 @@ fn escape_sql_string(input: &str) -> String {
     input.replace('\'', "''")
 }
 
+fn validate_limit(
+    limit: Option<usize>,
+    default: usize,
+    max: usize,
+    operation: &str,
+) -> Result<usize> {
+    match limit.unwrap_or(default) {
+        0 => anyhow::bail!("{operation} limit must be at least 1"),
+        value if value > max => anyhow::bail!("{operation} limit must be at most {max}"),
+        value => Ok(value),
+    }
+}
+
 /// The filename stem of a note path: drop the directory and a trailing `.md`
 /// (case-insensitive). Wikilink targets are stored as stems, so link-graph
 /// comparisons operate on stems rather than full paths.
@@ -1299,6 +1510,13 @@ fn stem_of(path: &str) -> String {
     } else {
         file.to_string()
     }
+}
+
+fn is_example_fact_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/").to_ascii_lowercase();
+    normalized.starts_with("examples/")
+        || normalized.starts_with("facts/examples/")
+        || normalized.contains("/examples/")
 }
 
 /// Which indexed date a [`Ops::time_query`] filters notes on.
@@ -1442,6 +1660,229 @@ mod tests {
         let results = results.as_array().unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["path"], "Inbox/Launch Plan.md");
+    }
+
+    #[test]
+    fn memory_recall_filters_to_active_non_example_facts() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/Keep.md",
+            "---\n\
+             type: fact\n\
+             description: Coffee helps focused debugging.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             Coffee helps focused debugging.\n",
+        );
+        write_note(
+            temp_dir.path(),
+            "facts/Missing Status.md",
+            "---\n\
+             type: fact\n\
+             description: Coffee is still allowed without status.\n\
+             scope: vault:test-vault\n\
+             certainty: observed\n\
+             source: Brew log\n\
+             tags: [fact]\n\
+             ---\n\
+             Coffee is still allowed without status.\n",
+        );
+        write_note(
+            temp_dir.path(),
+            "facts/Superseded.md",
+            "---\n\
+             type: fact\n\
+             description: Old coffee preference.\n\
+             scope: user\n\
+             status: superseded\n\
+             tags: [fact]\n\
+             ---\n\
+             Old coffee preference.\n",
+        );
+        write_note(
+            temp_dir.path(),
+            "facts/Retracted.md",
+            "---\n\
+             type: fact\n\
+             description: Wrong coffee claim.\n\
+             scope: user\n\
+             status: retracted\n\
+             tags: [fact]\n\
+             ---\n\
+             Wrong coffee claim.\n",
+        );
+        write_note(
+            temp_dir.path(),
+            "facts/Example Tagged.md",
+            "---\n\
+             type: fact\n\
+             description: Example coffee fact.\n\
+             scope: user\n\
+             status: active\n\
+             tags: [fact, example]\n\
+             ---\n\
+             Example coffee fact.\n",
+        );
+        write_note(
+            temp_dir.path(),
+            "facts/examples/Seed.md",
+            "---\n\
+             type: fact\n\
+             description: Seed coffee fact.\n\
+             scope: user\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             Seed coffee fact.\n",
+        );
+        write_note(
+            temp_dir.path(),
+            "Inbox/Not A Fact.md",
+            "---\n\
+             type: note\n\
+             ---\n\
+             Coffee in an ordinary note.\n",
+        );
+        let ops = build_test_ops(temp_dir.path());
+
+        let result = ops.memory_recall("coffee", None, Some(10)).unwrap();
+        let facts = result["facts"].as_array().unwrap();
+        let paths: Vec<&str> = facts
+            .iter()
+            .map(|fact| fact["path"].as_str().unwrap())
+            .collect();
+        assert!(paths.contains(&"facts/Keep.md"));
+        assert!(paths.contains(&"facts/Missing Status.md"));
+        assert!(!paths.contains(&"facts/Superseded.md"));
+        assert!(!paths.contains(&"facts/Retracted.md"));
+        assert!(!paths.contains(&"facts/Example Tagged.md"));
+        assert!(!paths.contains(&"facts/examples/Seed.md"));
+        assert!(!paths.contains(&"Inbox/Not A Fact.md"));
+    }
+
+    #[test]
+    fn memory_recall_scope_filter_includes_user_and_exact_scope_only() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/User.md",
+            "---\n\
+             type: fact\n\
+             description: Coffee is a user preference.\n\
+             scope: user\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             Coffee is a user preference.\n",
+        );
+        write_note(
+            temp_dir.path(),
+            "facts/This Vault.md",
+            "---\n\
+             type: fact\n\
+             description: Coffee belongs to this vault.\n\
+             scope: vault:test-vault\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             Coffee belongs to this vault.\n",
+        );
+        write_note(
+            temp_dir.path(),
+            "facts/Other Vault.md",
+            "---\n\
+             type: fact\n\
+             description: Coffee belongs elsewhere.\n\
+             scope: vault:other\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             Coffee belongs elsewhere.\n",
+        );
+        let ops = build_test_ops(temp_dir.path());
+
+        let scoped = ops
+            .memory_recall("coffee", Some("vault:test-vault"), Some(10))
+            .unwrap();
+        let scoped_paths: Vec<&str> = scoped["facts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|fact| fact["path"].as_str().unwrap())
+            .collect();
+        assert!(scoped_paths.contains(&"facts/User.md"));
+        assert!(scoped_paths.contains(&"facts/This Vault.md"));
+        assert!(!scoped_paths.contains(&"facts/Other Vault.md"));
+
+        let unscoped = ops.memory_recall("coffee", None, Some(10)).unwrap();
+        let unscoped_paths: Vec<&str> = unscoped["facts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|fact| fact["path"].as_str().unwrap())
+            .collect();
+        assert!(unscoped_paths.contains(&"facts/User.md"));
+        assert!(unscoped_paths.contains(&"facts/This Vault.md"));
+        assert!(unscoped_paths.contains(&"facts/Other Vault.md"));
+    }
+
+    #[test]
+    fn memory_recall_lexical_fallback_returns_stable_fields() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/Launch Preference.md",
+            "---\n\
+             type: fact\n\
+             title: Launch Preference\n\
+             description: Prefer coffee before launch reviews.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             Prefer coffee before launch reviews.\n",
+        );
+        let ops = build_test_ops(temp_dir.path());
+
+        let result = ops.memory_recall("launch", None, Some(5)).unwrap();
+        assert_eq!(result["embeddings_used"], false);
+        assert_eq!(result["match_count"], 1);
+        let fact = &result["facts"].as_array().unwrap()[0];
+        assert_eq!(fact["path"], "facts/Launch Preference.md");
+        assert_eq!(fact["title"], "Launch Preference");
+        assert_eq!(fact["claim"], "Prefer coffee before launch reviews.");
+        assert_eq!(fact["scope"], "user");
+        assert_eq!(fact["certainty"], "explicit");
+        assert_eq!(fact["source"], "User statement");
+        assert!(fact["snippet"].is_string());
+        assert!(fact["score"].is_number());
+        assert_eq!(fact["rank"], 1);
+        assert_eq!(fact["lexical_rank"], 1);
+        assert!(fact["semantic_rank"].is_null());
+        assert!(fact["char_start"].is_null());
+        assert!(fact["char_end"].is_null());
+    }
+
+    #[test]
+    fn memory_recall_rejects_blank_queries_and_invalid_limits() {
+        let temp_dir = TempDir::new().unwrap();
+        let ops = build_test_ops(temp_dir.path());
+
+        let blank = ops.memory_recall("   ", None, None).unwrap_err();
+        assert!(blank.to_string().contains("empty memory recall query"));
+
+        let zero = ops.memory_recall("coffee", None, Some(0)).unwrap_err();
+        assert!(zero.to_string().contains("limit"));
+
+        let too_large = ops.memory_recall("coffee", None, Some(101)).unwrap_err();
+        assert!(too_large.to_string().contains("limit"));
     }
 
     #[test]
@@ -1671,6 +2112,7 @@ mod tests {
         assert!(fetched["content"].as_str().unwrap().contains("Visible"));
         assert!(ops.list_notes(None, None, None).is_ok());
         assert!(ops.search_notes("Visible", None).is_ok());
+        assert!(ops.memory_recall("Visible", None, Some(5)).is_ok());
     }
 
     #[test]
@@ -1828,6 +2270,57 @@ mod tests {
         );
 
         // SAFETY: paired with the set_var above.
+        unsafe {
+            std::env::remove_var("XDG_DATA_HOME");
+        }
+    }
+
+    #[test]
+    fn memory_recall_uses_hybrid_search_when_embeddings_are_available() {
+        let vault_name = "ops-memory-recall-hybrid";
+        let data_root = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", data_root.path());
+        }
+
+        let vault = TempDir::new().unwrap();
+        write_note(
+            vault.path(),
+            "facts/Coffee.md",
+            "---\n\
+             type: fact\n\
+             description: Prefer coffee before launch reviews.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             Prefer coffee before launch reviews.\n",
+        );
+
+        let db_path = notesmith_embed::embeddings_db_path(vault_name).unwrap();
+        std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+        {
+            let store = notesmith_embed::EmbeddingStore::open(&db_path).unwrap();
+            let embedder = notesmith_embed::HashEmbedder::default();
+            let worker = notesmith_embed::EmbedWorker::new(
+                vault_name.to_string(),
+                vault.path().to_path_buf(),
+                &store,
+                &embedder,
+            );
+            worker.run().unwrap();
+        }
+
+        let cache_enabled = TempDir::new().unwrap();
+        let ops = build_gated_ops(vault.path(), cache_enabled.path(), vault_name, true);
+        let result = ops.memory_recall("coffee", None, Some(5)).unwrap();
+        assert_eq!(result["embeddings_used"], true);
+        let fact = &result["facts"].as_array().unwrap()[0];
+        assert_eq!(fact["path"], "facts/Coffee.md");
+        assert!(fact["semantic_rank"].as_u64().is_some());
+
         unsafe {
             std::env::remove_var("XDG_DATA_HOME");
         }

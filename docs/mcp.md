@@ -40,6 +40,7 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `archive_note` | `path` |
 | `search_notes` | `query`, `limit?` |
 | `vault_search` | `query`, `limit?` |
+| `memory_recall` | `query`, `scope?`, `limit?` |
 | `query_sql` | `sql` |
 | `time_query` | `when`, `date_field?` (`mtime`\|`updated`\|`created`), `query?`, `limit?` |
 | `list_notes` | `type?`, `customer?`, `archived?` |
@@ -73,6 +74,31 @@ vault's `embeddings.db`, `vault_search` transparently degrades to lexical-only.
 See [Semantic & Hybrid Search](ai-semantic-search.md) for the user-facing guide
 and [Embeddings: Operating & Monitoring](embeddings-operations.md) for running
 the worker, enabling local vectors, and monitoring.
+
+### `memory_recall`
+
+Recalls **active fact notes** (`type: fact`) using the same retrieval stack as
+`vault_search`: Tantivy lexical search plus embedding search fused with RRF,
+with clean lexical-only fallback when embeddings are unavailable.
+
+- `query` — required search text.
+- `scope?` — when supplied, returns facts with `scope: user` plus facts whose
+  `scope` exactly matches the supplied value (for example `vault:notes-method`).
+  When omitted, recall searches active facts across all scopes in the current
+  vault.
+- `limit?` — maximum facts to return (default 20, maximum 100).
+
+Recall excludes:
+
+- non-fact notes;
+- facts with `status: superseded` or `status: retracted`;
+- facts tagged `example`;
+- defensive example-path matches such as `facts/examples/...`.
+
+The response is stable across lexical-only and hybrid modes and includes
+grounding metadata: `path`, `title`, `claim`, `scope`, `certainty`, `source`,
+`snippet`, `score`, overall `rank`, `lexical_rank`, `semantic_rank`, and
+`char_start` / `char_end` citation offsets when available.
 
 ### `time_query`
 

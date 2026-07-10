@@ -29,7 +29,8 @@ the backend now ships (P2 partially delivered — see Status).
   desktop Settings → Semantic Search toggle (#255), an embed-capable desktop
   sidecar (#256 Part A), and the `*-embed` server image (#257). Since then,
   `time_query` (#200) and the Relevant Notes panel (#201) have also shipped.
-- **Backlog:** remaining P2 (`vault_stats` #202), all P3,
+- **Backlog:** remaining P2 (`vault_stats` #202), the remaining P3 mutation /
+  companion-vault / multimodal items,
   plus P4 Projects + Terminal.
 - **Why backlog:** P3's headline (voice) needs Whisper — bundled-model cost we
   are deferring. `time_query` (#200) shipped as embedding-independent;
@@ -68,11 +69,11 @@ daemon-side `web_fetch` tool (#207, backlog) lands.
 | #201 | Relevant Notes panel (similarity + graph-link scoring) | ✅ shipped (HTTP `GET /related/{path}`; embedding similarity blended with link-graph proximity, graph-only fallback; RightRail Links tab) |
 | #202 | `vault_stats` / structure MCP tool | **embedding-independent** |
 
-## Phase 3 — Fact memory & multimodal (#187, PARTIALLY DOGFOODING)
+## Phase 3 — Fact memory & multimodal (#187, PARTIALLY SHIPPED)
 
 | Issue | Item |
 |---|---|
-| #203 | Fact memory tools (save / recall / list / update / supersede / delete) over ordinary Markdown fact notes — storage/routing model accepted in ADR 0021 and dogfooding in the personal memory vault; product tools + companion-vault attachment remain backlog |
+| #203 | Fact memory over ordinary Markdown fact notes — ✅ `memory_recall(query, scope?, limit?)` shipped over active non-example fact notes using the existing hybrid retrieval stack; save / list / update / supersede / delete tools and companion-vault attachment remain backlog |
 | #204 | Voice / meeting transcription → structured note (needs Whisper) |
 | #205 | PDF / EPUB ingestion as context |
 | #206 | Image / vision input |

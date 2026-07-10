@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::Context;
@@ -7,7 +8,7 @@ use tantivy::{
     Index, IndexReader, ReloadPolicy, Term,
     collector::TopDocs,
     doc,
-    query::QueryParser,
+    query::{BooleanQuery, Occur, Query, QueryParser, TermSetQuery},
     schema::{Field, STORED, STRING, Schema, SchemaBuilder, TEXT, TantivyDocument, Value},
     snippet::SnippetGenerator,
 };
@@ -99,41 +100,30 @@ impl SearchIndex {
             return Ok(Vec::new());
         }
 
-        let searcher = self.reader.searcher();
-        let mut parser =
-            QueryParser::for_index(&self.index, vec![self.title_field, self.body_field]);
-        parser.set_field_boost(self.title_field, TITLE_BOOST);
-        let parsed_query = parser.parse_query(query)?;
-        let top_docs = searcher.search(&parsed_query, &TopDocs::with_limit(limit))?;
+        let parsed_query = self.parse_query(query)?;
+        self.search_with_query(&*parsed_query, limit)
+    }
 
-        let mut body_snippets =
-            SnippetGenerator::create(&searcher, &*parsed_query, self.body_field)?;
-        body_snippets.set_max_num_chars(160);
-        let mut title_snippets =
-            SnippetGenerator::create(&searcher, &*parsed_query, self.title_field)?;
-        title_snippets.set_max_num_chars(160);
+    pub fn search_in_paths(
+        &self,
+        query: &str,
+        limit: usize,
+        allowed_paths: &HashSet<String>,
+    ) -> anyhow::Result<Vec<SearchResult>> {
+        if limit == 0 || query.trim().is_empty() || allowed_paths.is_empty() {
+            return Ok(Vec::new());
+        }
 
-        top_docs
-            .into_iter()
-            .map(|(score, doc_address)| {
-                let document: TantivyDocument = searcher.doc(doc_address)?;
-                let snippet = snippet_html(&body_snippets, &document);
-                let snippet = if snippet.is_empty() {
-                    snippet_html(&title_snippets, &document)
-                } else {
-                    snippet
-                };
-
-                Ok(SearchResult {
-                    vault_name: stored_text(&document, self.vault_name_field),
-                    path: stored_text(&document, self.path_field),
-                    title: stored_text(&document, self.title_field),
-                    note_type: stored_text(&document, self.note_type_field),
-                    score,
-                    snippet,
-                })
-            })
-            .collect()
+        let parsed_query = self.parse_query(query)?;
+        let path_terms = allowed_paths
+            .iter()
+            .map(|path| Term::from_field_text(self.path_field, path))
+            .collect::<Vec<_>>();
+        let filtered_query = BooleanQuery::new(vec![
+            (Occur::Must, parsed_query),
+            (Occur::Must, Box::new(TermSetQuery::new(path_terms))),
+        ]);
+        self.search_with_query(&filtered_query, limit)
     }
 
     fn from_index(index: Index, schema: Schema) -> anyhow::Result<Self> {
@@ -162,6 +152,49 @@ impl SearchIndex {
         self.index
             .writer(INDEX_WRITER_MEMORY_BUDGET_BYTES)
             .map_err(anyhow::Error::from)
+    }
+
+    fn parse_query(&self, query: &str) -> anyhow::Result<Box<dyn Query>> {
+        let mut parser =
+            QueryParser::for_index(&self.index, vec![self.title_field, self.body_field]);
+        parser.set_field_boost(self.title_field, TITLE_BOOST);
+        parser.parse_query(query).map_err(anyhow::Error::from)
+    }
+
+    fn search_with_query(
+        &self,
+        query: &dyn Query,
+        limit: usize,
+    ) -> anyhow::Result<Vec<SearchResult>> {
+        let searcher = self.reader.searcher();
+        let top_docs = searcher.search(query, &TopDocs::with_limit(limit))?;
+
+        let mut body_snippets = SnippetGenerator::create(&searcher, query, self.body_field)?;
+        body_snippets.set_max_num_chars(160);
+        let mut title_snippets = SnippetGenerator::create(&searcher, query, self.title_field)?;
+        title_snippets.set_max_num_chars(160);
+
+        top_docs
+            .into_iter()
+            .map(|(score, doc_address)| {
+                let document: TantivyDocument = searcher.doc(doc_address)?;
+                let snippet = snippet_html(&body_snippets, &document);
+                let snippet = if snippet.is_empty() {
+                    snippet_html(&title_snippets, &document)
+                } else {
+                    snippet
+                };
+
+                Ok(SearchResult {
+                    vault_name: stored_text(&document, self.vault_name_field),
+                    path: stored_text(&document, self.path_field),
+                    title: stored_text(&document, self.title_field),
+                    note_type: stored_text(&document, self.note_type_field),
+                    score,
+                    snippet,
+                })
+            })
+            .collect()
     }
 
     fn document_for(&self, vault_name: &str, note: &Note) -> TantivyDocument {

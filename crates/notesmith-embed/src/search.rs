@@ -142,6 +142,17 @@ impl EmbeddingSearch {
         k: usize,
         filter: &MetaFilter,
     ) -> Result<Vec<ScoredChunk>, EmbeddingSearchError> {
+        let allowed_paths = self.resolve_allowed_paths(filter)?;
+        self.search_with_allowed_paths(query, k, allowed_paths)
+    }
+
+    /// Semantic search restricted to an explicit set of note paths.
+    pub fn search_with_allowed_paths(
+        &self,
+        query: &str,
+        k: usize,
+        allowed_paths: Option<HashSet<String>>,
+    ) -> Result<Vec<ScoredChunk>, EmbeddingSearchError> {
         if query.trim().is_empty() || k == 0 {
             return Ok(Vec::new());
         }
@@ -160,7 +171,6 @@ impl EmbeddingSearch {
             });
         }
 
-        let allowed_paths = self.resolve_allowed_paths(filter)?;
         let filtered = allowed_paths.is_some();
         let n_vectors = self
             .ranker

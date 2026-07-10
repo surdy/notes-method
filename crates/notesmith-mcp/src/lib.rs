@@ -62,6 +62,13 @@ struct SearchNotesParams {
 }
 
 #[derive(Debug, Deserialize)]
+struct MemoryRecallParams {
+    query: String,
+    scope: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
 struct QuerySqlParams {
     sql: String,
 }
@@ -239,6 +246,26 @@ impl NotesmithMcp {
                     "type": "object",
                     "properties": {
                         "query": {"type": "string"},
+                        "limit": {"type": "integer", "minimum": 1}
+                    },
+                    "required": ["query"],
+                    "additionalProperties": false
+                }),
+            ),
+            tool_definition(
+                "memory_recall",
+                scoped(
+                    "Recall active fact-memory notes using the existing hybrid \
+                     lexical + semantic retrieval stack, filtered to durable \
+                     non-example `type: fact` notes. When `scope` is provided, \
+                     it includes `scope: user` plus facts whose scope exactly \
+                     matches the supplied value",
+                ),
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "scope": {"type": "string"},
                         "limit": {"type": "integer", "minimum": 1}
                     },
                     "required": ["query"],
@@ -475,6 +502,12 @@ impl ServerHandler for NotesmithMcp {
                 .handle_tool_call::<SearchNotesParams, _>(request.arguments, |params| {
                     self.ops.vault_search(&params.query, params.limit)
                 }),
+            "memory_recall" => {
+                self.handle_tool_call::<MemoryRecallParams, _>(request.arguments, |params| {
+                    self.ops
+                        .memory_recall(&params.query, params.scope.as_deref(), params.limit)
+                })
+            }
             "query_sql" => self
                 .handle_tool_call::<QuerySqlParams, _>(request.arguments, |params| {
                     self.ops.query_sql(&params.sql)
@@ -739,6 +772,33 @@ mod tests {
     }
 
     #[test]
+    fn test_memory_recall_lexical_fallback() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/Coffee.md",
+            "---\n\
+             type: fact\n\
+             description: Prefer coffee before launch reviews.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             Prefer coffee before launch reviews.\n",
+        );
+        let mcp = build_test_mcp(temp_dir.path());
+
+        let result = mcp.ops().memory_recall("launch", None, Some(10)).unwrap();
+        assert_eq!(result["match_count"], 1);
+        assert_eq!(result["embeddings_used"], false);
+        let fact = &result["facts"].as_array().unwrap()[0];
+        assert_eq!(fact["path"], "facts/Coffee.md");
+        assert_eq!(fact["claim"], "Prefer coffee before launch reviews.");
+    }
+
+    #[test]
     fn ensure_structured_object_wraps_non_objects() {
         // MCP requires structuredContent to be a JSON object; arrays/scalars
         // are wrapped so strict clients (e.g. Copilot) don't reject the result.
@@ -840,7 +900,8 @@ mod tests {
         let mcp = build_test_mcp(temp_dir.path());
 
         let tools = mcp.registered_tools();
-        assert_eq!(tools.len(), 15);
+        assert_eq!(tools.len(), 16);
+        assert!(tools.iter().any(|t| t.name == "memory_recall"));
         assert!(tools.iter().any(|t| t.name == "vault_search"));
         assert!(tools.iter().any(|t| t.name == "time_query"));
     }

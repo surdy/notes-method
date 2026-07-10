@@ -11,11 +11,11 @@
 //! to one entry per note and enriching semantic-only notes with a snippet read
 //! from the chunk span on disk.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use notesmith_embed::{EmbeddingSearch, MetaFilter, ScoredChunk};
+use notesmith_embed::{EmbeddingSearch, ScoredChunk};
 use notesmith_index::{SearchIndex, SearchResult};
 use serde::Serialize;
 
@@ -144,11 +144,29 @@ impl HybridSearch {
     /// Run both rankers and fuse. `limit` bounds the final result count; each
     /// underlying ranker is queried a little deeper so fusion has candidates.
     pub fn search(&self, query: &str, limit: usize) -> anyhow::Result<Vec<HybridHit>> {
+        self.search_filtered(query, limit, None)
+    }
+
+    /// Run both rankers and fuse, optionally restricting results to an
+    /// explicit set of allowed note paths.
+    pub fn search_filtered(
+        &self,
+        query: &str,
+        limit: usize,
+        allowed_paths: Option<&HashSet<String>>,
+    ) -> anyhow::Result<Vec<HybridHit>> {
+        if matches!(allowed_paths, Some(paths) if paths.is_empty()) {
+            return Ok(Vec::new());
+        }
         let depth = (limit * 4).max(20);
-        let lexical = self.search_index.search(query, depth)?;
+        let lexical = if let Some(paths) = allowed_paths {
+            self.search_index.search_in_paths(query, depth, paths)?
+        } else {
+            self.search_index.search(query, depth)?
+        };
         let semantic = self
             .embedding
-            .search(query, depth, &MetaFilter::default())
+            .search_with_allowed_paths(query, depth, allowed_paths.cloned())
             .map_err(|e| anyhow::anyhow!("semantic search failed: {e}"))?;
 
         let mut hits = rrf_fuse(&lexical, &semantic, self.k, limit);
