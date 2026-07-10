@@ -156,6 +156,19 @@ export function toggleViewMode(state: TabState): TabState {
 	};
 }
 
+export function setViewMode(state: TabState, mode: ViewMode): TabState {
+	if (state.activeTabIndex < 0 || state.activeTabIndex >= state.tabs.length) {
+		return state;
+	}
+
+	return {
+		...state,
+		tabs: state.tabs.map((tab, index) =>
+			index === state.activeTabIndex ? { ...tab, viewMode: mode } : tab
+		)
+	};
+}
+
 function nextViewMode(current: ViewMode): ViewMode {
 	switch (current) {
 		case 'source':

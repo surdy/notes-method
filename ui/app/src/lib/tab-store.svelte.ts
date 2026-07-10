@@ -9,6 +9,7 @@ openTab,
 reopenLastClosedTab,
 restoreTabState,
 serializeTabState,
+setViewMode as setViewModeState,
 switchToTab as switchToTabState,
 toggleViewMode as toggleViewModeState,
 type Tab,
@@ -84,6 +85,11 @@ this._persistTabs();
 
 toggleViewMode() {
 this._applyTabState(toggleViewModeState(this._tabState()));
+this._persistTabs();
+}
+
+setViewMode(mode: ViewMode) {
+this._applyTabState(setViewModeState(this._tabState(), mode));
 this._persistTabs();
 }
 

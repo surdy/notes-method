@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { tabStore } from '$lib/tab-store.svelte';
+	import type { ViewMode } from '$lib/tab-state';
 
 	let activeTab = $derived(tabStore.activeTab);
 	let viewMode = $derived(tabStore.activeViewMode);
@@ -8,8 +9,8 @@
 		return path.replace(/\.md$/, '').split('/');
 	}
 
-	function handleToggle() {
-		tabStore.toggleViewMode();
+	function selectMode(mode: ViewMode) {
+		tabStore.setViewMode(mode);
 	}
 </script>
 
@@ -30,32 +31,47 @@
 		</div>
 
 		<div class="toolbar-right">
-			<button
-				class="view-toggle"
-				onclick={handleToggle}
-				title={viewMode === 'source' ? 'Switch to Live Preview (⌘E)' : viewMode === 'live-preview' ? 'Switch to Reading View (⌘E)' : 'Switch to Source Mode (⌘E)'}
-				aria-label={viewMode === 'source' ? 'Switch to Live Preview' : viewMode === 'live-preview' ? 'Switch to Reading View' : 'Switch to Source Mode'}
-			>
-				{#if viewMode === 'source'}
-					<!-- Code brackets icon for Source Mode -->
-					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<div class="view-modes" role="group" aria-label="Editor view mode">
+				<button
+					class="view-mode"
+					class:active={viewMode === 'source'}
+					aria-pressed={viewMode === 'source'}
+					title="Source Mode (⌘E)"
+					onclick={() => selectMode('source')}
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<polyline points="16 18 22 12 16 6" />
 						<polyline points="8 6 2 12 8 18" />
 					</svg>
-				{:else if viewMode === 'live-preview'}
-					<!-- Pencil icon for Live Preview -->
-					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<span class="view-mode-label">Source</span>
+				</button>
+				<button
+					class="view-mode"
+					class:active={viewMode === 'live-preview'}
+					aria-pressed={viewMode === 'live-preview'}
+					title="Live Preview (⌘E)"
+					onclick={() => selectMode('live-preview')}
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
 						<path d="m15 5 4 4" />
 					</svg>
-				{:else}
-					<!-- Book icon for Reading View -->
-					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<span class="view-mode-label">Preview</span>
+				</button>
+				<button
+					class="view-mode"
+					class:active={viewMode === 'reading'}
+					aria-pressed={viewMode === 'reading'}
+					title="Reading View (⌘E)"
+					onclick={() => selectMode('reading')}
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
 						<path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
 					</svg>
-				{/if}
-			</button>
+					<span class="view-mode-label">Read</span>
+				</button>
+			</div>
 		</div>
 	</div>
 {/if}
@@ -75,7 +91,7 @@
 
 	.toolbar-left,
 	.toolbar-right {
-		flex: 0 0 40px;
+		flex: 0 0 200px;
 	}
 
 	.toolbar-center {
@@ -106,22 +122,43 @@
 		justify-content: flex-end;
 	}
 
-	.view-toggle {
+	.view-modes {
 		display: flex;
 		align-items: center;
-		justify-content: center;
-		width: 28px;
-		height: 24px;
+		gap: 2px;
+		padding: 2px;
+		border: 1px solid var(--border-default);
+		border-radius: 6px;
+		background: var(--bg-default);
+	}
+
+	.view-mode {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		height: 20px;
+		padding: 0 6px;
 		border: none;
 		border-radius: 4px;
 		background: transparent;
 		color: var(--text-muted);
+		font-size: 11px;
+		line-height: 1;
 		cursor: pointer;
 		transition: background 0.15s, color 0.15s;
 	}
 
-	.view-toggle:hover {
+	.view-mode:hover {
 		background: var(--bg-hover);
 		color: var(--text-default);
+	}
+
+	.view-mode.active {
+		background: var(--accent-bg);
+		color: var(--text-default);
+	}
+
+	.view-mode-label {
+		white-space: nowrap;
 	}
 </style>
