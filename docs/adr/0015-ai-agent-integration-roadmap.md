@@ -78,7 +78,7 @@ Impact 🟥 high / 🟧 med / 🟦 nice. Effort S/M/L.
 | **P0** (#184) | Foundation polish & verification | **Active** |
 | **P1** (#185) | Out-of-the-box chat magic (client-side) | **Active** |
 | **P2** (#186) | Retrieval / second brain (MCP tools) | **Backlog** |
-| **P3** (#187) | Memory & multimodal ingestion | **Backlog** |
+| **P3** (#187) | Fact memory & multimodal ingestion | **Fact model dogfooding; tools backlog** |
 | **P4** (#188) | Scale & CLI edge | **Active (mixed)** |
 
 Sequencing rationale: P1 first — almost entirely client-side, no daemon work, and
@@ -87,6 +87,11 @@ lift and the "second brain" payoff. Its embeddings-backend blocker is now
 **resolved by [ADR 0018](0018-embedding-and-vector-search.md)** (see the asterisk
 above); remaining P2 work is implementation, not architecture. P3 is modular; P4
 monetises Notesmith's *structural* advantages (CLI, MCP, customization dirs).
+The P3 memory storage and routing model is now resolved by
+[ADR 0021](0021-fact-memory-over-markdown-notes.md): atomic Markdown fact notes,
+agent-decided fact/wiki/both/session-only routing, and specialized tools layered
+over existing note/index primitives. Those product tools remain backlog while
+the shape is dogfooded in the personal memory vault.
 
 ### Active vs. backlog (this iteration)
 

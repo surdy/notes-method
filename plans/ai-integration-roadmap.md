@@ -68,11 +68,11 @@ daemon-side `web_fetch` tool (#207, backlog) lands.
 | #201 | Relevant Notes panel (similarity + graph-link scoring) | ✅ shipped (HTTP `GET /related/{path}`; embedding similarity blended with link-graph proximity, graph-only fallback; RightRail Links tab) |
 | #202 | `vault_stats` / structure MCP tool | **embedding-independent** |
 
-## Phase 3 — Memory & multimodal (#187, BACKLOG)
+## Phase 3 — Fact memory & multimodal (#187, PARTIALLY DOGFOODING)
 
 | Issue | Item |
 |---|---|
-| #203 | `memory` MCP tool (save / recall) |
+| #203 | Fact memory tools (save / recall / list / update / supersede / delete) over ordinary Markdown fact notes — storage/routing model accepted in ADR 0021 and dogfooding in the personal memory vault; product tools + companion-vault attachment remain backlog |
 | #204 | Voice / meeting transcription → structured note (needs Whisper) |
 | #205 | PDF / EPUB ingestion as context |
 | #206 | Image / vision input |

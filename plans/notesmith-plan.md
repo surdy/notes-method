@@ -2529,6 +2529,20 @@ notesmith route apply "Inbox/atlas.md"
 
 The MCP adapter exposes only existing operations such as note read/write, SQL query, routing, capture workflows, periodic note creation, and task mutation. It exists for clients that cannot run the CLI directly. It is served by the daemon as streamable-HTTP endpoints mounted per vault at `/mcp/<vault>` (full) and `/mcp-ro/<vault>` (read-only), reusing the daemon's live indexes via the shared `notesmith-ops` layer; `notesmith mcp start` is a thin stdio↔HTTP bridge to those endpoints rather than a standalone server with its own in-memory indexes.
 
+### 18.5 Fact memory
+
+Fact memory (ADR 0021) is an opinionated layer over ordinary Markdown notes, not
+a separate store. One atomic claim lives in one note (`type: fact`) with scope,
+certainty, provenance, and active/superseded/retracted lifecycle fields. The
+calling ACP agent classifies information as fact, wiki, both, or session-only;
+the daemon never runs a chat LLM to make that decision.
+
+Planned memory MCP operations filter hybrid retrieval to active fact notes and
+provide safe save/list/update/supersede/delete ergonomics. Similarity identifies
+possible duplicates or conflicts, while the agent decides whether to update or
+supersede. A configured companion memory vault may later be attached beside the
+active vault so user-scoped facts can be recalled across workspaces.
+
 ## 19. GUI Design
 
 ### 19.1 Core UI layout
