@@ -4,6 +4,7 @@
 	import { base } from '$app/paths';
 	import type { CustomItem } from '$lib/api';
 	import { createAppShell } from '$lib/app-shell.svelte';
+	import { sidebarSearchStore } from '$lib/sidebar-search.svelte';
 	import { buildCommands } from '$lib/commands';
 	import { themeStore } from '$lib/theme.svelte';
 	import ConfigToast from '$lib/components/ConfigToast.svelte';
@@ -196,6 +197,7 @@
 	const shell = createAppShell({
 		onOpenCommandPalette: () => openPalette('commands'),
 		onOpenQuickSwitcher: () => openPalette('files'),
+		onFocusSidebarFilter: () => sidebarSearchStore.requestFocus(),
 		onToggleView: handleToggleView,
 		onToggleRightRail: toggleRightRail,
 		onOpenSettings: () =>

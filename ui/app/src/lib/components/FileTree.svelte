@@ -14,7 +14,11 @@
 	import type { FolderNode } from '$lib/tree-builder';
 	import { vaultStore } from '$lib/stores.svelte';
 
-	let { node, depth = 0 }: { node: FolderNode; depth?: number } = $props();
+	let {
+		node,
+		depth = 0,
+		forceExpand = false
+	}: { node: FolderNode; depth?: number; forceExpand?: boolean } = $props();
 	let expanded = $state(false);
 	let seeded = false;
 	let contextMenu = $state<{ x: number; y: number } | null>(null);
@@ -131,9 +135,9 @@
 				onclick={toggle}
 				oncontextmenu={handleFolderContextMenu}
 				aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.name}`}
-				aria-expanded={expanded}
+				aria-expanded={expanded || forceExpand}
 			>
-				<span class="disclosure" class:open={expanded}>▸</span>
+				<span class="disclosure" class:open={expanded || forceExpand}>▸</span>
 			</button>
 			<button
 				class="folder-name-button"
@@ -146,8 +150,8 @@
 				<span class="folder-name">{node.name}</span>
 			</button>
 		{:else}
-		<button class="folder-toggle" type="button" onclick={toggle} oncontextmenu={handleFolderContextMenu}>
-			<span class="disclosure" class:open={expanded}>▸</span>
+		<button class="folder-toggle" type="button" onclick={toggle} oncontextmenu={handleFolderContextMenu} aria-expanded={expanded || forceExpand}>
+			<span class="disclosure" class:open={expanded || forceExpand}>▸</span>
 			<span class="folder-name">{node.name}</span>
 		</button>
 		{/if}
@@ -172,9 +176,9 @@
 	{/if}
 {/if}
 
-{#if expanded || !node.name}
+{#if expanded || forceExpand || !node.name}
 	{#each node.children as child (child.path)}
-		<FileTree node={child} depth={depth + 1} />
+		<FileTree node={child} depth={depth + 1} {forceExpand} />
 	{/each}
 
 	{#each node.notes as note (note.path)}

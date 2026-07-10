@@ -18,6 +18,7 @@ function makeCallbacks(): AppShellCallbacks {
 	return {
 		onOpenCommandPalette: vi.fn(),
 		onOpenQuickSwitcher: vi.fn(),
+		onFocusSidebarFilter: vi.fn(),
 		onToggleView: vi.fn(),
 		onToggleRightRail: vi.fn(),
 		onOpenSettings: vi.fn(),

@@ -2,12 +2,15 @@
 import type { CustomItem, SidebarSection, SidebarView } from '$lib/api';
 import { classifyError } from '$lib/api/error-classify';
 import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-import { executeSql, getSidebarConfig, reindexVault } from '$lib/api';
+import { executeSql, getSidebarConfig, reindexVault, createNote } from '$lib/api';
 import FileTree from './FileTree.svelte';
 import RecentlyViewedSection from './RecentlyViewedSection.svelte';
 import CustomFoldersSection from './CustomFoldersSection.svelte';
 import CustomItemsSection from './CustomItemsSection.svelte';
 import { vaultStore } from '$lib/stores.svelte';
+import { tabStore } from '$lib/tab-store.svelte';
+import { sidebarSearchStore } from '$lib/sidebar-search.svelte';
+import { filterTree, nextTypeaheadIndex, treeNoteCount, wrapIndex } from '$lib/sidebar-tree';
 
 let {
 onActivateMiddlePane = (_item: CustomItem) => {},
@@ -23,6 +26,142 @@ let badges = $state<Record<string, number>>({});
 let collapsedSections = $state<Record<string, boolean>>({});
 let activeItemNames = $state<Record<string, string | null>>({});
 let filesError = $derived(vaultStore.error ? classifyError(vaultStore.error, 'list-notes') : null);
+
+let fileFilter = $state('');
+let searchInput = $state<HTMLInputElement | null>(null);
+let treeContainer = $state<HTMLElement | null>(null);
+let lastFocusNonce = 0;
+let typeaheadBuffer = '';
+let typeaheadTimer: ReturnType<typeof setTimeout> | null = null;
+
+const trimmedFilter = $derived(fileFilter.trim());
+const filteredTree = $derived(trimmedFilter ? filterTree(vaultStore.tree, trimmedFilter) : vaultStore.tree);
+const filterHasMatches = $derived(treeNoteCount(filteredTree) > 0);
+
+$effect(() => {
+	const nonce = sidebarSearchStore.focusNonce;
+	if (nonce === lastFocusNonce) return;
+	lastFocusNonce = nonce;
+	activeViewId = 'files';
+	queueMicrotask(() => {
+		searchInput?.focus();
+		searchInput?.select();
+	});
+});
+
+function rowButtons(): HTMLElement[] {
+	if (!treeContainer) return [];
+	return Array.from(
+		treeContainer.querySelectorAll<HTMLElement>('.note-item, .folder-toggle, .folder-name-button')
+	);
+}
+
+function focusRow(rows: HTMLElement[], index: number) {
+	const row = rows[index];
+	if (row) row.focus();
+}
+
+function folderControl(row: HTMLElement): { toggle: HTMLElement | null; open: boolean } | null {
+	const isToggle = row.classList.contains('folder-toggle');
+	const isName = row.classList.contains('folder-name-button');
+	if (!isToggle && !isName) return null;
+	const toggle = isToggle
+		? row
+		: row.closest('.folder')?.querySelector<HTMLElement>('.folder-disclosure-button') ?? null;
+	const open = (toggle ?? row).querySelector('.disclosure')?.classList.contains('open') ?? false;
+	return { toggle, open };
+}
+
+function handleTreeKeydown(event: KeyboardEvent) {
+	const rows = rowButtons();
+	if (rows.length === 0) return;
+	const active = document.activeElement as HTMLElement | null;
+	const current = active ? rows.indexOf(active) : -1;
+
+	switch (event.key) {
+		case 'ArrowDown':
+			event.preventDefault();
+			focusRow(rows, wrapIndex(rows.length, current < 0 ? -1 : current, 1));
+			return;
+		case 'ArrowUp':
+			event.preventDefault();
+			focusRow(rows, wrapIndex(rows.length, current < 0 ? 0 : current, -1));
+			return;
+		case 'ArrowRight': {
+			if (current < 0) return;
+			const folder = folderControl(rows[current]);
+			if (folder && !folder.open) {
+				event.preventDefault();
+				folder.toggle?.click();
+			} else if (current < rows.length - 1) {
+				event.preventDefault();
+				focusRow(rows, current + 1);
+			}
+			return;
+		}
+		case 'ArrowLeft': {
+			if (current < 0) return;
+			const folder = folderControl(rows[current]);
+			if (folder && folder.open) {
+				event.preventDefault();
+				folder.toggle?.click();
+			} else if (current > 0) {
+				event.preventDefault();
+				focusRow(rows, current - 1);
+			}
+			return;
+		}
+		case 'Enter':
+			if (current >= 0) {
+				event.preventDefault();
+				rows[current].click();
+			}
+			return;
+		case 'Escape':
+			if (fileFilter) {
+				event.preventDefault();
+				fileFilter = '';
+			}
+			return;
+	}
+
+	if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+		typeaheadBuffer += event.key;
+		if (typeaheadTimer) clearTimeout(typeaheadTimer);
+		typeaheadTimer = setTimeout(() => (typeaheadBuffer = ''), 700);
+		const labels = rows.map((row) => row.textContent?.trim() ?? '');
+		const next = nextTypeaheadIndex(labels, current, typeaheadBuffer);
+		if (next !== null) {
+			event.preventDefault();
+			focusRow(rows, next);
+		}
+	}
+}
+
+function handleSearchKeydown(event: KeyboardEvent) {
+	if (event.key === 'ArrowDown') {
+		event.preventDefault();
+		focusRow(rowButtons(), 0);
+	} else if (event.key === 'Escape') {
+		fileFilter = '';
+	} else if (event.key === 'Enter' && trimmedFilter && !filterHasMatches) {
+		event.preventDefault();
+		void createFilteredNote();
+	}
+}
+
+async function createFilteredNote() {
+	const title = trimmedFilter;
+	if (!title || !vaultStore.currentVault) return;
+	try {
+		const created = await createNote(vaultStore.currentVault, title, `# ${title}\n`, 'Inbox');
+		await vaultStore.loadNotes();
+		fileFilter = '';
+		tabStore.selectNote(created.path);
+	} catch (error) {
+		console.error('Failed to create note from sidebar search', error);
+	}
+}
 
 $effect(() => {
 const vault = vaultStore.currentVault;
@@ -221,7 +360,46 @@ Refresh Vault
 </button>
 </div>
 {:else}
-<FileTree node={vaultStore.tree} />
+<div class="file-search">
+<span class="file-search-icon" aria-hidden="true">⌕</span>
+<input
+bind:this={searchInput}
+bind:value={fileFilter}
+class="file-search-input"
+type="text"
+placeholder="Search notes…"
+aria-label="Search notes"
+autocapitalize="off"
+autocorrect="off"
+autocomplete="off"
+spellcheck="false"
+onkeydown={handleSearchKeydown}
+/>
+{#if fileFilter}
+<button class="file-search-clear" type="button" aria-label="Clear search" onclick={() => (fileFilter = '')}>×</button>
+{:else}
+<kbd class="file-search-kbd">⌘⇧F</kbd>
+{/if}
+</div>
+{#if trimmedFilter && !filterHasMatches}
+<div class="state-msg file-search-empty">
+<div>No matches for “{trimmedFilter}”.</div>
+<button class="refresh-btn" type="button" onclick={() => void createFilteredNote()}>
+Create “{trimmedFilter}”
+</button>
+</div>
+{:else}
+<div
+class="file-tree-container"
+role="tree"
+tabindex="-1"
+aria-label="Notes"
+bind:this={treeContainer}
+onkeydown={handleTreeKeydown}
+>
+<FileTree node={filteredTree ?? vaultStore.tree} forceExpand={!!trimmedFilter} />
+</div>
+{/if}
 {/if}
 {:else}
 {@const activeView = views.find((view) => view.id === activeViewId)}
@@ -406,5 +584,70 @@ cursor: pointer;
 background: var(--bg-hover);
 }
 
+.file-search {
+display: flex;
+align-items: center;
+gap: 6px;
+margin: 4px 8px 8px;
+padding: 4px 8px;
+border: 1px solid var(--border-default);
+border-radius: 8px;
+background: var(--bg-panel);
+transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.file-search:focus-within {
+border-color: var(--accent);
+box-shadow: 0 0 0 1px var(--accent);
+}
+
+.file-search-icon {
+color: var(--text-muted);
+font-size: 13px;
+flex-shrink: 0;
+}
+
+.file-search-input {
+flex: 1;
+min-width: 0;
+border: none;
+background: none;
+color: var(--text-default);
+font-size: 13px;
+outline: none;
+}
+
+.file-search-input::placeholder {
+color: var(--text-muted);
+}
+
+.file-search-clear {
+flex-shrink: 0;
+border: none;
+background: none;
+color: var(--text-muted);
+font-size: 15px;
+line-height: 1;
+cursor: pointer;
+padding: 0 2px;
+}
+
+.file-search-clear:hover {
+color: var(--text-default);
+}
+
+.file-search-kbd {
+flex-shrink: 0;
+padding: 1px 5px;
+border: 1px solid var(--border-default);
+border-radius: 4px;
+color: var(--text-muted);
+font-family: var(--font-mono);
+font-size: 10px;
+}
+
+.file-tree-container:focus-visible {
+outline: none;
+}
 
 </style>

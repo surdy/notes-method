@@ -12,6 +12,7 @@ export interface CommandLike {
 export interface AppShellCallbacks {
 	onOpenCommandPalette: () => void;
 	onOpenQuickSwitcher: () => void;
+	onFocusSidebarFilter: () => void;
 	onToggleView: () => void | Promise<void>;
 	onToggleRightRail: () => void;
 	onOpenSettings: () => void;
@@ -160,7 +161,7 @@ function buildHotkeys(
 		{ key: 'e', meta: true, action: () => void callbacks.onToggleView() },
 		{ key: 't', meta: true, shift: true, action: () => tabStore.reopenLastTab() },
 		{ key: '\\', meta: true, action: callbacks.onToggleRightRail },
-		{ key: 'f', meta: true, shift: true, action: callbacks.onOpenQuickSwitcher },
+		{ key: 'f', meta: true, shift: true, action: callbacks.onFocusSidebarFilter },
 		{ key: ',', meta: true, action: callbacks.onOpenSettings }
 	];
 }
