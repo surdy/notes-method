@@ -142,8 +142,13 @@
 
 	.title-header--viewer {
 		padding: 0 0 0.3em;
-		margin: 0 0 0.6em;
-		border-bottom: 1px solid var(--border-default);
+		margin: 0 0 0.7em;
+		border-bottom: 1px solid var(--border-subtle);
+		font-family: var(--font-reading);
+		font-size: var(--reading-h1-size);
+		font-weight: var(--reading-h1-weight);
+		line-height: var(--reading-h1-line);
+		letter-spacing: var(--reading-h1-tracking);
 	}
 
 	.title-header--readonly {

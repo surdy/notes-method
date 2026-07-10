@@ -204,10 +204,10 @@
 	.note-viewer {
 		flex: 1;
 		overflow-y: auto;
-		padding: 24px 32px;
+		padding: 40px 32px 72px;
 		background: var(--editor-bg);
 		color: var(--editor-text);
-		line-height: var(--line-height-normal);
+		line-height: var(--reading-line-height);
 	}
 
 	.empty-state {
@@ -216,6 +216,14 @@
 		justify-content: center;
 		height: 100%;
 		color: var(--editor-text-muted);
+	}
+
+	.content {
+		max-width: var(--reading-measure);
+		margin: 0 auto;
+		font-family: var(--font-reading);
+		font-size: var(--reading-font-size);
+		line-height: var(--reading-line-height);
 	}
 
 	.content :global(p) {
@@ -237,18 +245,29 @@
 	}
 
 	.content :global(h1) {
-		font-size: 1.8em;
-		margin: 0.5em 0;
+		font-size: var(--reading-h1-size);
+		line-height: var(--reading-h1-line);
+		font-weight: var(--reading-h1-weight);
+		letter-spacing: var(--reading-h1-tracking);
+		margin: 0.4em 0 0.35em;
 	}
 
 	.content :global(h2) {
-		font-size: 1.4em;
-		margin: 0.8em 0 0.4em;
+		font-size: var(--reading-h2-size);
+		line-height: var(--reading-h2-line);
+		margin: 1.4em 0 0.4em;
 	}
 
 	.content :global(h3) {
-		font-size: 1.15em;
-		margin: 0.6em 0 0.3em;
+		font-size: var(--reading-h3-size);
+		margin: 1.1em 0 0.3em;
+	}
+
+	/* Code stays in the monospace family, not the reading serif. */
+	.content :global(code),
+	.content :global(pre),
+	.content :global(kbd) {
+		font-family: var(--font-mono);
 	}
 
 	.content :global(a.wikilink) {

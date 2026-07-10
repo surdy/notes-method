@@ -161,4 +161,34 @@
   --line-height-normal: initial;
   --line-height-tight: initial;
   --paragraph-spacing: initial;
+
+  /* Radius scale */
+  --radius-sm: initial;
+  --radius-md: initial;
+  --radius-lg: initial;
+  --radius-pill: initial;
+
+  /* Spacing scale */
+  --space-1: initial;
+  --space-2: initial;
+  --space-3: initial;
+  --space-4: initial;
+  --space-5: initial;
+
+  /* Reading surface typography (reading/preview view) */
+  --font-reading: initial;
+  --reading-measure: initial;
+  --reading-font-size: initial;
+  --reading-line-height: initial;
+  --reading-h1-size: initial;
+  --reading-h1-line: initial;
+  --reading-h1-weight: initial;
+  --reading-h1-tracking: initial;
+  --reading-h2-size: initial;
+  --reading-h2-line: initial;
+  --reading-h3-size: initial;
+
+  /* Elevation */
+  --shadow-card: initial;
+  --shadow-pop: initial;
 }
