@@ -69,6 +69,75 @@ struct MemoryRecallParams {
 }
 
 #[derive(Debug, Deserialize)]
+struct MemoryListParams {
+    scope: Option<String>,
+    status: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemorySaveParams {
+    title: String,
+    claim: String,
+    description: Option<String>,
+    scope: String,
+    subject: Option<String>,
+    certainty: String,
+    source: Option<String>,
+    confirmed: Option<String>,
+    supersedes: Option<String>,
+    tags: Option<Vec<String>>,
+    acknowledge_inference: Option<bool>,
+    confirm_apply: Option<bool>,
+    preview_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryUpdateParams {
+    path: String,
+    expected_hash: String,
+    title: Option<String>,
+    claim: Option<String>,
+    description: Option<String>,
+    body: Option<String>,
+    scope: Option<String>,
+    subject: Option<String>,
+    certainty: Option<String>,
+    source: Option<String>,
+    status: Option<String>,
+    confirmed: Option<String>,
+    tags: Option<Vec<String>>,
+    acknowledge_inference: Option<bool>,
+    confirm_apply: Option<bool>,
+    preview_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemorySupersedeParams {
+    path: String,
+    expected_hash: String,
+    new_title: String,
+    new_claim: String,
+    description: Option<String>,
+    scope: String,
+    subject: Option<String>,
+    certainty: String,
+    source: Option<String>,
+    confirmed: Option<String>,
+    tags: Option<Vec<String>>,
+    acknowledge_inference: Option<bool>,
+    confirm_apply: Option<bool>,
+    preview_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryDeleteParams {
+    path: String,
+    expected_hash: String,
+    confirm_delete: bool,
+}
+
+#[derive(Debug, Deserialize)]
 struct QuerySqlParams {
     sql: String,
 }
@@ -269,6 +338,153 @@ impl NotesmithMcp {
                         "limit": {"type": "integer", "minimum": 1}
                     },
                     "required": ["query"],
+                    "additionalProperties": false
+                }),
+            ),
+            tool_definition(
+                "memory_list",
+                scoped(
+                    "List non-example fact-memory notes with stable structured \
+                     fields. Defaults to active facts; when `scope` is \
+                     supplied it includes `scope: user` plus the exact scope",
+                ),
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "scope": {"type": "string"},
+                        "status": {
+                            "type": "string",
+                            "enum": ["active", "superseded", "retracted"]
+                        },
+                        "limit": {"type": "integer", "minimum": 1}
+                    },
+                    "additionalProperties": false
+                }),
+            ),
+            tool_definition(
+                "memory_save",
+                scoped(
+                    "Preview or apply creation of a new `facts/...` fact note. \
+                     By default this is a no-write preview that returns the \
+                     exact proposed path/content plus similar active fact \
+                     candidates. Applying requires `confirm_apply: true`, a \
+                     fresh `preview_token`, and valid provenance (`observed` \
+                     needs `source`; `inferred` needs \
+                     `acknowledge_inference: true`)",
+                ),
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "claim": {"type": "string"},
+                        "description": {"type": "string"},
+                        "scope": {"type": "string"},
+                        "subject": {"type": "string"},
+                        "certainty": {
+                            "type": "string",
+                            "enum": ["explicit", "observed", "inferred"]
+                        },
+                        "source": {"type": "string"},
+                        "confirmed": {"type": "string"},
+                        "supersedes": {"type": "string"},
+                        "tags": {"type": "array", "items": {"type": "string"}},
+                        "acknowledge_inference": {"type": "boolean"},
+                        "confirm_apply": {"type": "boolean"},
+                        "preview_token": {"type": "string"}
+                    },
+                    "required": ["title", "claim", "scope", "certainty"],
+                    "additionalProperties": false
+                }),
+            ),
+            tool_definition(
+                "memory_update",
+                scoped(
+                    "Preview or apply an optimistic update to an existing \
+                     `type: fact` note under `facts/`. Requires a fresh \
+                     `expected_hash`; claim-changing updates preview similar \
+                     active facts before writes. Applying requires \
+                     `confirm_apply: true` plus the `preview_token` returned \
+                     by the preview",
+                ),
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "expected_hash": {"type": "string"},
+                        "title": {"type": "string"},
+                        "claim": {"type": "string"},
+                        "description": {"type": "string"},
+                        "body": {"type": "string"},
+                        "scope": {"type": "string"},
+                        "subject": {"type": "string"},
+                        "certainty": {
+                            "type": "string",
+                            "enum": ["explicit", "observed", "inferred"]
+                        },
+                        "source": {"type": "string"},
+                        "status": {
+                            "type": "string",
+                            "enum": ["active", "superseded", "retracted"]
+                        },
+                        "confirmed": {"type": "string"},
+                        "tags": {"type": "array", "items": {"type": "string"}},
+                        "acknowledge_inference": {"type": "boolean"},
+                        "confirm_apply": {"type": "boolean"},
+                        "preview_token": {"type": "string"}
+                    },
+                    "required": ["path", "expected_hash"],
+                    "additionalProperties": false
+                }),
+            ),
+            tool_definition(
+                "memory_supersede",
+                scoped(
+                    "Preview or apply replacement of an active fact with a new \
+                     fact note. The preview returns the proposed replacement \
+                     path/content and similar active-fact candidates; applying \
+                     requires `confirm_apply: true`, a fresh `preview_token`, \
+                     and the current fact `expected_hash`",
+                ),
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "expected_hash": {"type": "string"},
+                        "new_title": {"type": "string"},
+                        "new_claim": {"type": "string"},
+                        "description": {"type": "string"},
+                        "scope": {"type": "string"},
+                        "subject": {"type": "string"},
+                        "certainty": {
+                            "type": "string",
+                            "enum": ["explicit", "observed", "inferred"]
+                        },
+                        "source": {"type": "string"},
+                        "confirmed": {"type": "string"},
+                        "tags": {"type": "array", "items": {"type": "string"}},
+                        "acknowledge_inference": {"type": "boolean"},
+                        "confirm_apply": {"type": "boolean"},
+                        "preview_token": {"type": "string"}
+                    },
+                    "required": ["path", "expected_hash", "new_title", "new_claim", "scope", "certainty"],
+                    "additionalProperties": false
+                }),
+            ),
+            tool_definition(
+                "memory_delete",
+                scoped(
+                    "Hard-delete a fact note for mistakes or sensitive material. \
+                     Requires `confirm_delete: true` and a fresh \
+                     `expected_hash`; example facts are rejected",
+                ),
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "expected_hash": {"type": "string"},
+                        "confirm_delete": {"type": "boolean"}
+                    },
+                    "required": ["path", "expected_hash", "confirm_delete"],
                     "additionalProperties": false
                 }),
             ),
@@ -506,6 +722,85 @@ impl ServerHandler for NotesmithMcp {
                 self.handle_tool_call::<MemoryRecallParams, _>(request.arguments, |params| {
                     self.ops
                         .memory_recall(&params.query, params.scope.as_deref(), params.limit)
+                })
+            }
+            "memory_list" => {
+                self.handle_tool_call::<MemoryListParams, _>(request.arguments, |params| {
+                    self.ops.memory_list(
+                        params.scope.as_deref(),
+                        params.status.as_deref(),
+                        params.limit,
+                    )
+                })
+            }
+            "memory_save" => {
+                self.handle_tool_call::<MemorySaveParams, _>(request.arguments, |params| {
+                    self.ops.memory_save(
+                        &params.title,
+                        &params.claim,
+                        params.description.as_deref(),
+                        &params.scope,
+                        params.subject.as_deref(),
+                        &params.certainty,
+                        params.source.as_deref(),
+                        params.confirmed.as_deref(),
+                        params.supersedes.as_deref(),
+                        params.tags,
+                        params.acknowledge_inference.unwrap_or(false),
+                        params.confirm_apply.unwrap_or(false),
+                        params.preview_token.as_deref(),
+                    )
+                })
+            }
+            "memory_update" => {
+                self.handle_tool_call::<MemoryUpdateParams, _>(request.arguments, |params| {
+                    self.ops.memory_update(
+                        &params.path,
+                        &params.expected_hash,
+                        params.title.as_deref(),
+                        params.claim.as_deref(),
+                        params.description.as_deref(),
+                        params.body.as_deref(),
+                        params.scope.as_deref(),
+                        params.subject.as_deref(),
+                        params.certainty.as_deref(),
+                        params.source.as_deref(),
+                        params.status.as_deref(),
+                        params.confirmed.as_deref(),
+                        params.tags,
+                        params.confirm_apply.unwrap_or(false),
+                        params.preview_token.as_deref(),
+                        params.acknowledge_inference.unwrap_or(false),
+                    )
+                })
+            }
+            "memory_supersede" => {
+                self.handle_tool_call::<MemorySupersedeParams, _>(request.arguments, |params| {
+                    self.ops.memory_supersede(
+                        &params.path,
+                        &params.expected_hash,
+                        &params.new_title,
+                        &params.new_claim,
+                        params.description.as_deref(),
+                        &params.scope,
+                        params.subject.as_deref(),
+                        &params.certainty,
+                        params.source.as_deref(),
+                        params.confirmed.as_deref(),
+                        params.tags,
+                        params.acknowledge_inference.unwrap_or(false),
+                        params.confirm_apply.unwrap_or(false),
+                        params.preview_token.as_deref(),
+                    )
+                })
+            }
+            "memory_delete" => {
+                self.handle_tool_call::<MemoryDeleteParams, _>(request.arguments, |params| {
+                    self.ops.memory_delete(
+                        &params.path,
+                        &params.expected_hash,
+                        params.confirm_delete,
+                    )
                 })
             }
             "query_sql" => self
@@ -900,8 +1195,13 @@ mod tests {
         let mcp = build_test_mcp(temp_dir.path());
 
         let tools = mcp.registered_tools();
-        assert_eq!(tools.len(), 16);
+        assert_eq!(tools.len(), 21);
         assert!(tools.iter().any(|t| t.name == "memory_recall"));
+        assert!(tools.iter().any(|t| t.name == "memory_list"));
+        assert!(tools.iter().any(|t| t.name == "memory_save"));
+        assert!(tools.iter().any(|t| t.name == "memory_update"));
+        assert!(tools.iter().any(|t| t.name == "memory_supersede"));
+        assert!(tools.iter().any(|t| t.name == "memory_delete"));
         assert!(tools.iter().any(|t| t.name == "vault_search"));
         assert!(tools.iter().any(|t| t.name == "time_query"));
     }

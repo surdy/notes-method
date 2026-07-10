@@ -24,6 +24,7 @@ rusqlite = { workspace = true }
 chrono = { workspace = true }
 regex = { workspace = true }
 two_timer = { workspace = true }
+blake3 = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

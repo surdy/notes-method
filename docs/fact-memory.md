@@ -7,9 +7,9 @@ notes, links, search, or ADRs.
 The architecture is defined in
 [ADR 0021](adr/0021-fact-memory-over-markdown-notes.md). Specialized memory MCP
 tools are tracked by [#203](https://github.com/surdy/notes-method/issues/203).
-The first shipped slice is read-only `memory_recall`; write/update/supersede/
-delete flows still use ordinary note operations, templates, SQL, and hybrid
-vault search.
+The current shipped slice includes `memory_recall`, `memory_list`,
+`memory_save`, `memory_update`, `memory_supersede`, and `memory_delete` over
+ordinary `type: fact` notes.
 
 ## The central question
 
@@ -102,11 +102,11 @@ durable memory.
 
 1. Read the vault's `.notesmith/memory-index.md`.
 2. Classify the input as fact, wiki, both, or session-only.
-3. Search `facts/` and the likely wiki segment before writing.
-4. Update an exact duplicate instead of creating another file.
-5. Use the `fact` template for a new fact.
+3. Start with `memory_save(...)` in preview mode (the default).
+4. Review exact-duplicate and similar-fact candidates before applying.
+5. Apply only with the returned `preview_token`.
 6. Preserve provenance and use the appropriate certainty.
-7. Re-read the result and verify it is one claim.
+7. Re-read or `memory_list` the result and verify it is one claim.
 
 For **Both**, write the canonical wiki note first. Then create a short fact
 whose `source` or `subject` links to that note. Do not duplicate the full wiki
@@ -131,16 +131,17 @@ dominating the conversation.
 
 ### Confirming
 
-When an active fact remains true, update `confirmed`. Avoid rewriting the
-claim merely to refresh the timestamp.
+When an active fact remains true, use `memory_update` with a fresh
+`expected_hash` and a new `confirmed` value. Avoid rewriting the claim merely
+to refresh the timestamp.
 
 ### Superseding
 
 When a new claim replaces an old one:
 
-1. Create or update the replacement fact.
-2. Mark the old fact `status: superseded`.
-3. Link the old and new facts through `supersedes` and the note bodies.
+1. Read or list the current fact to obtain its `expected_hash`.
+2. Run `memory_supersede(...)` in preview mode.
+3. Apply with `confirm_apply: true` and the returned `preview_token`.
 4. Keep the old fact available for provenance, but exclude it from normal recall.
 
 Example:
@@ -153,9 +154,10 @@ The agent should supersede the tea fact, not retain two active preferences.
 
 ### Retracting
 
-Use `status: retracted` when a claim was wrong rather than merely outdated.
-Hard-delete only accidental entries or sensitive information that should not
-remain in file or git history.
+Use `memory_update(..., status: retracted)` when a claim was wrong rather than
+merely outdated. Hard-delete only accidental entries or sensitive information
+that should not remain in file or git history; `memory_delete` requires both
+confirmation and a fresh hash.
 
 ## What not to store as facts
 
@@ -177,7 +179,8 @@ The personal `memory` vault currently provides:
 - a `facts/` segment and `fact` template;
 - the routing and lifecycle rules in `.notesmith/memory-index.md`;
 - ordinary MCP note, template, SQL, lexical, and hybrid-search tools;
-- read-only MCP `memory_recall` over active non-example fact notes;
+- specialized MCP `memory_recall`, `memory_list`, `memory_save`,
+  `memory_update`, `memory_supersede`, and `memory_delete`;
 - a schema example tagged `example`;
 - real facts stored as normal Markdown notes.
 
@@ -208,18 +211,16 @@ the `example` tag.
 
 The following parts of ADR 0021 are not implemented yet:
 
-- no specialized fact mutation/list tools (`memory_save`, `memory_list`,
-  `memory_update`, `memory_supersede`, `memory_delete`);
-- no automatic similar-fact/conflict response before writes;
 - no companion memory vault automatically attached to other vault sessions;
-- no automatic scope filtering by the active vault;
+- no automatic scope filtering by the active vault outside an explicit tool
+  call;
 - no stale-fact review UI;
 - no bounded core-memory injection.
 
-Consequently, fact recall currently works automatically only when the agent has
-the `memory` vault's MCP tools available. When chatting in another vault, attach
-the memory MCP endpoint manually or open the memory vault in its own Notesmith
-window.
+Consequently, fact recall/lifecycle automation currently works only when the
+agent has the memory vault's MCP tools available. When chatting in another
+vault, attach the memory MCP endpoint manually or open the memory vault in its
+own Notesmith window.
 
 ## Suggested dogfood routine
 

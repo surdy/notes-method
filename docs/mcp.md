@@ -41,6 +41,11 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `search_notes` | `query`, `limit?` |
 | `vault_search` | `query`, `limit?` |
 | `memory_recall` | `query`, `scope?`, `limit?` |
+| `memory_list` | `scope?`, `status?`, `limit?` |
+| `memory_save` | `title`, `claim`, `scope`, `certainty`, `description?`, `subject?`, `source?`, `confirmed?`, `supersedes?`, `tags?`, `acknowledge_inference?`, `confirm_apply?`, `preview_token?` |
+| `memory_update` | `path`, `expected_hash`, `title?`, `claim?`, `description?`, `body?`, `scope?`, `subject?`, `certainty?`, `source?`, `status?`, `confirmed?`, `tags?`, `acknowledge_inference?`, `confirm_apply?`, `preview_token?` |
+| `memory_supersede` | `path`, `expected_hash`, `new_title`, `new_claim`, `scope`, `certainty`, `description?`, `subject?`, `source?`, `confirmed?`, `tags?`, `acknowledge_inference?`, `confirm_apply?`, `preview_token?` |
+| `memory_delete` | `path`, `expected_hash`, `confirm_delete` |
 | `query_sql` | `sql` |
 | `time_query` | `when`, `date_field?` (`mtime`\|`updated`\|`created`), `query?`, `limit?` |
 | `list_notes` | `type?`, `customer?`, `archived?` |
@@ -99,6 +104,74 @@ The response is stable across lexical-only and hybrid modes and includes
 grounding metadata: `path`, `title`, `claim`, `scope`, `certainty`, `source`,
 `snippet`, `score`, overall `rank`, `lexical_rank`, `semantic_rank`, and
 `char_start` / `char_end` citation offsets when available.
+
+### Fact lifecycle tools
+
+The specialized fact-memory tools operate on ordinary Markdown fact notes under
+`facts/` (`type: fact`). They reuse the normal save pipeline, optimistic hashes,
+and MCP permission preview flow — there is no separate store.
+
+#### `memory_list`
+
+Lists non-example fact notes in a stable structured shape.
+
+- `scope?` — when supplied, includes `scope: user` plus the exact scope.
+- `status?` — `active` (default), `superseded`, or `retracted`.
+- `limit?` — default 50, maximum 100.
+
+Each result includes `path`, current `hash`, `title`, `claim`, `description`,
+`scope`, `subject`, `certainty`, `source`, `status`, `confirmed`,
+`supersedes`, `tags`, `created`, and `updated`.
+
+#### `memory_save`
+
+Creates a new fact note under `facts/`, but **defaults to preview mode**:
+
+- preview (`confirm_apply` omitted / false) returns similar active-fact
+  candidates plus the exact proposed `path`, `content`, and `preview_token`;
+- apply requires `confirm_apply: true` **and** the fresh `preview_token` from
+  that preview.
+
+Safety rules:
+
+- exact-duplicate candidates are surfaced explicitly and block apply;
+- `observed` facts require a nonblank `source`;
+- `inferred` facts require `acknowledge_inference: true`;
+- the tool generates its own safe `facts/...` path from `title`.
+
+#### `memory_update`
+
+Updates an existing fact note. It always requires `expected_hash` from a fresh
+read or list result; stale hashes fail with the same write-conflict convention
+used elsewhere.
+
+- claim-changing updates preview similar active facts before writes;
+- preview/apply uses the same `confirm_apply` + `preview_token` contract as
+  `memory_save`;
+- unknown frontmatter and unrelated body content are preserved unless `body`
+  is explicitly supplied as replacement content;
+- mutation rejects notes whose current type is not `fact`.
+
+#### `memory_supersede`
+
+Replaces an active fact with a new fact note:
+
+- preview returns the proposed replacement note and a fresh `preview_token`;
+- apply requires `confirm_apply: true`, the `preview_token`, and the old
+  fact's `expected_hash`;
+- the old fact is marked `status: superseded`, the new fact gets
+  `supersedes: [[Old Title]]`, and both note bodies are linked.
+
+Companion-vault attachment is still future work; these tools operate only in
+the currently mounted vault.
+
+#### `memory_delete`
+
+Hard-deletes a fact note for mistakes or sensitive material only.
+
+- requires `confirm_delete: true`;
+- requires fresh `expected_hash`;
+- rejects example facts (`facts/examples/...` or `example`-tagged notes).
 
 ### `time_query`
 

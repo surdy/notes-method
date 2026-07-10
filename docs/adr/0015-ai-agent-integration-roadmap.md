@@ -78,7 +78,7 @@ Impact 🟥 high / 🟧 med / 🟦 nice. Effort S/M/L.
 | **P0** (#184) | Foundation polish & verification | **Active** |
 | **P1** (#185) | Out-of-the-box chat magic (client-side) | **Active** |
 | **P2** (#186) | Retrieval / second brain (MCP tools) | **Backlog** |
-| **P3** (#187) | Fact memory & multimodal ingestion | **Fact model dogfooding; tools backlog** |
+| **P3** (#187) | Fact memory & multimodal ingestion | **Fact note model + lifecycle MCP tools shipped; companion vault backlog** |
 | **P4** (#188) | Scale & CLI edge | **Active (mixed)** |
 
 Sequencing rationale: P1 first — almost entirely client-side, no daemon work, and

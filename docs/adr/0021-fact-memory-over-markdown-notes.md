@@ -11,7 +11,8 @@ chunked embedding index from [ADR 0018](0018-embedding-and-vector-search.md)
 and the existing note/template/field primitives.
 
 The storage shape is being dogfooded first in the self-hosted `memory` vault.
-Specialized MCP tools and cross-vault attachment remain backlog work.
+Specialized MCP recall/list/lifecycle tools now ship over ordinary fact notes;
+cross-vault attachment and stale-review UX remain backlog work.
 
 ## Context
 
@@ -134,7 +135,8 @@ validity, or automatic consolidation.
 1. **Dogfood:** `facts/` segment, template, schema, routing rubric, example,
    and structured recall query in the personal memory vault.
 2. **Specialized tools:** fact save/recall/list/update/supersede/delete over
-   ordinary notes, including similar-fact candidates and optimistic writes.
+   ordinary notes, including similar-fact candidates, preview/apply, and
+   optimistic writes. **Shipped in the current vault-local form.**
 3. **Companion vault:** attach a configured memory vault to agent sessions and
    enforce scope filtering.
 4. **Maintenance UX:** stale-fact review, provenance display, and optional

@@ -2537,14 +2537,15 @@ certainty, provenance, and active/superseded/retracted lifecycle fields. The
 calling ACP agent classifies information as fact, wiki, both, or session-only;
 the daemon never runs a chat LLM to make that decision.
 
-The first shipped memory MCP slice is read-only `memory_recall(query, scope?,
-limit?)`, which filters the existing hybrid retrieval stack to active
-non-example fact notes and returns grounded claim/provenance metadata. Planned
-follow-on operations add safe save/list/update/supersede/delete ergonomics.
-Similarity identifies possible duplicates or conflicts, while the agent decides
-whether to update or supersede. A configured companion memory vault may later
-be attached beside the active vault so user-scoped facts can be recalled across
-workspaces.
+The current memory MCP surface includes `memory_recall(query, scope?, limit?)`,
+`memory_list(scope?, status?, limit?)`, and preview/apply lifecycle operations
+for `memory_save`, `memory_update`, `memory_supersede`, and `memory_delete`.
+These tools filter to ordinary non-example fact notes, reuse the existing
+hybrid retrieval stack plus lexical fallback, and use optimistic hashes plus
+preview tokens for writes. Similarity identifies possible duplicates or
+conflicts, while the agent decides whether to update or supersede. A configured
+companion memory vault may later be attached beside the active vault so
+user-scoped facts can be recalled across workspaces.
 
 ## 19. GUI Design
 
