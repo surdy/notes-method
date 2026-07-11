@@ -8,7 +8,7 @@
 		remapPathAfterFolderRename
 	} from '$lib/folder-notes';
 	import { inputPalette } from '$lib/input-palette.svelte';
-	import { noteIcon } from '$lib/note-icons';
+	import { configuredNoteIcon } from '$lib/note-icons';
 	import { tabStore } from '$lib/tab-store.svelte';
 	import { toastStore } from '$lib/toast-store.svelte';
 	import type { FolderNode } from '$lib/tree-builder';
@@ -122,7 +122,11 @@
 </script>
 
 {#if node.name}
-	<div class="folder" style={`padding-left: ${depth * INDENT}px`}>
+	<div
+		class="folder"
+		class:selected={isFolderNoteSelected(node, tabStore.selectedPath)}
+		style={`padding-left: ${depth * INDENT}px`}
+	>
 		<!-- indent guides -->
 		{#each Array(depth) as _, i}
 			<span class="indent-guide" style={`left: ${i * INDENT + 11}px`}></span>
@@ -137,7 +141,7 @@
 				aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.name}`}
 				aria-expanded={expanded || forceExpand}
 			>
-				<span class="disclosure" class:open={expanded || forceExpand}>▸</span>
+				<span class="disclosure" class:open={expanded || forceExpand}></span>
 			</button>
 			<button
 				class="folder-name-button"
@@ -151,7 +155,7 @@
 			</button>
 		{:else}
 		<button class="folder-toggle" type="button" onclick={toggle} oncontextmenu={handleFolderContextMenu} aria-expanded={expanded || forceExpand}>
-			<span class="disclosure" class:open={expanded || forceExpand}>▸</span>
+			<span class="disclosure" class:open={expanded || forceExpand}></span>
 			<span class="folder-name">{node.name}</span>
 		</button>
 		{/if}
@@ -182,17 +186,20 @@
 	{/each}
 
 	{#each node.notes as note (note.path)}
+		{@const icon = configuredNoteIcon(note)}
 		<button
 			class="note-item"
 			class:selected={tabStore.selectedPath === note.path}
-			style={`padding-left: ${(depth + 1) * INDENT}px`}
+			style={`padding-left: ${(depth + 1) * INDENT + 16}px`}
 			onclick={() => selectNote(note)}
 		>
 			<!-- indent guides -->
 			{#each Array(depth + 1) as _, i}
 				<span class="indent-guide" style={`left: ${i * INDENT + 11}px`}></span>
 			{/each}
-			<span class="note-icon">{noteIcon(note)}</span>
+			{#if icon}
+				<span class="note-icon">{icon}</span>
+			{/if}
 			<span class="note-title">{noteTitle(note)}</span>
 		</button>
 	{/each}
@@ -203,6 +210,16 @@
 		position: relative;
 		display: flex;
 		align-items: center;
+		border-radius: var(--radius-sm);
+	}
+
+	.folder:hover {
+		background: var(--bg-hover);
+	}
+
+	.folder.selected {
+		background: var(--bg-selected);
+		box-shadow: inset 2px 0 0 var(--accent);
 	}
 
 	.folder-toggle,
@@ -214,15 +231,16 @@
 		border-radius: var(--radius-sm);
 		background: none;
 		cursor: pointer;
-		font-size: 14px;
+		font-size: 13px;
+		font-weight: 500;
 		text-align: left;
-		color: var(--text-default);
+		color: var(--text-secondary);
 	}
 
 	.folder-toggle {
-		gap: var(--space-2);
+		gap: 0;
 		width: 100%;
-		padding: 5px 8px;
+		padding: 5px 8px 5px 0;
 	}
 
 	.folder-disclosure-button {
@@ -237,20 +255,14 @@
 		padding: 4px 8px 4px 0;
 	}
 
-	.folder-toggle:hover,
-	.folder-disclosure-button:hover,
-	.folder-name-button:hover {
-		background: var(--bg-hover);
-	}
-
 	.folder-disclosure-button.selected,
 	.folder-name-button.selected {
-		background: var(--accent-bg);
+		background: transparent;
 		color: var(--text-default);
 	}
 
 	.folder-disclosure-button.selected {
-		box-shadow: inset 2px 0 0 var(--accent);
+		box-shadow: none;
 	}
 
 	.disclosure {
@@ -259,10 +271,27 @@
 		justify-content: center;
 		width: 16px;
 		height: 16px;
-		font-size: 10px;
-		color: var(--text-muted);
 		transition: transform 0.15s ease;
 		flex-shrink: 0;
+	}
+
+	/* Drawn with CSS borders rather than a Unicode glyph so the triangle
+	   renders consistently across platform font stacks. */
+	.disclosure::before {
+		content: '';
+		width: 0;
+		height: 0;
+		border-top: 4px solid transparent;
+		border-bottom: 4px solid transparent;
+		border-left: 5px solid var(--text-muted);
+	}
+
+	/* The disclosure fills the 16px icon gutter immediately to the left of
+	   the folder name. This keeps a folder's name aligned with a sibling
+	   note's title at the same depth while the chevron hugs the name,
+	   instead of floating out in the parent's indent channel. */
+	.folder-toggle .disclosure {
+		flex: 0 0 16px;
 	}
 
 	.disclosure.open {
@@ -282,7 +311,7 @@
 		position: relative;
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
+		gap: 0;
 		width: 100%;
 		padding: 5px 8px;
 		border: none;
@@ -291,7 +320,7 @@
 		cursor: pointer;
 		font-size: 13px;
 		text-align: left;
-		color: var(--text-secondary);
+		color: var(--text-default);
 	}
 
 	.note-item:hover {
@@ -299,9 +328,18 @@
 	}
 
 	.note-item.selected {
-		background: var(--accent-bg);
+		background: var(--bg-selected);
 		color: var(--text-default);
+		font-weight: 600;
 		box-shadow: inset 2px 0 0 var(--accent);
+	}
+
+	.note-icon {
+		width: 16px;
+		margin-left: -24px;
+		margin-right: var(--space-2);
+		flex: 0 0 16px;
+		text-align: center;
 	}
 
 	.folder-context-menu {

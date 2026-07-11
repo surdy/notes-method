@@ -2569,7 +2569,7 @@ Theme assets are generated at build time from `ui/app/src/styles/theme-catalog.j
 
 ### 19.2 Sidebar views
 
-Sidebar views are user-defined in `.notesmith/sidebar.yaml`. By default (no YAML file), the sidebar shows only the Files tab — a standard file/folder tree with no tab bar.
+Sidebar views are user-defined in `.notesmith/sidebar.yaml`. By default (no YAML file), the sidebar shows only the Files tab — a Quill Rail file tree with disclosure carets, hairline indent guides, and a narrow accent spine on the selected note. Generic document icons are omitted; an explicit per-note `_icon` remains visible. No tab bar is rendered.
 
 When ≥1 custom view is configured, a tab bar appears at the top of the sidebar. Files is always present and always first. Tabs use a **fixed 2-column grid** (icon + name), wrapping to additional rows as needed. Views support an optional `badge_query` for tab-level badge counts.
 

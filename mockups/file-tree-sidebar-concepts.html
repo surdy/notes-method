@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notesmith file tree sidebar concepts — Memory vault</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #101114;
+      --page-glow: #1c2130;
+      --panel: #17191e;
+      --surface: #1d2026;
+      --surface-2: #242830;
+      --hover: #292e37;
+      --selected: #303846;
+      --border: #2e333c;
+      --border-soft: #252a31;
+      --text: #eef0f3;
+      --text-2: #b7bdc7;
+      --muted: #818995;
+      --faint: #5f6874;
+      --accent: #8ba7d9;
+      --accent-soft: rgba(139, 167, 217, 0.15);
+      --folder: #c1a875;
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+      --row-height: 29px;
+      --row-gap: 1px;
+      --radius: 10px;
+    }
+
+    html[data-theme="light"] {
+      color-scheme: light;
+      --page: #e9e8e4;
+      --page-glow: #d7dfed;
+      --panel: #f6f5f1;
+      --surface: #eeede8;
+      --surface-2: #e5e4df;
+      --hover: #dfdfda;
+      --selected: #d9e1ed;
+      --border: #d0cfca;
+      --border-soft: #dfded8;
+      --text: #25272b;
+      --text-2: #555b64;
+      --muted: #797f87;
+      --faint: #a0a3a7;
+      --accent: #4f6f9e;
+      --accent-soft: rgba(79, 111, 158, 0.12);
+      --folder: #927341;
+      --shadow: 0 22px 60px rgba(46, 50, 57, 0.14);
+    }
+
+    html[data-density="airy"] {
+      --row-height: 34px;
+      --row-gap: 3px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 1040px;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 50% -20%, var(--page-glow), transparent 46rem),
+        var(--page);
+      font: 13px/1.45 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button, input { color: inherit; font: inherit; }
+    button { border: 0; }
+
+    .page {
+      width: min(1480px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 36px 0 72px;
+    }
+
+    .page-header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 32px;
+      margin-bottom: 22px;
+    }
+
+    .eyebrow {
+      margin-bottom: 8px;
+      color: var(--accent);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(24px, 2.8vw, 36px);
+      font-weight: 620;
+      letter-spacing: -0.035em;
+    }
+
+    .intro {
+      max-width: 720px;
+      margin: 10px 0 0;
+      color: var(--text-2);
+      font-size: 13.5px;
+    }
+
+    .intro strong { color: var(--text); font-weight: 620; }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      padding: 5px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+    }
+
+    .control {
+      min-width: 76px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      background: transparent;
+      cursor: pointer;
+      color: var(--muted);
+    }
+
+    .control:hover { background: var(--hover); color: var(--text); }
+
+    .concepts {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 22px;
+    }
+
+    .concept {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .concept-copy {
+      min-height: 120px;
+      padding: 16px 19px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .concept-byline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .source {
+      padding: 3px 7px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--text-2);
+      letter-spacing: 0.08em;
+    }
+
+    h2 { margin: 0 0 7px; font-size: 17px; font-weight: 620; letter-spacing: -0.02em; }
+    .concept-copy p { margin: 0; color: var(--text-2); font-size: 12px; }
+
+    .stage {
+      display: grid;
+      place-items: center;
+      min-height: 640px;
+      padding: 24px;
+      background:
+        linear-gradient(135deg, transparent 48%, var(--border-soft) 48%, var(--border-soft) 52%, transparent 52%) 0 0 / 14px 14px,
+        var(--surface);
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      width: 300px;
+      height: 588px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: var(--panel);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+    }
+
+    .sidebar-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex: 0 0 auto;
+      height: 45px;
+      padding: 0 13px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .vault {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      font-weight: 620;
+    }
+
+    .vault-mark {
+      display: grid;
+      place-items: center;
+      width: 19px;
+      height: 19px;
+      border-radius: 6px;
+      background: var(--accent);
+      color: var(--panel);
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .head-action {
+      display: grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .head-action:hover { background: var(--hover); color: var(--text); }
+
+    .search-wrap { flex: 0 0 auto; padding: 9px 11px 7px; }
+
+    .search {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      height: 30px;
+      padding: 0 9px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--muted);
+    }
+
+    .search input {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .search input::placeholder { color: var(--muted); }
+
+    .tree {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 2px 7px 8px;
+    }
+
+    .tree::-webkit-scrollbar { width: 9px; }
+    .tree::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+    .tree::-webkit-scrollbar-track { background: transparent; }
+
+    .sidebar-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+      height: 28px;
+      padding: 0 11px;
+      border-top: 1px solid var(--border-soft);
+      background: color-mix(in srgb, var(--panel) 92%, var(--surface));
+      color: var(--muted);
+      font-size: 10.5px;
+    }
+
+    .sidebar-status .status-dot {
+      width: 5px;
+      height: 5px;
+      flex: 0 0 5px;
+      border-radius: 50%;
+      background: var(--faint);
+    }
+
+    .sidebar-status.has-selection .status-dot { background: var(--accent); }
+
+    .sidebar-status .status-path {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10px;
+    }
+
+    .row {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      width: 100%;
+      height: var(--row-height);
+      margin-bottom: var(--row-gap);
+      padding: 0 8px;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--text-2);
+      cursor: pointer;
+      text-align: left;
+      user-select: none;
+    }
+
+    .row:hover { background: var(--hover); color: var(--text); }
+    .row.selected { background: var(--selected); color: var(--text); }
+
+    .row .label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .row .meta {
+      margin-left: auto;
+      color: var(--faint);
+      font-size: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .chevron {
+      display: grid;
+      place-items: center;
+      width: 14px;
+      flex: 0 0 14px;
+      color: var(--faint);
+      font-size: 9px;
+      transition: transform 150ms ease;
+    }
+
+    .folder-row[aria-expanded="true"] .chevron { transform: rotate(90deg); }
+
+    .icon {
+      display: inline-grid;
+      place-items: center;
+      width: 15px;
+      height: 15px;
+      flex: 0 0 15px;
+      color: var(--muted);
+    }
+
+    .folder-icon { color: var(--folder); }
+
+    .icon svg {
+      width: 14px;
+      height: 14px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.45;
+    }
+
+    .branch[hidden] { display: none; }
+
+    .indent-1 { padding-left: 26px; }
+    .indent-2 { padding-left: 44px; }
+    .indent-3 { padding-left: 62px; }
+
+    .note-dot {
+      width: 4px;
+      height: 4px;
+      margin-left: 5px;
+      margin-right: 6px;
+      border-radius: 50%;
+      background: var(--faint);
+    }
+
+    /* Concept 1: Branch Spine */
+    .spine .branch { position: relative; }
+    .spine .branch::before {
+      position: absolute; top: 0; bottom: 4px; left: 18px; width: 1px;
+      background: var(--border); content: "";
+    }
+    .spine .branch .branch::before { left: 36px; }
+    .spine .branch .branch .branch::before { left: 54px; }
+    .spine .indent-1::before,
+    .spine .indent-2::before {
+      position: absolute; top: 50%; width: 9px; height: 1px;
+      background: var(--border); content: "";
+    }
+    .spine .indent-1::before { left: 18px; }
+    .spine .indent-2::before { left: 36px; }
+    .spine .row.selected {
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+    }
+
+    /* Concept 2: Quill Rail */
+    .quill .folder-row { color: var(--text-2); font-weight: 580; }
+    .quill .branch {
+      position: relative;
+      margin-left: 14px;
+      padding-left: 4px;
+      border-left: 1px solid var(--border);
+    }
+    .quill .branch .branch { margin-left: 18px; }
+    .quill .branch .branch .branch { margin-left: 18px; }
+    .quill .row.selected {
+      font-weight: 610;
+      box-shadow: inset 2px 0 0 var(--accent);
+    }
+    /* A folder's chevron (14px + 7px row-gap = 21px) would otherwise push its
+       label further right than a sibling note at the same depth, making the
+       folder look nested one level deeper than it is. Pull the chevron back
+       into the indent gutter so folder and note labels share the same
+       left edge — only where there's gutter room to pull into (depth > 0). */
+    .quill .folder-row.indent-1 .chevron,
+    .quill .folder-row.indent-2 .chevron,
+    .quill .folder-row.indent-3 .chevron {
+      margin-left: -21px;
+    }
+    .dirty-dot {
+      width: 6px; height: 6px; margin-left: auto; border-radius: 50%; background: var(--accent);
+    }
+
+    /* Concept 3: Ink Drop */
+    .ink .folder-row { color: var(--text-2); font-weight: 570; }
+    .ink-mark {
+      display: grid;
+      place-items: center;
+      width: 13px;
+      flex: 0 0 13px;
+      color: var(--faint);
+      font-size: 9px;
+      line-height: 1;
+    }
+    .ink .folder-row[aria-expanded="true"] .ink-mark { color: var(--accent); font-size: 9px; }
+    .ink .folder-row[aria-expanded="false"] .ink-mark { font-size: 15px; }
+    .ink .row.selected { background: var(--selected); color: var(--accent); font-weight: 580; }
+    .ink .row.selected .ink-mark { color: var(--accent); }
+
+    .footer-note {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      margin-top: 22px;
+      padding: 14px 17px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: color-mix(in srgb, var(--panel) 88%, transparent);
+      color: var(--text-2);
+      font-size: 12px;
+    }
+
+    kbd {
+      padding: 2px 6px;
+      border: 1px solid var(--border);
+      border-bottom-width: 2px;
+      border-radius: 5px;
+      background: var(--surface);
+      color: var(--muted);
+      font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <div>
+        <div class="eyebrow">Notesmith · file tree study · Memory vault</div>
+        <h1>Three ways to navigate a vault</h1>
+        <p class="intro">
+          Seeded from the real folder structure of the <strong>Memory</strong> vault (47 notes across 11 top-level
+          segments), with one bonus nesting level added under <strong>tech/device-debugging</strong>,
+          <strong>technical-issues/chromecast</strong>, and <strong>technical-issues/nvidia-shield</strong>.
+          Every row is live: click a folder to expand or collapse it, click a note to select it and see its full
+          path at the bottom of the sidebar.
+        </p>
+      </div>
+      <div class="controls" aria-label="Preview controls">
+        <button class="control" id="theme-toggle" type="button">Light</button>
+        <button class="control" id="density-toggle" type="button">Airy</button>
+      </div>
+    </header>
+
+    <section class="concepts">
+      <article class="concept">
+        <div class="concept-copy">
+          <div class="concept-byline"><span>Concept 01</span><span class="source">Notesmith study</span></div>
+          <h2>Branch Spine</h2>
+          <p>Hairline connectors make deep structure legible at a glance — useful now that some folders nest two levels deep.</p>
+        </div>
+        <div class="stage">
+          <aside class="sidebar spine" data-sidebar data-style="spine">
+            <div class="sidebar-head">
+              <div class="vault"><span class="vault-mark">M</span><span>Memory</span></div>
+              <button class="head-action" type="button" aria-label="New note">＋</button>
+            </div>
+            <div class="search-wrap">
+              <label class="search"><span>⌕</span><input type="text" placeholder="Filter files" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+            </div>
+            <div class="tree" data-tree></div>
+            <div class="sidebar-status" data-status><span class="status-dot"></span><span class="status-path">No note selected</span></div>
+          </aside>
+        </div>
+      </article>
+
+      <article class="concept">
+        <div class="concept-copy">
+          <div class="concept-byline"><span>Concept 02</span><span class="source">Claude 4.8</span></div>
+          <h2>Quill Rail</h2>
+          <p>A typographic outline for writers who scan titles rather than file types — the style Notesmith's Files tab now ships with.</p>
+        </div>
+        <div class="stage">
+          <aside class="sidebar quill" data-sidebar data-style="quill">
+            <div class="sidebar-head">
+              <div class="vault"><span class="vault-mark">M</span><span>Memory</span></div>
+              <button class="head-action" type="button" aria-label="New note">＋</button>
+            </div>
+            <div class="search-wrap">
+              <label class="search"><span>⌕</span><input type="text" placeholder="Filter files" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+            </div>
+            <div class="tree" data-tree></div>
+            <div class="sidebar-status" data-status><span class="status-dot"></span><span class="status-path">No note selected</span></div>
+          </aside>
+        </div>
+      </article>
+
+      <article class="concept">
+        <div class="concept-copy">
+          <div class="concept-byline"><span>Concept 03</span><span class="source">Claude 4.8</span></div>
+          <h2>Ink Drop</h2>
+          <p>A dense, icon-light tree: hollow for closed folders, filled for open, a short dash for notes. Compact enough for 47 notes without feeling mechanical.</p>
+        </div>
+        <div class="stage">
+          <aside class="sidebar ink" data-sidebar data-style="ink">
+            <div class="sidebar-head">
+              <div class="vault"><span class="vault-mark">M</span><span>Memory</span></div>
+              <button class="head-action" type="button" aria-label="New note">＋</button>
+            </div>
+            <div class="search-wrap">
+              <label class="search"><span>⌕</span><input type="text" placeholder="Filter files" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+            </div>
+            <div class="tree" data-tree></div>
+            <div class="sidebar-status" data-status><span class="status-dot"></span><span class="status-path">No note selected</span></div>
+          </aside>
+        </div>
+      </article>
+    </section>
+
+    <div class="footer-note">
+      <span>Every folder and note below is generated from the same vault data — click to expand, collapse, and select.</span>
+      <span><kbd>click</kbd> folders · <kbd>click</kbd> notes</span>
+    </div>
+  </main>
+
+  <script>
+    // ---- Real Memory vault structure (+ one bonus nesting level) ----
+    function folder(name, children, expanded) {
+      return { type: 'folder', name, children, expanded: !!expanded };
+    }
+    function note(label, slug, parentPath) {
+      return { type: 'note', label, path: parentPath ? `${parentPath}/${slug}.md` : `${slug}.md` };
+    }
+
+    function buildVaultTree() {
+      return [
+        folder('Desktop Apps', [
+          note('Example: Raycast', 'example-raycast', 'desktop-apps'),
+          note('Poznote', 'poznote', 'desktop-apps'),
+          note('Tolaria', 'tolaria', 'desktop-apps'),
+          note('Zen Notes', 'zen-notes', 'desktop-apps')
+        ]),
+        folder('Devices', [
+          note('Chromecast (Family Room)', 'chromecast-google-tv-4k-family-room', 'devices'),
+          note('Example Device', 'example-device', 'devices'),
+          note('Nvidia Shield (Guest Room)', 'nvidia-shield-guest-room', 'devices'),
+          note('Nvidia Shield Pro (Master Bed)', 'nvidia-shield-pro-master-bed', 'devices')
+        ]),
+        folder('Facts', [
+          note('Copilot CLI: Stable Update Channel', 'copilot-cli-should-use-stable-update-channel', 'facts'),
+          note('Example User Preference', 'example-user-preference', 'facts'),
+          note('Never Auto-Capitalize Text Inputs', 'never-auto-capitalize-text-inputs', 'facts'),
+          note('Notesmith Deploys From clusterfault/notesmith', 'notesmith-deploys-from-clusterfault-notesmith', 'facts'),
+          note('Right Dock Is Passive', 'notesmith-right-dock-is-passive', 'facts'),
+          note('Status Bar Is Passive', 'notesmith-status-bar-is-passive', 'facts'),
+          note('OTW Tests Require an Emulator', 'otw-mockwebserver-tests-require-an-emulator', 'facts'),
+          note('shareshit-ios Needs Ad-Hoc Signing', 'shareshit-ios-simulator-tests-need-ad-hoc-signing', 'facts')
+        ]),
+        folder('Family', [
+          note('Example Family Member', 'example-family-member', 'family'),
+          note('Nupur', 'nupur', 'family')
+        ]),
+        folder('One-Liners', [
+          note("Clarke's Third Law", 'example-clarkes-third-law', 'one-liners')
+        ]),
+        folder('Opinions', [
+          note('Boring Technology', 'example-boring-technology', 'opinions'),
+          note('Imagination Is the AI Differentiator', 'imagination-is-the-ai-differentiator', 'opinions')
+        ]),
+        folder('People', [
+          note('Amit Attam', 'amit-attam', 'people'),
+          note('Deepak', 'deepak', 'people'),
+          note('Dushyant Maheshwary', 'dushyant-maheshwary', 'people'),
+          note('Example Person', 'example-person', 'people'),
+          note('Garimaa Kaur', 'garimaa-kaur', 'people'),
+          note('Gia Singh', 'gia-singh', 'people'),
+          note('Maira Maheshwary', 'maira-maheshwary', 'people'),
+          note('Manu Handa', 'manu-handa', 'people'),
+          note('Nikita Chhabaria', 'nikita-chhabaria', 'people'),
+          note('Pinky', 'pinky', 'people'),
+          note('Rajeev Singh', 'rajeev-singh', 'people'),
+          note('Ridhima Handa', 'ridhima-handa', 'people'),
+          note('Shubhangi Priya', 'shubhangi-priya', 'people'),
+          note('Smriti Attam', 'smriti-attam', 'people')
+        ]),
+        folder('Tech', [
+          note('Claude Code → Markdown Tools', 'claude-code-session-to-markdown-tools', 'tech'),
+          note('Copilot CLI Update Channels', 'copilot-cli-update-channel-and-self-updates', 'tech'),
+          note('SQLite FTS5 Example', 'example-sqlite-fts5', 'tech'),
+          note('Notesmith Server (quadhost)', 'notesmith-server-deployment-on-quadhost', 'tech'),
+          folder('Device Debugging', [
+            note('Android TV ADB Toolkit', 'android-tv-adb-toolkit', 'tech/device-debugging'),
+            note('Device Debugging Playbook', 'device-debugging-playbook', 'tech/device-debugging')
+          ], true)
+        ], true),
+        folder('Technical Issues', [
+          note('Example Technical Issue', 'example-technical-issue', 'technical-issues'),
+          folder('Chromecast', [
+            note('Wireless Debugging After Reboot', 'chromecast-sabrina-wireless-debugging-reboot', 'technical-issues/chromecast')
+          ], true),
+          folder('Nvidia Shield', [
+            note('Netflix Low Audio', 'nvidia-shield-netflix-low-audio', 'technical-issues/nvidia-shield'),
+            note('OTW Background Sync', 'nvidia-shield-otw-background-sync', 'technical-issues/nvidia-shield')
+          ], true)
+        ], true),
+        folder('Urdu', [
+          note('Ghalib: Hazaaron Khwahishen', 'example-ghalib-hazaaron', 'urdu')
+        ]),
+        folder('Work Stories', [
+          note('Outage Ownership', 'example-outage-ownership', 'work-stories')
+        ])
+      ];
+    }
+
+    function cloneTree(nodes) {
+      return nodes.map((node) =>
+        node.type === 'folder'
+          ? { ...node, children: cloneTree(node.children) }
+          : { ...node }
+      );
+    }
+
+    function countNotes(node) {
+      if (node.type === 'note') return 1;
+      return node.children.reduce((sum, child) => sum + countNotes(child), 0);
+    }
+
+    const icons = {
+      folder: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.75 4.25h4l1.2 1.5h7.3v6.75a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/><path d="M1.75 5.75v-2a1 1 0 0 1 1-1h2.4l1.2 1.5h6.9a1 1 0 0 1 1 1v.5"/></svg>',
+      note: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.25 1.75h6l3.5 3.5v8a1 1 0 0 1-1 1h-8.5a1 1 0 0 1-1-1V2.75a1 1 0 0 1 1-1z"/><path d="M9.25 1.75v3.5h3.5"/><path d="M5 8h5.5M5 10.5h4"/></svg>'
+    };
+
+    function indentClass(depth) {
+      return depth > 0 ? ` indent-${Math.min(depth, 3)}` : '';
+    }
+
+    function folderRowMarkup(kind, node, depth) {
+      const count = node.expanded ? '' : `<span class="meta">${countNotes(node)}</span>`;
+      const expanded = node.expanded ? 'true' : 'false';
+      const indent = indentClass(depth);
+      if (kind === 'quill') {
+        return `<button class="row folder-row${indent}" type="button" aria-expanded="${expanded}">
+          <span class="chevron">▶</span><span class="label">${node.name}</span>${count}
+        </button>`;
+      }
+      if (kind === 'ink') {
+        return `<button class="row folder-row${indent}" type="button" aria-expanded="${expanded}">
+          <span class="ink-mark">${node.expanded ? '●' : '◦'}</span><span class="label">${node.name}</span>${count}
+        </button>`;
+      }
+      // spine
+      return `<button class="row folder-row${indent}" type="button" aria-expanded="${expanded}">
+        <span class="chevron">▶</span><span class="icon folder-icon">${icons.folder}</span><span class="label">${node.name}</span>${count}
+      </button>`;
+    }
+
+    function noteRowMarkup(kind, node, depth) {
+      const indent = indentClass(depth);
+      if (kind === 'quill') {
+        return `<button class="row${indent}" type="button" data-path="${node.path}"><span class="label">${node.label}</span></button>`;
+      }
+      if (kind === 'ink') {
+        return `<button class="row${indent}" type="button" data-path="${node.path}"><span class="ink-mark">—</span><span class="label">${node.label}</span></button>`;
+      }
+      if (kind === 'spine') {
+        return `<button class="row${indent}" type="button" data-path="${node.path}"><span class="note-dot"></span><span class="label">${node.label}</span></button>`;
+      }
+      // spine / quill / ink
+      return `<button class="row${indent}" type="button" data-path="${node.path}"><span class="icon">${icons.note}</span><span class="label">${node.label}</span></button>`;
+    }
+
+    function renderNodes(nodes, depth, kind) {
+      return nodes
+        .map((node) => {
+          if (node.type === 'folder') {
+            const row = folderRowMarkup(kind, node, depth);
+            const branch = `<div class="branch"${node.expanded ? '' : ' hidden'}>${renderNodes(node.children, depth + 1, kind)}</div>`;
+            return row + branch;
+          }
+          return noteRowMarkup(kind, node, depth);
+        })
+        .join('');
+    }
+
+    function render(sidebar) {
+      const style = sidebar.dataset.style;
+      const treeEl = sidebar.querySelector('[data-tree]');
+      const root = sidebar.__tree;
+      treeEl.innerHTML = renderNodes(root, 0, style);
+      wireRows(sidebar);
+    }
+
+    function findNodeByRow(root, row) {
+      // Walk the DOM to find the ordinal index of this row among all rows,
+      // then walk the data tree in the same order to find the matching node.
+      const allRows = Array.from(row.closest('[data-tree]').querySelectorAll('.row'));
+      const index = allRows.indexOf(row);
+      let counter = -1;
+      let found = null;
+
+      // Collapsed branches stay in the DOM (just `hidden`), so every row —
+      // visible or not — is counted here to match querySelectorAll('.row') order.
+      function visitAll(nodes) {
+        for (const node of nodes) {
+          counter += 1;
+          if (counter === index) {
+            found = node;
+            return true;
+          }
+          if (node.type === 'folder') {
+            if (visitAll(node.children)) return true;
+          }
+        }
+        return false;
+      }
+
+      visitAll(root);
+      return found;
+    }
+
+    function wireRows(sidebar) {
+      const treeEl = sidebar.querySelector('[data-tree]');
+      const statusEl = sidebar.querySelector('[data-status]');
+
+      treeEl.querySelectorAll('.folder-row').forEach((row) => {
+        row.addEventListener('click', () => {
+          const node = findNodeByRow(sidebar.__tree, row);
+          if (!node) return;
+          node.expanded = !node.expanded;
+          render(sidebar);
+        });
+      });
+
+      treeEl.querySelectorAll('.row:not(.folder-row)').forEach((row) => {
+        row.addEventListener('click', () => {
+          treeEl.querySelectorAll('.row.selected').forEach((selected) => selected.classList.remove('selected'));
+          row.classList.add('selected');
+          const path = row.dataset.path;
+          statusEl.classList.add('has-selection');
+          statusEl.querySelector('.status-path').textContent = path;
+        });
+      });
+    }
+
+    document.querySelectorAll('[data-sidebar]').forEach((sidebar) => {
+      sidebar.__tree = cloneTree(buildVaultTree());
+      render(sidebar);
+    });
+
+    document.getElementById('theme-toggle').addEventListener('click', (event) => {
+      const root = document.documentElement;
+      const light = root.dataset.theme === 'light';
+      root.dataset.theme = light ? 'dark' : 'light';
+      event.currentTarget.textContent = light ? 'Light' : 'Dark';
+    });
+
+    document.getElementById('density-toggle').addEventListener('click', (event) => {
+      const root = document.documentElement;
+      const airy = root.dataset.density === 'airy';
+      root.dataset.density = airy ? 'compact' : 'airy';
+      event.currentTarget.textContent = airy ? 'Airy' : 'Compact';
+    });
+  </script>
+</body>
+</html>

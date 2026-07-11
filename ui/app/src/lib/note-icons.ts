@@ -1,12 +1,11 @@
 import type { NoteSummary } from './api';
 
 export function noteIcon(note: NoteSummary): string {
-	const icon = readString(note.frontmatter?._icon);
-	if (icon) {
-		return icon;
-	}
+	return configuredNoteIcon(note) ?? '📄';
+}
 
-	return '📄';
+export function configuredNoteIcon(note: NoteSummary): string | undefined {
+	return readString(note.frontmatter?._icon);
 }
 
 function readString(value: unknown): string | undefined {
