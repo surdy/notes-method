@@ -317,8 +317,17 @@ fn companion_http_binding(
     let base = daemon_url.trim_end_matches('/');
     let scope = if read_only { "mcp-ro" } else { "mcp" };
     let url = format!("{base}/{scope}/{vault}");
+    let namespaced = notesmith_agent::server_name_for_namespaced_vault(server_id, vault);
+    let companion_suffix = namespaced
+        .strip_prefix("notesmith")
+        .unwrap_or(namespaced.as_str())
+        .trim_start_matches('-');
     McpBinding::http(
-        notesmith_agent::server_name_for_namespaced_vault(server_id, vault),
+        if companion_suffix.is_empty() {
+            "notesmith--companion".to_string()
+        } else {
+            format!("notesmith--companion-{companion_suffix}")
+        },
         url,
     )
 }
@@ -345,8 +354,106 @@ fn dedupe_companion_binding(
     if active.is_some_and(|binding| dedupe_key(binding) == dedupe_key(&companion)) {
         None
     } else {
-        Some(companion)
+        Some(ensure_unique_companion_name(active, companion))
     }
+}
+
+fn ensure_unique_companion_name(
+    active: Option<&McpBinding>,
+    mut companion: McpBinding,
+) -> McpBinding {
+    if active.is_some_and(|binding| binding.name() == companion.name()) {
+        let unique_name = format!("{}-companion", companion.name());
+        match &mut companion {
+            McpBinding::Http { name, .. } | McpBinding::Stdio { name, .. } => {
+                *name = unique_name;
+            }
+        }
+    }
+    companion
+}
+
+fn unavailable_companion_vault_message(server_name: &str, vault: &str) -> String {
+    format!(
+        "Companion memory vault '{vault}' on '{}' is unavailable. Refresh saved server vaults in Settings → Connection and try again.",
+        server_name
+    )
+}
+
+fn missing_companion_vault_message(server_name: &str, vault: &str) -> String {
+    format!(
+        "Companion memory vault '{vault}' was not found on '{}'. Refresh saved server vaults in Settings → Connection and try again.",
+        server_name
+    )
+}
+
+fn should_refresh_companion_cache(
+    entry: Option<&notesmith_tauri::vault_cache::ServerVaults>,
+) -> bool {
+    match entry {
+        None => true,
+        Some(entry) => {
+            entry.last_seen.is_none()
+                && matches!(
+                    entry.status,
+                    notesmith_tauri::vault_cache::VaultListStatus::Fresh
+                        | notesmith_tauri::vault_cache::VaultListStatus::Stale
+                )
+        }
+    }
+}
+
+#[cfg(test)]
+fn resolve_companion_cache_entry<F>(
+    cache_entry: Option<notesmith_tauri::vault_cache::ServerVaults>,
+    server_name: &str,
+    vault: &str,
+    refresh: F,
+) -> Result<notesmith_tauri::vault_cache::ServerVaults, String>
+where
+    F: FnOnce() -> Option<notesmith_tauri::vault_cache::ServerVaults>,
+{
+    let cache_entry = if should_refresh_companion_cache(cache_entry.as_ref()) {
+        refresh()
+    } else {
+        cache_entry
+    };
+
+    validate_companion_cache_entry(cache_entry, server_name, vault)
+}
+
+fn validate_companion_cache_entry(
+    cache_entry: Option<notesmith_tauri::vault_cache::ServerVaults>,
+    server_name: &str,
+    vault: &str,
+) -> Result<notesmith_tauri::vault_cache::ServerVaults, String> {
+    let cache_entry =
+        cache_entry.ok_or_else(|| unavailable_companion_vault_message(server_name, vault))?;
+
+    use notesmith_tauri::vault_cache::VaultListStatus;
+    match cache_entry.status {
+        VaultListStatus::AuthError => {
+            return Err(format!(
+                "Companion memory server '{server_name}' rejected the saved credentials. Update the connection token in Settings → Connection and try again."
+            ));
+        }
+        VaultListStatus::Unreachable => {
+            return Err(format!(
+                "Companion memory server '{server_name}' is unreachable. Refresh saved server vaults in Settings → Connection and try again."
+            ));
+        }
+        VaultListStatus::Fresh | VaultListStatus::Stale => {}
+    }
+
+    if !cache_entry
+        .vaults
+        .iter()
+        .any(|candidate| candidate == vault)
+    {
+        return Err(missing_companion_vault_message(server_name, vault));
+    }
+
+    Ok(cache_entry)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -837,7 +944,7 @@ fn resolve_session(agent: &str, cfg: &AgentsConfig) -> Result<AcpSession, String
 /// Build (but do not start) an [`AcpSession`] for `opts`, wired to the MCP
 /// endpoint of the daemon the calling window (`window_label`) is connected to,
 /// plus a UI permission decider.
-fn resolve_companion_memory_binding(
+async fn resolve_companion_memory_binding(
     app: &AppHandle,
     window_label: &str,
     opts: &StartSessionOptions,
@@ -874,43 +981,13 @@ fn resolve_companion_memory_binding(
         format!("Companion memory server '{server_id}' is no longer in saved connections.")
     })?;
 
-    let cache_entry = app
-        .state::<crate::VaultCacheState>()
-        .get(server_id)
-        .ok_or_else(|| {
-            format!(
-                "Companion memory vault '{vault}' on '{}' is unavailable. Refresh saved server vaults in Settings → Connection and try again.",
-                server.name
-            )
-        })?;
-
-    use notesmith_tauri::vault_cache::VaultListStatus;
-    match cache_entry.status {
-        VaultListStatus::AuthError => {
-            return Err(format!(
-                "Companion memory server '{}' rejected the saved credentials. Update the connection token in Settings → Connection and try again.",
-                server.name
-            ));
-        }
-        VaultListStatus::Unreachable => {
-            return Err(format!(
-                "Companion memory server '{}' is unreachable. Refresh saved server vaults in Settings → Connection and try again.",
-                server.name
-            ));
-        }
-        VaultListStatus::Fresh | VaultListStatus::Stale => {}
-    }
-
-    if !cache_entry
-        .vaults
-        .iter()
-        .any(|candidate| candidate == vault)
-    {
-        return Err(format!(
-            "Companion memory vault '{vault}' was not found on '{}'. Refresh saved server vaults in Settings → Connection and try again.",
-            server.name
-        ));
-    }
+    let cache_entry = app.state::<crate::VaultCacheState>().get(server_id);
+    let cache_entry = if should_refresh_companion_cache(cache_entry.as_ref()) {
+        crate::refresh_server_vault_cache(app.clone(), server_id.to_string()).await
+    } else {
+        cache_entry
+    };
+    validate_companion_cache_entry(cache_entry, &server.name, vault)?;
 
     let effective_read_only = opts.read_only || companion.read_only;
     let binding = companion_http_binding(&server.url, server_id, vault, effective_read_only);
@@ -927,7 +1004,7 @@ fn session_primary_binding(
     http_binding(&daemon_url, opts)
 }
 
-fn build_session(
+async fn build_session(
     app: &AppHandle,
     opts: &StartSessionOptions,
     session_id: &str,
@@ -974,7 +1051,8 @@ fn build_session(
     }
 
     let mut extra = extra_mcp_bindings(&mcp_config);
-    if let Some(companion) = resolve_companion_memory_binding(app, window_label, opts, &mcp_config)?
+    if let Some(companion) =
+        resolve_companion_memory_binding(app, window_label, opts, &mcp_config).await?
     {
         extra.insert(0, companion);
         session = session.with_companion_memory(true);
@@ -1080,7 +1158,8 @@ async fn spawn_session(
     window_label: &str,
     opts: StartSessionOptions,
 ) -> Result<(SessionEntry, Option<ModelPickerDto>), String> {
-    let mut session = build_session(app, &opts, session_id, window_label, bridge.pending.clone())?;
+    let mut session =
+        build_session(app, &opts, session_id, window_label, bridge.pending.clone()).await?;
 
     // Eagerly run the handshake so the model picker is available immediately.
     session.start().await.map_err(|e| e.to_string())?;
@@ -1846,7 +1925,7 @@ mod tests {
             "memory",
             false,
         );
-        assert_eq!(binding.name(), "notesmith-memory-memory-host");
+        assert_eq!(binding.name(), "notesmith--companion-memory-memory-host");
         match binding {
             McpBinding::Http { url, read_only, .. } => {
                 assert_eq!(url, "https://memory.example.com/mcp/memory");
@@ -1870,21 +1949,194 @@ mod tests {
     }
 
     #[test]
+    fn companion_binding_names_cannot_collide_with_active_vault_bindings() {
+        let active = McpBinding::http(
+            notesmith_agent::server_name_for_vault("work-memory-host"),
+            "https://active.example.com/mcp/work-memory-host",
+        );
+        let companion =
+            companion_http_binding("https://memory.example.com/", "memory-host", "work", false);
+
+        assert_ne!(active.name(), companion.name());
+        assert_eq!(companion.name(), "notesmith--companion-work-memory-host");
+    }
+
+    #[test]
     fn dedupe_skips_companion_when_it_matches_the_active_binding() {
         let active = McpBinding::http("notesmith-work", "https://active.example.com/mcp/work");
         assert!(dedupe_companion_binding(Some(&active), Some(active.clone())).is_none());
     }
 
     #[test]
+    fn dedupe_skips_url_equivalent_companion_even_with_a_distinct_name() {
+        let active = McpBinding::http("notesmith-work", "https://active.example.com/mcp/work");
+        let companion =
+            companion_http_binding("https://active.example.com/", "memory", "work", true);
+
+        assert!(dedupe_companion_binding(Some(&active), Some(companion)).is_none());
+    }
+
+    #[test]
     fn dedupe_keeps_distinct_companion_bindings() {
         let active = McpBinding::http("notesmith-work", "https://active.example.com/mcp/work");
         let companion = McpBinding::http(
-            "notesmith-memory-memory-host",
+            "notesmith--companion-memory-memory-host",
             "https://memory.example.com/mcp-ro/memory",
         );
         assert_eq!(
             dedupe_companion_binding(Some(&active), Some(companion.clone())),
             Some(companion)
+        );
+    }
+
+    #[test]
+    fn dedupe_renames_companion_when_a_name_collision_slips_through() {
+        let active = McpBinding::http("notesmith-work", "https://active.example.com/mcp/work");
+        let companion = McpBinding::http("notesmith-work", "https://memory.example.com/mcp/memory");
+
+        let companion = dedupe_companion_binding(Some(&active), Some(companion))
+            .expect("distinct URLs must keep the companion binding");
+        assert_ne!(companion.name(), active.name());
+        assert_eq!(companion.name(), "notesmith-work-companion");
+    }
+
+    fn cached_server_vaults(
+        status: notesmith_tauri::vault_cache::VaultListStatus,
+        vaults: &[&str],
+        last_seen: Option<u64>,
+    ) -> notesmith_tauri::vault_cache::ServerVaults {
+        notesmith_tauri::vault_cache::ServerVaults {
+            vaults: vaults.iter().map(|vault| (*vault).to_string()).collect(),
+            last_seen: last_seen.map(|secs| {
+                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs)
+            }),
+            status,
+        }
+    }
+
+    #[test]
+    fn companion_cache_refreshes_selected_server_on_cold_start() {
+        use std::cell::Cell;
+
+        let refresh_calls = Cell::new(0);
+        let entry = resolve_companion_cache_entry(None, "Memory Server", "memory", || {
+            refresh_calls.set(refresh_calls.get() + 1);
+            Some(cached_server_vaults(
+                notesmith_tauri::vault_cache::VaultListStatus::Fresh,
+                &["memory", "work"],
+                Some(10),
+            ))
+        })
+        .expect("refresh should load the companion vault");
+
+        assert_eq!(refresh_calls.get(), 1);
+        assert_eq!(entry.vaults, vec!["memory".to_string(), "work".to_string()]);
+    }
+
+    #[test]
+    fn companion_cache_uses_populated_fast_path_without_refresh() {
+        use std::cell::Cell;
+
+        let refresh_calls = Cell::new(0);
+        let entry = resolve_companion_cache_entry(
+            Some(cached_server_vaults(
+                notesmith_tauri::vault_cache::VaultListStatus::Fresh,
+                &["memory"],
+                Some(10),
+            )),
+            "Memory Server",
+            "memory",
+            || {
+                refresh_calls.set(refresh_calls.get() + 1);
+                Some(cached_server_vaults(
+                    notesmith_tauri::vault_cache::VaultListStatus::Fresh,
+                    &["other"],
+                    Some(20),
+                ))
+            },
+        )
+        .expect("warm cache should validate directly");
+
+        assert_eq!(refresh_calls.get(), 0);
+        assert_eq!(entry.vaults, vec!["memory".to_string()]);
+    }
+
+    #[test]
+    fn companion_cache_refreshes_stale_uninitialized_entries() {
+        use std::cell::Cell;
+
+        let refresh_calls = Cell::new(0);
+        let entry = resolve_companion_cache_entry(
+            Some(cached_server_vaults(
+                notesmith_tauri::vault_cache::VaultListStatus::Stale,
+                &[],
+                None,
+            )),
+            "Memory Server",
+            "memory",
+            || {
+                refresh_calls.set(refresh_calls.get() + 1);
+                Some(cached_server_vaults(
+                    notesmith_tauri::vault_cache::VaultListStatus::Fresh,
+                    &["memory"],
+                    Some(20),
+                ))
+            },
+        )
+        .expect("stale uninitialized cache should refresh");
+
+        assert_eq!(refresh_calls.get(), 1);
+        assert_eq!(entry.vaults, vec!["memory".to_string()]);
+    }
+
+    #[test]
+    fn companion_cache_reports_auth_failures_after_refresh() {
+        let error = resolve_companion_cache_entry(None, "Memory Server", "memory", || {
+            Some(cached_server_vaults(
+                notesmith_tauri::vault_cache::VaultListStatus::AuthError,
+                &[],
+                None,
+            ))
+        })
+        .expect_err("auth failures should surface");
+
+        assert_eq!(
+            error,
+            "Companion memory server 'Memory Server' rejected the saved credentials. Update the connection token in Settings → Connection and try again."
+        );
+    }
+
+    #[test]
+    fn companion_cache_reports_unreachable_servers_after_refresh() {
+        let error = resolve_companion_cache_entry(None, "Memory Server", "memory", || {
+            Some(cached_server_vaults(
+                notesmith_tauri::vault_cache::VaultListStatus::Unreachable,
+                &[],
+                None,
+            ))
+        })
+        .expect_err("transport failures should surface");
+
+        assert_eq!(
+            error,
+            "Companion memory server 'Memory Server' is unreachable. Refresh saved server vaults in Settings → Connection and try again."
+        );
+    }
+
+    #[test]
+    fn companion_cache_reports_missing_vaults_after_refresh() {
+        let error = resolve_companion_cache_entry(None, "Memory Server", "memory", || {
+            Some(cached_server_vaults(
+                notesmith_tauri::vault_cache::VaultListStatus::Fresh,
+                &["other"],
+                Some(10),
+            ))
+        })
+        .expect_err("missing vaults should surface");
+
+        assert_eq!(
+            error,
+            "Companion memory vault 'memory' was not found on 'Memory Server'. Refresh saved server vaults in Settings → Connection and try again."
         );
     }
 

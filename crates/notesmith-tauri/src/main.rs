@@ -3208,6 +3208,35 @@ const VAULT_REFRESH_TIMEOUT: Duration = Duration::from_secs(4);
 /// focus toggles (e.g. a window drag) don't hammer remote servers.
 const VAULT_FOCUS_REFRESH_DEBOUNCE: Duration = Duration::from_secs(5);
 
+fn build_vault_refresh_client() -> Option<reqwest::Client> {
+    match reqwest::Client::builder()
+        .timeout(VAULT_REFRESH_TIMEOUT)
+        .build()
+    {
+        Ok(client) => Some(client),
+        Err(error) => {
+            tracing::warn!(%error, "failed to build vault-refresh HTTP client");
+            None
+        }
+    }
+}
+
+pub(crate) async fn refresh_server_vault_cache(
+    app: tauri::AppHandle,
+    server_id: String,
+) -> Option<notesmith_tauri::vault_cache::ServerVaults> {
+    let snapshot = app.state::<ServersState>().snapshot();
+    let server = snapshot.get(&server_id)?;
+    let client = build_vault_refresh_client()?;
+    let outcome = fetch_server_vaults(&client, &server.url, server.token.as_deref()).await;
+    let cache = app.state::<VaultCacheState>();
+    cache.merge(&server_id, outcome, SystemTime::now());
+    if let Err(error) = rebuild_dynamic_menus(&app) {
+        tracing::warn!(%error, "failed to rebuild menus after companion vault refresh");
+    }
+    cache.get(&server_id)
+}
+
 /// Background loop that refreshes the remote vault-list cache at the menu's
 /// cache-TTL cadence, so the "New Window" list stays current even while the app
 /// stays frontmost and no focus event fires. Runs for the life of the app;
@@ -3240,15 +3269,8 @@ async fn refresh_vault_cache(app: tauri::AppHandle) {
         return;
     }
 
-    let client = match reqwest::Client::builder()
-        .timeout(VAULT_REFRESH_TIMEOUT)
-        .build()
-    {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::warn!(%error, "failed to build vault-refresh HTTP client");
-            return;
-        }
+    let Some(client) = build_vault_refresh_client() else {
+        return;
     };
 
     let outcomes = futures::stream::iter(servers.into_iter().map(|server| {
