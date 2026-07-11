@@ -21,8 +21,11 @@ use notesmith_query::execute_sql;
 use notesmith_routing::RoutingEngine;
 use notesmith_tasks::toggle_task;
 use notesmith_templates::TemplateEngine;
-use notesmith_vault::{NativeVaultEngine, apply_save_pipeline, parse_note};
+use notesmith_vault::{
+    NativeVaultEngine, apply_save_pipeline, apply_save_pipeline_with_timestamp, parse_note,
+};
 use rusqlite::{Connection, params};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use serde_yaml::{Mapping, Value as YamlValue};
 
@@ -210,6 +213,7 @@ pub struct LocalOps {
     search_index: Arc<SearchIndex>,
     template_engine: Arc<TemplateEngine>,
     vault_config: VaultConfig,
+    timestamp_provider: Arc<dyn Fn() -> String + Send + Sync>,
     /// Lazily-built hybrid (lexical+semantic) searcher. Memoised once the
     /// vault's `embeddings.db` exists and opens cleanly; until then each
     /// `vault_search` degrades to lexical-only.
@@ -258,6 +262,29 @@ struct PlannedFactDocument {
     hash: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MemoryPreviewTokenCandidate {
+    path: String,
+    hash: String,
+    score: f32,
+    rank: usize,
+    lexical_rank: Option<usize>,
+    semantic_rank: Option<usize>,
+    exact_duplicate: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MemoryPreviewTokenPayload {
+    version: u8,
+    operation: String,
+    current_path: Option<String>,
+    expected_hash: Option<String>,
+    mutation_timestamp: String,
+    proposed_path: String,
+    proposed_hash: String,
+    candidates: Vec<MemoryPreviewTokenCandidate>,
+}
+
 impl LocalOps {
     /// Construct from owned cache/search index (builds a default template
     /// engine rooted at the vault).
@@ -268,6 +295,24 @@ impl LocalOps {
         search_index: SearchIndex,
         vault_config: VaultConfig,
     ) -> Self {
+        Self::new_with_timestamp_provider(
+            vault_name,
+            vault_root,
+            cache,
+            search_index,
+            vault_config,
+            Arc::new(now_timestamp_string),
+        )
+    }
+
+    fn new_with_timestamp_provider(
+        vault_name: String,
+        vault_root: PathBuf,
+        cache: VaultCache,
+        search_index: SearchIndex,
+        vault_config: VaultConfig,
+        timestamp_provider: Arc<dyn Fn() -> String + Send + Sync>,
+    ) -> Self {
         let template_engine = Arc::new(TemplateEngine::new(vault_root.clone(), None));
         Self {
             vault_name,
@@ -277,6 +322,7 @@ impl LocalOps {
             search_index: Arc::new(search_index),
             template_engine,
             vault_config,
+            timestamp_provider,
             hybrid: std::sync::OnceLock::new(),
         }
     }
@@ -299,6 +345,7 @@ impl LocalOps {
             search_index,
             template_engine,
             vault_config,
+            timestamp_provider: Arc::new(now_timestamp_string),
             hybrid: std::sync::OnceLock::new(),
         }
     }
@@ -784,9 +831,10 @@ impl LocalOps {
         path: String,
         draft: &FactDraft,
         replacement_body: Option<&str>,
+        timestamp: &str,
     ) -> Result<PlannedFactDocument> {
         let content = build_fact_document(draft, replacement_body);
-        let content = apply_save_pipeline(&content);
+        let content = apply_save_pipeline_with_timestamp(&content, timestamp);
         Ok(PlannedFactDocument {
             hash: blake3::hash(content.as_bytes()).to_hex().to_string(),
             path,
@@ -859,19 +907,63 @@ impl LocalOps {
         operation: &str,
         current_path: Option<&str>,
         expected_hash: Option<&str>,
+        mutation_timestamp: &str,
         proposed: &PlannedFactDocument,
         candidates: &[MemoryReviewCandidate],
     ) -> Result<String> {
-        let payload = json!({
-            "operation": operation,
-            "current_path": current_path,
-            "expected_hash": expected_hash,
-            "proposed_path": proposed.path,
-            "proposed_hash": proposed.hash,
-            "candidates": candidates,
-        });
-        let raw = serde_json::to_vec(&payload)?;
-        Ok(blake3::hash(&raw).to_hex().to_string())
+        let payload = MemoryPreviewTokenPayload {
+            version: 1,
+            operation: operation.to_string(),
+            current_path: current_path.map(ToOwned::to_owned),
+            expected_hash: expected_hash.map(ToOwned::to_owned),
+            mutation_timestamp: mutation_timestamp.to_string(),
+            proposed_path: proposed.path.clone(),
+            proposed_hash: proposed.hash.clone(),
+            candidates: candidates
+                .iter()
+                .map(|candidate| MemoryPreviewTokenCandidate {
+                    path: candidate.path.clone(),
+                    hash: candidate.hash.clone(),
+                    score: candidate.score,
+                    rank: candidate.rank,
+                    lexical_rank: candidate.lexical_rank,
+                    semantic_rank: candidate.semantic_rank,
+                    exact_duplicate: candidate.exact_duplicate,
+                })
+                .collect(),
+        };
+        let raw = serde_json::to_string(&payload)?;
+        let signature = blake3::hash(raw.as_bytes()).to_hex().to_string();
+        Ok(format!("{signature}:{raw}"))
+    }
+
+    fn preview_token_timestamp(
+        &self,
+        confirm_apply: bool,
+        preview_token: Option<&str>,
+    ) -> Result<String> {
+        if !confirm_apply {
+            return Ok((self.timestamp_provider)());
+        }
+
+        let supplied_token = preview_token.ok_or_else(|| {
+            anyhow::anyhow!(
+                "apply requires preview_token from a fresh preview of the same mutation"
+            )
+        })?;
+        let (expected_signature, raw_payload) =
+            supplied_token.split_once(':').ok_or_else(|| {
+                anyhow::anyhow!("write conflict for memory preview (token tampered or malformed)")
+            })?;
+        let actual_signature = blake3::hash(raw_payload.as_bytes()).to_hex().to_string();
+        if expected_signature != actual_signature {
+            anyhow::bail!("write conflict for memory preview (token tampered or malformed)");
+        }
+        let payload: MemoryPreviewTokenPayload =
+            serde_json::from_str(raw_payload).map_err(|_| {
+                anyhow::anyhow!("write conflict for memory preview (token tampered or malformed)")
+            })?;
+        Ok(payload.mutation_timestamp)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -880,6 +972,7 @@ impl LocalOps {
         operation: &str,
         current_path: Option<&str>,
         expected_hash: Option<&str>,
+        mutation_timestamp: &str,
         proposed: PlannedFactDocument,
         candidates: Vec<MemoryReviewCandidate>,
         confirm_apply: bool,
@@ -889,6 +982,7 @@ impl LocalOps {
             operation,
             current_path,
             expected_hash,
+            mutation_timestamp,
             &proposed,
             &candidates,
         )?;
@@ -955,7 +1049,7 @@ impl LocalOps {
             .and_then(|value| value.to_str())
             .unwrap_or(&slug);
         for index in 1usize.. {
-            let candidate = format!("facts/{stem} ({index}).md");
+            let candidate = format!("{parent}/{stem} ({index}).md");
             if current_path == Some(candidate.as_str())
                 || !self.vault_root.join(&candidate).exists()
             {
@@ -1824,13 +1918,15 @@ impl Ops for LocalOps {
             tags,
             acknowledge_inference,
         )?;
+        let mutation_timestamp = self.preview_token_timestamp(confirm_apply, preview_token)?;
         let path = self.target_fact_path(&draft.title, None)?;
-        let proposed = self.plan_fact_document(path.clone(), &draft, None)?;
+        let proposed = self.plan_fact_document(path.clone(), &draft, None, &mutation_timestamp)?;
         let candidates = self.build_review_candidates(&draft.claim, &draft.scope, None)?;
         let preview = self.apply_fact_preview(
             "memory_save",
             None,
             None,
+            &mutation_timestamp,
             proposed.clone(),
             candidates.clone(),
             confirm_apply,
@@ -1901,6 +1997,7 @@ impl Ops for LocalOps {
             tags.or_else(|| Some(current.tags.clone())),
             acknowledge_inference,
         )?;
+        let mutation_timestamp = self.preview_token_timestamp(confirm_apply, preview_token)?;
         let next_path = self.target_fact_path(&draft.title, Some(path))?;
         let next_body = body
             .map(ToOwned::to_owned)
@@ -1918,10 +2015,10 @@ impl Ops for LocalOps {
             draft.supersedes.as_deref(),
             Some(draft.tags.clone()),
         )?;
-        let proposed_content = apply_save_pipeline(&build_note_document_from_yaml(
-            &merged_frontmatter,
-            &next_body,
-        )?);
+        let proposed_content = apply_save_pipeline_with_timestamp(
+            &build_note_document_from_yaml(&merged_frontmatter, &next_body)?,
+            &mutation_timestamp,
+        );
         let proposed = PlannedFactDocument {
             hash: blake3::hash(proposed_content.as_bytes())
                 .to_hex()
@@ -1939,6 +2036,7 @@ impl Ops for LocalOps {
             "memory_update",
             Some(path),
             Some(expected_hash),
+            &mutation_timestamp,
             proposed.clone(),
             candidates.clone(),
             confirm_apply,
@@ -1997,19 +2095,25 @@ impl Ops for LocalOps {
             tags,
             acknowledge_inference,
         )?;
+        let mutation_timestamp = self.preview_token_timestamp(confirm_apply, preview_token)?;
         let new_path = self.target_fact_path(&draft.title, Some(path))?;
         let replacement_body = format!(
             "{}\n\nSupersedes [[{}]].",
             canonical_fact_body(&draft.title, &draft.claim),
             current.title
         );
-        let proposed =
-            self.plan_fact_document(new_path.clone(), &draft, Some(&replacement_body))?;
+        let proposed = self.plan_fact_document(
+            new_path.clone(),
+            &draft,
+            Some(&replacement_body),
+            &mutation_timestamp,
+        )?;
         let candidates = self.build_review_candidates(&draft.claim, &draft.scope, None)?;
         let preview = self.apply_fact_preview(
             "memory_supersede",
             Some(path),
             Some(expected_hash),
+            &mutation_timestamp,
             proposed.clone(),
             candidates.clone(),
             confirm_apply,
@@ -2039,8 +2143,10 @@ impl Ops for LocalOps {
             &current.note.body,
             &format!("Superseded by [[{}]].", draft.title),
         );
-        let old_content =
-            apply_save_pipeline(&build_note_document_from_yaml(&old_mapping, &old_body)?);
+        let old_content = apply_save_pipeline_with_timestamp(
+            &build_note_document_from_yaml(&old_mapping, &old_body)?,
+            &mutation_timestamp,
+        );
         if let Err(error) = self.write_content(
             &VaultPath::new(path.to_string()),
             Some(expected_hash),
@@ -2384,6 +2490,10 @@ fn normalize_claim(input: &str) -> String {
 
 fn today_string() -> String {
     Local::now().date_naive().to_string()
+}
+
+fn now_timestamp_string() -> String {
+    Local::now().format("%Y-%m-%d %H:%M").to_string()
 }
 
 fn canonical_fact_body(title: &str, claim: &str) -> String {
@@ -2848,6 +2958,7 @@ fn parse_flexible_date(raw: &str) -> Option<NaiveDate> {
 mod tests {
     use super::*;
     use std::path::Path;
+    use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
 
     fn vault_config() -> VaultConfig {
@@ -2862,6 +2973,13 @@ mod tests {
     }
 
     fn build_test_ops(root: &Path) -> LocalOps {
+        build_test_ops_with_timestamp_provider(root, Arc::new(now_timestamp_string))
+    }
+
+    fn build_test_ops_with_timestamp_provider(
+        root: &Path,
+        timestamp_provider: Arc<dyn Fn() -> String + Send + Sync>,
+    ) -> LocalOps {
         let engine = NativeVaultEngine;
         let notes = engine.scan(root).unwrap();
         let cache = VaultCache::open_in_memory().unwrap();
@@ -2870,13 +2988,40 @@ mod tests {
             .unwrap();
         let search_index = SearchIndex::open_in_memory().unwrap();
         search_index.reindex("test-vault", &notes).unwrap();
-        LocalOps::new(
+        LocalOps::new_with_timestamp_provider(
             "test-vault".to_string(),
             root.to_path_buf(),
             cache,
             search_index,
             vault_config(),
+            timestamp_provider,
         )
+    }
+
+    #[derive(Clone)]
+    struct TestClock {
+        current: Arc<Mutex<String>>,
+    }
+
+    impl TestClock {
+        fn new(initial: &str) -> Self {
+            Self {
+                current: Arc::new(Mutex::new(initial.to_string())),
+            }
+        }
+
+        fn provider(&self) -> Arc<dyn Fn() -> String + Send + Sync> {
+            let current = Arc::clone(&self.current);
+            Arc::new(move || current.lock().unwrap().clone())
+        }
+
+        fn set(&self, timestamp: &str) {
+            *self.current.lock().unwrap() = timestamp.to_string();
+        }
+    }
+
+    fn build_test_ops_with_clock(root: &Path, clock: &TestClock) -> LocalOps {
+        build_test_ops_with_timestamp_provider(root, clock.provider())
     }
 
     fn write_note(root: &Path, path: &str, content: &str) {
@@ -3346,6 +3491,101 @@ mod tests {
     }
 
     #[test]
+    fn memory_save_preview_token_survives_minute_boundary_and_rejects_tampering() {
+        let temp_dir = TempDir::new().unwrap();
+        let clock = TestClock::new("2026-07-10 10:59");
+        let ops = build_test_ops_with_clock(temp_dir.path(), &clock);
+
+        let preview = ops
+            .memory_save(
+                "Boundary Save",
+                "Preview should survive a minute rollover.",
+                None,
+                "user",
+                None,
+                "explicit",
+                Some("User statement"),
+                None,
+                None,
+                None,
+                false,
+                false,
+                None,
+            )
+            .unwrap();
+        let token = preview["preview_token"].as_str().unwrap().to_string();
+        let proposed_content = preview["proposed"]["content"].as_str().unwrap().to_string();
+        assert!(proposed_content.contains("updated: 2026-07-10 10:59"));
+
+        clock.set("2026-07-10 11:00");
+        let applied = ops
+            .memory_save(
+                "Boundary Save",
+                "Preview should survive a minute rollover.",
+                None,
+                "user",
+                None,
+                "explicit",
+                Some("User statement"),
+                None,
+                None,
+                None,
+                false,
+                true,
+                Some(&token),
+            )
+            .unwrap();
+        assert_eq!(applied["content"], proposed_content);
+
+        let changed = ops
+            .memory_save(
+                "Boundary Save",
+                "Changed claim should not reuse preview token.",
+                None,
+                "user",
+                None,
+                "explicit",
+                Some("User statement"),
+                None,
+                None,
+                None,
+                false,
+                true,
+                Some(&token),
+            )
+            .unwrap_err();
+        assert!(
+            changed
+                .to_string()
+                .contains("write conflict for memory preview")
+        );
+
+        let tampered = format!("{token}x");
+        let tamper_error = ops
+            .memory_save(
+                "Another Save",
+                "Token tampering must be detected.",
+                None,
+                "user",
+                None,
+                "explicit",
+                Some("User statement"),
+                None,
+                None,
+                None,
+                false,
+                true,
+                Some(&tampered),
+            )
+            .unwrap_err();
+        assert!(
+            tamper_error
+                .to_string()
+                .contains("write conflict for memory preview")
+        );
+    }
+
+    #[test]
     fn memory_save_rejects_invalid_provenance() {
         let temp_dir = TempDir::new().unwrap();
         let ops = build_test_ops(temp_dir.path());
@@ -3499,6 +3739,156 @@ mod tests {
             )
             .unwrap_err();
         assert!(stale.to_string().contains("write conflict"));
+    }
+
+    #[test]
+    fn memory_update_preview_token_survives_minute_boundary_and_rejects_mismatch() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/Existing.md",
+            "---\n\
+             type: fact\n\
+             title: Existing\n\
+             description: Old claim.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             # Existing\n\
+\n\
+             Old claim.\n",
+        );
+        let clock = TestClock::new("2026-07-10 10:59");
+        let ops = build_test_ops_with_clock(temp_dir.path(), &clock);
+        let current_hash = ops.get_note("facts/Existing.md").unwrap()["hash"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let preview = ops
+            .memory_update(
+                "facts/Existing.md",
+                &current_hash,
+                Some("Existing"),
+                Some("Updated claim."),
+                Some("Updated claim."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                false,
+            )
+            .unwrap();
+        let token = preview["preview_token"].as_str().unwrap().to_string();
+        let proposed_content = preview["proposed"]["content"].as_str().unwrap().to_string();
+        assert!(proposed_content.contains("updated: 2026-07-10 10:59"));
+
+        clock.set("2026-07-10 11:00");
+        let changed = ops
+            .memory_update(
+                "facts/Existing.md",
+                &current_hash,
+                Some("Existing"),
+                Some("Changed again."),
+                Some("Changed again."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                Some(&token),
+                false,
+            )
+            .unwrap_err();
+        assert!(
+            changed
+                .to_string()
+                .contains("write conflict for memory preview")
+        );
+
+        let stale = ops
+            .memory_update(
+                "facts/Existing.md",
+                "stale-hash",
+                Some("Existing"),
+                Some("Updated claim."),
+                Some("Updated claim."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                Some(&token),
+                false,
+            )
+            .unwrap_err();
+        assert!(stale.to_string().contains("write conflict"));
+
+        let tampered = format!("{token}x");
+        let tamper_error = ops
+            .memory_update(
+                "facts/Existing.md",
+                &current_hash,
+                Some("Existing"),
+                Some("Updated claim."),
+                Some("Updated claim."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                Some(&tampered),
+                false,
+            )
+            .unwrap_err();
+        assert!(
+            tamper_error
+                .to_string()
+                .contains("write conflict for memory preview")
+        );
+
+        let applied = ops
+            .memory_update(
+                "facts/Existing.md",
+                &current_hash,
+                Some("Existing"),
+                Some("Updated claim."),
+                Some("Updated claim."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                Some(&token),
+                false,
+            )
+            .unwrap();
+        assert_eq!(applied["content"], proposed_content);
     }
 
     #[test]
@@ -3723,6 +4113,141 @@ mod tests {
     }
 
     #[test]
+    fn memory_update_title_collision_stays_in_nested_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/nested/Current.md",
+            "---\n\
+             type: fact\n\
+             title: Current\n\
+             description: Current claim.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             # Current\n\
+\n\
+             Current claim.\n",
+        );
+        write_note(
+            temp_dir.path(),
+            "facts/nested/Target.md",
+            "---\n\
+             type: fact\n\
+             title: Target\n\
+             description: Existing sibling title.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             # Target\n\
+\n\
+             Existing sibling title.\n",
+        );
+        let ops = build_test_ops(temp_dir.path());
+        let current_hash = ops.get_note("facts/nested/Current.md").unwrap()["hash"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let preview = ops
+            .memory_update(
+                "facts/nested/Current.md",
+                &current_hash,
+                Some("Target"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                false,
+            )
+            .unwrap();
+
+        assert_eq!(preview["proposed"]["path"], "facts/nested/Target (1).md");
+    }
+
+    #[test]
+    fn memory_supersede_title_collision_stays_in_nested_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/nested/Current.md",
+            "---\n\
+             type: fact\n\
+             title: Current\n\
+             description: Current claim.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             # Current\n\
+\n\
+             Current claim.\n",
+        );
+        write_note(
+            temp_dir.path(),
+            "facts/nested/Replacement.md",
+            "---\n\
+             type: fact\n\
+             title: Replacement\n\
+             description: Existing sibling title.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             # Replacement\n\
+\n\
+             Existing sibling title.\n",
+        );
+        let ops = build_test_ops(temp_dir.path());
+        let current_hash = ops.get_note("facts/nested/Current.md").unwrap()["hash"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let preview = ops
+            .memory_supersede(
+                "facts/nested/Current.md",
+                &current_hash,
+                "Replacement",
+                "Replacement claim.",
+                None,
+                "user",
+                None,
+                "explicit",
+                Some("User statement"),
+                None,
+                None,
+                false,
+                false,
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            preview["proposed"]["path"],
+            "facts/nested/Replacement (1).md"
+        );
+    }
+
+    #[test]
     fn memory_supersede_marks_old_fact_and_links_both_directions() {
         let temp_dir = TempDir::new().unwrap();
         write_note(
@@ -3816,6 +4341,148 @@ mod tests {
             )
             .unwrap_err();
         assert!(stale.to_string().contains("write conflict"));
+    }
+
+    #[test]
+    fn memory_supersede_preview_token_survives_minute_boundary_and_rejects_mismatch() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/Old.md",
+            "---\n\
+             type: fact\n\
+             title: Old\n\
+             description: I prefer tea.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             # Old\n\
+\n\
+             I prefer tea.\n",
+        );
+        let clock = TestClock::new("2026-07-10 10:59");
+        let ops = build_test_ops_with_clock(temp_dir.path(), &clock);
+        let old_hash = ops.get_note("facts/Old.md").unwrap()["hash"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let preview = ops
+            .memory_supersede(
+                "facts/Old.md",
+                &old_hash,
+                "New",
+                "I prefer coffee.",
+                None,
+                "user",
+                None,
+                "explicit",
+                Some("User statement"),
+                None,
+                Some(vec!["beverage".to_string()]),
+                false,
+                false,
+                None,
+            )
+            .unwrap();
+        let token = preview["preview_token"].as_str().unwrap().to_string();
+        let proposed_content = preview["proposed"]["content"].as_str().unwrap().to_string();
+        assert!(proposed_content.contains("updated: 2026-07-10 10:59"));
+
+        clock.set("2026-07-10 11:00");
+        let changed = ops
+            .memory_supersede(
+                "facts/Old.md",
+                &old_hash,
+                "New",
+                "I prefer espresso.",
+                None,
+                "user",
+                None,
+                "explicit",
+                Some("User statement"),
+                None,
+                Some(vec!["beverage".to_string()]),
+                false,
+                true,
+                Some(&token),
+            )
+            .unwrap_err();
+        assert!(
+            changed
+                .to_string()
+                .contains("write conflict for memory preview")
+        );
+
+        let stale = ops
+            .memory_supersede(
+                "facts/Old.md",
+                "stale-hash",
+                "New",
+                "I prefer coffee.",
+                None,
+                "user",
+                None,
+                "explicit",
+                Some("User statement"),
+                None,
+                Some(vec!["beverage".to_string()]),
+                false,
+                true,
+                Some(&token),
+            )
+            .unwrap_err();
+        assert!(stale.to_string().contains("write conflict"));
+
+        let tampered = format!("{token}x");
+        let tamper_error = ops
+            .memory_supersede(
+                "facts/Old.md",
+                &old_hash,
+                "New",
+                "I prefer coffee.",
+                None,
+                "user",
+                None,
+                "explicit",
+                Some("User statement"),
+                None,
+                Some(vec!["beverage".to_string()]),
+                false,
+                true,
+                Some(&tampered),
+            )
+            .unwrap_err();
+        assert!(
+            tamper_error
+                .to_string()
+                .contains("write conflict for memory preview")
+        );
+
+        let applied = ops
+            .memory_supersede(
+                "facts/Old.md",
+                &old_hash,
+                "New",
+                "I prefer coffee.",
+                None,
+                "user",
+                None,
+                "explicit",
+                Some("User statement"),
+                None,
+                Some(vec!["beverage".to_string()]),
+                false,
+                true,
+                Some(&token),
+            )
+            .unwrap();
+        assert_eq!(applied["new_path"], "facts/New.md");
+        let stored = std::fs::read_to_string(temp_dir.path().join("facts/New.md")).unwrap();
+        assert_eq!(stored, proposed_content);
     }
 
     #[test]
