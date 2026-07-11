@@ -61,6 +61,7 @@ export interface TranscriptApi {
 	): Promise<unknown>;
 	deleteThread(vault: string, threadId: string): Promise<void>;
 	renameThread(vault: string, threadId: string, title: string): Promise<Thread>;
+	setThreadSession(vault: string, threadId: string, acpSessionId: string | null): Promise<Thread>;
 }
 
 /** The subset of the permission API the store needs; injectable for tests. */
@@ -133,6 +134,12 @@ export class ChatStore {
 	private pendingInlineApply: ApplyMode | null = null;
 	private unsubscribers: Array<() => void> = [];
 	private sessionStartPromise: Promise<void> | null = null;
+	/**
+	 * The live agent-side ACP `sessionId` for the current session (#262). Set at
+	 * session start and persisted onto the current thread so reopening it later
+	 * resumes the conversation via `session/load`.
+	 */
+	private liveAcpSessionId: string | null = null;
 
 	constructor(
 		private readonly vault: string,
@@ -242,6 +249,7 @@ export class ChatStore {
 		// Persona/instructions change ⇒ fresh ACP session so the new preamble and
 		// any backend/model switch take effect on the next turn.
 		this.sessionId = null;
+		this.liveAcpSessionId = null;
 		this.sessionStartPromise = null;
 		this.modelPicker = null;
 		void this.prepareSession();
@@ -252,6 +260,7 @@ export class ChatStore {
 		this.selectedAgent = id;
 		// A different agent needs a fresh ACP session.
 		this.sessionId = null;
+		this.liveAcpSessionId = null;
 		this.sessionStartPromise = null;
 		this.modelPicker = null;
 		this.selectedModel = null;
@@ -264,6 +273,7 @@ export class ChatStore {
 		this.currentThreadId = null;
 		this.conversation = emptyConversation();
 		this.sessionId = null;
+		this.liveAcpSessionId = null;
 		this.sessionStartPromise = null;
 		this.errorMessage = null;
 	}
@@ -272,6 +282,7 @@ export class ChatStore {
 	async openThread(threadId: string): Promise<void> {
 		this.currentThreadId = threadId;
 		this.sessionId = null;
+		this.liveAcpSessionId = null;
 		this.sessionStartPromise = null;
 		this.errorMessage = null;
 		const messages = await this.transcripts.listMessages(this.vault, threadId);
@@ -329,6 +340,34 @@ export class ChatStore {
 		return result.path;
 	}
 
+	/** The currently open persisted thread, if any. */
+	private get currentThread(): Thread | undefined {
+		return this.threads.find((t) => t.id === this.currentThreadId);
+	}
+
+	/**
+	 * Persist the live agent-side ACP `sessionId` onto the current thread so
+	 * reopening it later resumes the conversation via `session/load` (#262).
+	 * No-ops when there is no thread, no live session, or the value is already
+	 * recorded. Best-effort: a write failure must not break the chat, so it is
+	 * swallowed (the worst case is a fresh session next time).
+	 */
+	private async persistAcpSessionId(): Promise<void> {
+		const threadId = this.currentThreadId;
+		const acpSessionId = this.liveAcpSessionId;
+		if (!threadId || !acpSessionId) return;
+		const thread = this.currentThread;
+		if (thread?.acp_session_id === acpSessionId) return;
+		try {
+			await this.transcripts.setThreadSession(this.vault, threadId, acpSessionId);
+			this.threads = this.threads.map((t) =>
+				t.id === threadId ? { ...t, acp_session_id: acpSessionId } : t
+			);
+		} catch {
+			// Leave the thread unlinked; a later turn or reopen retries.
+		}
+	}
+
 	private async ensureSession(): Promise<void> {
 		if (this.sessionId || !this.selectedAgent) return;
 		// Dedupe concurrent starts (eager prepareSession + a quick send) so the
@@ -353,11 +392,18 @@ export class ChatStore {
 				breakGlass: this.breakGlass(),
 				threadId: this.currentThreadId,
 				persistedGrants,
-				preamble: this.sessionPreamble
+				preamble: this.sessionPreamble,
+				// Resume the conversation for a reopened thread that already has an
+				// agent-side session recorded (#262); a fresh thread has none.
+				resumeAcpSessionId: this.currentThread?.acp_session_id ?? null
 			});
 			this.sessionId = result.sessionId;
+			this.liveAcpSessionId = result.acpSessionId;
 			this.modelPicker = result.models;
 			this.selectedModel = result.models?.current ?? this.selectedModel;
+			// Link the live agent session to the current thread so reopening it
+			// later resumes this conversation (#262).
+			await this.persistAcpSessionId();
 			// The session binds its MCP scope (read-only `/mcp-ro/` vs read-write
 			// `/mcp/`) at start. If the user flipped the toggle while this slow
 			// start was in flight, `toggleReadOnly` no-opped on the still-null
@@ -436,6 +482,9 @@ export class ChatStore {
 				);
 				this.currentThreadId = thread.id;
 				this.threads = [thread, ...this.threads];
+				// A session may already be live from eager prepareSession (started
+				// before this thread existed); link it so the thread can resume (#262).
+				await this.persistAcpSessionId();
 			}
 			await this.transcripts.appendMessage(this.vault, this.currentThreadId, 'user', text);
 			await this.ensureSession();

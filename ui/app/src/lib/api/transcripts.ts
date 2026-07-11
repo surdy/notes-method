@@ -10,6 +10,13 @@ export interface Thread {
 	title: string;
 	agent: string | null;
 	model: string | null;
+	/**
+	 * The agent's ACP `sessionId` for this thread, once a session has been
+	 * established and persisted (issue #262). Present only for threads whose
+	 * agent has a disk-backed, resumable session; `null` for brand-new or
+	 * never-sent threads.
+	 */
+	acp_session_id: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -86,6 +93,24 @@ export async function renameThread(
 		body: JSON.stringify({ title })
 	});
 	if (!res.ok) return fail(res, 'Failed to rename thread');
+	return res.json();
+}
+
+/**
+ * Bind (or clear, with `null`) the thread's agent ACP `sessionId` so the
+ * conversation can be resumed via ACP `session/load` on reopen (issue #262).
+ */
+export async function setThreadSession(
+	vault: string,
+	threadId: string,
+	acpSessionId: string | null
+): Promise<Thread> {
+	const res = await apiFetch(`${base(vault)}/${encodeURIComponent(threadId)}/session`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ acp_session_id: acpSessionId })
+	});
+	if (!res.ok) return fail(res, 'Failed to persist thread session');
 	return res.json();
 }
 

@@ -101,6 +101,7 @@ export {
 	getThread,
 	listMessages,
 	listThreads,
-	renameThread
+	renameThread,
+	setThreadSession
 } from './transcripts.ts';
 export type { Message, Role, Thread } from './transcripts.ts';

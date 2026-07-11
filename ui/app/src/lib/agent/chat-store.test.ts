@@ -31,6 +31,8 @@ class MockAgentClient implements AgentClient {
 	private eventCb: ((sessionId: string, event: AgentEvent) => void) | null = null;
 	private permCb: ((event: PermissionEvent) => void) | null = null;
 	models: StartSessionResult['models'] = null;
+	/** The agent-side ACP sessionId returned from startSession (#262). */
+	acpSessionId: string | null = null;
 
 	available(): boolean {
 		return true;
@@ -43,7 +45,11 @@ class MockAgentClient implements AgentClient {
 	}
 	async startSession(opts: unknown): Promise<StartSessionResult> {
 		this.startCalls.push(opts);
-		return { sessionId: `sess-${this.startCalls.length}`, models: this.models };
+		return {
+			sessionId: `sess-${this.startCalls.length}`,
+			models: this.models,
+			acpSessionId: this.acpSessionId
+		};
 	}
 	async sendPrompt(sessionId: string, text: string, editor?: unknown): Promise<void> {
 		this.prompts.push({ sessionId, text, editor });
@@ -99,13 +105,14 @@ class MockAgentClient implements AgentClient {
 	}
 }
 
-function makeThread(id: string, title: string): Thread {
+function makeThread(id: string, title: string, acpSessionId: string | null = null): Thread {
 	return {
 		id,
 		vault: 'work',
 		title,
 		agent: 'copilot',
 		model: null,
+		acp_session_id: acpSessionId,
 		created_at: '2026-01-01T00:00:00Z',
 		updated_at: '2026-01-01T00:00:00Z'
 	};
@@ -114,6 +121,7 @@ function makeThread(id: string, title: string): Thread {
 /** Fake transcript API capturing persistence calls. */
 function fakeTranscripts() {
 	const appended: Array<{ threadId: string; role: string; content: string }> = [];
+	const sessionsSet: Array<{ threadId: string; acpSessionId: string | null }> = [];
 	let created = 0;
 	const api: TranscriptApi = {
 		listThreads: vi.fn(async () => [makeThread('t-existing', 'Old chat')]),
@@ -130,9 +138,13 @@ function fakeTranscripts() {
 			return {};
 		}),
 		deleteThread: vi.fn(async () => {}),
-		renameThread: vi.fn(async (_v, id, title) => makeThread(id, title))
+		renameThread: vi.fn(async (_v, id, title) => makeThread(id, title)),
+		setThreadSession: vi.fn(async (_v, threadId, acpSessionId) => {
+			sessionsSet.push({ threadId, acpSessionId });
+			return makeThread(threadId, 'x', acpSessionId);
+		})
 	};
-	return { api, appended };
+	return { api, appended, sessionsSet };
 }
 
 function fakePermissions(initial: string[] = []) {
@@ -918,5 +930,55 @@ describe('ChatStore customizations & persona routing (#210/#212)', () => {
 
 		expect(store.activePersona).toBeNull();
 		expect(client.prompts[0]?.text).toBe('@nobody hello there');
+	});
+
+	it('persists the agent-side ACP sessionId onto a freshly created thread (#262)', async () => {
+		const client = new MockAgentClient();
+		client.acpSessionId = 'acp-fresh';
+		const { api, sessionsSet } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		store.start();
+
+		store.input = 'hello';
+		await store.send();
+
+		expect(store.currentThreadId).toBe('t-new-1');
+		expect(sessionsSet).toContainEqual({ threadId: 't-new-1', acpSessionId: 'acp-fresh' });
+		expect(store.threads.find((t) => t.id === 't-new-1')?.acp_session_id).toBe('acp-fresh');
+	});
+
+	it('resumes a reopened thread by passing its saved ACP sessionId (#262)', async () => {
+		const client = new MockAgentClient();
+		client.acpSessionId = 'acp-old'; // agent replays the same id on resume
+		const { api, sessionsSet } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		store.threads = [makeThread('t-existing', 'Old chat', 'acp-old')];
+
+		await store.openThread('t-existing');
+		store.input = 'follow-up';
+		await store.send();
+
+		expect(client.startCalls[0]).toMatchObject({ resumeAcpSessionId: 'acp-old' });
+		// The id was already recorded, so no redundant persist.
+		expect(sessionsSet).toHaveLength(0);
+	});
+
+	it('re-links a thread when resume falls back to a new session id (#262)', async () => {
+		const client = new MockAgentClient();
+		client.acpSessionId = 'acp-new'; // load failed agent-side → fresh session id
+		const { api, sessionsSet } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		store.threads = [makeThread('t-existing', 'Old chat', 'acp-stale')];
+
+		await store.openThread('t-existing');
+		store.input = 'follow-up';
+		await store.send();
+
+		expect(client.startCalls[0]).toMatchObject({ resumeAcpSessionId: 'acp-stale' });
+		expect(sessionsSet).toContainEqual({ threadId: 't-existing', acpSessionId: 'acp-new' });
+		expect(store.threads.find((t) => t.id === 't-existing')?.acp_session_id).toBe('acp-new');
 	});
 });

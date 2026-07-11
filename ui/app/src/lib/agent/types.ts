@@ -105,11 +105,24 @@ export interface StartSessionOptions {
 	 * skill/preamble; omitted/`null` when there is nothing to inject.
 	 */
 	preamble?: string | null;
+	/**
+	 * The agent's ACP `sessionId` from a prior run of this chat thread, to resume
+	 * the conversation via `session/load` instead of starting fresh (#262).
+	 * Omitted/`null` starts a new session; a stale id degrades to a fresh session
+	 * agent-side, so it is always safe to pass.
+	 */
+	resumeAcpSessionId?: string | null;
 }
 
 export interface StartSessionResult {
 	sessionId: string;
 	models: ModelPicker | null;
+	/**
+	 * The agent's resolved ACP `sessionId` for this session (fresh or resumed),
+	 * to persist per thread so it can be resumed later (#262). `null` if the
+	 * agent returned no session id.
+	 */
+	acpSessionId: string | null;
 }
 
 /**
