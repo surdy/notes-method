@@ -25,6 +25,8 @@ chrono = { workspace = true }
 regex = { workspace = true }
 two_timer = { workspace = true }
 blake3 = { workspace = true }
+subtle = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

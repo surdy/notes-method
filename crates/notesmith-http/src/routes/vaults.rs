@@ -547,6 +547,7 @@ mod tests {
                         None,
                     )),
                     rebuilding: std::sync::atomic::AtomicBool::new(false),
+                    preview_signing_key: notesmith_ops::LocalOps::new_preview_signing_key(),
                 },
             )]),
             event_tx: create_event_channel().0,

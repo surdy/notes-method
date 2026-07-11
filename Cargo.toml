@@ -94,6 +94,7 @@ globset = "0.4"
 dirs = "6"
 tempfile = "3"
 uuid = { version = "1", features = ["v4"] }
+subtle = "2"
 arboard = "3"
 insta = { version = "1", features = ["yaml"] }
 pretty_assertions = "1"

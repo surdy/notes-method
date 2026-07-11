@@ -368,8 +368,9 @@ impl NotesmithMcp {
                      By default this is a no-write preview that returns the \
                      exact proposed path/content plus similar active fact \
                      candidates. Applying requires `confirm_apply: true`, a \
-                     fresh `preview_token`, and valid provenance (`observed` \
-                     needs `source`; `inferred` needs \
+                     fresh process-bound `preview_token` from the current \
+                     daemon session, and valid provenance (`observed` needs \
+                     `source`; `inferred` needs \
                      `acknowledge_inference: true`)",
                 ),
                 json!({
@@ -403,8 +404,9 @@ impl NotesmithMcp {
                      `type: fact` note under `facts/`. Requires a fresh \
                      `expected_hash`; claim-changing updates preview similar \
                      active facts before writes. Applying requires \
-                     `confirm_apply: true` plus the `preview_token` returned \
-                     by the preview",
+                     `confirm_apply: true` plus the fresh process-bound \
+                     `preview_token` returned by the preview; regenerate it \
+                     after daemon restart",
                 ),
                 json!({
                     "type": "object",
@@ -442,8 +444,9 @@ impl NotesmithMcp {
                     "Preview or apply replacement of an active fact with a new \
                      fact note. The preview returns the proposed replacement \
                      path/content and similar active-fact candidates; applying \
-                     requires `confirm_apply: true`, a fresh `preview_token`, \
-                     and the current fact `expected_hash`",
+                     requires `confirm_apply: true`, a fresh process-bound \
+                     `preview_token`, and the current fact `expected_hash`; \
+                     regenerate the token after daemon restart",
                 ),
                 json!({
                     "type": "object",

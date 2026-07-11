@@ -137,7 +137,10 @@ Safety rules:
 - exact-duplicate candidates are surfaced explicitly and block apply;
 - `observed` facts require a nonblank `source`;
 - `inferred` facts require `acknowledge_inference: true`;
-- the tool generates its own safe `facts/...` path from `title`.
+- the tool generates its own safe `facts/...` path from `title`;
+- `preview_token`s are MAC-protected, short-lived, and bound to the current
+  daemon process, so a daemon restart invalidates them and callers must rerun
+  preview before apply.
 
 #### `memory_update`
 
@@ -148,6 +151,8 @@ used elsewhere.
 - claim-changing updates preview similar active facts before writes;
 - preview/apply uses the same `confirm_apply` + `preview_token` contract as
   `memory_save`;
+- changing only `claim` preserves the existing `description` unless a new
+  `description` is explicitly supplied;
 - unknown frontmatter and unrelated body content are preserved unless `body`
   is explicitly supplied as replacement content;
 - mutation rejects notes whose current type is not `fact`.
@@ -159,6 +164,8 @@ Replaces an active fact with a new fact note:
 - preview returns the proposed replacement note and a fresh `preview_token`;
 - apply requires `confirm_apply: true`, the `preview_token`, and the old
   fact's `expected_hash`;
+- `preview_token`s are process-bound and must be regenerated after daemon
+  restart;
 - the old fact is marked `status: superseded`, the new fact gets
   `supersedes: [[Old Title]]`, and both note bodies are linked.
 

@@ -916,6 +916,7 @@ mod tests {
                         vault_root.clone(),
                         None,
                     )),
+                    preview_signing_key: notesmith_ops::LocalOps::new_preview_signing_key(),
                 },
             )]),
             event_tx,

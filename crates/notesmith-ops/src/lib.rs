@@ -28,6 +28,8 @@ use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use serde_yaml::{Mapping, Value as YamlValue};
+use subtle::ConstantTimeEq;
+use uuid::Uuid;
 
 pub mod hybrid;
 pub mod memory;
@@ -214,10 +216,32 @@ pub struct LocalOps {
     template_engine: Arc<TemplateEngine>,
     vault_config: VaultConfig,
     timestamp_provider: Arc<dyn Fn() -> String + Send + Sync>,
+    preview_signing_key: Arc<[u8; blake3::KEY_LEN]>,
     /// Lazily-built hybrid (lexical+semantic) searcher. Memoised once the
     /// vault's `embeddings.db` exists and opens cleanly; until then each
     /// `vault_search` degrades to lexical-only.
     hybrid: std::sync::OnceLock<Arc<HybridSearch>>,
+}
+
+impl Clone for LocalOps {
+    fn clone(&self) -> Self {
+        let hybrid = std::sync::OnceLock::new();
+        if let Some(searcher) = self.hybrid.get() {
+            let _ = hybrid.set(Arc::clone(searcher));
+        }
+        Self {
+            vault_name: self.vault_name.clone(),
+            vault_root: self.vault_root.clone(),
+            engine: NativeVaultEngine,
+            cache: Arc::clone(&self.cache),
+            search_index: Arc::clone(&self.search_index),
+            template_engine: Arc::clone(&self.template_engine),
+            vault_config: self.vault_config.clone(),
+            timestamp_provider: Arc::clone(&self.timestamp_provider),
+            preview_signing_key: Arc::clone(&self.preview_signing_key),
+            hybrid,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -286,6 +310,13 @@ struct MemoryPreviewTokenPayload {
 }
 
 impl LocalOps {
+    pub fn new_preview_signing_key() -> Arc<[u8; blake3::KEY_LEN]> {
+        let mut key = [0_u8; blake3::KEY_LEN];
+        key[..16].copy_from_slice(&Uuid::new_v4().into_bytes());
+        key[16..].copy_from_slice(&Uuid::new_v4().into_bytes());
+        Arc::new(key)
+    }
+
     /// Construct from owned cache/search index (builds a default template
     /// engine rooted at the vault).
     pub fn new(
@@ -302,6 +333,7 @@ impl LocalOps {
             search_index,
             vault_config,
             Arc::new(now_timestamp_string),
+            Self::new_preview_signing_key(),
         )
     }
 
@@ -312,6 +344,7 @@ impl LocalOps {
         search_index: SearchIndex,
         vault_config: VaultConfig,
         timestamp_provider: Arc<dyn Fn() -> String + Send + Sync>,
+        preview_signing_key: Arc<[u8; blake3::KEY_LEN]>,
     ) -> Self {
         let template_engine = Arc::new(TemplateEngine::new(vault_root.clone(), None));
         Self {
@@ -323,6 +356,7 @@ impl LocalOps {
             template_engine,
             vault_config,
             timestamp_provider,
+            preview_signing_key,
             hybrid: std::sync::OnceLock::new(),
         }
     }
@@ -336,6 +370,7 @@ impl LocalOps {
         search_index: Arc<SearchIndex>,
         template_engine: Arc<TemplateEngine>,
         vault_config: VaultConfig,
+        preview_signing_key: Arc<[u8; blake3::KEY_LEN]>,
     ) -> Self {
         Self {
             vault_name,
@@ -346,6 +381,7 @@ impl LocalOps {
             template_engine,
             vault_config,
             timestamp_provider: Arc::new(now_timestamp_string),
+            preview_signing_key,
             hybrid: std::sync::OnceLock::new(),
         }
     }
@@ -933,8 +969,16 @@ impl LocalOps {
                 .collect(),
         };
         let raw = serde_json::to_string(&payload)?;
-        let signature = blake3::hash(raw.as_bytes()).to_hex().to_string();
+        let signature = blake3::keyed_hash(self.preview_signing_key.as_ref(), raw.as_bytes())
+            .to_hex()
+            .to_string();
         Ok(format!("{signature}:{raw}"))
+    }
+
+    fn preview_token_invalid_or_expired() -> anyhow::Error {
+        anyhow::anyhow!(
+            "preview_token invalid or expired; rerun preview after daemon restart or after any input change"
+        )
     }
 
     fn preview_token_timestamp(
@@ -951,18 +995,23 @@ impl LocalOps {
                 "apply requires preview_token from a fresh preview of the same mutation"
             )
         })?;
-        let (expected_signature, raw_payload) =
-            supplied_token.split_once(':').ok_or_else(|| {
-                anyhow::anyhow!("write conflict for memory preview (token tampered or malformed)")
-            })?;
-        let actual_signature = blake3::hash(raw_payload.as_bytes()).to_hex().to_string();
-        if expected_signature != actual_signature {
-            anyhow::bail!("write conflict for memory preview (token tampered or malformed)");
+        let (expected_signature, raw_payload) = supplied_token
+            .split_once(':')
+            .ok_or_else(Self::preview_token_invalid_or_expired)?;
+        let expected_signature = blake3::Hash::from_hex(expected_signature)
+            .map_err(|_| Self::preview_token_invalid_or_expired())?;
+        let actual_signature =
+            blake3::keyed_hash(self.preview_signing_key.as_ref(), raw_payload.as_bytes());
+        if actual_signature
+            .as_bytes()
+            .ct_eq(expected_signature.as_bytes())
+            .unwrap_u8()
+            != 1
+        {
+            anyhow::bail!(Self::preview_token_invalid_or_expired());
         }
-        let payload: MemoryPreviewTokenPayload =
-            serde_json::from_str(raw_payload).map_err(|_| {
-                anyhow::anyhow!("write conflict for memory preview (token tampered or malformed)")
-            })?;
+        let payload: MemoryPreviewTokenPayload = serde_json::from_str(raw_payload)
+            .map_err(|_| Self::preview_token_invalid_or_expired())?;
         Ok(payload.mutation_timestamp)
     }
 
@@ -1008,11 +1057,7 @@ impl LocalOps {
             )
         })?;
         if supplied_token != computed_token {
-            anyhow::bail!(
-                "write conflict for memory preview (expected {}, actual {})",
-                supplied_token,
-                computed_token
-            );
+            anyhow::bail!(Self::preview_token_invalid_or_expired());
         }
         if candidates.iter().any(|candidate| candidate.exact_duplicate) {
             anyhow::bail!(
@@ -1968,12 +2013,9 @@ impl Ops for LocalOps {
     ) -> Result<Value> {
         self.ensure_fact_hash_matches(path, expected_hash)?;
         let current = self.load_fact_note(path, true)?;
-        let claim_changed = claim.is_some();
         let title = title.unwrap_or(&current.title);
         let claim = claim.unwrap_or(&current.claim);
-        let description = description
-            .or_else(|| claim_changed.then_some(claim))
-            .unwrap_or(&current.description);
+        let description = description.unwrap_or(&current.description);
         let scope = scope
             .or(current.scope.as_deref())
             .ok_or_else(|| anyhow::anyhow!("existing fact is missing scope"))?;
@@ -2995,6 +3037,7 @@ mod tests {
             search_index,
             vault_config(),
             timestamp_provider,
+            LocalOps::new_preview_signing_key(),
         )
     }
 
@@ -3022,6 +3065,34 @@ mod tests {
 
     fn build_test_ops_with_clock(root: &Path, clock: &TestClock) -> LocalOps {
         build_test_ops_with_timestamp_provider(root, clock.provider())
+    }
+
+    fn preview_token_parts(token: &str) -> (&str, &str) {
+        token
+            .split_once(':')
+            .expect("preview token should contain mac separator")
+    }
+
+    fn forge_unkeyed_preview_token(token: &str) -> String {
+        let (_, raw_payload) = preview_token_parts(token);
+        format!(
+            "{}:{raw_payload}",
+            blake3::hash(raw_payload.as_bytes()).to_hex()
+        )
+    }
+
+    fn mutate_preview_token_payload<F>(token: &str, mutate: F) -> String
+    where
+        F: FnOnce(&mut MemoryPreviewTokenPayload),
+    {
+        let (mac, raw_payload) = preview_token_parts(token);
+        let mut payload: MemoryPreviewTokenPayload =
+            serde_json::from_str(raw_payload).expect("preview token payload should deserialize");
+        mutate(&mut payload);
+        format!(
+            "{mac}:{}",
+            serde_json::to_string(&payload).expect("preview token payload should serialize")
+        )
     }
 
     fn write_note(root: &Path, path: &str, content: &str) {
@@ -3557,7 +3628,7 @@ mod tests {
         assert!(
             changed
                 .to_string()
-                .contains("write conflict for memory preview")
+                .contains("preview_token invalid or expired")
         );
 
         let tampered = format!("{token}x");
@@ -3581,7 +3652,7 @@ mod tests {
         assert!(
             tamper_error
                 .to_string()
-                .contains("write conflict for memory preview")
+                .contains("preview_token invalid or expired")
         );
     }
 
@@ -3742,6 +3813,85 @@ mod tests {
     }
 
     #[test]
+    fn memory_update_claim_only_preview_and_apply_preserve_existing_description() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/Existing.md",
+            "---\n\
+             type: fact\n\
+             title: Existing\n\
+             description: Distinct original description.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             # Existing\n\
+\n\
+             Original claim.\n",
+        );
+        let ops = build_test_ops(temp_dir.path());
+        let current_hash = ops.get_note("facts/Existing.md").unwrap()["hash"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let preview = ops
+            .memory_update(
+                "facts/Existing.md",
+                &current_hash,
+                None,
+                Some("Updated claim only."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                false,
+            )
+            .unwrap();
+        let token = preview["preview_token"].as_str().unwrap().to_string();
+        let preview_content = preview["proposed"]["content"].as_str().unwrap();
+        assert!(preview_content.contains("description: Distinct original description."));
+        assert!(preview_content.contains("Updated claim only."));
+        assert!(!preview_content.contains("description: Updated claim only."));
+
+        let applied = ops
+            .memory_update(
+                "facts/Existing.md",
+                &current_hash,
+                None,
+                Some("Updated claim only."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                Some(&token),
+                false,
+            )
+            .unwrap();
+        let stored = std::fs::read_to_string(temp_dir.path().join("facts/Existing.md")).unwrap();
+        assert_eq!(applied["path"], "facts/Existing.md");
+        assert!(stored.contains("description: Distinct original description."));
+        assert!(stored.contains("Updated claim only."));
+        assert!(!stored.contains("description: Updated claim only."));
+    }
+
+    #[test]
     fn memory_update_preview_token_survives_minute_boundary_and_rejects_mismatch() {
         let temp_dir = TempDir::new().unwrap();
         write_note(
@@ -3816,7 +3966,7 @@ mod tests {
         assert!(
             changed
                 .to_string()
-                .contains("write conflict for memory preview")
+                .contains("preview_token invalid or expired")
         );
 
         let stale = ops
@@ -3865,7 +4015,7 @@ mod tests {
         assert!(
             tamper_error
                 .to_string()
-                .contains("write conflict for memory preview")
+                .contains("preview_token invalid or expired")
         );
 
         let applied = ops
@@ -3889,6 +4039,185 @@ mod tests {
             )
             .unwrap();
         assert_eq!(applied["content"], proposed_content);
+    }
+
+    #[test]
+    fn memory_update_preview_token_is_process_bound_and_mac_protected() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/Existing.md",
+            "---\n\
+             type: fact\n\
+             title: Existing\n\
+             description: Original description.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             # Existing\n\
+\n\
+             Original claim.\n",
+        );
+        let clock = TestClock::new("2026-07-10 10:59");
+        let ops = build_test_ops_with_clock(temp_dir.path(), &clock);
+        let current_hash = ops.get_note("facts/Existing.md").unwrap()["hash"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let preview = ops
+            .memory_update(
+                "facts/Existing.md",
+                &current_hash,
+                None,
+                Some("Updated claim."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                false,
+            )
+            .unwrap();
+        let token = preview["preview_token"].as_str().unwrap().to_string();
+
+        let forged = forge_unkeyed_preview_token(&token);
+        let forged_err = ops
+            .memory_update(
+                "facts/Existing.md",
+                &current_hash,
+                None,
+                Some("Updated claim."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                Some(&forged),
+                false,
+            )
+            .unwrap_err();
+        assert!(
+            forged_err
+                .to_string()
+                .contains("preview_token invalid or expired")
+        );
+
+        let mutated = mutate_preview_token_payload(&token, |payload| {
+            payload.proposed_hash = "forged".to_string();
+        });
+        let mutated_err = ops
+            .memory_update(
+                "facts/Existing.md",
+                &current_hash,
+                None,
+                Some("Updated claim."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                Some(&mutated),
+                false,
+            )
+            .unwrap_err();
+        assert!(
+            mutated_err
+                .to_string()
+                .contains("preview_token invalid or expired")
+        );
+
+        let separate_ops = build_test_ops_with_clock(temp_dir.path(), &clock);
+        let separate_err = separate_ops
+            .memory_update(
+                "facts/Existing.md",
+                &current_hash,
+                None,
+                Some("Updated claim."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                Some(&token),
+                false,
+            )
+            .unwrap_err();
+        assert!(
+            separate_err
+                .to_string()
+                .contains("preview_token invalid or expired")
+        );
+
+        let cloned_ops = ops.clone();
+        clock.set("2026-07-10 11:00");
+        let applied = cloned_ops
+            .memory_update(
+                "facts/Existing.md",
+                &current_hash,
+                None,
+                Some("Updated claim."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                Some(&token),
+                false,
+            )
+            .unwrap();
+        assert_eq!(applied["path"], "facts/Existing.md");
+
+        let stale_hash_err = ops
+            .memory_update(
+                "facts/Existing.md",
+                "stale-hash",
+                None,
+                Some("Updated claim."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                Some(&token),
+                false,
+            )
+            .unwrap_err();
+        assert!(stale_hash_err.to_string().contains("write conflict"));
     }
 
     #[test]
@@ -4414,7 +4743,7 @@ mod tests {
         assert!(
             changed
                 .to_string()
-                .contains("write conflict for memory preview")
+                .contains("preview_token invalid or expired")
         );
 
         let stale = ops
@@ -4459,7 +4788,7 @@ mod tests {
         assert!(
             tamper_error
                 .to_string()
-                .contains("write conflict for memory preview")
+                .contains("preview_token invalid or expired")
         );
 
         let applied = ops

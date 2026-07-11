@@ -51,6 +51,7 @@ pub struct VaultState {
     pub watcher_state: WatcherState,
     pub rebuilding: AtomicBool,
     pub template_engine: Arc<notesmith_templates::TemplateEngine>,
+    pub preview_signing_key: Arc<[u8; blake3::KEY_LEN]>,
 }
 
 pub struct AppState {
@@ -486,6 +487,7 @@ pub(crate) fn local_ops_for(name: &str, vault: &VaultState) -> notesmith_ops::Lo
         vault.search_index.clone(),
         vault.template_engine.clone(),
         vault.vault_config.load().as_ref().clone(),
+        Arc::clone(&vault.preview_signing_key),
     )
 }
 
@@ -667,6 +669,7 @@ pub fn create_vault_state(vault_name: &str, vault_path: &Path) -> anyhow::Result
         watcher_state: WatcherState::new(),
         rebuilding: AtomicBool::new(false),
         template_engine: Arc::new(template_engine),
+        preview_signing_key: notesmith_ops::LocalOps::new_preview_signing_key(),
     })
 }
 

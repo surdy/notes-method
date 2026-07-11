@@ -66,6 +66,7 @@ fn build_vault_state(vault_name: &str, root: &Path) -> VaultState {
         watcher_state: WatcherState::new(),
         rebuilding: std::sync::atomic::AtomicBool::new(false),
         template_engine: Arc::new(template_engine),
+        preview_signing_key: notesmith_ops::LocalOps::new_preview_signing_key(),
     }
 }
 

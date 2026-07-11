@@ -78,6 +78,8 @@ notesmith daemon restart [--bind 127.0.0.1:27183]
 | `--bind <addr>` | Bind address for the restarted daemon | `127.0.0.1:27183` |
 
 Useful after code updates or config changes that require a fresh daemon.
+Any unapplied fact-memory `preview_token`s become invalid after restart and
+must be regenerated from a new preview.
 
 ### `daemon status`
 

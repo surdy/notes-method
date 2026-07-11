@@ -104,7 +104,8 @@ durable memory.
 2. Classify the input as fact, wiki, both, or session-only.
 3. Start with `memory_save(...)` in preview mode (the default).
 4. Review exact-duplicate and similar-fact candidates before applying.
-5. Apply only with the returned `preview_token`.
+5. Apply only with the returned `preview_token`. Tokens are process-bound and
+   expire on daemon restart, so rerun preview after a restart.
 6. Preserve provenance and use the appropriate certainty.
 7. Re-read or `memory_list` the result and verify it is one claim.
 
@@ -133,7 +134,8 @@ dominating the conversation.
 
 When an active fact remains true, use `memory_update` with a fresh
 `expected_hash` and a new `confirmed` value. Avoid rewriting the claim merely
-to refresh the timestamp.
+to refresh the timestamp. If you update only the `claim`, the existing
+`description` stays unchanged unless you explicitly provide a new one.
 
 ### Superseding
 
@@ -141,7 +143,8 @@ When a new claim replaces an old one:
 
 1. Read or list the current fact to obtain its `expected_hash`.
 2. Run `memory_supersede(...)` in preview mode.
-3. Apply with `confirm_apply: true` and the returned `preview_token`.
+3. Apply with `confirm_apply: true` and the returned `preview_token`. Rerun
+   preview if the daemon restarted before apply.
 4. Keep the old fact available for provenance, but exclude it from normal recall.
 
 Example:
