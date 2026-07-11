@@ -169,8 +169,9 @@ Replaces an active fact with a new fact note:
 - the old fact is marked `status: superseded`, the new fact gets
   `supersedes: [[Old Title]]`, and both note bodies are linked.
 
-Companion-vault attachment is still future work; these tools operate only in
-the currently mounted vault.
+Each lifecycle call operates in the vault served by that MCP binding. Embedded
+chat can attach a configured companion memory vault beside the active vault, so
+agents invoke these tools on the companion binding when managing memory.
 
 #### `memory_delete`
 

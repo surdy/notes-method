@@ -73,7 +73,7 @@ daemon-side `web_fetch` tool (#207, backlog) lands.
 
 | Issue | Item |
 |---|---|
-| #203 | Fact memory over ordinary Markdown fact notes — ✅ `memory_recall(query, scope?, limit?)` shipped over active non-example fact notes using the existing hybrid retrieval stack; save / list / update / supersede / delete tools and companion-vault attachment remain backlog |
+| #203 | Fact memory over ordinary Markdown fact notes — ✅ recall, list, preview/apply save/update/supersede/delete lifecycle tools, and embedded-chat companion-vault attachment shipped; stale-review UX remains backlog |
 | #204 | Voice / meeting transcription → structured note (needs Whisper) |
 | #205 | PDF / EPUB ingestion as context |
 | #206 | Image / vision input |
