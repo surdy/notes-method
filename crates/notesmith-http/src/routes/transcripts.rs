@@ -59,6 +59,14 @@ pub struct RenameThreadRequest {
     pub title: String,
 }
 
+/// Body for binding (or clearing) a thread's ACP `sessionId` (issue #262).
+#[derive(Debug, Deserialize)]
+pub struct SetThreadSessionRequest {
+    /// The agent's ACP `sessionId` to persist, or `null` to clear the binding.
+    #[serde(default)]
+    pub acp_session_id: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AppendMessageRequest {
     pub role: Role,
@@ -122,6 +130,26 @@ pub async fn rename_thread(
         .rename_thread(&vault, &thread_id, &req.title)
         .map_err(store_error)?;
     if !renamed {
+        return Err(error(StatusCode::NOT_FOUND, "thread not found"));
+    }
+    match store.get_thread(&vault, &thread_id).map_err(store_error)? {
+        Some(thread) => Ok(Json(thread)),
+        None => Err(error(StatusCode::NOT_FOUND, "thread not found")),
+    }
+}
+
+/// `POST /api/v/{vault}/agent/threads/{thread_id}/session` — bind (or clear,
+/// with a `null` body value) the thread's ACP `sessionId` for resume (#262).
+pub async fn set_thread_session(
+    State(state): State<SharedAppState>,
+    Path((vault, thread_id)): Path<(String, String)>,
+    Json(req): Json<SetThreadSessionRequest>,
+) -> Result<Json<Thread>, ApiError> {
+    let store = transcripts(&state).await;
+    let updated = store
+        .set_acp_session_id(&vault, &thread_id, req.acp_session_id.as_deref())
+        .map_err(store_error)?;
+    if !updated {
         return Err(error(StatusCode::NOT_FOUND, "thread not found"));
     }
     match store.get_thread(&vault, &thread_id).map_err(store_error)? {

@@ -75,6 +75,12 @@ pub struct Thread {
     pub agent: Option<String>,
     /// Model selected for the thread, if known.
     pub model: Option<String>,
+    /// The agent's ACP `sessionId` for this thread, once a session has been
+    /// established and persisted (issue #262). Present only for threads whose
+    /// agent (e.g. Copilot, Claude Code, Codex) has a disk-backed session that
+    /// can be resumed via ACP `session/load` on reopen. `None` for brand-new or
+    /// never-sent threads (an empty ACP session is never persisted agent-side).
+    pub acp_session_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -93,13 +99,14 @@ pub struct Message {
 
 const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS threads (
-    id         TEXT PRIMARY KEY,
-    vault      TEXT NOT NULL,
-    title      TEXT NOT NULL,
-    agent      TEXT,
-    model      TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    id             TEXT PRIMARY KEY,
+    vault          TEXT NOT NULL,
+    title          TEXT NOT NULL,
+    agent          TEXT,
+    model          TEXT,
+    acp_session_id TEXT,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_threads_vault ON threads(vault, updated_at DESC);
 CREATE TABLE IF NOT EXISTS messages (
@@ -139,6 +146,11 @@ impl TranscriptStore {
     fn from_connection(conn: Connection) -> Result<Self> {
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
         conn.execute_batch(SCHEMA)?;
+        // Best-effort migration for stores created before `acp_session_id`
+        // existed: `CREATE TABLE IF NOT EXISTS` above never alters an existing
+        // table, so add the column here. A "duplicate column name" error means
+        // the column is already present, which is fine to ignore.
+        let _ = conn.execute("ALTER TABLE threads ADD COLUMN acp_session_id TEXT", []);
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -173,6 +185,7 @@ impl TranscriptStore {
             title: title.to_string(),
             agent: agent.map(str::to_string),
             model: model.map(str::to_string),
+            acp_session_id: None,
             created_at: now,
             updated_at: now,
         })
@@ -183,7 +196,7 @@ impl TranscriptStore {
     pub fn list_threads(&self, vault: &str) -> Result<Vec<Thread>> {
         let conn = self.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, vault, title, agent, model, created_at, updated_at
+            "SELECT id, vault, title, agent, model, acp_session_id, created_at, updated_at
              FROM threads WHERE vault = ?1 ORDER BY updated_at DESC, id DESC",
         )?;
         let rows = stmt.query_map([vault], |row| Ok(row_to_thread(row)))?;
@@ -204,7 +217,7 @@ impl TranscriptStore {
     pub fn get_thread(&self, vault: &str, thread_id: &str) -> Result<Option<Thread>> {
         let conn = self.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, vault, title, agent, model, created_at, updated_at
+            "SELECT id, vault, title, agent, model, acp_session_id, created_at, updated_at
              FROM threads WHERE vault = ?1 AND id = ?2",
         )?;
         let mut rows = stmt.query(rusqlite::params![vault, thread_id])?;
@@ -221,6 +234,24 @@ impl TranscriptStore {
         let affected = conn.execute(
             "UPDATE threads SET title = ?3, updated_at = ?4 WHERE vault = ?1 AND id = ?2",
             rusqlite::params![vault, thread_id, title, now],
+        )?;
+        Ok(affected > 0)
+    }
+
+    /// Persist the agent's ACP `sessionId` for a thread scoped to `vault`, so it
+    /// can be resumed via ACP `session/load` on reopen (issue #262). Passing
+    /// `None` clears it. Does **not** bump `updated_at` (recording the session
+    /// binding is not conversation activity). Returns `true` if a row matched.
+    pub fn set_acp_session_id(
+        &self,
+        vault: &str,
+        thread_id: &str,
+        acp_session_id: Option<&str>,
+    ) -> Result<bool> {
+        let conn = self.lock();
+        let affected = conn.execute(
+            "UPDATE threads SET acp_session_id = ?3 WHERE vault = ?1 AND id = ?2",
+            rusqlite::params![vault, thread_id, acp_session_id],
         )?;
         Ok(affected > 0)
     }
@@ -351,6 +382,7 @@ fn row_to_thread(row: &rusqlite::Row<'_>) -> Option<Thread> {
     let title: String = row.get("title").ok()?;
     let agent: Option<String> = row.get("agent").ok()?;
     let model: Option<String> = row.get("model").ok()?;
+    let acp_session_id: Option<String> = row.get("acp_session_id").ok()?;
     let created_at = parse_ts(&row.get::<_, String>("created_at").ok()?)?;
     let updated_at = parse_ts(&row.get::<_, String>("updated_at").ok()?)?;
     Some(Thread {
@@ -359,6 +391,7 @@ fn row_to_thread(row: &rusqlite::Row<'_>) -> Option<Thread> {
         title,
         agent,
         model,
+        acp_session_id,
         created_at,
         updated_at,
     })
@@ -519,5 +552,80 @@ mod tests {
         assert_eq!(listed[0].title, "ok");
         // Direct fetch of the corrupt row degrades to None rather than panicking.
         assert!(s.get_thread("v", "bad").unwrap().is_none());
+    }
+
+    #[test]
+    fn acp_session_id_defaults_none_then_persists() {
+        let s = store();
+        let t = s.create_thread("v", "chat", Some("copilot"), None).unwrap();
+        assert_eq!(t.acp_session_id, None);
+
+        // Set it, and read it back via both get_thread and list_threads.
+        assert!(s.set_acp_session_id("v", &t.id, Some("sess-abc")).unwrap());
+        let fetched = s.get_thread("v", &t.id).unwrap().unwrap();
+        assert_eq!(fetched.acp_session_id.as_deref(), Some("sess-abc"));
+        let listed = s.list_threads("v").unwrap();
+        assert_eq!(listed[0].acp_session_id.as_deref(), Some("sess-abc"));
+
+        // Clearing it removes the binding.
+        assert!(s.set_acp_session_id("v", &t.id, None).unwrap());
+        assert_eq!(
+            s.get_thread("v", &t.id).unwrap().unwrap().acp_session_id,
+            None
+        );
+    }
+
+    #[test]
+    fn set_acp_session_id_is_vault_scoped_and_reports_miss() {
+        let s = store();
+        let t = s.create_thread("vault-a", "chat", None, None).unwrap();
+        // Wrong vault does not match the row.
+        assert!(!s.set_acp_session_id("vault-b", &t.id, Some("x")).unwrap());
+        assert_eq!(
+            s.get_thread("vault-a", &t.id)
+                .unwrap()
+                .unwrap()
+                .acp_session_id,
+            None
+        );
+        // Unknown thread id reports a miss.
+        assert!(!s.set_acp_session_id("vault-a", "nope", Some("x")).unwrap());
+    }
+
+    #[test]
+    fn migrates_pre_existing_db_without_acp_session_id_column() {
+        // A store created before the column existed: build the legacy schema by
+        // hand, then reopen through `from_connection` and confirm the migration
+        // added the column (set/read round-trips).
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE threads (
+                id TEXT PRIMARY KEY, vault TEXT NOT NULL, title TEXT NOT NULL,
+                agent TEXT, model TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO threads (id, vault, title, created_at, updated_at)
+             VALUES ('t1', 'v', 'legacy', ?1, ?1)",
+            [Utc::now().to_rfc3339()],
+        )
+        .unwrap();
+
+        let s = TranscriptStore::from_connection(conn).unwrap();
+        let t = s.get_thread("v", "t1").unwrap().unwrap();
+        assert_eq!(t.acp_session_id, None);
+        assert!(
+            s.set_acp_session_id("v", "t1", Some("sess-legacy"))
+                .unwrap()
+        );
+        assert_eq!(
+            s.get_thread("v", "t1")
+                .unwrap()
+                .unwrap()
+                .acp_session_id
+                .as_deref(),
+            Some("sess-legacy")
+        );
     }
 }

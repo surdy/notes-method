@@ -250,6 +250,10 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
             post(crate::routes::transcripts::rename_thread),
         )
         .route(
+            "/api/v/{vault}/agent/threads/{thread_id}/session",
+            post(crate::routes::transcripts::set_thread_session),
+        )
+        .route(
             "/api/v/{vault}/agent/threads/{thread_id}/messages",
             get(crate::routes::transcripts::list_messages)
                 .post(crate::routes::transcripts::append_message),

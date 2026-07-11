@@ -1927,6 +1927,14 @@ vault.
 Body: `{ "title": "…" }`. Returns `200` with the updated thread. `400` for a
 blank title, `404` if the thread is not in this vault.
 
+### `POST /api/v/{vault}/agent/threads/{thread_id}/session`
+
+Bind (or clear) the thread's agent ACP `sessionId` so the conversation can be
+resumed via ACP `session/load` on reopen (issue #262). Body:
+`{ "acp_session_id": "sess-…" }` to bind, or `{ "acp_session_id": null }` to
+clear. Returns `200` with the updated thread, or `404` if the thread is not in
+this vault. Threads carry `acp_session_id` (nullable) in every thread response.
+
 ### `DELETE /api/v/{vault}/agent/threads/{thread_id}`
 
 Delete a thread and its messages (cascade). `204` on success, `404` if absent.

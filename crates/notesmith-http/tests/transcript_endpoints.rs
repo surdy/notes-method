@@ -133,6 +133,7 @@ async fn thread_and_message_lifecycle_round_trips() {
         "title",
         "agent",
         "model",
+        "acp_session_id",
         "created_at",
         "updated_at",
     ] {
@@ -141,6 +142,8 @@ async fn thread_and_message_lifecycle_round_trips() {
     assert_eq!(thread["vault"], "vaultA");
     assert_eq!(thread["title"], "Weekly plan");
     assert_eq!(thread["agent"], "copilot");
+    // A brand-new thread has no persisted ACP session yet.
+    assert!(thread["acp_session_id"].is_null());
     let thread_id = thread["id"].as_str().unwrap().to_string();
 
     // Append a user then an agent message.
@@ -237,6 +240,67 @@ async fn threads_are_scoped_per_vault_over_http() {
     let resp = client
         .post(server.url(&format!("/api/v/beta/agent/threads/{id}/messages")))
         .json(&json!({ "role": "user", "content": "leak?" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), reqwest::StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn set_and_clear_thread_acp_session_id() {
+    let server = TestServer::start(&["vaultA"]).await;
+    let client = reqwest::Client::new();
+    let base = "/api/v/vaultA/agent/threads";
+
+    let create = client
+        .post(server.url(base))
+        .json(&json!({ "title": "resume me", "agent": "copilot" }))
+        .send()
+        .await
+        .unwrap();
+    let id = create.json::<Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Bind an ACP session id; the updated thread echoes it back.
+    let resp = client
+        .post(server.url(&format!("{base}/{id}/session")))
+        .json(&json!({ "acp_session_id": "sess-xyz" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+    let updated: Value = resp.json().await.unwrap();
+    assert_eq!(updated["acp_session_id"], "sess-xyz");
+
+    // It survives a fresh GET.
+    let fetched: Value = client
+        .get(server.url(&format!("{base}/{id}")))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(fetched["acp_session_id"], "sess-xyz");
+
+    // Clearing with a null body value removes it.
+    let cleared: Value = client
+        .post(server.url(&format!("{base}/{id}/session")))
+        .json(&json!({ "acp_session_id": null }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(cleared["acp_session_id"].is_null());
+
+    // Unknown thread → 404.
+    let resp = client
+        .post(server.url(&format!("{base}/does-not-exist/session")))
+        .json(&json!({ "acp_session_id": "x" }))
         .send()
         .await
         .unwrap();
