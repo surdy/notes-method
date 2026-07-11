@@ -707,3 +707,118 @@ async fn diagnostics_log_captures_handshake_errors() {
         "expected an error entry, got {snapshot:?}"
     );
 }
+
+/// A fake agent that advertises the `loadSession` capability and, on
+/// `session/load`, replays one history `session/update` chunk before answering
+/// — mirroring how a real agent (Copilot/Claude/Codex) streams prior turns when
+/// resuming a disk-backed session (#262). `session/new` returns a distinct
+/// sessionId so a test can tell resume apart from a fresh session; a plain
+/// `session/prompt` streams an `ACK:` chunk then finishes.
+const RESUME_AGENT: &str = r#"
+import sys, json
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+def update(sid, text):
+    send({"jsonrpc": "2.0", "method": "session/update", "params": {
+        "sessionId": sid, "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": text},
+        }}})
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    msg = json.loads(line)
+    method = msg.get("method")
+    mid = msg.get("id")
+    if method == "initialize":
+        send({"jsonrpc": "2.0", "id": mid, "result": {
+            "protocolVersion": 1,
+            "agentCapabilities": {"loadSession": True},
+        }})
+    elif method == "session/new":
+        send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": "new-session"}})
+    elif method == "session/load":
+        sid = msg["params"]["sessionId"]
+        # Replay prior history BEFORE resolving the load, as a real agent does.
+        update(sid, "HISTORY:old-turn")
+        send({"jsonrpc": "2.0", "id": mid, "result": {}})
+    elif method == "session/prompt":
+        sid = msg["params"]["sessionId"]
+        text = msg["params"]["prompt"][-1]["text"]
+        update(sid, "ACK:" + text)
+        send({"jsonrpc": "2.0", "id": mid, "result": {"stopReason": "end_turn"}})
+"#;
+
+fn resume_agent_session() -> AcpSession {
+    AcpSession::new(
+        "python3",
+        vec!["-u".to_string(), "-c".to_string(), RESUME_AGENT.to_string()],
+    )
+}
+
+#[tokio::test]
+async fn resume_loads_prior_session_and_drops_replayed_history() {
+    let mut session = resume_agent_session().resume_from(Some("existing-session".to_string()));
+    session.send("hi again").await.expect("send prompt");
+
+    let events = drain_until_done(&mut session).await;
+
+    // The resumed sessionId is used verbatim (not the `session/new` id)...
+    assert_eq!(
+        session.agent_session_id().as_deref(),
+        Some("existing-session"),
+        "resume should adopt the supplied sessionId via session/load"
+    );
+    // ...the history replay burst is suppressed (Notesmith renders its own
+    // transcript), and only the live turn's delta is forwarded.
+    assert_eq!(
+        events,
+        vec![
+            AgentEvent::AgentMessageDelta {
+                text: "ACK:hi again".to_string()
+            },
+            AgentEvent::Done { result: None },
+        ],
+        "replayed history must not be forwarded, got {events:?}"
+    );
+}
+
+#[tokio::test]
+async fn resume_falls_back_to_new_session_when_load_unsupported() {
+    // The default fake agent advertises no `loadSession` capability, so a resume
+    // request must transparently fall back to `session/new`.
+    let mut session = fake_agent_session(true).resume_from(Some("stale-id".to_string()));
+    session.send("hello").await.expect("send prompt");
+
+    let events = drain_until_done(&mut session).await;
+    assert_eq!(
+        session.agent_session_id().as_deref(),
+        Some("fake-session"),
+        "unsupported resume should fall back to a fresh session/new"
+    );
+    assert_eq!(
+        events,
+        vec![
+            AgentEvent::AgentMessageDelta {
+                text: "ACK:hello".to_string()
+            },
+            AgentEvent::Done { result: None },
+        ]
+    );
+}
+
+#[tokio::test]
+async fn agent_session_id_is_exposed_after_a_fresh_session() {
+    let mut session = resume_agent_session();
+    session.start().await.expect("handshake");
+    assert_eq!(
+        session.agent_session_id().as_deref(),
+        Some("new-session"),
+        "a fresh session should expose the agent's new sessionId for later resume"
+    );
+}

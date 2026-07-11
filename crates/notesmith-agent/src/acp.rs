@@ -34,13 +34,14 @@
 //! user messages and normalized events are bridged in and out over channels.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use agent_client_protocol::schema::{
     ClientCapabilities, ContentBlock, CreateTerminalRequest, EnvVariable, FileSystemCapabilities,
-    Implementation, InitializeRequest, KillTerminalRequest, McpServer, McpServerStdio,
-    NewSessionRequest, PermissionOption, PermissionOptionKind, PromptRequest, ProtocolVersion,
-    ReadTextFileRequest, ReleaseTerminalRequest, RequestPermissionOutcome,
+    Implementation, InitializeRequest, KillTerminalRequest, LoadSessionRequest, McpServer,
+    McpServerStdio, NewSessionRequest, PermissionOption, PermissionOptionKind, PromptRequest,
+    ProtocolVersion, ReadTextFileRequest, ReleaseTerminalRequest, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome, SessionId,
     SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, SetSessionModeRequest,
     TerminalOutputRequest, TextContent, ToolCallContent, ToolCallStatus,
@@ -534,6 +535,24 @@ enum DriverCommand {
 /// populated by the driver after the handshake and read by the public handle.
 type ModelSlot = Arc<Mutex<Option<ModelPicker>>>;
 
+/// Shared slot holding the agent's resolved ACP `sessionId` (from `session/new`
+/// or a successful `session/load`), populated by the driver after the handshake
+/// and read by the public handle so the caller can persist it for resume (#262).
+type SessionIdSlot = Arc<Mutex<Option<String>>>;
+
+/// Build the `session/load` request for resuming `session_id` in `cwd`, wiring
+/// the same MCP servers a fresh session would get.
+fn load_session_request(
+    session_id: &str,
+    cwd: &str,
+    mcp: Option<&McpBinding>,
+    extra: &[McpBinding],
+) -> LoadSessionRequest {
+    let mut servers: Vec<McpServer> = mcp.map(|m| vec![m.to_mcp_server()]).unwrap_or_default();
+    servers.extend(extra.iter().map(|m| m.to_mcp_server()));
+    LoadSessionRequest::new(SessionId::new(session_id), PathBuf::from(cwd)).mcp_servers(servers)
+}
+
 /// An [`AgentSession`] driven over the Agent Client Protocol.
 ///
 /// The child process is spawned lazily on the first [`send`](AgentSession::send),
@@ -562,6 +581,13 @@ pub struct AcpSession {
     decider: Arc<dyn PermissionDecider>,
     permission_state: PermissionState,
     model_picker: ModelSlot,
+    /// The agent's ACP `sessionId` to resume via `session/load` at handshake,
+    /// when set and the agent advertises the `loadSession` capability (#262).
+    /// Falls back to `session/new` if resume fails or is unsupported.
+    resume_session_id: Option<String>,
+    /// The resolved ACP `sessionId` for the live session, exposed after the
+    /// handshake via [`agent_session_id`](AcpSession::agent_session_id).
+    session_id_slot: SessionIdSlot,
     started: bool,
     user_tx: Option<mpsc::UnboundedSender<DriverCommand>>,
     event_rx: Option<mpsc::UnboundedReceiver<AgentEvent>>,
@@ -591,6 +617,8 @@ impl AcpSession {
             decider: Arc::new(DenyAll),
             permission_state: PermissionState::new(),
             model_picker: Arc::new(Mutex::new(None)),
+            resume_session_id: None,
+            session_id_slot: Arc::new(Mutex::new(None)),
             started: false,
             user_tx: None,
             event_rx: None,
@@ -870,6 +898,15 @@ impl AcpSession {
         let decider = self.decider.clone();
         let permission_state = self.permission_state.clone();
         let model_slot = self.model_picker.clone();
+        let resume_id = self.resume_session_id.clone();
+        let session_id_slot = self.session_id_slot.clone();
+        // Gate that suppresses forwarding of the history `session/update` burst
+        // an agent replays while satisfying a `session/load` (#262). Notesmith
+        // renders its own persisted transcript, so replayed events would
+        // duplicate it. Set true around the `session/load` call, cleared once it
+        // resolves; the notification handler checks it before forwarding.
+        let replaying = Arc::new(AtomicBool::new(false));
+        let replaying_notif = replaying.clone();
         let io_handler = Arc::new(LocalIoHandler::new(
             local_io,
             read_only,
@@ -932,10 +969,16 @@ impl AcpSession {
                 .name(CLIENT_NAME)
                 .on_receive_notification(
                     async move |notif: SessionNotification, _cx| {
+                        let is_replay = replaying_notif.load(Ordering::SeqCst);
                         for event in map_session_update(notif.update) {
                             if let Some(log) = &diag_notif {
                                 let (summary, detail) = event_wire(&event);
                                 log.record_wire(Some(&label_notif), summary, detail);
+                            }
+                            // Drop the history replay burst from `session/load`;
+                            // still recorded on the diagnostics wire above.
+                            if is_replay {
+                                continue;
                             }
                             let _ = notif_event_tx.send(event);
                         }
@@ -1071,38 +1114,99 @@ impl AcpSession {
                         mcp.as_ref(),
                         mcp_stdio_fallback.as_ref(),
                     );
-                    let session_id: SessionId = match cx
-                        .send_request(new_session_request(&cwd, chosen_mcp, &extra_mcp))
-                        .block_task()
-                        .await
-                    {
-                        Ok(response) => {
-                            // Capture the agent's advertised model selector (a
-                            // `model` config option, else the deprecated modes)
-                            // so the caller can render a picker and apply a
-                            // choice. Absent → no picker, no error.
-                            if let Some(picker) = parse_model_picker(
-                                response.config_options.as_deref(),
-                                response.modes.as_ref(),
-                            ) {
-                                if let Ok(mut slot) = model_slot.lock() {
-                                    *slot = Some(picker);
+
+                    // Resume the prior conversation via `session/load` when the
+                    // caller supplied an agent sessionId and the agent advertises
+                    // `loadSession`; otherwise (or on failure) fall through to a
+                    // fresh `session/new`. The load's history-replay burst is
+                    // suppressed by the `replaying` gate so it does not duplicate
+                    // Notesmith's own persisted transcript (#262).
+                    let mut resumed: Option<SessionId> = None;
+                    if let Some(resume) = resume_id.as_deref() {
+                        if init.agent_capabilities.load_session {
+                            replaying.store(true, Ordering::SeqCst);
+                            let loaded = cx
+                                .send_request(load_session_request(
+                                    resume, &cwd, chosen_mcp, &extra_mcp,
+                                ))
+                                .block_task()
+                                .await;
+                            replaying.store(false, Ordering::SeqCst);
+                            match loaded {
+                                Ok(response) => {
+                                    if let Some(picker) = parse_model_picker(
+                                        response.config_options.as_deref(),
+                                        response.modes.as_ref(),
+                                    ) {
+                                        if let Ok(mut slot) = model_slot.lock() {
+                                            *slot = Some(picker);
+                                        }
+                                    }
+                                    resumed = Some(SessionId::new(resume));
+                                }
+                                Err(error) => {
+                                    // Stale / unknown / never-persisted (empty)
+                                    // session: log and fall back to a fresh one.
+                                    if let Some(log) = &diag_main {
+                                        log.record_error(
+                                            Some(&label_main),
+                                            format!("session/load failed, starting fresh: {error}"),
+                                            None,
+                                        );
+                                    }
                                 }
                             }
-                            response.session_id
+                        } else if let Some(log) = &diag_main {
+                            log.record_error(
+                                Some(&label_main),
+                                "agent does not advertise loadSession; starting fresh".to_string(),
+                                None,
+                            );
                         }
-                        Err(error) => {
-                            if let Some(log) = &diag_main {
-                                log.record_error(
-                                    Some(&label_main),
-                                    format!("session/new failed: {error}"),
-                                    None,
-                                );
+                    }
+
+                    let session_id: SessionId = match resumed {
+                        Some(id) => id,
+                        None => match cx
+                            .send_request(new_session_request(&cwd, chosen_mcp, &extra_mcp))
+                            .block_task()
+                            .await
+                        {
+                            Ok(response) => {
+                                // Capture the agent's advertised model selector
+                                // (a `model` config option, else the deprecated
+                                // modes) so the caller can render a picker and
+                                // apply a choice. Absent → no picker, no error.
+                                if let Some(picker) = parse_model_picker(
+                                    response.config_options.as_deref(),
+                                    response.modes.as_ref(),
+                                ) {
+                                    if let Ok(mut slot) = model_slot.lock() {
+                                        *slot = Some(picker);
+                                    }
+                                }
+                                response.session_id
                             }
-                            signal_ready(&ready_main, Err(error.to_string()));
-                            return Err(error);
-                        }
+                            Err(error) => {
+                                if let Some(log) = &diag_main {
+                                    log.record_error(
+                                        Some(&label_main),
+                                        format!("session/new failed: {error}"),
+                                        None,
+                                    );
+                                }
+                                signal_ready(&ready_main, Err(error.to_string()));
+                                return Err(error);
+                            }
+                        },
                     };
+
+                    // Publish the resolved sessionId so the caller can persist it
+                    // per thread and resume the conversation later (#262).
+                    if let Ok(mut slot) = session_id_slot.lock() {
+                        *slot = Some(session_id.0.to_string());
+                    }
+
                     signal_ready(&ready_main, Ok(()));
 
                     // Command loop. Prompts and model changes share one ordered
@@ -1308,6 +1412,34 @@ impl AcpSession {
             Ok(Err(message)) => Err(AgentError::Protocol(message)),
             Err(_) => Err(AgentError::Protocol("agent connection closed".to_string())),
         }
+    }
+
+    /// Resume a prior conversation by its agent ACP `sessionId` (issue #262).
+    ///
+    /// When set, the handshake issues `session/load` (instead of `session/new`)
+    /// for this id — but only if the agent advertises the `loadSession`
+    /// capability at `initialize`. If the capability is absent, or the load
+    /// fails (e.g. the agent GC'd or never persisted an empty session), the
+    /// driver transparently falls back to `session/new`, so a stale or unknown
+    /// id degrades to a fresh session rather than an error. Copilot, Claude
+    /// Code, and Codex all keep disk-backed sessions that survive restarts.
+    ///
+    /// `None` (the default) always starts a fresh session.
+    pub fn resume_from(mut self, session_id: Option<String>) -> Self {
+        self.resume_session_id = session_id.filter(|id| !id.trim().is_empty());
+        self
+    }
+
+    /// The agent's resolved ACP `sessionId` for the live session, available once
+    /// the handshake has completed (after [`start`](AcpSession::start) or the
+    /// first send). This is the id to persist per thread so the conversation can
+    /// be resumed later via [`resume_from`](AcpSession::resume_from). `None`
+    /// before the handshake, or if the agent returned no session id.
+    pub fn agent_session_id(&self) -> Option<String> {
+        self.session_id_slot
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
     }
 
     /// Send a turn carrying the desktop editor's current state (active note,
