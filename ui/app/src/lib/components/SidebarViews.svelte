@@ -3,6 +3,8 @@ import type { CustomItem, SidebarSection, SidebarView } from '$lib/api';
 import { classifyError } from '$lib/api/error-classify';
 import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 import { executeSql, getSidebarConfig, reindexVault, createNote } from '$lib/api';
+import { createOrOpenFolderNote, folderNotePath } from '$lib/folder-notes';
+import { inputPalette } from '$lib/input-palette.svelte';
 import FileTree from './FileTree.svelte';
 import RecentlyViewedSection from './RecentlyViewedSection.svelte';
 import CustomFoldersSection from './CustomFoldersSection.svelte';
@@ -11,6 +13,7 @@ import { vaultStore } from '$lib/stores.svelte';
 import { tabStore } from '$lib/tab-store.svelte';
 import { sidebarSearchStore } from '$lib/sidebar-search.svelte';
 import { filterTree, nextTypeaheadIndex, treeNoteCount, wrapIndex } from '$lib/sidebar-tree';
+import { toastStore } from '$lib/toast-store.svelte';
 
 let {
 onActivateMiddlePane = (_item: CustomItem) => {},
@@ -33,6 +36,7 @@ let treeContainer = $state<HTMLElement | null>(null);
 let lastFocusNonce = 0;
 let typeaheadBuffer = '';
 let typeaheadTimer: ReturnType<typeof setTimeout> | null = null;
+let refreshingVault = $state(false);
 
 const trimmedFilter = $derived(fileFilter.trim());
 const filteredTree = $derived(trimmedFilter ? filterTree(vaultStore.tree, trimmedFilter) : vaultStore.tree);
@@ -163,6 +167,106 @@ async function createFilteredNote() {
 	}
 }
 
+function openNewNotePalette() {
+	const vault = vaultStore.currentVault;
+	if (!vault) {
+		toastStore.add('Select a vault first.', 'warning');
+		return;
+	}
+
+	inputPalette.open({
+		steps: [
+			{
+				mode: 'text',
+				label: 'Note title',
+				placeholder: 'Enter a title...',
+				required: true
+			},
+			{
+				mode: 'text',
+				label: 'Folder',
+				placeholder: 'Inbox',
+				defaultValue: 'Inbox'
+			}
+		],
+		onComplete: async ([title, folder]) => {
+			const trimmedTitle = title?.trim();
+			if (!trimmedTitle) return;
+
+			try {
+				const created = await createNote(vault, trimmedTitle, '', folder?.trim() || undefined);
+				await vaultStore.loadNotes();
+				tabStore.selectNote(created.path);
+			} catch (cause) {
+				console.error('Failed to create note from files toolbar', cause);
+				toastStore.add('Failed to create note.', 'error');
+			}
+		}
+	});
+}
+
+function openNewFolderPalette() {
+	const vault = vaultStore.currentVault;
+	if (!vault) {
+		toastStore.add('Select a vault first.', 'warning');
+		return;
+	}
+
+	inputPalette.open({
+		steps: [
+			{
+				mode: 'text',
+				label: 'Folder path',
+				placeholder: 'Projects/New folder',
+				required: true
+			}
+		],
+		onComplete: async ([folder]) => {
+			const folderPath = folder?.trim().replace(/^\/+|\/+$/g, '');
+			if (!folderPath) return;
+			const expectedPath = folderNotePath(folderPath);
+			if (!expectedPath) {
+				toastStore.add('Choose a visible, non-hidden folder path.', 'warning');
+				return;
+			}
+
+			try {
+				await vaultStore.loadNotes();
+				if (vaultStore.error) {
+					throw new Error('Could not refresh the vault before creating the folder.');
+				}
+
+				let result;
+				try {
+					result = await createOrOpenFolderNote({
+						vault,
+						folderPath,
+						notes: vaultStore.notes,
+						createNote
+					});
+				} catch (cause) {
+					// Another client may have created the folder note after our
+					// refresh. Reload once and treat the now-existing note as
+					// success instead of surfacing a misleading conflict.
+					await vaultStore.loadNotes();
+					const existing = vaultStore.notes.find((note) => note.path === expectedPath);
+					if (!existing) throw cause;
+					result = { path: existing.path, created: false };
+				}
+
+				await vaultStore.loadNotes();
+				tabStore.selectNote(result.path);
+				if (!result.created) {
+					toastStore.add('Folder already exists; opened its folder note.', 'success');
+				}
+			} catch (cause) {
+				console.error('Failed to create folder from files toolbar', cause);
+				toastStore.add('Failed to create folder.', 'error');
+			}
+		}
+	});
+}
+
 $effect(() => {
 const vault = vaultStore.currentVault;
 if (!vault) return;
@@ -274,13 +378,17 @@ function handleFilesErrorAction() {
 
 async function handleRefreshVault() {
 	const vault = vaultStore.currentVault;
-	if (!vault) return;
+	if (!vault || refreshingVault) return;
 
+	refreshingVault = true;
 	try {
 		await reindexVault(vault);
 		await vaultStore.loadNotes();
 	} catch (err) {
 		console.error('Failed to refresh vault', err);
+		toastStore.add('Failed to refresh vault.', 'error');
+	} finally {
+		refreshingVault = false;
 	}
 }
 
@@ -344,6 +452,58 @@ type="button"
 
 <div class="view-content">
 {#if activeViewId === 'files'}
+<div class="file-toolbar">
+<div class="file-search">
+<svg class="file-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M17 17L21 21" />
+<path d="M19 11C19 6.58 15.42 3 11 3S3 6.58 3 11s3.58 8 8 8 8-3.58 8-8Z" />
+</svg>
+<input
+bind:this={searchInput}
+bind:value={fileFilter}
+class="file-search-input"
+type="text"
+placeholder="Search notes…"
+aria-label="Search notes"
+autocapitalize="off"
+autocorrect="off"
+autocomplete="off"
+spellcheck="false"
+onkeydown={handleSearchKeydown}
+/>
+{#if fileFilter}
+<button class="file-search-clear" type="button" aria-label="Clear search" onclick={() => (fileFilter = '')}>×</button>
+{/if}
+</div>
+<button class="file-action" type="button" title="New note" aria-label="New note" onclick={openNewNotePalette}>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M4 12v2.54c0 3.25 0 4.87.89 5.97.18.22.38.42.6.6C6.59 22 8.21 22 11.46 22c.7 0 1.05 0 1.38-.11.07-.03.13-.05.19-.09.31-.14.56-.39 1.06-.89l4.74-4.74c.58-.58.87-.87 1.02-1.23.15-.37.15-.78.15-1.6V10c0-3.77 0-5.66-1.17-6.83C17.77 2.11 16.13 2.01 13.03 2M13 21.5V21c0-2.83 0-4.24.88-5.12C14.76 15 16.17 15 19 15h.5" />
+<path d="M12 6H4M8 2v8" />
+</svg>
+</button>
+<button class="file-action" type="button" title="New folder" aria-label="New folder" onclick={openNewFolderPalette}>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M13 21h-1c-4.71 0-7.07 0-8.54-1.46C2 18.07 2 15.71 2 11V7.94c0-1.81 0-2.72.38-3.4.27-.49.67-.89 1.16-1.16C4.22 3 5.13 3 6.94 3c1.17 0 1.75 0 2.26.19 1.16.44 1.64 1.49 2.17 2.54L12 7h4.75c2.11 0 3.16 0 3.92.51.32.21.61.49.82.82.49.73.51 1.73.51 3.67" />
+<path d="M18 13v8M22 17h-8" />
+</svg>
+</button>
+<span class="file-toolbar-separator" aria-hidden="true"></span>
+<button
+class="file-action"
+class:refreshing={refreshingVault}
+type="button"
+title="Refresh"
+aria-label="Refresh"
+aria-busy={refreshingVault}
+disabled={refreshingVault}
+onclick={() => void handleRefreshVault()}
+>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M20.49 15A9 9 0 1 1 20.29 8.5" />
+<path d="M15 9h3c1.41 0 2.12 0 2.56-.44C21 8.12 21 7.41 21 6V3" />
+</svg>
+</button>
+</div>
 {#if vaultStore.loading && vaultStore.notes.length === 0}
 <div class="state-msg">Loading…</div>
 {:else if vaultStore.error}
@@ -360,27 +520,6 @@ Refresh Vault
 </button>
 </div>
 {:else}
-<div class="file-search">
-<span class="file-search-icon" aria-hidden="true">⌕</span>
-<input
-bind:this={searchInput}
-bind:value={fileFilter}
-class="file-search-input"
-type="text"
-placeholder="Search notes…"
-aria-label="Search notes"
-autocapitalize="off"
-autocorrect="off"
-autocomplete="off"
-spellcheck="false"
-onkeydown={handleSearchKeydown}
-/>
-{#if fileFilter}
-<button class="file-search-clear" type="button" aria-label="Clear search" onclick={() => (fileFilter = '')}>×</button>
-{:else}
-<kbd class="file-search-kbd">⌘⇧F</kbd>
-{/if}
-</div>
 {#if trimmedFilter && !filterHasMatches}
 <div class="state-msg file-search-empty">
 <div>No matches for “{trimmedFilter}”.</div>
@@ -584,11 +723,21 @@ cursor: pointer;
 background: var(--bg-hover);
 }
 
-.file-search {
+.file-toolbar {
 display: flex;
 align-items: center;
-gap: 6px;
+gap: 4px;
 margin: 4px 8px 8px;
+padding-bottom: 8px;
+border-bottom: 1px solid var(--border-subtle);
+}
+
+.file-search {
+display: flex;
+flex: 1;
+min-width: 0;
+align-items: center;
+gap: 6px;
 padding: 4px 8px;
 border: 1px solid var(--border-default);
 border-radius: 8px;
@@ -603,7 +752,8 @@ box-shadow: 0 0 0 1px var(--accent);
 
 .file-search-icon {
 color: var(--text-muted);
-font-size: 13px;
+width: 15px;
+height: 15px;
 flex-shrink: 0;
 }
 
@@ -636,18 +786,61 @@ padding: 0 2px;
 color: var(--text-default);
 }
 
-.file-search-kbd {
+.file-action {
+display: inline-flex;
+align-items: center;
+justify-content: center;
+width: 28px;
+height: 28px;
 flex-shrink: 0;
-padding: 1px 5px;
-border: 1px solid var(--border-default);
-border-radius: 4px;
-color: var(--text-muted);
-font-family: var(--font-mono);
-font-size: 10px;
+padding: 0;
+border: none;
+border-radius: var(--radius-sm);
+background: transparent;
+color: var(--text-secondary);
+cursor: pointer;
+}
+
+.file-action:hover {
+background: var(--bg-hover);
+color: var(--text-default);
+}
+
+.file-action:focus-visible {
+outline: 1px solid var(--accent);
+outline-offset: 1px;
+}
+
+.file-action:disabled {
+cursor: default;
+opacity: 0.55;
+}
+
+.file-action svg {
+width: 21px;
+height: 21px;
+}
+
+.file-action.refreshing svg {
+animation: file-refresh-spin 0.8s linear infinite;
+}
+
+.file-toolbar-separator {
+width: 1px;
+height: 20px;
+margin: 0 2px;
+background: var(--border-default);
+flex-shrink: 0;
 }
 
 .file-tree-container:focus-visible {
 outline: none;
+}
+
+@keyframes file-refresh-spin {
+to {
+transform: rotate(360deg);
+}
 }
 
 </style>
