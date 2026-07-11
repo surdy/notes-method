@@ -135,6 +135,14 @@ export class ChatStore {
 	private unsubscribers: Array<() => void> = [];
 	private sessionStartPromise: Promise<void> | null = null;
 	/**
+	 * Monotonic token bumped on every explicit context switch (new/open thread,
+	 * agent/persona change). An in-flight {@link ensureSession} captures it and
+	 * discards its result if the token has advanced by the time it resolves, so a
+	 * slow session start can never bind to (or persist onto) the wrong thread or
+	 * be sent to a switched-away agent (#262).
+	 */
+	private sessionStartGeneration = 0;
+	/**
 	 * The live agent-side ACP `sessionId` for the current session (#262). Set at
 	 * session start and persisted onto the current thread so reopening it later
 	 * resumes the conversation via `session/load`.
@@ -251,6 +259,7 @@ export class ChatStore {
 		this.sessionId = null;
 		this.liveAcpSessionId = null;
 		this.sessionStartPromise = null;
+		this.sessionStartGeneration += 1;
 		this.modelPicker = null;
 		void this.prepareSession();
 	}
@@ -262,6 +271,7 @@ export class ChatStore {
 		this.sessionId = null;
 		this.liveAcpSessionId = null;
 		this.sessionStartPromise = null;
+		this.sessionStartGeneration += 1;
 		this.modelPicker = null;
 		this.selectedModel = null;
 		// Re-establish eagerly so the model picker reflects the new agent.
@@ -275,6 +285,7 @@ export class ChatStore {
 		this.sessionId = null;
 		this.liveAcpSessionId = null;
 		this.sessionStartPromise = null;
+		this.sessionStartGeneration += 1;
 		this.errorMessage = null;
 	}
 
@@ -284,6 +295,7 @@ export class ChatStore {
 		this.sessionId = null;
 		this.liveAcpSessionId = null;
 		this.sessionStartPromise = null;
+		this.sessionStartGeneration += 1;
 		this.errorMessage = null;
 		const messages = await this.transcripts.listMessages(this.vault, threadId);
 		this.conversation = fromMessages(messages);
@@ -374,6 +386,7 @@ export class ChatStore {
 		// agent process is spawned at most once per session.
 		if (this.sessionStartPromise) return this.sessionStartPromise;
 		this.sessionStartPromise = (async () => {
+			const startGeneration = this.sessionStartGeneration;
 			const startedReadOnly = this.readOnly;
 			// Pre-seed the session with the user's persisted "Always Allow" grants
 			// for this vault (issue #189) so granted tools never re-prompt — even
@@ -397,6 +410,14 @@ export class ChatStore {
 				// agent-side session recorded (#262); a fresh thread has none.
 				resumeAcpSessionId: this.currentThread?.acp_session_id ?? null
 			});
+			// If the user switched thread/agent/persona while this (possibly slow)
+			// start was in flight, the resolved session belongs to a stale context.
+			// Discard it — binding it now would attach it to the wrong thread or
+			// route prompts to a switched-away agent — and stop the orphaned agent.
+			if (startGeneration !== this.sessionStartGeneration) {
+				void Promise.resolve(this.client.stop(result.sessionId)).catch(() => {});
+				return;
+			}
 			this.sessionId = result.sessionId;
 			this.liveAcpSessionId = result.acpSessionId;
 			this.modelPicker = result.models;
@@ -408,9 +429,14 @@ export class ChatStore {
 			// `/mcp/`) at start. If the user flipped the toggle while this slow
 			// start was in flight, `toggleReadOnly` no-opped on the still-null
 			// session id — so reconcile now, or writes would hit the read-only
-			// endpoint despite the UI showing read-write.
+			// endpoint despite the UI showing read-write. The reconcile rebuilds
+			// under a new ACP sessionId, so re-bind the thread to it (#262).
 			if (this.readOnly !== startedReadOnly) {
-				await this.client.setReadOnly(this.sessionId, this.readOnly);
+				const acpSessionId = await this.client.setReadOnly(this.sessionId, this.readOnly);
+				if (acpSessionId) {
+					this.liveAcpSessionId = acpSessionId;
+					await this.persistAcpSessionId();
+				}
 			}
 		})();
 		try {
@@ -575,7 +601,16 @@ export class ChatStore {
 	async setReadOnly(value: boolean): Promise<void> {
 		if (this.readOnly === value) return;
 		this.readOnly = value;
-		if (this.sessionId) await this.client.setReadOnly(this.sessionId, value);
+		if (this.sessionId) {
+			// The toggle rebuilds the session with a fresh agent context under a new
+			// ACP sessionId; re-bind the thread to it so a later reopen resumes the
+			// post-toggle conversation, not the discarded pre-toggle one (#262).
+			const acpSessionId = await this.client.setReadOnly(this.sessionId, value);
+			if (acpSessionId) {
+				this.liveAcpSessionId = acpSessionId;
+				await this.persistAcpSessionId();
+			}
+		}
 	}
 
 	async answerPermission(decision: PermissionDecision): Promise<void> {

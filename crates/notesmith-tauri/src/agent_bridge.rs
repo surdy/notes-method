@@ -1328,7 +1328,7 @@ pub async fn agent_set_read_only(
     bridge: tauri::State<'_, AgentBridge>,
     session_id: String,
     read_only: bool,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     // AcpSession fixes its scope at construction (the MCP endpoint + permission
     // policy are chosen up front), so a runtime mode switch rebuilds the session
     // in place under the same id. Conversation history is preserved client-side
@@ -1340,17 +1340,23 @@ pub async fn agent_set_read_only(
             .get(&session_id)
             .ok_or_else(|| format!("no such session '{session_id}'"))?;
         if entry.opts.read_only == read_only {
-            return Ok(());
+            return Ok(None);
         }
         let _ = entry.commands.send(SessionCommand::Stop);
         entry.opts.clone()
     };
     opts.read_only = read_only;
+    // The rebuild intentionally starts a fresh agent context (see above), so do
+    // not attempt to resume the prior ACP session here — resuming would fight the
+    // reset and, if the stale id no longer loads, silently fork a new session
+    // whose id the caller never learns. The new session's id is returned below so
+    // the frontend can re-bind the thread to it for future resume (#262).
+    opts.resume_acp_session_id = None;
 
-    let (entry, _models, _acp_session_id) =
+    let (entry, _models, acp_session_id) =
         spawn_session(&app, &bridge, &session_id, window.label(), opts).await?;
     bridge.sessions.lock().await.insert(session_id, entry);
-    Ok(())
+    Ok(acp_session_id)
 }
 
 #[tauri::command]

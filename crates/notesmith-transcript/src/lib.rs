@@ -148,9 +148,19 @@ impl TranscriptStore {
         conn.execute_batch(SCHEMA)?;
         // Best-effort migration for stores created before `acp_session_id`
         // existed: `CREATE TABLE IF NOT EXISTS` above never alters an existing
-        // table, so add the column here. A "duplicate column name" error means
-        // the column is already present, which is fine to ignore.
-        let _ = conn.execute("ALTER TABLE threads ADD COLUMN acp_session_id TEXT", []);
+        // table, so add the column here. SQLite reports "duplicate column name"
+        // when the column is already present (the normal case), which is fine to
+        // ignore; any other failure (I/O, disk full, corruption) is a real error
+        // and must not leave a store missing the column, so it is propagated.
+        if let Err(error) = conn.execute("ALTER TABLE threads ADD COLUMN acp_session_id TEXT", []) {
+            let already_exists = error
+                .to_string()
+                .to_ascii_lowercase()
+                .contains("duplicate column name");
+            if !already_exists {
+                return Err(error.into());
+            }
+        }
         Ok(Self {
             conn: Mutex::new(conn),
         })

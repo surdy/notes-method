@@ -33,6 +33,8 @@ class MockAgentClient implements AgentClient {
 	models: StartSessionResult['models'] = null;
 	/** The agent-side ACP sessionId returned from startSession (#262). */
 	acpSessionId: string | null = null;
+	/** The (rebuilt) ACP sessionId returned from setReadOnly (#262). */
+	readOnlyAcpSessionId: string | null = null;
 
 	available(): boolean {
 		return true;
@@ -57,8 +59,9 @@ class MockAgentClient implements AgentClient {
 	async selectModel(sessionId: string, value: string): Promise<void> {
 		this.modelCalls.push({ sessionId, value });
 	}
-	async setReadOnly(sessionId: string, readOnly: boolean): Promise<void> {
+	async setReadOnly(sessionId: string, readOnly: boolean): Promise<string | null> {
 		this.readOnlyCalls.push({ sessionId, readOnly });
+		return this.readOnlyAcpSessionId;
 	}
 	async answerPermission(requestId: string, decision: PermissionDecision): Promise<void> {
 		this.answered.push({ requestId, decision });
@@ -980,5 +983,59 @@ describe('ChatStore customizations & persona routing (#210/#212)', () => {
 		expect(client.startCalls[0]).toMatchObject({ resumeAcpSessionId: 'acp-stale' });
 		expect(sessionsSet).toContainEqual({ threadId: 't-existing', acpSessionId: 'acp-new' });
 		expect(store.threads.find((t) => t.id === 't-existing')?.acp_session_id).toBe('acp-new');
+	});
+
+	it('discards an in-flight session start after a thread switch instead of mis-binding it (#262)', async () => {
+		const client = new MockAgentClient();
+		client.acpSessionId = 'acp-eager';
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const orig = client.startSession.bind(client);
+		client.startSession = async (opts: unknown) => {
+			await gate;
+			return orig(opts);
+		};
+		const { api, sessionsSet } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		store.threads = [makeThread('t-existing', 'Old chat', 'acp-existing')];
+		store.start();
+
+		// Eager start begins with no thread, then the user opens a different thread
+		// before it resolves.
+		const prepare = store.prepareSession();
+		await store.openThread('t-existing');
+		release();
+		await prepare;
+
+		// The stale eager session must NOT be bound to the reopened thread, and the
+		// reopened thread keeps its own saved id.
+		expect(sessionsSet).not.toContainEqual({ threadId: 't-existing', acpSessionId: 'acp-eager' });
+		expect(store.threads.find((t) => t.id === 't-existing')?.acp_session_id).toBe('acp-existing');
+		// The orphaned agent process is stopped.
+		expect(client.stopped).toContain('sess-1');
+		// No live session leaked onto the store from the discarded start.
+		expect(store.sessionId).toBeNull();
+	});
+
+	it('re-binds the thread to the rebuilt session id when read-only is toggled (#262)', async () => {
+		const client = new MockAgentClient();
+		client.acpSessionId = 'acp-initial';
+		client.readOnlyAcpSessionId = 'acp-after-toggle';
+		const { api, sessionsSet } = fakeTranscripts();
+		const store = new ChatStore('work', client, { transcripts: api });
+		await store.loadAgents();
+		store.start();
+
+		store.input = 'hello';
+		await store.send(); // creates t-new-1, binds acp-initial
+
+		await store.setReadOnly(false);
+
+		expect(client.readOnlyCalls).toEqual([{ sessionId: 'sess-1', readOnly: false }]);
+		expect(sessionsSet).toContainEqual({ threadId: 't-new-1', acpSessionId: 'acp-after-toggle' });
+		expect(store.threads.find((t) => t.id === 't-new-1')?.acp_session_id).toBe('acp-after-toggle');
 	});
 });

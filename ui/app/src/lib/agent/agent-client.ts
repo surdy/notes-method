@@ -34,7 +34,12 @@ export interface AgentClient {
 	startSession(opts: StartSessionOptions): Promise<StartSessionResult>;
 	sendPrompt(sessionId: string, text: string, editor?: EditorContext): Promise<void>;
 	selectModel(sessionId: string, value: string): Promise<void>;
-	setReadOnly(sessionId: string, readOnly: boolean): Promise<void>;
+	/**
+	 * Switch a live session's read-only scope. Rebuilds the session with a fresh
+	 * agent context (#262); resolves to the new agent-side ACP `sessionId` so the
+	 * caller can re-bind the thread for resume, or `null` if there was no change.
+	 */
+	setReadOnly(sessionId: string, readOnly: boolean): Promise<string | null>;
 	answerPermission(requestId: string, decision: PermissionDecision): Promise<void>;
 	stop(sessionId: string): Promise<void>;
 	/** Run on-demand agent-discovery diagnostics (ADR 0013, decision 5). */
@@ -113,8 +118,11 @@ export class TauriAgentClient implements AgentClient {
 		await this.bridge.invoke('agent_select_model', { sessionId, value });
 	}
 
-	async setReadOnly(sessionId: string, readOnly: boolean): Promise<void> {
-		await this.bridge.invoke('agent_set_read_only', { sessionId, readOnly });
+	async setReadOnly(sessionId: string, readOnly: boolean): Promise<string | null> {
+		return (await this.bridge.invoke('agent_set_read_only', {
+			sessionId,
+			readOnly
+		})) as string | null;
 	}
 
 	async answerPermission(requestId: string, decision: PermissionDecision): Promise<void> {
@@ -207,7 +215,9 @@ export class UnavailableAgentClient implements AgentClient {
 	}
 	async sendPrompt(): Promise<void> {}
 	async selectModel(): Promise<void> {}
-	async setReadOnly(): Promise<void> {}
+	async setReadOnly(): Promise<string | null> {
+		return null;
+	}
 	async answerPermission(): Promise<void> {}
 	async stop(): Promise<void> {}
 	async agentDiagnostics(): Promise<DiagnosticsReport> {
