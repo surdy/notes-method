@@ -210,7 +210,7 @@ fn read_only_error(op: &str) -> anyhow::Error {
 pub struct LocalOps {
     vault_name: String,
     vault_root: PathBuf,
-    engine: NativeVaultEngine,
+    engine: Arc<dyn VaultEngine>,
     cache: Arc<VaultCache>,
     search_index: Arc<SearchIndex>,
     template_engine: Arc<TemplateEngine>,
@@ -232,7 +232,7 @@ impl Clone for LocalOps {
         Self {
             vault_name: self.vault_name.clone(),
             vault_root: self.vault_root.clone(),
-            engine: NativeVaultEngine,
+            engine: Arc::clone(&self.engine),
             cache: Arc::clone(&self.cache),
             search_index: Arc::clone(&self.search_index),
             template_engine: Arc::clone(&self.template_engine),
@@ -346,11 +346,34 @@ impl LocalOps {
         timestamp_provider: Arc<dyn Fn() -> String + Send + Sync>,
         preview_signing_key: Arc<[u8; blake3::KEY_LEN]>,
     ) -> Self {
+        Self::new_with_engine_and_timestamp_provider(
+            vault_name,
+            vault_root,
+            Arc::new(NativeVaultEngine),
+            cache,
+            search_index,
+            vault_config,
+            timestamp_provider,
+            preview_signing_key,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_engine_and_timestamp_provider(
+        vault_name: String,
+        vault_root: PathBuf,
+        engine: Arc<dyn VaultEngine>,
+        cache: VaultCache,
+        search_index: SearchIndex,
+        vault_config: VaultConfig,
+        timestamp_provider: Arc<dyn Fn() -> String + Send + Sync>,
+        preview_signing_key: Arc<[u8; blake3::KEY_LEN]>,
+    ) -> Self {
         let template_engine = Arc::new(TemplateEngine::new(vault_root.clone(), None));
         Self {
             vault_name,
             vault_root,
-            engine: NativeVaultEngine,
+            engine,
             cache: Arc::new(cache),
             search_index: Arc::new(search_index),
             template_engine,
@@ -375,7 +398,7 @@ impl LocalOps {
         Self {
             vault_name,
             vault_root,
-            engine: NativeVaultEngine,
+            engine: Arc::new(NativeVaultEngine),
             cache,
             search_index,
             template_engine,
@@ -1127,8 +1150,19 @@ impl LocalOps {
         self.engine.move_path(&self.vault_root, &from, &to)?;
         let write_result = self.write_content(&to, Some(expected_hash), content);
         if let Err(error) = write_result {
-            let _ = self.engine.move_path(&self.vault_root, &to, &from);
-            return Err(error);
+            if let Err(rollback_error) = self.engine.move_path(&self.vault_root, &to, &from) {
+                anyhow::bail!(
+                    "fact update partially applied: renamed {} to {} but write failed ({error}); rollback rename also failed ({rollback_error}); file is stranded at {}",
+                    from_path,
+                    to_path,
+                    to_path,
+                );
+            }
+            anyhow::bail!(
+                "fact write failed after renaming {} to {} ({error})",
+                from_path,
+                to_path,
+            );
         }
         self.remove_from_indexes(from_path)?;
         self.refresh_indexes(&to)?;
@@ -1827,7 +1861,7 @@ impl Ops for LocalOps {
 
     fn archive_note(&self, path: &str) -> Result<Value> {
         let routing = RoutingEngine::load(&self.vault_root)?;
-        let result = routing.apply(&self.vault_root, path, &self.engine)?;
+        let result = routing.apply(&self.vault_root, path, self.engine.as_ref())?;
         self.remove_from_indexes(path)?;
         self.refresh_indexes(&VaultPath::new(result.to.clone()))?;
         Ok(serde_json::to_value(result)?)
@@ -1903,7 +1937,7 @@ impl Ops for LocalOps {
         let rendered = self.template_engine.instantiate(
             &self.vault_config.daily.template,
             &prompts,
-            &self.engine,
+            self.engine.as_ref(),
         )?;
         let rendered_path = VaultPath::new(rendered.path.clone());
         self.refresh_indexes(&rendered_path)?;
@@ -1922,7 +1956,7 @@ impl Ops for LocalOps {
         let rendered = self.template_engine.instantiate(
             template_name,
             &prompts.unwrap_or_default(),
-            &self.engine,
+            self.engine.as_ref(),
         )?;
         let note_path = VaultPath::new(rendered.path.clone());
         self.refresh_indexes(&note_path)?;
@@ -3022,7 +3056,26 @@ mod tests {
         root: &Path,
         timestamp_provider: Arc<dyn Fn() -> String + Send + Sync>,
     ) -> LocalOps {
-        let engine = NativeVaultEngine;
+        build_test_ops_with_engine_and_timestamp_provider(
+            root,
+            Arc::new(NativeVaultEngine),
+            timestamp_provider,
+        )
+    }
+
+    fn build_test_ops_with_engine(root: &Path, engine: Arc<dyn VaultEngine>) -> LocalOps {
+        build_test_ops_with_engine_and_timestamp_provider(
+            root,
+            engine,
+            Arc::new(now_timestamp_string),
+        )
+    }
+
+    fn build_test_ops_with_engine_and_timestamp_provider(
+        root: &Path,
+        engine: Arc<dyn VaultEngine>,
+        timestamp_provider: Arc<dyn Fn() -> String + Send + Sync>,
+    ) -> LocalOps {
         let notes = engine.scan(root).unwrap();
         let cache = VaultCache::open_in_memory().unwrap();
         cache
@@ -3030,9 +3083,10 @@ mod tests {
             .unwrap();
         let search_index = SearchIndex::open_in_memory().unwrap();
         search_index.reindex("test-vault", &notes).unwrap();
-        LocalOps::new_with_timestamp_provider(
+        LocalOps::new_with_engine_and_timestamp_provider(
             "test-vault".to_string(),
             root.to_path_buf(),
+            engine,
             cache,
             search_index,
             vault_config(),
@@ -3065,6 +3119,95 @@ mod tests {
 
     fn build_test_ops_with_clock(root: &Path, clock: &TestClock) -> LocalOps {
         build_test_ops_with_timestamp_provider(root, clock.provider())
+    }
+
+    #[derive(Clone, Default)]
+    struct FailingVaultEngine {
+        failures: Arc<Mutex<FailurePlan>>,
+    }
+
+    #[derive(Default)]
+    struct FailurePlan {
+        write_failures: Vec<(String, String)>,
+        move_failures: Vec<(String, String, String)>,
+    }
+
+    impl FailingVaultEngine {
+        fn fail_write_once(&self, path: &str, message: &str) {
+            self.failures
+                .lock()
+                .unwrap()
+                .write_failures
+                .push((path.to_string(), message.to_string()));
+        }
+
+        fn fail_move_once(&self, from: &str, to: &str, message: &str) {
+            self.failures.lock().unwrap().move_failures.push((
+                from.to_string(),
+                to.to_string(),
+                message.to_string(),
+            ));
+        }
+
+        fn take_write_failure(&self, path: &str) -> Option<String> {
+            let mut failures = self.failures.lock().unwrap();
+            let index = failures
+                .write_failures
+                .iter()
+                .position(|(candidate, _)| candidate == path)?;
+            Some(failures.write_failures.remove(index).1)
+        }
+
+        fn take_move_failure(&self, from: &str, to: &str) -> Option<String> {
+            let mut failures = self.failures.lock().unwrap();
+            let index =
+                failures
+                    .move_failures
+                    .iter()
+                    .position(|(candidate_from, candidate_to, _)| {
+                        candidate_from == from && candidate_to == to
+                    })?;
+            Some(failures.move_failures.remove(index).2)
+        }
+    }
+
+    impl VaultEngine for FailingVaultEngine {
+        fn scan(&self, root: &Path) -> notesmith_core::traits::Result<Vec<Note>> {
+            NativeVaultEngine.scan(root)
+        }
+
+        fn read(&self, root: &Path, path: &VaultPath) -> notesmith_core::traits::Result<String> {
+            NativeVaultEngine.read(root, path)
+        }
+
+        fn write(
+            &self,
+            root: &Path,
+            path: &VaultPath,
+            expected_hash: Option<&str>,
+            content: &str,
+        ) -> notesmith_core::traits::Result<WriteResult> {
+            if let Some(message) = self.take_write_failure(path.as_str()) {
+                return Err(NotesmithError::Other(message));
+            }
+            NativeVaultEngine.write(root, path, expected_hash, content)
+        }
+
+        fn delete(&self, root: &Path, path: &VaultPath) -> notesmith_core::traits::Result<()> {
+            NativeVaultEngine.delete(root, path)
+        }
+
+        fn move_path(
+            &self,
+            root: &Path,
+            from: &VaultPath,
+            to: &VaultPath,
+        ) -> notesmith_core::traits::Result<()> {
+            if let Some(message) = self.take_move_failure(from.as_str(), to.as_str()) {
+                return Err(NotesmithError::Other(message));
+            }
+            NativeVaultEngine.move_path(root, from, to)
+        }
     }
 
     fn preview_token_parts(token: &str) -> (&str, &str) {
@@ -4506,6 +4649,173 @@ mod tests {
             .unwrap();
 
         assert_eq!(preview["proposed"]["path"], "facts/nested/Target (1).md");
+    }
+
+    #[test]
+    fn memory_update_rename_write_failure_rolls_back_and_returns_write_error() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/Current.md",
+            "---\n\
+             type: fact\n\
+             title: Current\n\
+             description: Current claim.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             # Current\n\
+\n\
+             Current claim.\n",
+        );
+        let engine = FailingVaultEngine::default();
+        engine.fail_write_once("facts/Renamed.md", "injected write failure");
+        let ops = build_test_ops_with_engine(temp_dir.path(), Arc::new(engine));
+        let current_hash = ops.get_note("facts/Current.md").unwrap()["hash"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let preview = ops
+            .memory_update(
+                "facts/Current.md",
+                &current_hash,
+                Some("Renamed"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                false,
+            )
+            .unwrap();
+        let preview_token = preview["preview_token"].as_str().unwrap();
+
+        let err = ops
+            .memory_update(
+                "facts/Current.md",
+                &current_hash,
+                Some("Renamed"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                Some(preview_token),
+                false,
+            )
+            .unwrap_err();
+
+        assert!(err.to_string().contains("write failed"));
+        assert!(err.to_string().contains("injected write failure"));
+        assert!(temp_dir.path().join("facts/Current.md").exists());
+        assert!(!temp_dir.path().join("facts/Renamed.md").exists());
+        let current_content =
+            std::fs::read_to_string(temp_dir.path().join("facts/Current.md")).unwrap();
+        assert!(current_content.contains("# Current"));
+        assert!(current_content.contains("Current claim."));
+    }
+
+    #[test]
+    fn memory_update_rename_write_failure_reports_partial_apply_when_rollback_fails() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/Current.md",
+            "---\n\
+             type: fact\n\
+             title: Current\n\
+             description: Current claim.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             # Current\n\
+\n\
+             Current claim.\n",
+        );
+        let engine = FailingVaultEngine::default();
+        engine.fail_write_once("facts/Renamed.md", "injected write failure");
+        engine.fail_move_once(
+            "facts/Renamed.md",
+            "facts/Current.md",
+            "injected rollback failure",
+        );
+        let ops = build_test_ops_with_engine(temp_dir.path(), Arc::new(engine));
+        let current_hash = ops.get_note("facts/Current.md").unwrap()["hash"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let preview = ops
+            .memory_update(
+                "facts/Current.md",
+                &current_hash,
+                Some("Renamed"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                false,
+            )
+            .unwrap();
+        let preview_token = preview["preview_token"].as_str().unwrap();
+
+        let err = ops
+            .memory_update(
+                "facts/Current.md",
+                &current_hash,
+                Some("Renamed"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                Some(preview_token),
+                false,
+            )
+            .unwrap_err();
+
+        assert!(err.to_string().contains("partially applied"));
+        assert!(err.to_string().contains("injected write failure"));
+        assert!(err.to_string().contains("injected rollback failure"));
+        assert!(err.to_string().contains("facts/Renamed.md"));
+        assert!(!temp_dir.path().join("facts/Current.md").exists());
+        assert!(temp_dir.path().join("facts/Renamed.md").exists());
+        let stranded_content =
+            std::fs::read_to_string(temp_dir.path().join("facts/Renamed.md")).unwrap();
+        assert!(stranded_content.contains("# Current"));
+        assert!(stranded_content.contains("Current claim."));
     }
 
     #[test]
