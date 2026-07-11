@@ -3020,15 +3020,14 @@ fn connection_list(app: tauri::AppHandle) -> ConnectionList {
     app.state::<ServersState>().snapshot().connection_list()
 }
 
-/// Return the cached vault list for each saved remote server. Used by Settings
-/// to populate the companion-memory vault picker without inventing a second
-/// store; values come directly from ADR 0017's per-server cache.
-#[tauri::command]
-fn connection_cached_vaults(app: tauri::AppHandle) -> Vec<ConnectionCachedVaults> {
+fn cached_vaults_for_settings(
+    servers: &ServersFile,
+    cache: &VaultCacheState,
+    now: SystemTime,
+    ttl: Duration,
+) -> Vec<ConnectionCachedVaults> {
     use notesmith_tauri::vault_cache::VaultListStatus;
 
-    let servers = app.state::<ServersState>().snapshot();
-    let cache = app.state::<VaultCacheState>();
     servers
         .servers
         .iter()
@@ -3036,7 +3035,7 @@ fn connection_cached_vaults(app: tauri::AppHandle) -> Vec<ConnectionCachedVaults
             let entry = cache.get(&server.id);
             let (status, vaults) = match entry {
                 Some(entry) => {
-                    let status = match entry.status {
+                    let status = match entry.display_status(now, ttl) {
                         VaultListStatus::Fresh => "fresh",
                         VaultListStatus::Stale => "stale",
                         VaultListStatus::AuthError => "auth_error",
@@ -3053,6 +3052,16 @@ fn connection_cached_vaults(app: tauri::AppHandle) -> Vec<ConnectionCachedVaults
             }
         })
         .collect()
+}
+
+/// Return the cached vault list for each saved remote server. Used by Settings
+/// to populate the companion-memory vault picker without inventing a second
+/// store; values come directly from ADR 0017's per-server cache.
+#[tauri::command]
+fn connection_cached_vaults(app: tauri::AppHandle) -> Vec<ConnectionCachedVaults> {
+    let servers = app.state::<ServersState>().snapshot();
+    let cache = app.state::<VaultCacheState>();
+    cached_vaults_for_settings(&servers, &cache, SystemTime::now(), VAULT_CACHE_TTL)
 }
 
 /// Add a new server. Validates the name and URL; returns the created entry.
@@ -3403,13 +3412,15 @@ fn friendly_probe_error(error: &reqwest::Error) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::time::{Duration, Instant, SystemTime};
 
     use super::{
-        CrashAction, CrashTracker, DaemonSettings, QuitRequestAction, VaultRefreshGate,
-        admin_route_url, classify_vault_response, daemon_error_detail, evaluate_quit_request,
-        find_sidecar_in, open_windows_guard_message, should_use_local_vault_state,
+        CrashAction, CrashTracker, DaemonSettings, QuitRequestAction, VaultCacheState,
+        VaultRefreshGate, admin_route_url, cached_vaults_for_settings, classify_vault_response,
+        daemon_error_detail, evaluate_quit_request, find_sidecar_in, open_windows_guard_message,
+        should_use_local_vault_state,
     };
+    use notesmith_tauri::servers::{ServerEntry, ServersFile};
     use notesmith_tauri::vault_cache::RefreshOutcome;
 
     #[test]
@@ -3614,5 +3625,113 @@ mod tests {
     #[test]
     fn local_daemon_mode_uses_local_vault_state() {
         assert!(should_use_local_vault_state(&DaemonSettings::default()));
+    }
+
+    #[test]
+    fn settings_cached_vaults_keeps_fresh_entries_fresh_within_ttl() {
+        let servers = ServersFile {
+            version: 1,
+            active_id: None,
+            servers: vec![ServerEntry {
+                id: "home".into(),
+                name: "Home".into(),
+                url: "http://example.com".into(),
+                token: None,
+            }],
+        };
+        let cache = VaultCacheState::default();
+        cache.merge(
+            "home",
+            RefreshOutcome::Loaded(vec!["personal".into()]),
+            SystemTime::UNIX_EPOCH + Duration::from_secs(100),
+        );
+
+        let cached = cached_vaults_for_settings(
+            &servers,
+            &cache,
+            SystemTime::UNIX_EPOCH + Duration::from_secs(150),
+            Duration::from_secs(60),
+        );
+
+        assert_eq!(cached[0].status, "fresh");
+        assert_eq!(cached[0].vaults, vec!["personal".to_string()]);
+    }
+
+    #[test]
+    fn settings_cached_vaults_marks_loaded_entries_stale_after_ttl() {
+        let servers = ServersFile {
+            version: 1,
+            active_id: None,
+            servers: vec![ServerEntry {
+                id: "home".into(),
+                name: "Home".into(),
+                url: "http://example.com".into(),
+                token: None,
+            }],
+        };
+        let cache = VaultCacheState::default();
+        cache.merge(
+            "home",
+            RefreshOutcome::Loaded(vec!["personal".into()]),
+            SystemTime::UNIX_EPOCH + Duration::from_secs(100),
+        );
+
+        let cached = cached_vaults_for_settings(
+            &servers,
+            &cache,
+            SystemTime::UNIX_EPOCH + Duration::from_secs(200),
+            Duration::from_secs(60),
+        );
+
+        assert_eq!(cached[0].status, "stale");
+        assert_eq!(cached[0].vaults, vec!["personal".to_string()]);
+    }
+
+    #[test]
+    fn settings_cached_vaults_preserves_auth_and_unreachable_statuses() {
+        let servers = ServersFile {
+            version: 1,
+            active_id: None,
+            servers: vec![
+                ServerEntry {
+                    id: "auth".into(),
+                    name: "Auth".into(),
+                    url: "http://auth.example.com".into(),
+                    token: None,
+                },
+                ServerEntry {
+                    id: "offline".into(),
+                    name: "Offline".into(),
+                    url: "http://offline.example.com".into(),
+                    token: None,
+                },
+            ],
+        };
+        let cache = VaultCacheState::default();
+        let last_seen = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
+        cache.merge(
+            "auth",
+            RefreshOutcome::Loaded(vec!["personal".into()]),
+            last_seen,
+        );
+        cache.merge("auth", RefreshOutcome::AuthError, last_seen);
+        cache.merge(
+            "offline",
+            RefreshOutcome::Loaded(vec!["work".into()]),
+            last_seen,
+        );
+        cache.merge("offline", RefreshOutcome::Unreachable, last_seen);
+
+        let cached = cached_vaults_for_settings(
+            &servers,
+            &cache,
+            SystemTime::UNIX_EPOCH + Duration::from_secs(10_000),
+            Duration::from_secs(60),
+        );
+
+        assert_eq!(cached[0].status, "auth_error");
+        assert_eq!(cached[0].vaults, vec!["personal".to_string()]);
+        assert_eq!(cached[1].status, "unreachable");
+        assert_eq!(cached[1].vaults, vec!["work".to_string()]);
     }
 }
