@@ -32,6 +32,7 @@
     "allow-mcp-servers-get",
     "allow-mcp-servers-set",
     "allow-connection-list",
+    "allow-connection-cached-vaults",
     "allow-connection-add",
     "allow-connection-update",
     "allow-connection-remove",

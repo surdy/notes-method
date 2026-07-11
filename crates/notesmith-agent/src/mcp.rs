@@ -28,6 +28,22 @@ use agent_client_protocol::schema::{EnvVariable, McpServer, McpServerHttp, McpSe
 /// Server name surfaced to the agent for the vault's MCP server.
 pub const MCP_SERVER_NAME: &str = "notesmith";
 
+fn sanitize_server_component(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+}
+
 /// Build the per-vault MCP server name surfaced to the agent, e.g.
 /// `notesmith-work` (issue #259).
 ///
@@ -38,22 +54,25 @@ pub const MCP_SERVER_NAME: &str = "notesmith";
 /// characters become `-`); an empty result falls back to the bare
 /// [`MCP_SERVER_NAME`].
 pub fn server_name_for_vault(vault: &str) -> String {
-    let slug: String = vault
-        .trim()
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let slug = slug.trim_matches('-');
+    let slug = sanitize_server_component(vault);
     if slug.is_empty() {
         MCP_SERVER_NAME.to_string()
     } else {
         format!("{MCP_SERVER_NAME}-{slug}")
+    }
+}
+
+/// Build a stable MCP server name for a vault that needs a namespace suffix
+/// (for example the same vault name hosted by another saved daemon
+/// connection). The base vault naming convention still comes from
+/// [`server_name_for_vault`].
+pub fn server_name_for_namespaced_vault(namespace: &str, vault: &str) -> String {
+    let base = server_name_for_vault(vault);
+    let namespace = sanitize_server_component(namespace);
+    if namespace.is_empty() {
+        base
+    } else {
+        format!("{base}-{namespace}")
     }
 }
 
@@ -259,6 +278,26 @@ mod tests {
         // Empty / all-invalid names fall back to the bare server name.
         assert_eq!(server_name_for_vault(""), "notesmith");
         assert_eq!(server_name_for_vault("///"), "notesmith");
+    }
+
+    #[test]
+    fn namespaced_server_name_stays_stable_and_unique() {
+        assert_eq!(
+            server_name_for_namespaced_vault("memory-host", "work"),
+            "notesmith-work-memory-host"
+        );
+        assert_eq!(
+            server_name_for_namespaced_vault("memory host", "work"),
+            "notesmith-work-memory-host"
+        );
+        assert_eq!(
+            server_name_for_namespaced_vault("other", "work"),
+            "notesmith-work-other"
+        );
+        assert_eq!(
+            server_name_for_namespaced_vault("other", " / "),
+            "notesmith-other"
+        );
     }
 
     #[test]

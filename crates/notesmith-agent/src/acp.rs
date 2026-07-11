@@ -100,7 +100,12 @@ type ReadySlot = Mutex<Option<oneshot::Sender<HandshakeResult>>>;
 /// which vault it is in and prefers this vault's tools over any other MCP
 /// server, issue #259), whether the vault MCP endpoint is wired, and whether
 /// the agent also has scoped local filesystem/terminal access.
-pub(crate) fn session_preamble(vault_name: Option<&str>, has_mcp: bool, local_io: bool) -> String {
+pub(crate) fn session_preamble(
+    vault_name: Option<&str>,
+    has_mcp: bool,
+    local_io: bool,
+    has_companion_memory: bool,
+) -> String {
     let vault = vault_name
         .map(str::trim)
         .filter(|v| !v.is_empty())
@@ -124,6 +129,15 @@ pub(crate) fn session_preamble(vault_name: Option<&str>, has_mcp: bool, local_io
              to a specific note, cite it as a wikilink containing its exact \
              vault-relative path, e.g. `[[work/Zero-downtime Postgres cutover.md]]`, \
              so the user can click it to open the note.",
+        ));
+    }
+    if has_companion_memory {
+        text.push_str(&format!(
+            " When you use the companion fact-memory server, call \
+             `memory_recall` with `scope: vault:{vault}` by default so recall \
+             includes this project's facts. User-scoped facts are included \
+             automatically. Omit or override that scope only when the user asks \
+             for cross-project/global recall.",
         ));
     }
     if local_io {
@@ -538,6 +552,7 @@ pub struct AcpSession {
     /// Additional user-configured external MCP servers (ADR 0016 / #211),
     /// advertised alongside the built-in vault binding on every transport.
     extra_mcp: Vec<McpBinding>,
+    has_companion_memory: bool,
     read_only: bool,
     local_io: bool,
     pub(crate) setup_hint: Option<String>,
@@ -566,6 +581,7 @@ impl AcpSession {
             mcp: None,
             mcp_stdio_fallback: None,
             extra_mcp: Vec::new(),
+            has_companion_memory: false,
             read_only: true,
             local_io: false,
             setup_hint: None,
@@ -719,6 +735,13 @@ impl AcpSession {
         self
     }
 
+    /// Mark that this session carries a companion fact-memory MCP server so the
+    /// preamble can inject bounded scope guidance.
+    pub fn with_companion_memory(mut self, enabled: bool) -> Self {
+        self.has_companion_memory = enabled;
+        self
+    }
+
     /// Explicitly set the read-only permission scope (overrides the value
     /// derived from the MCP endpoint).
     pub fn read_only(mut self, read_only: bool) -> Self {
@@ -841,6 +864,7 @@ impl AcpSession {
         let mcp = self.mcp.clone();
         let mcp_stdio_fallback = self.mcp_stdio_fallback.clone();
         let extra_mcp = self.extra_mcp.clone();
+        let has_companion_memory = self.has_companion_memory;
         let local_io = self.local_io;
         let read_only = self.read_only;
         let decider = self.decider.clone();
@@ -858,6 +882,7 @@ impl AcpSession {
                     || self.mcp_stdio_fallback.is_some()
                     || !self.extra_mcp.is_empty(),
                 self.local_io,
+                has_companion_memory,
             ),
             self.vault_summary.as_ref(),
             self.skill.as_deref(),
@@ -1524,11 +1549,11 @@ mod tests {
 
     #[test]
     fn session_preamble_steers_to_mcp_and_reflects_local_io() {
-        let with_mcp = session_preamble(Some("work"), true, false);
+        let with_mcp = session_preamble(Some("work"), true, false, false);
         assert!(with_mcp.contains("Notesmith MCP tools"));
         assert!(with_mcp.contains("do not attempt to run shell commands"));
 
-        let with_io = session_preamble(Some("work"), true, true);
+        let with_io = session_preamble(Some("work"), true, true, false);
         assert!(with_io.contains("scoped filesystem and terminal access"));
     }
 
@@ -1537,7 +1562,7 @@ mod tests {
         // Grounding fix (issue #259): the preamble must name the active vault
         // and steer the agent to prefer this vault's built-in tools over any
         // other MCP server, and not give up / cross vaults on an empty search.
-        let p = session_preamble(Some("embed-test"), true, false);
+        let p = session_preamble(Some("embed-test"), true, false, false);
         assert!(p.contains("`embed-test`"), "preamble names the vault: {p}");
         assert!(
             p.contains("only use a different MCP server if the user explicitly asks"),
@@ -1549,7 +1574,7 @@ mod tests {
         );
 
         // No vault name still produces a valid, generic preamble.
-        let generic = session_preamble(None, true, false);
+        let generic = session_preamble(None, true, false, false);
         assert!(generic.contains("this vault"));
     }
 
@@ -1557,7 +1582,7 @@ mod tests {
     fn session_preamble_asks_for_clickable_note_citations() {
         // Clickable note links: the agent must cite referenced notes as
         // `[[vault-relative path]]` wikilinks so the chat UI can open them.
-        let p = session_preamble(Some("embed-test"), true, false);
+        let p = session_preamble(Some("embed-test"), true, false, false);
         assert!(
             p.contains("cite it as a wikilink"),
             "preamble steers wikilink citations: {p}"
@@ -1565,6 +1590,24 @@ mod tests {
         assert!(
             p.contains("[[work/Zero-downtime Postgres cutover.md]]"),
             "preamble shows a vault-relative wikilink example: {p}"
+        );
+    }
+
+    #[test]
+    fn session_preamble_adds_companion_memory_scope_guidance() {
+        let p = session_preamble(Some("notes-method"), true, false, true);
+        assert!(p.contains("memory_recall"), "mentions memory recall: {p}");
+        assert!(
+            p.contains("scope: vault:notes-method"),
+            "defaults companion memory to the active vault scope: {p}"
+        );
+        assert!(
+            p.contains("User-scoped facts are included automatically"),
+            "explains user-scope inclusion: {p}"
+        );
+        assert!(
+            p.contains("cross-project/global recall"),
+            "explains when to omit or override scope: {p}"
         );
     }
 

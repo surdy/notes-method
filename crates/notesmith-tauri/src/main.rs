@@ -30,6 +30,7 @@ use notesmith_tauri::window_registry::{WindowContext, WindowRegistry};
 use notesmith_tauri::windows_persist::{
     self, Rect, WindowEntry, WindowsFile, dedupe_latest_per_vault,
 };
+use serde::Serialize;
 use tauri::{
     AppHandle, Emitter, Manager, RunEvent, Runtime, UriSchemeContext, Url, WebviewUrl,
     WebviewWindowBuilder,
@@ -340,6 +341,16 @@ impl VaultRefreshGate {
     }
 }
 
+/// Cached vault names for one saved server, exposed to the Settings UI so the
+/// companion-memory picker can reuse the per-server vault cache from ADR 0017.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConnectionCachedVaults {
+    server_id: String,
+    status: &'static str,
+    vaults: Vec<String>,
+}
+
 /// The authoritative window → connection registry (ADR 0017).
 ///
 /// Wraps the pure [`WindowRegistry`] in a mutex for use as Tauri managed state.
@@ -505,6 +516,7 @@ fn main() {
             agent_bridge::agent_diagnostics_clear,
             agent_diag::agent_diagnostics,
             connection_list,
+            connection_cached_vaults,
             connection_add,
             connection_update,
             connection_remove,
@@ -3006,6 +3018,41 @@ async fn pick_vault_folder(app: tauri::AppHandle) -> Result<Option<String>, Stri
 #[tauri::command]
 fn connection_list(app: tauri::AppHandle) -> ConnectionList {
     app.state::<ServersState>().snapshot().connection_list()
+}
+
+/// Return the cached vault list for each saved remote server. Used by Settings
+/// to populate the companion-memory vault picker without inventing a second
+/// store; values come directly from ADR 0017's per-server cache.
+#[tauri::command]
+fn connection_cached_vaults(app: tauri::AppHandle) -> Vec<ConnectionCachedVaults> {
+    use notesmith_tauri::vault_cache::VaultListStatus;
+
+    let servers = app.state::<ServersState>().snapshot();
+    let cache = app.state::<VaultCacheState>();
+    servers
+        .servers
+        .iter()
+        .map(|server| {
+            let entry = cache.get(&server.id);
+            let (status, vaults) = match entry {
+                Some(entry) => {
+                    let status = match entry.status {
+                        VaultListStatus::Fresh => "fresh",
+                        VaultListStatus::Stale => "stale",
+                        VaultListStatus::AuthError => "auth_error",
+                        VaultListStatus::Unreachable => "unreachable",
+                    };
+                    (status, entry.vaults)
+                }
+                None => ("missing", Vec::new()),
+            };
+            ConnectionCachedVaults {
+                server_id: server.id.clone(),
+                status,
+                vaults,
+            }
+        })
+        .collect()
 }
 
 /// Add a new server. Validates the name and URL; returns the created entry.

@@ -30,7 +30,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 use notesmith_agent::{
@@ -38,7 +38,9 @@ use notesmith_agent::{
     DiffPreview, EditorContext, McpBinding, ModelPicker, PermissionDecider, PermissionDecision,
     PermissionRequest,
 };
-use notesmith_config::{AgentEntry, AgentsConfig, McpConfig, McpServerEntry, expand_path_vars};
+use notesmith_config::{
+    AgentEntry, AgentsConfig, CompanionMemoryConfig, McpConfig, McpServerEntry, expand_path_vars,
+};
 
 /// Event channel carrying normalized [`AgentEvent`]s to the chat panel.
 pub const AGENT_EVENT: &str = "notesmith://agent-event";
@@ -160,8 +162,48 @@ pub struct McpServerDto {
 /// The `[mcp]` section over the wire. Mirrors the frontend `McpConfigData`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct CompanionMemoryDto {
+    pub enabled: bool,
+    pub server_id: Option<String>,
+    pub vault: Option<String>,
+    pub read_only: bool,
+}
+
+impl Default for CompanionMemoryDto {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            server_id: None,
+            vault: None,
+            read_only: true,
+        }
+    }
+}
+
+fn companion_memory_to_dto(cfg: &CompanionMemoryConfig) -> CompanionMemoryDto {
+    CompanionMemoryDto {
+        enabled: cfg.enabled,
+        server_id: cfg.server_id.clone(),
+        vault: cfg.vault.clone(),
+        read_only: cfg.read_only,
+    }
+}
+
+fn dto_to_companion_memory(dto: CompanionMemoryDto) -> CompanionMemoryConfig {
+    CompanionMemoryConfig {
+        enabled: dto.enabled,
+        server_id: dto.server_id,
+        vault: dto.vault,
+        read_only: dto.read_only,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct McpConfigDto {
     pub servers: Vec<McpServerDto>,
+    #[serde(default)]
+    pub companion_memory: CompanionMemoryDto,
 }
 
 /// Project the in-memory [`McpConfig`] to its wire DTO, preserving order.
@@ -183,15 +225,22 @@ fn mcp_config_to_dto(cfg: &McpConfig) -> McpConfigDto {
             enabled: entry.enabled,
         })
         .collect();
-    McpConfigDto { servers }
+    McpConfigDto {
+        servers,
+        companion_memory: companion_memory_to_dto(&cfg.companion_memory),
+    }
 }
 
 /// Fold the wire DTO back into an [`McpConfig`]. Servers with a blank id are
 /// skipped (the UI may carry an empty "add server" draft row); env pairs become
 /// a `BTreeMap`, so a later duplicate key wins. Order is preserved.
 fn dto_to_mcp_config(dto: McpConfigDto) -> McpConfig {
+    let McpConfigDto {
+        servers: dto_servers,
+        companion_memory,
+    } = dto;
     let mut servers = Vec::new();
-    for server in dto.servers {
+    for server in dto_servers {
         let id = server.id.trim().to_string();
         if id.is_empty() {
             continue;
@@ -207,7 +256,10 @@ fn dto_to_mcp_config(dto: McpConfigDto) -> McpConfig {
             enabled: server.enabled,
         });
     }
-    McpConfig { servers }
+    McpConfig {
+        servers,
+        companion_memory: dto_to_companion_memory(companion_memory),
+    }
 }
 
 /// Convert the enabled external MCP servers into [`McpBinding`]s for an agent
@@ -254,6 +306,47 @@ fn load_mcp_config() -> McpConfig {
     notesmith_config::GlobalConfig::load()
         .map(|config| config.mcp)
         .unwrap_or_default()
+}
+
+fn companion_http_binding(
+    daemon_url: &str,
+    server_id: &str,
+    vault: &str,
+    read_only: bool,
+) -> McpBinding {
+    let base = daemon_url.trim_end_matches('/');
+    let scope = if read_only { "mcp-ro" } else { "mcp" };
+    let url = format!("{base}/{scope}/{vault}");
+    McpBinding::http(
+        notesmith_agent::server_name_for_namespaced_vault(server_id, vault),
+        url,
+    )
+}
+
+fn dedupe_key(binding: &McpBinding) -> String {
+    match binding {
+        McpBinding::Http { url, .. } => url.replace("/mcp-ro/", "/mcp/"),
+        McpBinding::Stdio { command, args, .. } => {
+            let filtered: Vec<&str> = args
+                .iter()
+                .map(String::as_str)
+                .filter(|arg| *arg != "--read-only")
+                .collect();
+            format!("{command}::{}", filtered.join("\u{1f}"))
+        }
+    }
+}
+
+fn dedupe_companion_binding(
+    active: Option<&McpBinding>,
+    companion: Option<McpBinding>,
+) -> Option<McpBinding> {
+    let companion = companion?;
+    if active.is_some_and(|binding| dedupe_key(binding) == dedupe_key(&companion)) {
+        None
+    } else {
+        Some(companion)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -744,6 +837,96 @@ fn resolve_session(agent: &str, cfg: &AgentsConfig) -> Result<AcpSession, String
 /// Build (but do not start) an [`AcpSession`] for `opts`, wired to the MCP
 /// endpoint of the daemon the calling window (`window_label`) is connected to,
 /// plus a UI permission decider.
+fn resolve_companion_memory_binding(
+    app: &AppHandle,
+    window_label: &str,
+    opts: &StartSessionOptions,
+    config: &McpConfig,
+) -> Result<Option<McpBinding>, String> {
+    let companion = &config.companion_memory;
+    if !companion.enabled {
+        return Ok(None);
+    }
+
+    let server_id = companion
+        .server_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            "Companion memory is enabled but no saved server is selected.".to_string()
+        })?;
+    let vault = companion
+        .vault
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            "Companion memory is enabled but no companion vault is selected.".to_string()
+        })?;
+
+    if crate::window_server_id(app, window_label) == server_id && opts.vault == vault {
+        return Ok(None);
+    }
+
+    let servers = app.state::<crate::ServersState>().snapshot();
+    let server = servers.get(server_id).ok_or_else(|| {
+        format!("Companion memory server '{server_id}' is no longer in saved connections.")
+    })?;
+
+    let cache_entry = app
+        .state::<crate::VaultCacheState>()
+        .get(server_id)
+        .ok_or_else(|| {
+            format!(
+                "Companion memory vault '{vault}' on '{}' is unavailable. Refresh saved server vaults in Settings → Connection and try again.",
+                server.name
+            )
+        })?;
+
+    use notesmith_tauri::vault_cache::VaultListStatus;
+    match cache_entry.status {
+        VaultListStatus::AuthError => {
+            return Err(format!(
+                "Companion memory server '{}' rejected the saved credentials. Update the connection token in Settings → Connection and try again.",
+                server.name
+            ));
+        }
+        VaultListStatus::Unreachable => {
+            return Err(format!(
+                "Companion memory server '{}' is unreachable. Refresh saved server vaults in Settings → Connection and try again.",
+                server.name
+            ));
+        }
+        VaultListStatus::Fresh | VaultListStatus::Stale => {}
+    }
+
+    if !cache_entry
+        .vaults
+        .iter()
+        .any(|candidate| candidate == vault)
+    {
+        return Err(format!(
+            "Companion memory vault '{vault}' was not found on '{}'. Refresh saved server vaults in Settings → Connection and try again.",
+            server.name
+        ));
+    }
+
+    let effective_read_only = opts.read_only || companion.read_only;
+    let binding = companion_http_binding(&server.url, server_id, vault, effective_read_only);
+    let active = session_primary_binding(app, window_label, opts);
+    Ok(dedupe_companion_binding(Some(&active), Some(binding)))
+}
+
+fn session_primary_binding(
+    app: &AppHandle,
+    window_label: &str,
+    opts: &StartSessionOptions,
+) -> McpBinding {
+    let (daemon_url, _) = crate::window_daemon_target(app, window_label);
+    http_binding(&daemon_url, opts)
+}
+
 fn build_session(
     app: &AppHandle,
     opts: &StartSessionOptions,
@@ -752,6 +935,7 @@ fn build_session(
     pending: Arc<PendingPermissions>,
 ) -> Result<AcpSession, String> {
     let mut session = resolve_session(opts.agent.as_str(), &load_agents_config())?;
+    let mcp_config = load_mcp_config();
 
     // Scope the working directory (and any break-glass fs access) to the vault.
     if let Some(path) = vault_root(&opts.vault) {
@@ -789,10 +973,17 @@ fn build_session(
         ));
     }
 
-    // Advertise the user's enabled external MCP servers (ADR 0016 / #211)
-    // alongside the built-in vault binding. Disabled or malformed entries are
-    // skipped without erroring (ADR 0009).
-    session = session.with_extra_mcp(extra_mcp_bindings(&load_mcp_config()));
+    let mut extra = extra_mcp_bindings(&mcp_config);
+    if let Some(companion) = resolve_companion_memory_binding(app, window_label, opts, &mcp_config)?
+    {
+        extra.insert(0, companion);
+        session = session.with_companion_memory(true);
+    }
+    session = session.with_extra_mcp(extra);
+
+    // Companion memory and user-configured external MCP servers (ADR 0016 /
+    // #211) ride alongside the built-in vault binding. Disabled or malformed
+    // entries are skipped without erroring (ADR 0009).
 
     let decider = Arc::new(BridgeDecider {
         app: app.clone(),
@@ -1457,6 +1648,7 @@ mod tests {
                     enabled: false,
                 },
             ],
+            companion_memory: CompanionMemoryConfig::default(),
         };
 
         let dto = mcp_config_to_dto(&cfg);
@@ -1495,6 +1687,7 @@ mod tests {
                     enabled: true,
                 },
             ],
+            companion_memory: CompanionMemoryDto::default(),
         };
 
         let cfg = dto_to_mcp_config(dto);
@@ -1525,6 +1718,7 @@ mod tests {
                     enabled: true,
                 },
             ],
+            companion_memory: CompanionMemoryConfig::default(),
         };
 
         let bindings = extra_mcp_bindings(&cfg);
@@ -1578,9 +1772,33 @@ mod tests {
                     ..Default::default()
                 },
             ],
+            companion_memory: CompanionMemoryConfig::default(),
         };
 
         assert!(extra_mcp_bindings(&cfg).is_empty());
+    }
+
+    #[test]
+    fn mcp_config_dto_round_trips_companion_memory() {
+        let dto = McpConfigDto {
+            servers: vec![],
+            companion_memory: CompanionMemoryDto {
+                enabled: true,
+                server_id: Some("memory-host".to_string()),
+                vault: Some("memory".to_string()),
+                read_only: false,
+            },
+        };
+
+        let cfg = dto_to_mcp_config(dto.clone());
+        assert!(cfg.companion_memory.enabled);
+        assert_eq!(
+            cfg.companion_memory.server_id.as_deref(),
+            Some("memory-host")
+        );
+        assert_eq!(cfg.companion_memory.vault.as_deref(), Some("memory"));
+        assert!(!cfg.companion_memory.read_only);
+        assert_eq!(mcp_config_to_dto(&cfg), dto);
     }
 
     fn session_opts(vault: &str, read_only: bool) -> StartSessionOptions {
@@ -1618,6 +1836,56 @@ mod tests {
             }
             other => panic!("expected an http binding, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn companion_binding_uses_its_own_server_and_access_mode() {
+        let binding = companion_http_binding(
+            "https://memory.example.com/",
+            "memory-host",
+            "memory",
+            false,
+        );
+        assert_eq!(binding.name(), "notesmith-memory-memory-host");
+        match binding {
+            McpBinding::Http { url, read_only, .. } => {
+                assert_eq!(url, "https://memory.example.com/mcp/memory");
+                assert!(!read_only);
+            }
+            other => panic!("expected an http binding, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn companion_binding_uses_read_only_scope_when_requested() {
+        let binding =
+            companion_http_binding("https://memory.example.com/", "memory-host", "memory", true);
+        match binding {
+            McpBinding::Http { url, read_only, .. } => {
+                assert_eq!(url, "https://memory.example.com/mcp-ro/memory");
+                assert!(read_only);
+            }
+            other => panic!("expected an http binding, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dedupe_skips_companion_when_it_matches_the_active_binding() {
+        let active = McpBinding::http("notesmith-work", "https://active.example.com/mcp/work");
+        assert!(dedupe_companion_binding(Some(&active), Some(active.clone())).is_none());
+    }
+
+    #[test]
+    fn dedupe_keeps_distinct_companion_bindings() {
+        let active = McpBinding::http("notesmith-work", "https://active.example.com/mcp/work");
+        let companion = McpBinding::http(
+            "notesmith-memory-memory-host",
+            "https://memory.example.com/mcp-ro/memory",
+        );
+        assert_eq!(
+            dedupe_companion_binding(Some(&active), Some(companion.clone())),
+            Some(companion)
+        );
     }
 
     fn unique_temp_dir(name: &str) -> PathBuf {

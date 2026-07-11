@@ -41,6 +41,7 @@ fn main() {
             "mcp_servers_get",
             "mcp_servers_set",
             "connection_list",
+            "connection_cached_vaults",
             "connection_add",
             "connection_update",
             "connection_remove",

@@ -83,6 +83,40 @@ pub struct McpConfig {
     /// External MCP servers, in user-defined order. Each carries its own `id`.
     #[serde(default)]
     pub servers: Vec<McpServerEntry>,
+    /// Optional companion fact-memory vault attached beside the active vault in
+    /// embedded chat sessions.
+    #[serde(default)]
+    pub companion_memory: CompanionMemoryConfig,
+}
+
+/// One optional companion fact-memory vault attached beside the active work
+/// vault in embedded ACP chat. Stored in global config because it reuses a
+/// saved daemon connection from `servers.json`, not a per-vault secret store.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompanionMemoryConfig {
+    /// Whether the companion attachment is enabled. Disabled by default.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Stable id of the saved remote server hosting the memory vault.
+    #[serde(default)]
+    pub server_id: Option<String>,
+    /// Vault name on that server.
+    #[serde(default)]
+    pub vault: Option<String>,
+    /// Default companion access mode. `true` => `/mcp-ro/<vault>`.
+    #[serde(default = "default_true")]
+    pub read_only: bool,
+}
+
+impl Default for CompanionMemoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            server_id: None,
+            vault: None,
+            read_only: true,
+        }
+    }
 }
 
 /// A single `[[mcp.servers]]` entry. The transport is **stdio** when `command`
@@ -626,6 +660,49 @@ path = "/vaults/work"
         let config = GlobalConfig::load_from(&path).unwrap();
         assert_eq!(config.mcp, McpConfig::default());
         assert!(config.mcp.servers.is_empty());
+    }
+
+    #[test]
+    fn companion_memory_config_round_trips_through_disk() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[mcp.companion_memory]
+enabled = true
+server_id = "memory-host"
+vault = "memory"
+read_only = false
+"#,
+        )
+        .unwrap();
+
+        let config = GlobalConfig::load_from(&path).unwrap();
+        assert!(config.mcp.companion_memory.enabled);
+        assert_eq!(
+            config.mcp.companion_memory.server_id.as_deref(),
+            Some("memory-host")
+        );
+        assert_eq!(config.mcp.companion_memory.vault.as_deref(), Some("memory"));
+        assert!(!config.mcp.companion_memory.read_only);
+
+        let round_trip_path = temp_dir.path().join("round-trip.toml");
+        config.save_to(&round_trip_path).unwrap();
+        let reloaded = GlobalConfig::load_from(&round_trip_path).unwrap();
+        assert_eq!(reloaded, config);
+    }
+
+    #[test]
+    fn companion_memory_defaults_to_disabled_read_only_without_target() {
+        assert_eq!(CompanionMemoryConfig::default().server_id, None);
+        assert_eq!(CompanionMemoryConfig::default().vault, None);
+        assert!(!CompanionMemoryConfig::default().enabled);
+        assert!(CompanionMemoryConfig::default().read_only);
+        assert_eq!(
+            McpConfig::default().companion_memory,
+            CompanionMemoryConfig::default()
+        );
     }
 
     #[test]
