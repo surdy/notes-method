@@ -475,6 +475,12 @@ pub struct StartSessionOptions {
     /// Bounded when the preamble is assembled, keeping it small.
     #[serde(default)]
     preamble: Option<String>,
+    /// The agent's ACP `sessionId` from a prior run of this chat thread, to
+    /// resume via `session/load` instead of starting fresh (#262). `None` (the
+    /// default) starts a new session. A stale/unknown id degrades to a fresh
+    /// session agent-side, so this is always safe to pass.
+    #[serde(default)]
+    resume_acp_session_id: Option<String>,
 }
 
 /// Editor context handed in with a turn. Mirrors the frontend `EditorContext`.
@@ -540,6 +546,10 @@ impl From<&ModelPicker> for ModelPickerDto {
 pub struct StartSessionResult {
     session_id: String,
     models: Option<ModelPickerDto>,
+    /// The agent's resolved ACP `sessionId` for this session, to persist per
+    /// thread so it can be resumed later (#262). `None` if the agent returned
+    /// no session id.
+    acp_session_id: Option<String>,
 }
 
 /// `notesmith://agent-event` payload.
@@ -1076,6 +1086,7 @@ async fn build_session(
         .with_local_io(opts.break_glass)
         .with_granted_tools(opts.persisted_grants.clone())
         .with_diagnostics(diagnostics_log())
+        .resume_from(opts.resume_acp_session_id.clone())
         .with_permission_decider(decider))
 }
 
@@ -1157,13 +1168,16 @@ async fn spawn_session(
     session_id: &str,
     window_label: &str,
     opts: StartSessionOptions,
-) -> Result<(SessionEntry, Option<ModelPickerDto>), String> {
+) -> Result<(SessionEntry, Option<ModelPickerDto>, Option<String>), String> {
     let mut session =
         build_session(app, &opts, session_id, window_label, bridge.pending.clone()).await?;
 
     // Eagerly run the handshake so the model picker is available immediately.
     session.start().await.map_err(|e| e.to_string())?;
     let models = session.model_picker().as_ref().map(ModelPickerDto::from);
+    // Capture the agent's resolved sessionId (fresh or resumed) so the caller
+    // can persist it per thread for later resume (#262).
+    let acp_session_id = session.agent_session_id();
 
     let (tx, rx) = mpsc::unbounded_channel();
     tokio::spawn(run_session(
@@ -1173,7 +1187,7 @@ async fn spawn_session(
         session_id.to_string(),
     ));
 
-    Ok((SessionEntry { commands: tx, opts }, models))
+    Ok((SessionEntry { commands: tx, opts }, models, acp_session_id))
 }
 
 #[tauri::command]
@@ -1248,7 +1262,8 @@ pub async fn agent_start(
         bridge.next_session.fetch_add(1, Ordering::Relaxed)
     );
 
-    let (entry, models) = spawn_session(&app, &bridge, &session_id, window.label(), opts).await?;
+    let (entry, models, acp_session_id) =
+        spawn_session(&app, &bridge, &session_id, window.label(), opts).await?;
 
     bridge
         .sessions
@@ -1256,7 +1271,11 @@ pub async fn agent_start(
         .await
         .insert(session_id.clone(), entry);
 
-    Ok(StartSessionResult { session_id, models })
+    Ok(StartSessionResult {
+        session_id,
+        models,
+        acp_session_id,
+    })
 }
 
 #[tauri::command]
@@ -1328,7 +1347,8 @@ pub async fn agent_set_read_only(
     };
     opts.read_only = read_only;
 
-    let (entry, _models) = spawn_session(&app, &bridge, &session_id, window.label(), opts).await?;
+    let (entry, _models, _acp_session_id) =
+        spawn_session(&app, &bridge, &session_id, window.label(), opts).await?;
     bridge.sessions.lock().await.insert(session_id, entry);
     Ok(())
 }
@@ -1888,6 +1908,7 @@ mod tests {
             break_glass: false,
             persisted_grants: Vec::new(),
             preamble: None,
+            resume_acp_session_id: None,
         }
     }
 
