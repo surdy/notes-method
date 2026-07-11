@@ -1094,6 +1094,30 @@ mod tests {
     }
 
     #[test]
+    fn test_memory_tool_params_do_not_percent_decode_paths() {
+        let temp_dir = TempDir::new().unwrap();
+        let mcp = build_test_mcp(temp_dir.path());
+        let encoded = "facts%2F..%2Foutside.md";
+        let params: MemoryDeleteParams = parse_arguments(
+            json!({
+                "path": encoded,
+                "expected_hash": "hash",
+                "confirm_delete": true,
+            })
+            .as_object()
+            .cloned(),
+        )
+        .unwrap();
+
+        assert_eq!(params.path, encoded);
+        let err = mcp
+            .ops()
+            .memory_delete(&params.path, &params.expected_hash, params.confirm_delete)
+            .unwrap_err();
+        assert!(err.to_string().contains("facts/ note paths"));
+    }
+
+    #[test]
     fn ensure_structured_object_wraps_non_objects() {
         // MCP requires structuredContent to be a JSON object; arrays/scalars
         // are wrapped so strict clients (e.g. Copilot) don't reject the result.

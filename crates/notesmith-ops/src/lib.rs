@@ -9,7 +9,7 @@
 //! See `docs/adr/0010-agent-access-architecture.md`.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -939,7 +939,12 @@ impl LocalOps {
         if slug.is_empty() {
             anyhow::bail!("fact title does not produce a safe path under facts/");
         }
-        let base = format!("facts/{slug}.md");
+        let parent = current_path
+            .and_then(|path| Path::new(path).parent())
+            .and_then(|path| path.to_str())
+            .filter(|path| !path.is_empty())
+            .unwrap_or("facts");
+        let base = format!("{parent}/{slug}.md");
         if current_path == Some(base.as_str()) || !self.vault_root.join(&base).exists() {
             return Ok(base);
         }
@@ -1992,7 +1997,7 @@ impl Ops for LocalOps {
             tags,
             acknowledge_inference,
         )?;
-        let new_path = self.target_fact_path(&draft.title, None)?;
+        let new_path = self.target_fact_path(&draft.title, Some(path))?;
         let replacement_body = format!(
             "{}\n\nSupersedes [[{}]].",
             canonical_fact_body(&draft.title, &draft.claim),
@@ -2705,15 +2710,74 @@ fn stem_of(path: &str) -> String {
 }
 
 fn is_example_fact_path(path: &str) -> bool {
-    let normalized = path.replace('\\', "/").to_ascii_lowercase();
-    normalized.starts_with("examples/")
-        || normalized.starts_with("facts/examples/")
-        || normalized.contains("/examples/")
+    fact_note_path_components(path)
+        .map(|components| {
+            components
+                .iter()
+                .any(|component| component.eq_ignore_ascii_case("examples"))
+        })
+        .unwrap_or(false)
 }
 
 fn is_fact_note_path(path: &str) -> bool {
-    let normalized = path.replace('\\', "/").to_ascii_lowercase();
-    normalized.starts_with("facts/") && normalized.ends_with(".md")
+    fact_note_path_components(path).is_some()
+}
+
+fn fact_note_path_components(path: &str) -> Option<Vec<String>> {
+    if path.is_empty()
+        || path.contains('\\')
+        || path.starts_with('/')
+        || path.ends_with('/')
+        || path
+            .split('/')
+            .any(|segment| segment.is_empty() || matches!(segment, "." | ".."))
+        || has_windows_path_prefix(path)
+    {
+        return None;
+    }
+
+    let mut components = Vec::new();
+    for component in Path::new(path).components() {
+        match component {
+            Component::Normal(value) => {
+                let value = value.to_str()?;
+                if value.is_empty() {
+                    return None;
+                }
+                components.push(value.to_string());
+            }
+            Component::CurDir
+            | Component::ParentDir
+            | Component::RootDir
+            | Component::Prefix(_) => {
+                return None;
+            }
+        }
+    }
+
+    if components.len() < 2 || components.first()? != "facts" {
+        return None;
+    }
+
+    let last = components.last()?;
+    let file = Path::new(last);
+    if file.extension().and_then(|value| value.to_str()) != Some("md") {
+        return None;
+    }
+    let stem = file.file_stem().and_then(|value| value.to_str())?;
+    if stem.is_empty() {
+        return None;
+    }
+
+    Some(components)
+}
+
+fn has_windows_path_prefix(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\')
 }
 
 /// Which indexed date a [`Ops::time_query`] filters notes on.
@@ -2820,6 +2884,20 @@ mod tests {
         let note_path = VaultPath::new(path.to_string());
         let content = apply_save_pipeline(content);
         engine.write(root, &note_path, None, &content).unwrap();
+    }
+
+    fn invalid_fact_paths() -> Vec<&'static str> {
+        vec![
+            "facts/../outside.md",
+            "facts/../../sibling.md",
+            "/facts/absolute.md",
+            "facts/./dot.md",
+            "facts//double-slash.md",
+            "facts\\nested\\backslash.md",
+            "facts\\..\\outside.md",
+            "C:/facts/prefix.md",
+            "C:\\facts\\prefix.md",
+        ]
     }
 
     #[test]
@@ -3458,6 +3536,190 @@ mod tests {
             )
             .unwrap_err();
         assert!(err.to_string().contains("type: fact"));
+    }
+
+    #[test]
+    fn fact_note_path_validation_rejects_unsafe_forms_and_accepts_nested_paths() {
+        for path in invalid_fact_paths() {
+            assert!(!is_fact_note_path(path), "{path} unexpectedly accepted");
+        }
+
+        assert!(is_fact_note_path("facts/Valid.md"));
+        assert!(is_fact_note_path("facts/nested/Valid.md"));
+    }
+
+    #[test]
+    fn shared_fact_helpers_reject_unsafe_paths_and_accept_valid_nested_paths() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/nested/Valid.md",
+            "---\n\
+             type: fact\n\
+             description: Valid nested fact.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             Valid nested fact.\n",
+        );
+        let ops = build_test_ops(temp_dir.path());
+
+        let loaded = ops.load_fact_note("facts/nested/Valid.md", true).unwrap();
+        assert_eq!(loaded.path, "facts/nested/Valid.md");
+        assert_eq!(
+            ops.current_fact_hash("facts/nested/Valid.md").unwrap(),
+            loaded.note.hash
+        );
+
+        for path in invalid_fact_paths() {
+            let err = ops.load_fact_note(path, false).unwrap_err();
+            assert!(
+                err.to_string().contains("facts/ note paths"),
+                "load_fact_note accepted {path}: {err}",
+            );
+
+            let err = ops.current_fact_hash(path).unwrap_err();
+            assert!(
+                err.to_string().contains("facts/ note paths"),
+                "current_fact_hash accepted {path}: {err}",
+            );
+        }
+    }
+
+    #[test]
+    fn memory_mutation_entrypoints_reject_unsafe_paths_and_accept_valid_nested_paths() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "facts/nested/Valid.md",
+            "---\n\
+             type: fact\n\
+             title: Valid\n\
+             description: Valid nested fact.\n\
+             scope: user\n\
+             certainty: explicit\n\
+             source: User statement\n\
+             status: active\n\
+             tags: [fact]\n\
+             ---\n\
+             # Valid\n\
+\n\
+             Valid nested fact.\n",
+        );
+        let ops = build_test_ops(temp_dir.path());
+        let nested_hash = ops.get_note("facts/nested/Valid.md").unwrap()["hash"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        for path in invalid_fact_paths() {
+            let err = ops
+                .memory_update(
+                    path,
+                    &nested_hash,
+                    None,
+                    None,
+                    Some("Updated."),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    false,
+                    None,
+                    false,
+                )
+                .unwrap_err();
+            assert!(
+                err.to_string().contains("facts/ note paths"),
+                "memory_update accepted {path}: {err}",
+            );
+
+            let err = ops
+                .memory_supersede(
+                    path,
+                    &nested_hash,
+                    "Replacement",
+                    "Replacement claim.",
+                    None,
+                    "user",
+                    None,
+                    "explicit",
+                    Some("User statement"),
+                    None,
+                    None,
+                    false,
+                    false,
+                    None,
+                )
+                .unwrap_err();
+            assert!(
+                err.to_string().contains("facts/ note paths"),
+                "memory_supersede accepted {path}: {err}",
+            );
+
+            let err = ops.memory_delete(path, &nested_hash, true).unwrap_err();
+            assert!(
+                err.to_string().contains("facts/ note paths"),
+                "memory_delete accepted {path}: {err}",
+            );
+        }
+
+        let update_preview = ops
+            .memory_update(
+                "facts/nested/Valid.md",
+                &nested_hash,
+                None,
+                None,
+                Some("Updated nested description."),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                false,
+            )
+            .unwrap();
+        assert_eq!(update_preview["proposed"]["path"], "facts/nested/Valid.md");
+
+        let supersede_preview = ops
+            .memory_supersede(
+                "facts/nested/Valid.md",
+                &nested_hash,
+                "Nested Replacement",
+                "Replacement claim.",
+                None,
+                "user",
+                None,
+                "explicit",
+                Some("User statement"),
+                None,
+                None,
+                false,
+                false,
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            supersede_preview["proposed"]["path"],
+            "facts/nested/Nested Replacement.md"
+        );
+
+        let deleted = ops
+            .memory_delete("facts/nested/Valid.md", &nested_hash, true)
+            .unwrap();
+        assert_eq!(deleted["path"], "facts/nested/Valid.md");
     }
 
     #[test]
