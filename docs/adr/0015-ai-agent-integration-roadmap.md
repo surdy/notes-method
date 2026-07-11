@@ -78,7 +78,7 @@ Impact 🟥 high / 🟧 med / 🟦 nice. Effort S/M/L.
 | **P0** (#184) | Foundation polish & verification | **Active** |
 | **P1** (#185) | Out-of-the-box chat magic (client-side) | **Active** |
 | **P2** (#186) | Retrieval / second brain (MCP tools) | **Backlog** |
-| **P3** (#187) | Fact memory & multimodal ingestion | **Fact note model + lifecycle MCP tools shipped; companion vault backlog** |
+| **P3** (#187) | Fact memory & multimodal ingestion | **Fact note model + lifecycle MCP tools shipped; companion vault attachment shipped; stale-review UI backlog** |
 | **P4** (#188) | Scale & CLI edge | **Active (mixed)** |
 
 Sequencing rationale: P1 first — almost entirely client-side, no daemon work, and
@@ -90,8 +90,9 @@ monetises Notesmith's *structural* advantages (CLI, MCP, customization dirs).
 The P3 memory storage and routing model is now resolved by
 [ADR 0021](0021-fact-memory-over-markdown-notes.md): atomic Markdown fact notes,
 agent-decided fact/wiki/both/session-only routing, and specialized tools layered
-over existing note/index primitives. Those product tools remain backlog while
-the shape is dogfooded in the personal memory vault.
+over existing note/index primitives. The specialized lifecycle tools and the
+embedded-chat companion-vault attachment now ship; stale-review and core-memory
+UX remain backlog.
 
 ### Active vs. backlog (this iteration)
 
@@ -102,8 +103,10 @@ dependencies:
   custom prompts, default slash set, inline editor commands, apply-to-document,
   context pills); and the model-free **P4** items (#209 headless CLI, #210
   customization discovery, #211 MCP server management UI, #212 `@agent` routing).
-- **Backlog (13 issues):** **all of P2** (#198–#202) and **all of P3** (#203–#208),
-  plus **P4** Projects (#213) and Terminal (#214).
+- **Backlog (12 issues):** **all of P2** (#198–#202) and the **remaining P3**
+  follow-ons (#204–#208; stale-review/core-memory follow-up after #203's fact
+  lifecycle + companion attachment slice), plus **P4** Projects (#213) and
+  Terminal (#214).
 
 **Why P2 and P3 were backlogged:** both lean on a bundled/downloaded local model —
 *embeddings* for retrieval (P2) and *Whisper* for voice/meeting transcription (P3) —

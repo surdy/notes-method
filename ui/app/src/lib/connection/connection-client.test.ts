@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	describeTestResult,
 	validateConnectionForm,
+	type ConnectionCachedVaults,
 	type ConnectionTestResult
 } from './connection-client.ts';
 
@@ -57,5 +58,16 @@ describe('describeTestResult', () => {
 
 	it('falls back to a generic label when no error is given', () => {
 		expect(describeTestResult({ reachable: false })).toBe('Unreachable');
+	});
+});
+
+describe('ConnectionCachedVaults contract', () => {
+	it('accepts the desktop cache status values used by companion memory settings', () => {
+		const value: ConnectionCachedVaults = {
+			serverId: 'memory-host',
+			status: 'fresh',
+			vaults: ['memory']
+		};
+		expect(value.status).toBe('fresh');
 	});
 });

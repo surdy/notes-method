@@ -44,7 +44,7 @@
 	let currentVault = $state('');
 
 	// One ChatStore (and its live ACP session) per vault, kept for the life of
-	// this panel instance (issue #262). Switching vaults used to dispose the
+	// this panel instance (issue 262). Switching vaults used to dispose the
 	// store and eagerly `prepareSession()` a brand-new ACP session/subprocess
 	// every time — including flipping back to a vault already visited this
 	// run. Reusing the cached store avoids that redundant spawn; the process

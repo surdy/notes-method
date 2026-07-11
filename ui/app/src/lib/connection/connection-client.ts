@@ -49,6 +49,13 @@ export interface ConnectionTestResult {
 	error?: string;
 }
 
+/** Cached vault names for one saved server, from the desktop's per-server cache. */
+export interface ConnectionCachedVaults {
+	serverId: string;
+	status: 'fresh' | 'stale' | 'auth_error' | 'unreachable' | 'missing';
+	vaults: string[];
+}
+
 /** Fields submitted when adding a server. */
 export interface ConnectionInput {
 	name: string;
@@ -67,11 +74,14 @@ export interface ConnectionClient {
 	/** Whether a desktop transport is available (false in a plain browser). */
 	available(): boolean;
 	list(): Promise<ConnectionList>;
+	cachedVaults(): Promise<ConnectionCachedVaults[]>;
 	add(input: ConnectionInput): Promise<ServerView>;
 	update(id: string, patch: ConnectionPatch): Promise<ServerView>;
 	remove(id: string): Promise<void>;
 	/** Switch the active connection. `null`/`"local"` selects the local daemon. */
 	setActive(id: string | null): Promise<ConnectionList>;
+	/** Refresh the saved servers' cached vault lists. */
+	refreshCachedVaults(): Promise<void>;
 	test(url: string, token?: string | null): Promise<ConnectionTestResult>;
 	/** The calling window's own connection identity (ADR 0017 C.1). */
 	windowInfo(): Promise<ConnectionIdentity>;
@@ -122,6 +132,10 @@ export class TauriConnectionClient implements ConnectionClient {
 		return (await this.bridge.invoke('connection_list')) as ConnectionList;
 	}
 
+	async cachedVaults(): Promise<ConnectionCachedVaults[]> {
+		return (await this.bridge.invoke('connection_cached_vaults')) as ConnectionCachedVaults[];
+	}
+
 	async add(input: ConnectionInput): Promise<ServerView> {
 		return (await this.bridge.invoke('connection_add', {
 			name: input.name,
@@ -145,6 +159,10 @@ export class TauriConnectionClient implements ConnectionClient {
 
 	async setActive(id: string | null): Promise<ConnectionList> {
 		return (await this.bridge.invoke('connection_set_active', { id })) as ConnectionList;
+	}
+
+	async refreshCachedVaults(): Promise<void> {
+		await this.bridge.invoke('refresh_remote_vaults');
 	}
 
 	async test(url: string, token?: string | null): Promise<ConnectionTestResult> {
@@ -189,6 +207,9 @@ export class UnavailableConnectionClient implements ConnectionClient {
 	async list(): Promise<ConnectionList> {
 		return { active_id: LOCAL_ID, servers: [] };
 	}
+	async cachedVaults(): Promise<ConnectionCachedVaults[]> {
+		return [];
+	}
 	async add(): Promise<ServerView> {
 		throw new Error('Connections can only be managed in the desktop app.');
 	}
@@ -201,6 +222,7 @@ export class UnavailableConnectionClient implements ConnectionClient {
 	async setActive(): Promise<ConnectionList> {
 		throw new Error('Connections can only be managed in the desktop app.');
 	}
+	async refreshCachedVaults(): Promise<void> {}
 	async test(): Promise<ConnectionTestResult> {
 		throw new Error('Connections can only be managed in the desktop app.');
 	}

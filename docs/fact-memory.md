@@ -184,6 +184,9 @@ The personal `memory` vault currently provides:
 - ordinary MCP note, template, SQL, lexical, and hybrid-search tools;
 - specialized MCP `memory_recall`, `memory_list`, `memory_save`,
   `memory_update`, `memory_supersede`, and `memory_delete`;
+- one optional **companion memory vault** setting in Notesmith desktop that
+  attaches a saved server + vault beside the active work vault for embedded
+  chat sessions;
 - a schema example tagged `example`;
 - real facts stored as normal Markdown notes.
 
@@ -214,16 +217,14 @@ the `example` tag.
 
 The following parts of ADR 0021 are not implemented yet:
 
-- no companion memory vault automatically attached to other vault sessions;
-- no automatic scope filtering by the active vault outside an explicit tool
-  call;
+- no daemon-side automatic scope filtering beyond the agent instruction to call
+  `memory_recall(scope: vault:<active-vault>)` by default;
 - no stale-fact review UI;
 - no bounded core-memory injection.
 
-Consequently, fact recall/lifecycle automation currently works only when the
-agent has the memory vault's MCP tools available. When chatting in another
-vault, attach the memory MCP endpoint manually or open the memory vault in its
-own Notesmith window.
+Consequently, the desktop companion attachment helps only embedded chat
+sessions that use the Notesmith ACP bridge. Other MCP clients still need the
+memory endpoint attached manually.
 
 ## Suggested dogfood routine
 

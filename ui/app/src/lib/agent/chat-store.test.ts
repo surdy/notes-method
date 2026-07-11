@@ -73,7 +73,10 @@ class MockAgentClient implements AgentClient {
 	}
 	async setAgentConfig(): Promise<void> {}
 	async getMcpServers(): Promise<McpConfigData> {
-		return { servers: [] };
+		return {
+			servers: [],
+			companionMemory: { enabled: false, serverId: null, vault: null, readOnly: true }
+		};
 	}
 	async setMcpServers(): Promise<void> {}
 	onEvent(cb: (sessionId: string, event: AgentEvent) => void): () => void {

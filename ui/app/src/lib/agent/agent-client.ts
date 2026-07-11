@@ -225,7 +225,10 @@ export class UnavailableAgentClient implements AgentClient {
 	// "saves" without error in a plain browser; persistence only happens in Tauri.
 	async setAgentConfig(): Promise<void> {}
 	async getMcpServers(): Promise<McpConfigData> {
-		return { servers: [] };
+		return {
+			servers: [],
+			companionMemory: { enabled: false, serverId: null, vault: null, readOnly: true }
+		};
 	}
 	async setMcpServers(): Promise<void> {}
 	onEvent(): () => void {

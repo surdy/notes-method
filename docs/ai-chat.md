@@ -106,6 +106,14 @@ Click the toggle to switch. The badge updates immediately and the running sessio
 
 > **Important:** Enabling read-write lets the agent modify your vault notes. Review the agent's proposed actions before enabling it for a new or unfamiliar task. See [AI Permissions](ai-permissions.md) for the full permission model.
 
+If you enable a **companion memory vault** in **Settings → MCP Servers**, the
+chat session also receives that vault's fact-memory MCP tools beside the active
+vault binding. Notesmith instructs the agent to default `memory_recall` to
+`scope: vault:<active-vault>` so normal prompts do not have to spell out the
+structured scope. The companion's own access mode is configured separately in
+Settings, but a chat session that is currently read-only still downgrades the
+companion binding to read-only for that session.
+
 ---
 
 ## Sending a Message

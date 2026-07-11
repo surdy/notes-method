@@ -12,7 +12,8 @@ and the existing note/template/field primitives.
 
 The storage shape is being dogfooded first in the self-hosted `memory` vault.
 Specialized MCP recall/list/lifecycle tools now ship over ordinary fact notes;
-cross-vault attachment and stale-review UX remain backlog work.
+embedded chat companion-vault attachment now ships, while stale-review UX
+remains backlog work.
 
 ## Context
 
@@ -114,8 +115,10 @@ attached to an ACP session beside the active work vault:
 - reads may use a read-only MCP binding;
 - writes retain the normal per-call permission flow.
 
-This cross-vault binding is future work. The initial dogfood operates directly
-inside the existing `memory` vault using normal note and query tools.
+This cross-vault binding now ships in embedded chat as one configured companion
+memory vault chosen from saved desktop connections. The initial dogfood still
+operates directly inside the existing `memory` vault using normal note and
+query tools.
 
 ## DecisionNode findings
 
@@ -137,8 +140,8 @@ validity, or automatic consolidation.
 2. **Specialized tools:** fact save/recall/list/update/supersede/delete over
    ordinary notes, including similar-fact candidates, preview/apply, and
    optimistic writes. **Shipped in the current vault-local form.**
-3. **Companion vault:** attach a configured memory vault to agent sessions and
-   enforce scope filtering.
+3. **Companion vault:** attach one configured memory vault to agent sessions
+   and instruct the agent to default recall to `scope: vault:<active-vault>`.
 4. **Maintenance UX:** stale-fact review, provenance display, and optional
    bounded core-memory injection.
 

@@ -107,6 +107,12 @@ TOKEN = "secret"
 id = "remote-tools"
 url = "https://tools.example.com/mcp"
 enabled = false
+
+[mcp.companion_memory]                 # optional embedded-chat memory vault
+enabled = true
+server_id = "memory-host"
+vault = "memory"
+read_only = true
 ```
 
 - `mcp.servers[].id` — stable identifier and the server name surfaced to the
@@ -119,11 +125,21 @@ enabled = false
 - `mcp.servers[].display_name` — label shown in Settings (defaults to the id)
 - `mcp.servers[].enabled` — set `false` to keep an entry configured but hide it
   from agent sessions (default `true`)
+- `mcp.companion_memory.enabled` — whether embedded chat attaches one companion
+  memory vault beside the active vault (default `false`)
+- `mcp.companion_memory.server_id` — the id of an existing saved desktop
+  connection from `servers.json`
+- `mcp.companion_memory.vault` — the vault name on that saved server
+- `mcp.companion_memory.read_only` — attach the companion as `/mcp-ro/<vault>`
+  by default; `false` uses `/mcp/<vault>` when the chat session itself is not
+  read-only (default `true`)
 
 These servers are editable from **Settings → MCP Servers** without hand-editing
-the file. Scope is global today; per-vault overrides are deferred (ADR 0016).
-For a step-by-step walkthrough of that Settings screen (including adding stdio
-and HTTP servers), see the [MCP Servers guide](ai-mcp-servers.md).
+the file. The companion-memory picker reuses the desktop's saved connections and
+their cached vault lists; it does not store separate credentials. Scope is
+global today; per-vault overrides are deferred (ADR 0016). For a step-by-step
+walkthrough of that Settings screen (including adding stdio and HTTP servers),
+see the [MCP Servers guide](ai-mcp-servers.md).
 
 ---
 ## Per-Vault Configuration

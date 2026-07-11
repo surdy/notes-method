@@ -1,13 +1,25 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { createAgentClient } from '$lib/agent/agent-client';
-	import type { McpConfigData, McpServerData } from '$lib/agent/types';
+	import type { CompanionMemoryData, McpConfigData, McpServerData } from '$lib/agent/types';
+	import {
+		createConnectionClient,
+		type ConnectionCachedVaults,
+		type ConnectionList
+	} from '$lib/connection/connection-client';
 
 	const client = createAgentClient();
+	const connectionClient = createConnectionClient();
 
-	let config = $state<McpConfigData>({ servers: [] });
+	let config = $state<McpConfigData>({
+		servers: [],
+		companionMemory: { enabled: false, serverId: null, vault: null, readOnly: true }
+	});
 	let saving = $state(false);
 	let error = $state<string | null>(null);
+	let connections = $state<ConnectionList>({ active_id: 'local', servers: [] });
+	let cachedVaults = $state<ConnectionCachedVaults[]>([]);
+	let refreshingVaults = $state(false);
 
 	// Draft for the "Add MCP server" form.
 	let draftId = $state('');
@@ -18,14 +30,27 @@
 	let draftDisplayName = $state('');
 
 	onMount(() => {
-		void reload();
+		void Promise.all([reload(), reloadConnections()]);
 	});
 
 	async function reload() {
 		try {
 			config = await client.getMcpServers();
 		} catch (e) {
-			config = { servers: [] };
+			config = {
+				servers: [],
+				companionMemory: { enabled: false, serverId: null, vault: null, readOnly: true }
+			};
+			error = errorText(e);
+		}
+	}
+
+	async function reloadConnections() {
+		if (!connectionClient.available()) return;
+		try {
+			connections = await connectionClient.list();
+			cachedVaults = await connectionClient.cachedVaults();
+		} catch (e) {
 			error = errorText(e);
 		}
 	}
@@ -51,6 +76,69 @@
 		} finally {
 			saving = false;
 		}
+	}
+
+	const selectedCompanionCache = $derived(
+		cachedVaults.find((entry) => entry.serverId === config.companionMemory.serverId) ?? null
+	);
+	const savedServerOptions = $derived(connections.servers);
+	const companionVaultOptions = $derived(selectedCompanionCache?.vaults ?? []);
+
+	function companionStatusText(status: ConnectionCachedVaults['status'] | null): string {
+		switch (status) {
+			case 'fresh':
+				return 'Vault list is up to date.';
+			case 'stale':
+				return 'Using a stale cached vault list; refresh if the server changed.';
+			case 'auth_error':
+				return 'Saved credentials were rejected. Update the server token in Connection settings.';
+			case 'unreachable':
+				return 'The saved server is unreachable right now.';
+			case 'missing':
+				return 'No cached vaults yet. Refresh saved server vaults to populate this list.';
+			default:
+				return '';
+		}
+	}
+
+	function setCompanionEnabled(value: boolean) {
+		config.companionMemory.enabled = value;
+	}
+
+	function setCompanionServer(serverId: string) {
+		config.companionMemory.serverId = serverId || null;
+		const options = cachedVaults.find((entry) => entry.serverId === serverId)?.vaults ?? [];
+		if (!options.includes(config.companionMemory.vault ?? '')) {
+			config.companionMemory.vault = options[0] ?? null;
+		}
+	}
+
+	async function refreshCompanionVaults() {
+		if (!connectionClient.available()) return;
+		refreshingVaults = true;
+		try {
+			await connectionClient.refreshCachedVaults();
+			await reloadConnections();
+		} catch (e) {
+			error = errorText(e);
+		} finally {
+			refreshingVaults = false;
+		}
+	}
+
+	async function saveCompanionMemory() {
+		const companion = config.companionMemory;
+		if (companion.enabled) {
+			if (!companion.serverId) {
+				error = 'Select a saved server for companion memory.';
+				return;
+			}
+			if (!companion.vault) {
+				error = 'Select a companion vault.';
+				return;
+			}
+		}
+		await saveConfig();
 	}
 
 	function setArgs(server: McpServerData, text: string) {
@@ -140,7 +228,118 @@
 		</ul>
 	</section>
 
-	<!-- 2. External MCP servers -->
+	<!-- 2. Companion memory vault -->
+	<section class="config-section">
+		<h3 class="section-title">Companion memory vault</h3>
+		<p class="section-hint">
+			Attach one saved server + vault beside the active work vault so embedded chat can recall
+			fact memory without switching windows. The active vault still resolves through the calling
+			window's daemon; this companion resolves through its selected saved connection.
+		</p>
+
+		<div class="entry-card">
+			<label class="field field-toggle">
+				<span class="field-label">Enable companion memory</span>
+				<input
+					aria-label="Enable companion memory"
+					type="checkbox"
+					checked={config.companionMemory.enabled}
+					onchange={(e) => setCompanionEnabled(e.currentTarget.checked)}
+				/>
+			</label>
+
+			<label class="field">
+				<span class="field-label">Saved server</span>
+				<select
+					aria-label="Saved server"
+					value={config.companionMemory.serverId ?? ''}
+					onchange={(e) => setCompanionServer(e.currentTarget.value)}
+					disabled={!config.companionMemory.enabled}
+				>
+					<option value="">Select a saved server…</option>
+					{#each savedServerOptions as server (server.id)}
+						<option value={server.id}>{server.name}</option>
+					{/each}
+				</select>
+				<span class="field-description">
+					Companion memory must point at an existing saved server from Connection settings.
+				</span>
+			</label>
+
+			<label class="field">
+				<span class="field-label">Companion vault</span>
+				<select
+					aria-label="Companion vault"
+					value={config.companionMemory.vault ?? ''}
+					onchange={(e) => (config.companionMemory.vault = e.currentTarget.value || null)}
+					disabled={!config.companionMemory.enabled || !config.companionMemory.serverId}
+				>
+					<option value="">Select a cached vault…</option>
+					{#each companionVaultOptions as vault}
+						<option value={vault}>{vault}</option>
+					{/each}
+				</select>
+				<div class="field-description-row">
+					<span class="field-description">
+						{companionStatusText(selectedCompanionCache?.status ?? null)}
+					</span>
+					<button
+						type="button"
+						class="btn btn-ghost"
+						onclick={() => void refreshCompanionVaults()}
+						disabled={refreshingVaults}
+					>
+						{refreshingVaults ? 'Refreshing…' : 'Refresh saved server vaults'}
+					</button>
+				</div>
+			</label>
+
+			<div class="field">
+				<span class="field-label">Access mode</span>
+				<div class="transport-toggle">
+					<label class="radio">
+						<input
+							aria-label="Read-only"
+							type="radio"
+							name="companion-memory-access"
+							checked={config.companionMemory.readOnly}
+							onchange={() => (config.companionMemory.readOnly = true)}
+							disabled={!config.companionMemory.enabled}
+						/>
+						<span>Read-only</span>
+					</label>
+					<label class="radio">
+						<input
+							aria-label="Read-write"
+							type="radio"
+							name="companion-memory-access"
+							checked={!config.companionMemory.readOnly}
+							onchange={() => (config.companionMemory.readOnly = false)}
+							disabled={!config.companionMemory.enabled}
+						/>
+						<span>Read-write</span>
+					</label>
+				</div>
+				<span class="field-description">
+					Read-only is the default. Read-write uses the normal MCP write permission prompts,
+					and still becomes read-only when the chat session itself is locked to read-only.
+				</span>
+			</div>
+
+			<div class="row-actions">
+				<button
+					type="button"
+					class="btn btn-primary"
+					onclick={() => void saveCompanionMemory()}
+					disabled={saving}
+				>
+					Save companion memory
+				</button>
+			</div>
+		</div>
+	</section>
+
+	<!-- 3. External MCP servers -->
 	<section class="config-section">
 		<h3 class="section-title">External MCP servers</h3>
 		<p class="section-hint">
@@ -476,19 +675,39 @@
 		margin-bottom: 0.6rem;
 	}
 
+	.field-toggle {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
 	.field-label {
 		font-size: 0.78rem;
 		font-weight: 500;
 		color: var(--text-muted);
 	}
 
-	.field input[type='text'] {
+	.field input[type='text'],
+	.field select {
 		padding: 0.4rem 0.55rem;
 		border: 1px solid var(--border-default);
 		border-radius: 6px;
 		background: var(--input-bg);
 		color: var(--text-default);
 		font-size: 0.85rem;
+	}
+
+	.field-description,
+	.field-description-row {
+		font-size: 0.78rem;
+		color: var(--text-muted);
+	}
+
+	.field-description-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
 	}
 
 	.transport-toggle {

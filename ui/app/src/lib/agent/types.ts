@@ -191,8 +191,17 @@ export interface McpServerData {
 }
 
 /** The `[mcp]` config section. Mirrors the Rust `McpConfigDto` (#211). */
+export interface CompanionMemoryData {
+	enabled: boolean;
+	serverId: string | null;
+	vault: string | null;
+	readOnly: boolean;
+}
+
+/** The `[mcp]` config section. Mirrors the Rust `McpConfigDto` (#211). */
 export interface McpConfigData {
 	servers: McpServerData[];
+	companionMemory: CompanionMemoryData;
 }
 
 /** The kind of a diagnostics log entry. Mirrors Rust `DiagKind` (#192). */

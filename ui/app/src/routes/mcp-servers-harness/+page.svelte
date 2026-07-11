@@ -1,5 +1,5 @@
 <!--
-	Test harness route for the MCP server management surface (ADR 0016, #211).
+	Test harness route for the MCP server management surface (ADR 0016, issue 211).
 	Mounts McpServers directly so the Playwright flow in
 	e2e/mcp-servers.spec.ts can drive the real component. The Tauri IPC bridge
 	(window.__TAURI__) is stubbed by the test, not here, so this page ships no

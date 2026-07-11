@@ -2543,9 +2543,11 @@ for `memory_save`, `memory_update`, `memory_supersede`, and `memory_delete`.
 These tools filter to ordinary non-example fact notes, reuse the existing
 hybrid retrieval stack plus lexical fallback, and use optimistic hashes plus
 preview tokens for writes. Similarity identifies possible duplicates or
-conflicts, while the agent decides whether to update or supersede. A configured
-companion memory vault may later be attached beside the active vault so
-user-scoped facts can be recalled across workspaces.
+conflicts, while the agent decides whether to update or supersede. Embedded
+chat can also attach one configured companion memory vault from a saved daemon
+connection beside the active vault and steer recall to `scope: vault:<active>`
+by default so user-scoped facts travel across workspaces without natural
+language prompts needing the structured scope spelled out.
 
 ## 19. GUI Design
 
