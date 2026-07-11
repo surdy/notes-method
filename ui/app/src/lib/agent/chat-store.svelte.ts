@@ -439,10 +439,14 @@ export class ChatStore {
 				}
 			}
 		})();
+		const thisStart = this.sessionStartPromise;
 		try {
-			await this.sessionStartPromise;
+			await thisStart;
 		} finally {
-			this.sessionStartPromise = null;
+			// Only clear the dedupe slot if it is still ours: a context switch
+			// (openThread/newThread/select*) may have already replaced it with a
+			// newer start's promise, which must not be cleared out from under it.
+			if (this.sessionStartPromise === thisStart) this.sessionStartPromise = null;
 		}
 	}
 
@@ -604,7 +608,10 @@ export class ChatStore {
 		if (this.sessionId) {
 			// The toggle rebuilds the session with a fresh agent context under a new
 			// ACP sessionId; re-bind the thread to it so a later reopen resumes the
-			// post-toggle conversation, not the discarded pre-toggle one (#262).
+			// post-toggle conversation, not the discarded pre-toggle one (#262). A
+			// null return means the rebuilt agent exposed no resumable id — keep the
+			// prior binding rather than clearing it, since resuming the (partial)
+			// pre-toggle session preserves more context than starting from scratch.
 			const acpSessionId = await this.client.setReadOnly(this.sessionId, value);
 			if (acpSessionId) {
 				this.liveAcpSessionId = acpSessionId;
