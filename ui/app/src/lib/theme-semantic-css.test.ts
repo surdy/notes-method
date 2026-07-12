@@ -369,21 +369,62 @@ expect(cssVariablesFor(modeHighContrastCss, '[data-mode="high-contrast"][data-to
 '--bg-active': 'var(--neutral-4)',
 '--accent': 'var(--blue-10)',
 '--color-danger': 'var(--red-10)',
-'--color-success': 'var(--green-10)'
+'--color-success': 'var(--green-10)',
+'--editor-text': 'var(--neutral-11)',
+'--editor-text-secondary': 'var(--neutral-8)',
+'--editor-text-muted': 'var(--neutral-8)',
+'--editor-text-faint': 'var(--neutral-7)',
+'--editor-active-line': 'var(--neutral-3)',
+'--editor-frontmatter-bg': 'var(--neutral-2)',
+'--editor-border': 'var(--neutral-6)',
+'--editor-link': 'var(--blue-10)'
 });
 
 expect(cssVariablesFor(modeHighContrastCss, '[data-mode="high-contrast"][data-tone="light"]')).toEqual({
-'--text-default': 'var(--neutral-0)',
-'--text-secondary': 'var(--neutral-1)',
-'--text-muted': 'var(--neutral-3)',
-'--text-faint': 'var(--neutral-4)',
+'--text-default': 'var(--neutral-11)',
+'--text-secondary': 'var(--neutral-10)',
+'--text-muted': 'var(--neutral-8)',
+'--text-faint': 'var(--neutral-7)',
 '--border-default': 'var(--neutral-5)',
-'--border-strong': 'var(--neutral-4)',
-'--bg-hover': 'var(--neutral-8)',
-'--bg-active': 'var(--neutral-7)',
-'--accent': 'var(--blue-2)',
-'--color-danger': 'var(--red-2)',
-'--color-success': 'var(--green-2)'
+'--border-strong': 'var(--neutral-6)',
+'--bg-hover': 'var(--neutral-3)',
+'--bg-active': 'var(--neutral-4)',
+'--accent': 'var(--blue-10)',
+'--color-danger': 'var(--red-10)',
+'--color-success': 'var(--green-10)',
+'--editor-text': 'var(--neutral-11)',
+'--editor-text-secondary': 'var(--neutral-8)',
+'--editor-text-muted': 'var(--neutral-8)',
+'--editor-text-faint': 'var(--neutral-7)',
+'--editor-active-line': 'var(--neutral-3)',
+'--editor-frontmatter-bg': 'var(--neutral-2)',
+'--editor-border': 'var(--neutral-6)',
+'--editor-link': 'var(--blue-10)'
+});
+
+expect(cssVariablesFor(
+modeHighContrastCss,
+'[data-mode="high-contrast"][data-theme="split"] .editor-surface'
+)).toEqual({
+'--text-default': 'var(--neutral-11)',
+'--text-secondary': 'var(--neutral-10)',
+'--text-muted': 'var(--neutral-8)',
+'--text-faint': 'var(--neutral-7)',
+'--border-default': 'var(--neutral-5)',
+'--border-strong': 'var(--neutral-6)',
+'--bg-hover': 'var(--neutral-3)',
+'--bg-active': 'var(--neutral-4)',
+'--accent': 'var(--blue-10)',
+'--color-danger': 'var(--red-10)',
+'--color-success': 'var(--green-10)',
+'--editor-text': 'var(--neutral-11)',
+'--editor-text-secondary': 'var(--neutral-8)',
+'--editor-text-muted': 'var(--neutral-8)',
+'--editor-text-faint': 'var(--neutral-7)',
+'--editor-active-line': 'var(--neutral-3)',
+'--editor-frontmatter-bg': 'var(--neutral-2)',
+'--editor-border': 'var(--neutral-6)',
+'--editor-link': 'var(--blue-10)'
 });
 });
 });

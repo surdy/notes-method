@@ -29,6 +29,20 @@ fn generator_creates_css_files_for_catalog_and_clears_stale_output() {
       "cyan": "#66b7bb",
       "white": "#f0f2f4"
     },
+    "semantic": {
+      "bg_default": "#111316",
+      "bg_secondary": "#15171a",
+      "bg_surface": "#111316",
+      "bg_elevated": "#1b1e23",
+      "bg_hover": "#1b1e23",
+      "bg_active": "#22262c",
+      "bg_input": "#1b1e23",
+      "bg_panel": "#17191d",
+      "border_default": "#2b2f35",
+      "border_strong": "#363b43",
+      "border_subtle": "#22262b",
+      "border_input": "#343941"
+    },
     "tags": ["neutral", "native"]
   },
   {
@@ -60,6 +74,20 @@ fn generator_creates_css_files_for_catalog_and_clears_stale_output() {
       "magenta": "#765aa8",
       "cyan": "#347e8c",
       "white": "#ffffff"
+    },
+    "editor_semantic": {
+      "bg_default": "#fbfbfa",
+      "bg_secondary": "#f3f4f5",
+      "bg_surface": "#fbfbfa",
+      "bg_elevated": "#f3f4f5",
+      "bg_hover": "#f3f4f5",
+      "bg_active": "#e9ebed",
+      "bg_input": "#ffffff",
+      "bg_panel": "#fbfbfa",
+      "border_default": "#d9dde1",
+      "border_strong": "#cbd0d6",
+      "border_subtle": "#e2e4e7",
+      "border_input": "#d9dde1"
     },
     "tags": ["paper", "split"]
   }
@@ -93,7 +121,11 @@ fn generator_creates_css_files_for_catalog_and_clears_stale_output() {
 
     assert!(dark.contains("[data-theme=\"dark\"][data-tone=\"dark\"]"));
     assert!(dark.contains("--neutral-11: #f0f2f4;"));
+    assert!(dark.contains("--bg-secondary: #15171a;"));
+    assert!(dark.contains("--bg-panel: #17191d;"));
     assert!(split.contains("[data-theme=\"split\"] .editor-surface"));
     assert!(split.contains("--neutral-0: #fbfbfa;"));
     assert!(split.contains("--blue-11: #4f83dc;"));
+    assert!(split.contains("--bg-secondary: #f3f4f5;"));
+    assert!(split.contains("--border-subtle: #e2e4e7;"));
 }

@@ -29,7 +29,7 @@ Components reference semantic tokens without fallbacks (`var(--bg-default)`, not
 
 A deliberately small catalog of three first-party palettes is authored in `ui/app/src/styles/theme-catalog.json` and compiled by the `theme-gen` workspace binary into `ui/app/src/styles/themes/*.css`: **Dark** (Graphite Precision), **Light** (Porcelain), and **Split** (Studio).
 
-The generated files expose 12-step ramp primitives (`--neutral-*`, `--red-*`, `--blue-*`, etc.) under `[data-theme="..."][data-tone="..."]` selectors, with OKLab interpolation between catalog endpoints. Split emits `[data-theme="split"] .editor-surface` from an explicit editor palette so the light writing surface can be tuned independently from the dark outer chrome.
+The generated files expose 12-step ramp primitives (`--neutral-*`, `--red-*`, `--blue-*`, etc.) under `[data-theme="..."][data-tone="..."]` selectors, with OKLab interpolation between catalog endpoints. Catalog entries also emit explicit semantic surface and border overrides for design-critical chrome; sidebars and tabs must match the approved palettes rather than inherit overly gray evenly spaced neutral steps. Split emits `[data-theme="split"] .editor-surface` from an explicit editor palette and editor semantic overrides so the light writing surface can be tuned independently from the dark outer chrome.
 
 The runtime theme store and flash-prevention script control the active theme exclusively through `data-theme`, `data-tone`, and `data-mode` attributes on `<html>`. Semantic tokens consume the generated ramps directly; legacy theme classes and `--ns-*` compatibility tokens have been removed from component code.
 
@@ -40,6 +40,7 @@ The runtime theme store and flash-prevention script control the active theme exc
 - System mode uses `matchMedia('(prefers-color-scheme: dark)')` with a change listener to keep `data-tone` current
 - CodeMirror editor theme reads from CSS vars, so it follows the active theme automatically
 - Removed catalog themes migrate by former tone: dark themes to Dark, light themes to Light, and Manuscript to Split. The inline bootstrap and runtime store perform the same migration so first paint and hydrated state agree.
+- The high-contrast stylesheet loads after generated theme files and targets Split's local `.editor-surface` explicitly, so theme-specific semantic overrides cannot bypass the accessibility overlay.
 
 ## Consequences
 

@@ -15,6 +15,8 @@ tone: 'dark' | 'light';
 split_surface: boolean;
 palette: Record<string, string>;
 editor_palette?: Record<string, string>;
+semantic?: Record<string, string>;
+editor_semantic?: Record<string, string>;
 tags: string[];
 }>;
 
@@ -34,15 +36,39 @@ bg: '#111316',
 fg: '#f0f2f4',
 blue: '#79a7ff'
 });
+expect(themeCatalog.find((theme) => theme.name === 'dark')?.semantic).toMatchObject({
+bg_secondary: '#15171a',
+bg_elevated: '#1b1e23',
+bg_panel: '#17191d',
+border_default: '#2b2f35'
+});
 expect(themeCatalog.find((theme) => theme.name === 'light')?.palette).toMatchObject({
 bg: '#ffffff',
 fg: '#20242a',
 blue: '#356fd6'
 });
+expect(themeCatalog.find((theme) => theme.name === 'light')?.semantic).toMatchObject({
+bg_secondary: '#f7f8fa',
+bg_elevated: '#f4f5f7',
+bg_panel: '#f4f5f7',
+border_default: '#d9dde3'
+});
 expect(themeCatalog.find((theme) => theme.name === 'split')?.editor_palette).toMatchObject({
 bg: '#fbfbfa',
 fg: '#252a31',
 blue: '#4f83dc'
+});
+expect(themeCatalog.find((theme) => theme.name === 'split')?.semantic).toMatchObject({
+bg_secondary: '#1d2024',
+bg_elevated: '#272b31',
+bg_panel: '#22252a',
+border_default: '#363b43'
+});
+expect(themeCatalog.find((theme) => theme.name === 'split')?.editor_semantic).toMatchObject({
+bg_secondary: '#f3f4f5',
+bg_elevated: '#f3f4f5',
+bg_panel: '#fbfbfa',
+border_default: '#d9dde1'
 });
 
 for (const theme of themeCatalog) {
@@ -65,7 +91,23 @@ expect(theme.editor_palette?.[key]).toMatch(/^#[0-9a-fA-F]{6}$/);
 }
 } else {
 expect(theme.editor_palette).toBeUndefined();
+expect(theme.editor_semantic).toBeUndefined();
 }
+
+expect(Object.keys(theme.semantic ?? {}).sort()).toEqual([
+'bg_active',
+'bg_default',
+'bg_elevated',
+'bg_hover',
+'bg_input',
+'bg_panel',
+'bg_secondary',
+'bg_surface',
+'border_default',
+'border_input',
+'border_strong',
+'border_subtle'
+]);
 }
 });
 });

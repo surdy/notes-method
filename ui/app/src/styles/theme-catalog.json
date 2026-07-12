@@ -17,6 +17,20 @@
       "cyan": "#66b7bb",
       "white": "#f0f2f4"
     },
+    "semantic": {
+      "bg_default": "#111316",
+      "bg_secondary": "#15171a",
+      "bg_surface": "#111316",
+      "bg_elevated": "#1b1e23",
+      "bg_hover": "#1b1e23",
+      "bg_active": "#22262c",
+      "bg_input": "#1b1e23",
+      "bg_panel": "#17191d",
+      "border_default": "#2b2f35",
+      "border_strong": "#363b43",
+      "border_subtle": "#22262b",
+      "border_input": "#343941"
+    },
     "tags": [
       "neutral",
       "native",
@@ -40,6 +54,20 @@
       "magenta": "#7b62b5",
       "cyan": "#387f8d",
       "white": "#f7f8fa"
+    },
+    "semantic": {
+      "bg_default": "#ffffff",
+      "bg_secondary": "#f7f8fa",
+      "bg_surface": "#ffffff",
+      "bg_elevated": "#f4f5f7",
+      "bg_hover": "#f1f3f5",
+      "bg_active": "#e8ebef",
+      "bg_input": "#ffffff",
+      "bg_panel": "#f4f5f7",
+      "border_default": "#d9dde3",
+      "border_strong": "#c7ccd3",
+      "border_subtle": "#e8eaee",
+      "border_input": "#d9dde3"
     },
     "tags": [
       "neutral",
@@ -65,6 +93,20 @@
       "cyan": "#5caab2",
       "white": "#fbfbfa"
     },
+    "semantic": {
+      "bg_default": "#1d2024",
+      "bg_secondary": "#1d2024",
+      "bg_surface": "#1d2024",
+      "bg_elevated": "#272b31",
+      "bg_hover": "#272b31",
+      "bg_active": "#30353c",
+      "bg_input": "#272b31",
+      "bg_panel": "#22252a",
+      "border_default": "#363b43",
+      "border_strong": "#454b55",
+      "border_subtle": "#2b3037",
+      "border_input": "#363b43"
+    },
     "editor_palette": {
       "bg": "#fbfbfa",
       "fg": "#252a31",
@@ -76,6 +118,20 @@
       "magenta": "#765aa8",
       "cyan": "#347e8c",
       "white": "#ffffff"
+    },
+    "editor_semantic": {
+      "bg_default": "#fbfbfa",
+      "bg_secondary": "#f3f4f5",
+      "bg_surface": "#fbfbfa",
+      "bg_elevated": "#f3f4f5",
+      "bg_hover": "#f3f4f5",
+      "bg_active": "#e9ebed",
+      "bg_input": "#ffffff",
+      "bg_panel": "#fbfbfa",
+      "border_default": "#d9dde1",
+      "border_strong": "#cbd0d6",
+      "border_subtle": "#e2e4e7",
+      "border_input": "#d9dde1"
     },
     "tags": [
       "neutral",

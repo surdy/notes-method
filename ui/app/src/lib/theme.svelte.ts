@@ -11,6 +11,8 @@ tone: 'dark' | 'light';
 split_surface: boolean;
 palette: Record<string, string>;
 editor_palette?: Record<string, string>;
+semantic?: Record<string, string>;
+editor_semantic?: Record<string, string>;
 tags: string[];
 }
 

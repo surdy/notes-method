@@ -109,4 +109,16 @@
   --white-9: #f8f9fb;
   --white-10: #f8f9fa;
   --white-11: #f7f8fa;
+  --bg-default: #ffffff;
+  --bg-secondary: #f7f8fa;
+  --bg-surface: #ffffff;
+  --bg-elevated: #f4f5f7;
+  --bg-hover: #f1f3f5;
+  --bg-active: #e8ebef;
+  --bg-input: #ffffff;
+  --bg-panel: #f4f5f7;
+  --border-default: #d9dde3;
+  --border-strong: #c7ccd3;
+  --border-subtle: #e8eaee;
+  --border-input: #d9dde3;
 }

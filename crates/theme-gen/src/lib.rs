@@ -47,6 +47,22 @@ pub struct ThemePalette {
     pub white: String,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ThemeSemanticPalette {
+    pub bg_default: String,
+    pub bg_secondary: String,
+    pub bg_surface: String,
+    pub bg_elevated: String,
+    pub bg_hover: String,
+    pub bg_active: String,
+    pub bg_input: String,
+    pub bg_panel: String,
+    pub border_default: String,
+    pub border_strong: String,
+    pub border_subtle: String,
+    pub border_input: String,
+}
+
 impl ThemePalette {
     pub fn accent(&self, name: &str) -> Option<&str> {
         match name {
@@ -74,6 +90,10 @@ pub struct ThemeDefinition {
     pub palette: ThemePalette,
     #[serde(default)]
     pub editor_palette: Option<ThemePalette>,
+    #[serde(default)]
+    pub semantic: Option<ThemeSemanticPalette>,
+    #[serde(default)]
+    pub editor_semantic: Option<ThemeSemanticPalette>,
     #[serde(default)]
     pub tags: Vec<String>,
 }
@@ -171,6 +191,7 @@ pub fn render_theme_css(theme: &ThemeDefinition) -> Result<String> {
             theme.tone.as_str()
         ),
         &theme.palette,
+        theme.semantic.as_ref(),
     )?);
 
     if theme.split_surface {
@@ -178,6 +199,7 @@ pub fn render_theme_css(theme: &ThemeDefinition) -> Result<String> {
         css.push_str(&render_palette_block(
             &format!("[data-theme=\"{}\"] .editor-surface", theme.name),
             &derive_split_surface_palette(theme)?,
+            theme.editor_semantic.as_ref(),
         )?);
     }
 
@@ -208,7 +230,11 @@ pub fn run_cli(cli: Cli) -> Result<usize> {
     generate_theme_files(&cli.catalog, &cli.output)
 }
 
-fn render_palette_block(selector: &str, palette: &ThemePalette) -> Result<String> {
+fn render_palette_block(
+    selector: &str,
+    palette: &ThemePalette,
+    semantic: Option<&ThemeSemanticPalette>,
+) -> Result<String> {
     let mut block = String::new();
     writeln!(block, "{selector} {{")?;
 
@@ -220,6 +246,21 @@ fn render_palette_block(selector: &str, palette: &ThemePalette) -> Result<String
         for (index, color) in generate_hue_ramp(palette, hue)?.iter().enumerate() {
             writeln!(block, "  --{hue}-{index}: {color};")?;
         }
+    }
+
+    if let Some(semantic) = semantic {
+        writeln!(block, "  --bg-default: {};", semantic.bg_default)?;
+        writeln!(block, "  --bg-secondary: {};", semantic.bg_secondary)?;
+        writeln!(block, "  --bg-surface: {};", semantic.bg_surface)?;
+        writeln!(block, "  --bg-elevated: {};", semantic.bg_elevated)?;
+        writeln!(block, "  --bg-hover: {};", semantic.bg_hover)?;
+        writeln!(block, "  --bg-active: {};", semantic.bg_active)?;
+        writeln!(block, "  --bg-input: {};", semantic.bg_input)?;
+        writeln!(block, "  --bg-panel: {};", semantic.bg_panel)?;
+        writeln!(block, "  --border-default: {};", semantic.border_default)?;
+        writeln!(block, "  --border-strong: {};", semantic.border_strong)?;
+        writeln!(block, "  --border-subtle: {};", semantic.border_subtle)?;
+        writeln!(block, "  --border-input: {};", semantic.border_input)?;
     }
 
     writeln!(block, "}}")?;
@@ -378,6 +419,34 @@ mod tests {
                 cyan: "#347e8c".to_string(),
                 white: "#ffffff".to_string(),
             }),
+            semantic: Some(ThemeSemanticPalette {
+                bg_default: "#111316".to_string(),
+                bg_secondary: "#15171a".to_string(),
+                bg_surface: "#111316".to_string(),
+                bg_elevated: "#1b1e23".to_string(),
+                bg_hover: "#1b1e23".to_string(),
+                bg_active: "#22262c".to_string(),
+                bg_input: "#1b1e23".to_string(),
+                bg_panel: "#17191d".to_string(),
+                border_default: "#2b2f35".to_string(),
+                border_strong: "#363b43".to_string(),
+                border_subtle: "#22262b".to_string(),
+                border_input: "#343941".to_string(),
+            }),
+            editor_semantic: split_surface.then(|| ThemeSemanticPalette {
+                bg_default: "#fbfbfa".to_string(),
+                bg_secondary: "#f3f4f5".to_string(),
+                bg_surface: "#fbfbfa".to_string(),
+                bg_elevated: "#f3f4f5".to_string(),
+                bg_hover: "#f3f4f5".to_string(),
+                bg_active: "#e9ebed".to_string(),
+                bg_input: "#ffffff".to_string(),
+                bg_panel: "#fbfbfa".to_string(),
+                border_default: "#d9dde1".to_string(),
+                border_strong: "#cbd0d6".to_string(),
+                border_subtle: "#e2e4e7".to_string(),
+                border_input: "#d9dde1".to_string(),
+            }),
             tags: vec!["cool".to_string(), "vibrant".to_string()],
         }
     }
@@ -417,8 +486,10 @@ mod tests {
         assert!(css.contains("[data-theme=\"manuscript\"][data-tone=\"dark\"] {"));
         assert!(css.contains("  --neutral-0: #1a1b26;"));
         assert!(css.contains("  --red-11: #f7768e;"));
+        assert!(css.contains("  --bg-secondary: #15171a;"));
         assert!(css.contains("[data-theme=\"manuscript\"] .editor-surface {"));
         assert!(css.contains("  --neutral-0: #fbfbfa;"));
         assert!(css.contains("  --blue-11: #4f83dc;"));
+        assert!(css.contains("  --bg-secondary: #f3f4f5;"));
     }
 }

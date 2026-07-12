@@ -1,11 +1,11 @@
 @import './styles/tokens-semantic.css';
 @import './styles/mode-default.css';
-@import './styles/mode-high-contrast.css';
 
 /* Import the three generated theme ramp files. */
 @import './styles/themes/dark.css';
 @import './styles/themes/light.css';
 @import './styles/themes/split.css';
+@import './styles/mode-high-contrast.css';
 
 /* Suppress transitions during theme switch */
 [data-theme-switching] * {
