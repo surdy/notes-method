@@ -48,7 +48,7 @@ For an example of a complete customer-facing work workflow, see `docs/example-wo
 
 ## Sidebar Views
 
-- By default the sidebar shows only a **Files** tab. Its Quill Rail file tree is a quiet typographic outline: disclosure carets and hairline indent guides express hierarchy, while the selected note uses a narrow accent spine. No tab bar is rendered unless custom views are configured.
+- By default the sidebar shows only a **Files** tab. Its Quill Rail file tree is a quiet, folder-icon-free typographic outline: disclosure carets identify folders, while hairline vertical rails and short Branch Spine connectors make deep hierarchy legible. The selected note uses a narrow accent spine. No tab bar is rendered unless custom views are configured.
 - The top of the Files tab has one compact toolbar: note search, **New Note**, **New Folder**, and **Refresh**. New Note collects a title and destination folder through the shared input palette. New Folder creates the folder's same-name folder note so it appears immediately in the notes-derived tree; entering an existing folder opens its folder note.
 - Custom views are defined in `.notesmith/sidebar.yaml`. When ≥1 custom view exists, a tab bar appears with Files always first.
 - Tabs are laid out in a **fixed 2-column grid** (icon + name per tab). Overflow wraps to additional rows.

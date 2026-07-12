@@ -131,6 +131,12 @@
 		{#each Array(depth) as _, i}
 			<span class="indent-guide" style={`left: ${i * INDENT + 11}px`}></span>
 		{/each}
+		{#if depth > 1}
+			<span
+				class="branch-connector"
+				style={`left: ${(depth - 1) * INDENT + 11}px`}
+			></span>
+		{/if}
 		{#if node.folderNote}
 			<button
 				class="folder-disclosure-button"
@@ -197,6 +203,12 @@
 			{#each Array(depth + 1) as _, i}
 				<span class="indent-guide" style={`left: ${i * INDENT + 11}px`}></span>
 			{/each}
+			{#if depth >= 1 && !icon}
+				<span
+					class="branch-connector"
+					style={`left: ${depth * INDENT + 11}px`}
+				></span>
+			{/if}
 			{#if icon}
 				<span class="note-icon">{icon}</span>
 			{/if}
@@ -303,6 +315,15 @@
 		top: 0;
 		bottom: 0;
 		width: 1px;
+		background: var(--border-subtle);
+		pointer-events: none;
+	}
+
+	.branch-connector {
+		position: absolute;
+		top: 50%;
+		width: 13px;
+		height: 1px;
 		background: var(--border-subtle);
 		pointer-events: none;
 	}

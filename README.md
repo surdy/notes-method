@@ -77,7 +77,7 @@ ui/extension/            # Manifest V3 web-clipper browser extension
 - **Status bar** — Per-window connection badge (local/remote, live status), vault name, cursor position, word count, save state
 - **Per-window connections** — Desktop windows each connect to their own daemon, so a local vault and a remote self-hosted vault can be open side by side; switch via the **New Window** menu (vaults grouped by server)
 - **Unified right dock** — One collapsible right panel (⌘\\) that switches between **Context** (Metadata, Links, and live TOC with click-to-scroll) and **Chat** (the AI agent), persisted per vault
-- **Quill Rail file tree** — Typographic hierarchy with disclosure carets, indent guides, optional per-note `_icon` emoji, and a compact search/new-note/new-folder/refresh toolbar
+- **Quill Rail file tree** — Folder-icon-free typographic hierarchy with disclosure carets, hairline branch connectors, optional per-note `_icon` emoji, and a compact search/new-note/new-folder/refresh toolbar
 - **Folder notes** — Same-name markdown folder notes with create/open/rename support in the file tree
 - **Quick switcher** — Fuzzy note search (⌘O)
 - **Tabbed editor** — Source, Live Preview, and Reading View modes with persistence

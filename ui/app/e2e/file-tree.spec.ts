@@ -50,3 +50,24 @@ test('folder disclosure matches the subtle Quill Rail mockup scale', async ({ pa
 
 	expect(borders).toEqual({ left: '5px', top: '4px', bottom: '4px' });
 });
+
+test('deep rows use Branch Spine hairline connectors without folder icons', async ({ page }) => {
+	await page.goto('/app/file-tree-harness');
+
+	const projects = page.locator('.folder').filter({ hasText: 'Projects' }).first();
+	const research = page.locator('.folder').filter({ hasText: 'Research' }).first();
+
+	await expect(projects.locator('.branch-connector')).toHaveCount(0);
+	await expect(research.locator('.branch-connector')).toHaveCount(1);
+	await page.getByRole('button', { name: 'Research' }).click();
+	const structure = page.getByRole('button', { name: 'Structure' });
+	await expect(structure.locator('.branch-connector')).toHaveCount(1);
+	await expect(
+		page.getByRole('button', { name: '🔬 Custom Icon' }).locator('.branch-connector')
+	).toHaveCount(0);
+	await expect(page.locator('.folder-icon')).toHaveCount(0);
+
+	const connector = research.locator('.branch-connector');
+	await expect(connector).toHaveCSS('height', '1px');
+	await expect(connector).toHaveCSS('width', '13px');
+});
