@@ -2565,7 +2565,7 @@ v1 layout:
 
 Tabs ship in v1. Split panes do not.
 
-Theme assets are generated at build time from `ui/app/src/styles/theme-catalog.json` by the `theme-gen` workspace binary. It writes `ui/app/src/styles/themes/*.css` with 12-step neutral and ANSI hue ramps interpolated in OKLab/OKLCH space. Split-surface themes additionally emit a `[data-theme="..."] .editor-surface` block so the editor can use a light-paper ramp while the surrounding chrome stays dark. The frontend surfaces that catalog in two places: a flat visual theme gallery in Settings → Appearance with optional follow-system dark/light pair selectors, and a command-palette theme picker that previews themes while the user arrows through results.
+Theme assets are generated at build time from the deliberately small `ui/app/src/styles/theme-catalog.json` by the `theme-gen` workspace binary. Notesmith ships exactly three first-party themes: **Dark** (Graphite Precision), **Light** (Porcelain), and **Split** (Studio: dark chrome with a light editor). The generator writes `dark.css`, `light.css`, and `split.css` with 12-step neutral and ANSI hue ramps interpolated in OKLab/OKLCH space. Split includes an explicit editor palette and emits a `[data-theme="split"] .editor-surface` block so the writing surface can be tuned independently from the outer chrome. Settings → Appearance and the command-palette theme picker expose only these three choices. Follow-system can pair Dark or Split with Light. Persisted themes from the retired catalog migrate by former tone, with Manuscript mapping to Split.
 
 ### 19.2 Sidebar views
 

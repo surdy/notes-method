@@ -27,22 +27,23 @@ Components reference semantic tokens without fallbacks (`var(--bg-default)`, not
 
 ### Theme System
 
-A curated catalog of theme palettes is authored in `ui/app/src/styles/theme-catalog.json` and compiled by the `theme-gen` workspace binary into `ui/app/src/styles/themes/*.css`.
+A deliberately small catalog of three first-party palettes is authored in `ui/app/src/styles/theme-catalog.json` and compiled by the `theme-gen` workspace binary into `ui/app/src/styles/themes/*.css`: **Dark** (Graphite Precision), **Light** (Porcelain), and **Split** (Studio).
 
-The generated files expose 12-step ramp primitives (`--neutral-*`, `--red-*`, `--blue-*`, etc.) under `[data-theme="..."][data-tone="..."]` selectors, with OKLab interpolation between catalog endpoints. Split-surface themes additionally emit `[data-theme="..."] .editor-surface` so the editor can use a light-paper ramp while the outer chrome stays dark.
+The generated files expose 12-step ramp primitives (`--neutral-*`, `--red-*`, `--blue-*`, etc.) under `[data-theme="..."][data-tone="..."]` selectors, with OKLab interpolation between catalog endpoints. Split emits `[data-theme="split"] .editor-surface` from an explicit editor palette so the light writing surface can be tuned independently from the dark outer chrome.
 
 The runtime theme store and flash-prevention script control the active theme exclusively through `data-theme`, `data-tone`, and `data-mode` attributes on `<html>`. Semantic tokens consume the generated ramps directly; legacy theme classes and `--ns-*` compatibility tokens have been removed from component code.
 
 ### Persistence
 
-- Theme state stored in `localStorage` under `notesmith:theme`
+- Theme state stored in `localStorage` under `notesmith:theme` and persisted in vault config `[appearance]` as `theme`, `followSystem`, `darkTheme`, `lightTheme`, and `visualMode`
 - An inline `<script>` in `app.html` reads localStorage and applies `data-theme`, `data-tone`, and `data-mode` on `<html>` before any CSS loads, preventing flash of wrong theme
 - System mode uses `matchMedia('(prefers-color-scheme: dark)')` with a change listener to keep `data-tone` current
 - CodeMirror editor theme reads from CSS vars, so it follows the active theme automatically
+- Removed catalog themes migrate by former tone: dark themes to Dark, light themes to Light, and Manuscript to Split. The inline bootstrap and runtime store perform the same migration so first paint and hydrated state agree.
 
 ## Consequences
 
 - Adding a new color to the UI requires extending the semantic contract in `tokens-semantic.css` / `mode-default.css` first — no ad-hoc hex values in components
-- New themes are added by editing `ui/app/src/styles/theme-catalog.json` and regenerating `ui/app/src/styles/themes/*.css`
-- The Manuscript theme works because split-surface generation emits a dedicated `.editor-surface` ramp block separate from the outer theme selector, while semantic overrides can tune the main content area where needed
+- Theme quality is prioritized over catalog size; adding another theme is a product decision, not routine palette accumulation
+- Split works because the generator accepts an explicit editor palette and emits a dedicated `.editor-surface` ramp block separate from the outer theme selector
 - Flash prevention still requires the inline script and runtime theme store to stay in sync with the active `data-theme`, `data-tone`, and `data-mode` attributes

@@ -345,6 +345,34 @@ fn vault_config_roundtrip() {
 }
 
 #[test]
+fn appearance_config_roundtrips_full_theme_state() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("vault.toml");
+    let config = VaultConfig {
+        schema_version: CURRENT_SCHEMA_VERSION,
+        name: "appearance".to_string(),
+        appearance: AppearanceConfig {
+            theme: "split".to_string(),
+            follow_system: Some(true),
+            dark_theme: Some("split".to_string()),
+            light_theme: Some("light".to_string()),
+            visual_mode: Some("high-contrast".to_string()),
+        },
+        ..Default::default()
+    };
+
+    config.save_to(&path).unwrap();
+    let serialized = fs::read_to_string(&path).unwrap();
+    let loaded = VaultConfig::load_from(&path).unwrap();
+
+    assert!(serialized.contains("followSystem = true"));
+    assert!(serialized.contains("darkTheme = \"split\""));
+    assert!(serialized.contains("lightTheme = \"light\""));
+    assert!(serialized.contains("visualMode = \"high-contrast\""));
+    assert_eq!(loaded.appearance, config.appearance);
+}
+
+#[test]
 fn load_and_migrate_rejects_future_schema_version() {
     let tmp = TempDir::new().unwrap();
     let vault_root = tmp.path();

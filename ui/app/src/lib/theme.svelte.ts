@@ -10,6 +10,7 @@ author: string;
 tone: 'dark' | 'light';
 split_surface: boolean;
 palette: Record<string, string>;
+editor_palette?: Record<string, string>;
 tags: string[];
 }
 
@@ -37,12 +38,24 @@ visualMode?: string;
 
 const DARK_MODE_QUERY = '(prefers-color-scheme: dark)';
 const STORAGE_KEY = 'notesmith:theme';
-const DEFAULT_THEME = 'notesmith-dark';
-const DEFAULT_DARK_THEME = 'notesmith-dark';
-const DEFAULT_LIGHT_THEME = 'notesmith-light';
+const DEFAULT_THEME = 'dark';
+const DEFAULT_DARK_THEME = 'dark';
+const DEFAULT_LIGHT_THEME = 'light';
 const DEFAULT_VISUAL_MODE: VisualMode = 'default';
 const THEME_ENTRIES = themeCatalog as ThemeEntry[];
 const THEME_NAMES = new Set(THEME_ENTRIES.map((entry) => entry.name));
+const LEGACY_LIGHT_THEMES = new Set([
+'ayu-light',
+'catppuccin-latte',
+'everforest-light',
+'github-light',
+'gruvbox-light',
+'notesmith-light',
+'one-light',
+'rose-pine-dawn',
+'solarized-light',
+'vitesse-light'
+]);
 const LEGACY_MAPPING: Record<ThemeChoice, Partial<ThemeState>> = {
 dark: { theme: DEFAULT_DARK_THEME, followSystem: false, visualMode: DEFAULT_VISUAL_MODE },
 light: { theme: DEFAULT_LIGHT_THEME, followSystem: false, visualMode: DEFAULT_VISUAL_MODE },
@@ -53,7 +66,7 @@ darkTheme: DEFAULT_DARK_THEME,
 lightTheme: DEFAULT_LIGHT_THEME,
 visualMode: DEFAULT_VISUAL_MODE
 },
-manuscript: { theme: 'manuscript', followSystem: false, visualMode: DEFAULT_VISUAL_MODE },
+manuscript: { theme: 'split', followSystem: false, visualMode: DEFAULT_VISUAL_MODE },
 'hc-dark': {
 theme: DEFAULT_DARK_THEME,
 followSystem: false,
@@ -81,8 +94,10 @@ return entry?.tone ?? 'dark';
 
 function resolveThemeName(theme: string | null | undefined): string {
 if (!theme) return DEFAULT_THEME;
+if (THEME_NAMES.has(theme)) return theme;
 if (isThemeChoice(theme)) return LEGACY_MAPPING[theme].theme ?? DEFAULT_THEME;
-return THEME_NAMES.has(theme) ? theme : DEFAULT_THEME;
+if (LEGACY_LIGHT_THEMES.has(theme)) return DEFAULT_LIGHT_THEME;
+return DEFAULT_THEME;
 }
 
 function resolveThemeForTone(
@@ -253,7 +268,6 @@ return getTone(this.activeTheme);
 get current(): string {
 if (this.visualMode === 'high-contrast') return 'hc-dark';
 if (this.followSystem) return 'system';
-if (this.activeTheme === 'manuscript') return 'manuscript';
 return this.activeTheme;
 }
 
@@ -282,14 +296,19 @@ return;
 
 if (
 typeof config.theme === 'string' &&
-isThemeChoice(config.theme) &&
 config.mode === undefined &&
 config.followSystem === undefined &&
 config.darkTheme === undefined &&
 config.lightTheme === undefined &&
 config.visualMode === undefined
 ) {
-this.set(config.theme);
+const replacement = coerceStoredState(config.theme) ?? {};
+this.theme = replacement.theme ?? DEFAULT_THEME;
+this.followSystem = replacement.followSystem ?? false;
+this.darkTheme = replacement.darkTheme ?? DEFAULT_DARK_THEME;
+this.lightTheme = replacement.lightTheme ?? DEFAULT_LIGHT_THEME;
+this.visualMode = replacement.visualMode ?? DEFAULT_VISUAL_MODE;
+this.commit();
 return;
 }
 
@@ -357,6 +376,7 @@ return;
 }
 
 this.theme = resolveThemeName(choice);
+this.followSystem = false;
 this.commit();
 }
 }

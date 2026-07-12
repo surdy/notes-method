@@ -205,7 +205,7 @@
  * CSS custom properties resolve at computed-value time on the element where
  * they're defined — overriding --neutral-0 on a child does NOT re-resolve
  * --bg-default that was already computed on :root. */
-[data-theme="manuscript"] .editor-surface {
+[data-theme="split"] .editor-surface {
   /* Surfaces */
   --bg-default: var(--neutral-0);
   --bg-secondary: var(--neutral-1);

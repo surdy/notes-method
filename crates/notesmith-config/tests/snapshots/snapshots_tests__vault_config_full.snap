@@ -1,6 +1,5 @@
 ---
 source: crates/notesmith-config/tests/snapshots_tests.rs
-assertion_line: 73
 expression: serialized
 ---
 schema_version = 1
@@ -29,6 +28,10 @@ paste_url_image_whitelist = ""
 
 [appearance]
 theme = "dark"
+followSystem = true
+darkTheme = "split"
+lightTheme = "light"
+visualMode = "high-contrast"
 
 [git]
 enabled = true

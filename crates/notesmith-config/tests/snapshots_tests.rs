@@ -47,6 +47,10 @@ fn snapshot_vault_config_full() {
         editor: EditorConfig::default(),
         appearance: AppearanceConfig {
             theme: "dark".to_string(),
+            follow_system: Some(true),
+            dark_theme: Some("split".to_string()),
+            light_theme: Some("light".to_string()),
+            visual_mode: Some("high-contrast".to_string()),
         },
         git: GitConfig {
             enabled: true,

@@ -73,6 +73,8 @@ pub struct ThemeDefinition {
     pub split_surface: bool,
     pub palette: ThemePalette,
     #[serde(default)]
+    pub editor_palette: Option<ThemePalette>,
+    #[serde(default)]
     pub tags: Vec<String>,
 }
 
@@ -225,6 +227,10 @@ fn render_palette_block(selector: &str, palette: &ThemePalette) -> Result<String
 }
 
 fn derive_split_surface_palette(theme: &ThemeDefinition) -> Result<ThemePalette> {
+    if let Some(editor_palette) = &theme.editor_palette {
+        return Ok(editor_palette.clone());
+    }
+
     let (surface_anchor, text_anchor) = match theme.tone {
         Tone::Dark => (&theme.palette.white, &theme.palette.black),
         Tone::Light => (&theme.palette.black, &theme.palette.white),
@@ -360,6 +366,18 @@ mod tests {
                 cyan: "#7dcfff".to_string(),
                 white: "#a9b1d6".to_string(),
             },
+            editor_palette: split_surface.then(|| ThemePalette {
+                bg: "#fbfbfa".to_string(),
+                fg: "#252a31".to_string(),
+                black: "#1b1f24".to_string(),
+                red: "#b94f5a".to_string(),
+                green: "#4e7f5c".to_string(),
+                yellow: "#9a712a".to_string(),
+                blue: "#4f83dc".to_string(),
+                magenta: "#765aa8".to_string(),
+                cyan: "#347e8c".to_string(),
+                white: "#ffffff".to_string(),
+            }),
             tags: vec!["cool".to_string(), "vibrant".to_string()],
         }
     }
@@ -400,5 +418,7 @@ mod tests {
         assert!(css.contains("  --neutral-0: #1a1b26;"));
         assert!(css.contains("  --red-11: #f7768e;"));
         assert!(css.contains("[data-theme=\"manuscript\"] .editor-surface {"));
+        assert!(css.contains("  --neutral-0: #fbfbfa;"));
+        assert!(css.contains("  --blue-11: #4f83dc;"));
     }
 }

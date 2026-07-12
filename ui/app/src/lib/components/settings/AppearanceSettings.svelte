@@ -113,8 +113,8 @@ clearPreview();
 <section class="section-content appearance-section">
 <h2>Appearance</h2>
 <p class="section-description">
-Choose a catalog theme, optionally pair separate dark and light themes with the system
-appearance, and enable the high-contrast overlay when needed.
+Choose Dark, Light, or Split. Follow system appearance can use Dark or Split for the dark
+appearance and Light for the light appearance. The high-contrast overlay remains available.
 </p>
 
 <div class="theme-section">
@@ -190,7 +190,7 @@ onclick={() => void selectTheme(theme.name)}
 <span class="swatch swatch-green" style={`background: ${theme.palette.green}`}></span>
 </div>
 <span class="theme-name">{theme.display_name}</span>
-<span class="theme-meta">{theme.author}</span>
+<span class="theme-meta">{theme.tags.join(' · ')}</span>
 </button>
 {/each}
 </div>

@@ -7,37 +7,66 @@
 		<script>
 			(function () {
 				var defaults = {
-					theme: 'notesmith-dark',
+					theme: 'dark',
 					followSystem: false,
-					darkTheme: 'notesmith-dark',
-					lightTheme: 'notesmith-light',
+					darkTheme: 'dark',
+					lightTheme: 'light',
 					visualMode: 'default'
 				};
 				var state = defaults;
+				var legacyLightThemes = {
+					'ayu-light': true,
+					'catppuccin-latte': true,
+					'everforest-light': true,
+					'github-light': true,
+					'gruvbox-light': true,
+					'notesmith-light': true,
+					'one-light': true,
+					'rose-pine-dawn': true,
+					'solarized-light': true,
+					'vitesse-light': true
+				};
+				var canonicalThemes = { dark: true, light: true, split: true };
 				var legacy = {
-					dark: { theme: 'notesmith-dark', followSystem: false },
-					light: { theme: 'notesmith-light', followSystem: false },
+					dark: { theme: 'dark', followSystem: false },
+					light: { theme: 'light', followSystem: false },
 					system: {
-						theme: 'notesmith-dark',
+						theme: 'dark',
 						followSystem: true,
-						darkTheme: 'notesmith-dark',
-						lightTheme: 'notesmith-light'
+						darkTheme: 'dark',
+						lightTheme: 'light'
 					},
-					manuscript: { theme: 'manuscript', followSystem: false },
+					manuscript: { theme: 'split', followSystem: false },
 					'hc-dark': {
-						theme: 'notesmith-dark',
+						theme: 'dark',
 						followSystem: false,
 						visualMode: 'high-contrast'
 					}
 				};
 
+				function normalizeTheme(theme) {
+					if (canonicalThemes[theme]) return theme;
+					if (theme === 'manuscript') return 'split';
+					if (legacyLightThemes[theme]) return 'light';
+					return 'dark';
+				}
+
+				function normalizeDarkTheme(theme) {
+					var normalized = normalizeTheme(theme);
+					return normalized === 'light' ? defaults.darkTheme : normalized;
+				}
+
+				function normalizeLightTheme(theme) {
+					return normalizeTheme(theme) === 'light' ? 'light' : defaults.lightTheme;
+				}
+
 				function mergeState(partial) {
 					var next = partial && typeof partial === 'object' ? partial : {};
 					return {
-						theme: next.theme || defaults.theme,
+						theme: normalizeTheme(next.theme || defaults.theme),
 						followSystem: typeof next.followSystem === 'boolean' ? next.followSystem : defaults.followSystem,
-						darkTheme: next.darkTheme || defaults.darkTheme,
-						lightTheme: next.lightTheme || defaults.lightTheme,
+						darkTheme: normalizeDarkTheme(next.darkTheme || defaults.darkTheme),
+						lightTheme: normalizeLightTheme(next.lightTheme || defaults.lightTheme),
 						visualMode: next.visualMode || defaults.visualMode
 					};
 				}
@@ -45,12 +74,26 @@
 				function migrateOldState(parsed) {
 					if (parsed.mode !== undefined && parsed.followSystem === undefined) {
 						var followSystem = parsed.mode === 'system';
-						var parsedTheme = parsed.theme || defaults.theme;
-						var lowerTheme = parsedTheme.toLowerCase();
-						var isLightTheme =
-							lowerTheme.indexOf('light') !== -1 ||
-							lowerTheme.indexOf('latte') !== -1 ||
-							lowerTheme.indexOf('dawn') !== -1;
+						var parsedTheme = normalizeTheme(parsed.theme || defaults.theme);
+						if (parsed.mode === 'light') {
+							return {
+								theme: defaults.lightTheme,
+								followSystem: false,
+								darkTheme: defaults.darkTheme,
+								lightTheme: defaults.lightTheme,
+								visualMode: parsed.visualMode || defaults.visualMode
+							};
+						}
+						if (!followSystem) {
+							return {
+								theme: parsedTheme === 'light' ? defaults.darkTheme : parsedTheme,
+								followSystem: false,
+								darkTheme: defaults.darkTheme,
+								lightTheme: defaults.lightTheme,
+								visualMode: parsed.visualMode || defaults.visualMode
+							};
+						}
+						var isLightTheme = parsedTheme === 'light';
 						return {
 							theme: parsedTheme,
 							followSystem: followSystem,
@@ -69,10 +112,10 @@
 							var parsed = JSON.parse(stored);
 							state =
 								typeof parsed === 'string'
-									? mergeState(legacy[parsed] || defaults)
+									? mergeState(legacy[parsed] || { theme: parsed })
 									: mergeState(migrateOldState(parsed));
 						} catch (_) {
-							state = mergeState(legacy[stored] || defaults);
+							state = mergeState(legacy[stored] || { theme: stored });
 						}
 					}
 				} catch (_) {}
@@ -84,15 +127,7 @@
 						: state.lightTheme || defaults.lightTheme;
 				}
 
-				var lightPatterns = ['light', 'latte', 'dawn'];
-				var tone = 'dark';
-				var lowerTheme = activeTheme.toLowerCase();
-				for (var i = 0; i < lightPatterns.length; i++) {
-					if (lowerTheme.indexOf(lightPatterns[i]) !== -1) {
-						tone = 'light';
-						break;
-					}
-				}
+				var tone = activeTheme === 'light' ? 'light' : 'dark';
 
 				var html = document.documentElement;
 				html.setAttribute('data-theme', activeTheme);

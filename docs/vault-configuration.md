@@ -204,6 +204,13 @@ show_line_numbers = true          # Show line numbers in Source and Live Preview
 hide_duplicate_h1 = true          # Hide a first H1 that duplicates the note title in reading/live preview
 paste_url_image_whitelist = ""    # One regex per line; empty disables automatic ![]() embeds on paste
 
+[appearance]
+theme = "dark"                    # "dark", "light", "split", or legacy "system"
+followSystem = false              # Follow the OS dark/light appearance
+darkTheme = "dark"                # "dark" or "split" when following the system
+lightTheme = "light"              # Light appearance when following the system
+visualMode = "default"            # "default" or "high-contrast"
+
 [git]
 enabled = false               # Enable git integration (default: false)
 auto_commit_every = "5m"      # Auto-commit interval (optional, e.g. "5m", "1h")
@@ -228,6 +235,16 @@ Top-level fields:
 `[capture]`:
 - `folder` — default capture folder (default: `""`, meaning the vault root)
 - `template` — default template for captured notes (default: `generic-note`)
+
+`[appearance]`:
+- `theme` — manual theme: `dark`, `light`, or `split` (default config value: `system`)
+- `followSystem` — follow the operating-system appearance
+- `darkTheme` — theme used for the dark system appearance: `dark` or `split`
+- `lightTheme` — theme used for the light system appearance: `light`
+- `visualMode` — `default` or the `high-contrast` overlay
+
+Older theme names are accepted and normalized when loaded: retired dark themes become `dark`,
+retired light themes become `light`, and `manuscript` becomes `split`.
 
 `[periodic.<kind>]`:
 - `folder` — folder for this periodic kind

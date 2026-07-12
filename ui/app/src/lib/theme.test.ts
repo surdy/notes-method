@@ -83,11 +83,11 @@ it('sets data-theme and derives data-tone from the catalog', async () => {
 const harness: ThemeHarness = createThemeHarness({ prefersDark: true });
 const { themeStore } = await import('./theme.svelte.ts');
 
-themeStore.setTheme('github-light');
+themeStore.setTheme('light');
 
-expect(themeStore.theme).toBe('github-light');
-expect(themeStore.activeTheme).toBe('github-light');
-expect(harness.attributes.get('data-theme')).toBe('github-light');
+expect(themeStore.theme).toBe('light');
+expect(themeStore.activeTheme).toBe('light');
+expect(harness.attributes.get('data-theme')).toBe('light');
 expect(harness.attributes.get('data-tone')).toBe('light');
 });
 
@@ -95,19 +95,19 @@ it('switches between dark and light theme pairings when following system appeara
 const harness: ThemeHarness = createThemeHarness({ prefersDark: false });
 const { themeStore } = await import('./theme.svelte.ts');
 
-themeStore.setDarkTheme('tokyo-night');
-themeStore.setLightTheme('github-light');
+themeStore.setDarkTheme('dark');
+themeStore.setLightTheme('light');
 themeStore.setFollowSystem(true);
 
 expect(themeStore.followSystem).toBe(true);
-expect(themeStore.activeTheme).toBe('github-light');
-expect(harness.attributes.get('data-theme')).toBe('github-light');
+expect(themeStore.activeTheme).toBe('light');
+expect(harness.attributes.get('data-theme')).toBe('light');
 expect(harness.attributes.get('data-tone')).toBe('light');
 
 harness.mediaQuery.dispatch(true);
 
-expect(themeStore.activeTheme).toBe('tokyo-night');
-expect(harness.attributes.get('data-theme')).toBe('tokyo-night');
+expect(themeStore.activeTheme).toBe('dark');
+expect(harness.attributes.get('data-theme')).toBe('dark');
 expect(harness.attributes.get('data-tone')).toBe('dark');
 });
 
@@ -125,16 +125,16 @@ it('restores the previous attributes after preview ends', async () => {
 const harness: ThemeHarness = createThemeHarness({ prefersDark: false });
 const { themeStore } = await import('./theme.svelte.ts');
 
-themeStore.setLightTheme('github-light');
+themeStore.setLightTheme('light');
 themeStore.setFollowSystem(true);
-const restore = themeStore.preview('tokyo-night');
+const restore = themeStore.preview('split');
 
-expect(harness.attributes.get('data-theme')).toBe('tokyo-night');
+expect(harness.attributes.get('data-theme')).toBe('split');
 expect(harness.attributes.get('data-tone')).toBe('dark');
 
 restore();
 
-expect(harness.attributes.get('data-theme')).toBe('github-light');
+expect(harness.attributes.get('data-theme')).toBe('light');
 expect(harness.attributes.get('data-tone')).toBe('light');
 });
 
@@ -142,17 +142,17 @@ it('persists the new theme state shape to localStorage', async () => {
 const harness: ThemeHarness = createThemeHarness({ prefersDark: true });
 const { themeStore } = await import('./theme.svelte.ts');
 
-themeStore.setTheme('tokyo-night');
+themeStore.setTheme('split');
 themeStore.setFollowSystem(true);
-themeStore.setDarkTheme('tokyo-night');
-themeStore.setLightTheme('github-light');
+themeStore.setDarkTheme('dark');
+themeStore.setLightTheme('light');
 themeStore.setVisualMode('high-contrast');
 
 expect(JSON.parse(harness.storage.get(STORAGE_KEY) ?? '{}')).toMatchObject({
-theme: 'tokyo-night',
+theme: 'split',
 followSystem: true,
-darkTheme: 'tokyo-night',
-lightTheme: 'github-light',
+darkTheme: 'dark',
+lightTheme: 'light',
 visualMode: 'high-contrast'
 });
 });
@@ -165,10 +165,10 @@ storedTheme: 'system'
 let { themeStore } = await import('./theme.svelte.ts');
 
 expect(themeStore.followSystem).toBe(true);
-expect(themeStore.darkTheme).toBe('notesmith-dark');
-expect(themeStore.lightTheme).toBe('notesmith-light');
-expect(themeStore.activeTheme).toBe('notesmith-light');
-expect(harness.attributes.get('data-theme')).toBe('notesmith-light');
+expect(themeStore.darkTheme).toBe('dark');
+expect(themeStore.lightTheme).toBe('light');
+expect(themeStore.activeTheme).toBe('light');
+expect(harness.attributes.get('data-theme')).toBe('light');
 expect(harness.attributes.get('data-tone')).toBe('light');
 
 vi.unstubAllGlobals();
@@ -185,10 +185,10 @@ visualMode: 'default'
 ({ themeStore } = await import('./theme.svelte.ts'));
 
 expect(themeStore.followSystem).toBe(true);
-expect(themeStore.darkTheme).toBe('tokyo-night');
-expect(themeStore.lightTheme).toBe('notesmith-light');
-expect(themeStore.activeTheme).toBe('tokyo-night');
-expect(harness.attributes.get('data-theme')).toBe('tokyo-night');
+expect(themeStore.darkTheme).toBe('dark');
+expect(themeStore.lightTheme).toBe('light');
+expect(themeStore.activeTheme).toBe('dark');
+expect(harness.attributes.get('data-theme')).toBe('dark');
 expect(harness.attributes.get('data-tone')).toBe('dark');
 
 vi.unstubAllGlobals();
@@ -205,10 +205,63 @@ visualMode: 'default'
 ({ themeStore } = await import('./theme.svelte.ts'));
 
 expect(themeStore.followSystem).toBe(true);
-expect(themeStore.darkTheme).toBe('notesmith-dark');
-expect(themeStore.lightTheme).toBe('github-light');
-expect(themeStore.activeTheme).toBe('github-light');
-expect(harness.attributes.get('data-theme')).toBe('github-light');
+expect(themeStore.darkTheme).toBe('dark');
+expect(themeStore.lightTheme).toBe('light');
+expect(themeStore.activeTheme).toBe('light');
+expect(harness.attributes.get('data-theme')).toBe('light');
 expect(harness.attributes.get('data-tone')).toBe('light');
+});
+
+it('maps removed themes to Dark, Light, or Split by their former tone', async () => {
+let harness: ThemeHarness = createThemeHarness({
+storedTheme: {
+theme: 'tokyo-night',
+followSystem: false,
+darkTheme: 'github-dark',
+lightTheme: 'github-light',
+visualMode: 'default'
+}
+});
+let { themeStore } = await import('./theme.svelte.ts');
+
+expect(themeStore.theme).toBe('dark');
+expect(themeStore.darkTheme).toBe('dark');
+expect(themeStore.lightTheme).toBe('light');
+expect(harness.attributes.get('data-theme')).toBe('dark');
+
+vi.unstubAllGlobals();
+vi.resetModules();
+
+harness = createThemeHarness({ storedTheme: 'manuscript' });
+({ themeStore } = await import('./theme.svelte.ts'));
+
+expect(themeStore.theme).toBe('split');
+expect(themeStore.activeTheme).toBe('split');
+expect(harness.attributes.get('data-theme')).toBe('split');
+expect(harness.attributes.get('data-tone')).toBe('dark');
+});
+
+it('treats a one-field theme config as a manual selection', async () => {
+const harness: ThemeHarness = createThemeHarness({ prefersDark: false });
+const { themeStore } = await import('./theme.svelte.ts');
+
+themeStore.setDarkTheme('split');
+themeStore.setVisualMode('high-contrast');
+themeStore.setFollowSystem(true);
+themeStore.applyFromConfig({ theme: 'split' });
+
+expect(themeStore.theme).toBe('split');
+expect(themeStore.followSystem).toBe(false);
+expect(themeStore.darkTheme).toBe('dark');
+expect(themeStore.lightTheme).toBe('light');
+expect(themeStore.visualMode).toBe('default');
+expect(themeStore.activeTheme).toBe('split');
+expect(harness.attributes.get('data-theme')).toBe('split');
+
+themeStore.applyFromConfig({ theme: 'github-light' });
+
+expect(themeStore.theme).toBe('light');
+expect(themeStore.followSystem).toBe(false);
+expect(harness.attributes.get('data-theme')).toBe('light');
 });
 });

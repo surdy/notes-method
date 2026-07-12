@@ -2959,6 +2959,7 @@ async fn put_vault_config_succeeds_with_correct_if_match() {
         "capture": { "folder": "MyInbox", "template": "generic-note" },
         "daily": { "folder": "Inbox/Daily", "template": "daily-note", "catch_up": false },
         "editor": { "live_preview": true, "default_mode": "source", "strict_line_breaks": false, "show_line_numbers": true, "hide_duplicate_h1": true, "paste_url_image_whitelist": "" },
+        "appearance": { "theme": "split", "followSystem": true, "darkTheme": "split", "lightTheme": "light", "visualMode": "high-contrast" },
         "git": { "enabled": false },
         "hooks": {}
     });
@@ -2984,6 +2985,11 @@ async fn put_vault_config_succeeds_with_correct_if_match() {
 
     let body = response.json::<serde_json::Value>().await.unwrap();
     assert_eq!(body["config"]["capture"]["folder"], "MyInbox");
+    assert_eq!(body["config"]["appearance"]["theme"], "split");
+    assert_eq!(body["config"]["appearance"]["followSystem"], true);
+    assert_eq!(body["config"]["appearance"]["darkTheme"], "split");
+    assert_eq!(body["config"]["appearance"]["lightTheme"], "light");
+    assert_eq!(body["config"]["appearance"]["visualMode"], "high-contrast");
     assert!(body["hash"].as_str().unwrap().len() > 10);
 
     server.server.abort();

@@ -69,7 +69,7 @@ ui/extension/            # Manifest V3 web-clipper browser extension
 ### Features
 
 - **Web clipper** — Turn a web page into a clean Markdown note. Extraction runs **server-side** in the daemon (SSRF-guarded, bounded fetch → readability extraction → HTML→Markdown), keyed by canonical `source_url` for dedup, filed to the inbox for routing. Triggers: `POST /api/v/{vault}/clip`, `notesmith clip <url>`, and a Manifest V3 [browser extension](ui/extension/). Optional image download + per-domain minijinja templates via `[clip]` config. See [ADR 0020](docs/adr/0020-web-clipper.md) and [`plans/web-clipper-plan.md`](plans/web-clipper-plan.md)
-- **Catalog-backed themes** — Ramp CSS generated from `ui/app/src/styles/theme-catalog.json`, selected at runtime from a flat visual settings gallery with optional follow-system dark/light pairing and a high-contrast overlay
+- **Three polished themes** — Dark, Light, and Split (dark chrome with a light editor), generated from `ui/app/src/styles/theme-catalog.json` with optional follow-system pairing, migration from the former catalog by tone, and a high-contrast overlay
 - **Design tokens** — Ramp-backed semantic tokens (`--bg-default`, `--text-default`, …) generated from `ui/app/src/styles/theme-catalog.json`; the legacy `--ns-*` tokens have been fully removed
 - **Command palette** — Fuzzy-searchable command runner (⌘K) with keyboard hints and an in-palette theme browser
 - **Input palette** — Sequential multi-step inputs for note creation and templates

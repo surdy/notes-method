@@ -12,28 +12,28 @@ fn generator_creates_css_files_for_catalog_and_clears_stale_output() {
         &catalog_path,
         r##"[
   {
-    "name": "tokyo-night",
-    "display_name": "Tokyo Night",
-    "author": "enkia",
+    "name": "dark",
+    "display_name": "Dark",
+    "author": "Notesmith",
     "tone": "dark",
     "split_surface": false,
     "palette": {
-      "bg": "#1a1b26",
-      "fg": "#c0caf5",
-      "black": "#15161e",
-      "red": "#f7768e",
-      "green": "#9ece6a",
-      "yellow": "#e0af68",
-      "blue": "#7aa2f7",
-      "magenta": "#bb9af7",
-      "cyan": "#7dcfff",
-      "white": "#a9b1d6"
+      "bg": "#111316",
+      "fg": "#f0f2f4",
+      "black": "#0b0d0f",
+      "red": "#d26a73",
+      "green": "#72a878",
+      "yellow": "#c9a15f",
+      "blue": "#79a7ff",
+      "magenta": "#a88bd4",
+      "cyan": "#66b7bb",
+      "white": "#f0f2f4"
     },
-    "tags": ["cool", "vibrant"]
+    "tags": ["neutral", "native"]
   },
   {
-    "name": "manuscript",
-    "display_name": "Manuscript",
+    "name": "split",
+    "display_name": "Split",
     "author": "Notesmith",
     "tone": "dark",
     "split_surface": true,
@@ -48,6 +48,18 @@ fn generator_creates_css_files_for_catalog_and_clears_stale_output() {
       "magenta": "#9b79b5",
       "cyan": "#6ba5a8",
       "white": "#ede3d3"
+    },
+    "editor_palette": {
+      "bg": "#fbfbfa",
+      "fg": "#252a31",
+      "black": "#1b1f24",
+      "red": "#b94f5a",
+      "green": "#4e7f5c",
+      "yellow": "#9a712a",
+      "blue": "#4f83dc",
+      "magenta": "#765aa8",
+      "cyan": "#347e8c",
+      "white": "#ffffff"
     },
     "tags": ["paper", "split"]
   }
@@ -76,12 +88,12 @@ fn generator_creates_css_files_for_catalog_and_clears_stale_output() {
     );
     assert!(!output_dir.join("stale.css").exists());
 
-    let tokyo = fs::read_to_string(output_dir.join("tokyo-night.css")).expect("tokyo css exists");
-    let manuscript =
-        fs::read_to_string(output_dir.join("manuscript.css")).expect("manuscript css exists");
+    let dark = fs::read_to_string(output_dir.join("dark.css")).expect("dark css exists");
+    let split = fs::read_to_string(output_dir.join("split.css")).expect("split css exists");
 
-    assert!(tokyo.contains("[data-theme=\"tokyo-night\"][data-tone=\"dark\"]"));
-    assert!(tokyo.contains("--neutral-11: #c0caf5;"));
-    assert!(manuscript.contains("[data-theme=\"manuscript\"] .editor-surface"));
-    assert!(manuscript.contains("--blue-11: #6e88b5;"));
+    assert!(dark.contains("[data-theme=\"dark\"][data-tone=\"dark\"]"));
+    assert!(dark.contains("--neutral-11: #f0f2f4;"));
+    assert!(split.contains("[data-theme=\"split\"] .editor-surface"));
+    assert!(split.contains("--neutral-0: #fbfbfa;"));
+    assert!(split.contains("--blue-11: #4f83dc;"));
 }

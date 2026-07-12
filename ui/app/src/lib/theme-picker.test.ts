@@ -5,9 +5,9 @@ import { filterThemes, findThemeByName } from './theme-picker';
 
 const themes: ThemeEntry[] = [
 {
-name: 'tokyo-night',
-display_name: 'Tokyo Night',
-author: 'enkia',
+name: 'dark',
+display_name: 'Dark',
+author: 'Notesmith',
 tone: 'dark',
 split_surface: false,
 palette: {
@@ -22,11 +22,11 @@ magenta: '#bb9af7',
 cyan: '#7dcfff',
 white: '#a9b1d6'
 },
-tags: ['cool', 'vibrant']
+tags: ['neutral', 'native']
 },
 {
-name: 'manuscript',
-display_name: 'Manuscript',
+name: 'split',
+display_name: 'Split',
 author: 'Notesmith',
 tone: 'dark',
 split_surface: true,
@@ -42,12 +42,12 @@ magenta: '#9b6aa0',
 cyan: '#5f9ea0',
 white: '#faf6ed'
 },
-tags: ['paper', 'warm']
+tags: ['neutral', 'split']
 },
 {
-name: 'github-light',
-display_name: 'GitHub Light',
-author: 'GitHub',
+name: 'light',
+display_name: 'Light',
+author: 'Notesmith',
 tone: 'light',
 split_surface: false,
 palette: {
@@ -62,23 +62,27 @@ magenta: '#8250df',
 cyan: '#1b7c83',
 white: '#f6f8fa'
 },
-tags: ['clean', 'neutral']
+tags: ['neutral', 'native']
 }
 ];
 
 describe('theme picker helpers', () => {
 it('filters themes by display name, tone, author, and tags', () => {
-expect(filterThemes(themes, 'paper').map((theme) => theme.name)).toEqual(['manuscript']);
-expect(filterThemes(themes, 'github').map((theme) => theme.name)).toEqual(['github-light']);
+expect(filterThemes(themes, 'split').map((theme) => theme.name)).toEqual(['split']);
+expect(filterThemes(themes, 'native').map((theme) => theme.name)).toEqual(['light', 'dark']);
 expect(filterThemes(themes, 'dark').map((theme) => theme.name)).toEqual([
-'manuscript',
-'tokyo-night'
+'dark',
+'split'
 ]);
-expect(filterThemes(themes, 'enkia').map((theme) => theme.name)).toEqual(['tokyo-night']);
+expect(filterThemes(themes, 'notesmith').map((theme) => theme.name).sort()).toEqual([
+'dark',
+'light',
+'split'
+]);
 });
 
 it('finds themes by exact internal name', () => {
-expect(findThemeByName(themes, 'github-light')?.display_name).toBe('GitHub Light');
+expect(findThemeByName(themes, 'light')?.display_name).toBe('Light');
 expect(findThemeByName(themes, 'missing-theme')).toBeUndefined();
 });
 });

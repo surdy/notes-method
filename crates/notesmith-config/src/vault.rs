@@ -336,6 +336,34 @@ impl Default for EditorConfig {
 pub struct AppearanceConfig {
     #[serde(default = "default_theme")]
     pub theme: String,
+    #[serde(
+        default,
+        rename = "followSystem",
+        alias = "follow_system",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub follow_system: Option<bool>,
+    #[serde(
+        default,
+        rename = "darkTheme",
+        alias = "dark_theme",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub dark_theme: Option<String>,
+    #[serde(
+        default,
+        rename = "lightTheme",
+        alias = "light_theme",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub light_theme: Option<String>,
+    #[serde(
+        default,
+        rename = "visualMode",
+        alias = "visual_mode",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub visual_mode: Option<String>,
 }
 
 fn default_theme() -> String {
@@ -346,6 +374,10 @@ impl Default for AppearanceConfig {
     fn default() -> Self {
         Self {
             theme: default_theme(),
+            follow_system: None,
+            dark_theme: None,
+            light_theme: None,
+            visual_mode: None,
         }
     }
 }
@@ -830,6 +862,7 @@ on_note_create = "hooks/create.py"
             },
             appearance: AppearanceConfig {
                 theme: "light".to_string(),
+                ..AppearanceConfig::default()
             },
             git: GitConfig {
                 enabled: true,

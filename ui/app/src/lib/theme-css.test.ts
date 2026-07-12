@@ -4,30 +4,17 @@ import { describe, expect, it } from 'vitest';
 
 const appCssPath = fileURLToPath(new URL('../app.css', import.meta.url));
 const appCss = readFileSync(appCssPath, 'utf8');
-
-function cssVariablesFor(selector: string): Record<string, string> {
-const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const match = appCss.match(new RegExp(`${escapedSelector}\\s*\\{(?<body>[^}]+)\\}`));
-const body = match?.groups?.body;
-if (!body) {
-throw new Error(`Missing CSS rule for ${selector}`);
-}
-
-return Object.fromEntries(
-[...body.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(([, name, value]) => [name, value.trim()])
-);
-}
+const modeDefaultPath = fileURLToPath(new URL('../styles/mode-default.css', import.meta.url));
+const modeDefaultCss = readFileSync(modeDefaultPath, 'utf8');
 
 describe('theme CSS tokens', () => {
-it('uses light-mode semantic callout tokens inside the Manuscript content area', () => {
-expect(cssVariablesFor('[data-theme="manuscript"] .content-area')).toEqual({
-'--accent-bg': '#e8f4fd',
-'--accent-text': '#005a9e',
-'--color-info': '#1976d2',
-'--warning-bg': '#fff6e6',
-'--warning-border': '#ed6c02',
-'--color-success': '#2e7d32',
-'--success-bg': '#e8f5e9'
+it('imports only the three selected generated themes', () => {
+expect([...appCss.matchAll(/@import '.\/styles\/themes\/([^']+)\.css';/g)].map(([, name]) => name))
+.toEqual(['dark', 'light', 'split']);
 });
+
+it('redeclares semantic tokens inside the Split editor surface', () => {
+expect(modeDefaultCss).toContain('[data-theme="split"] .editor-surface {');
+expect(modeDefaultCss).not.toContain('[data-theme="manuscript"]');
 });
 });
