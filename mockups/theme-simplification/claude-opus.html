@@ -1,0 +1,1499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Notesmith — Theme Explorations · Claude Opus 4.8</title>
+<style>
+/* ============================================================
+   Notesmith Theme Explorations — designed by Claude Opus 4.8
+   Nine self-contained concepts. No build step, no network deps.
+   All colors are local CSS custom properties; the production
+   theme system is untouched.
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+  --mono-font: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, "Menlo", "Consolas", monospace;
+  --serif-font: "Iowan Old Style", "Palatino Linotype", "Georgia", "Times New Roman", serif;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  /* Gallery shell (fixed, concept-independent) */
+  --shell-bg: #0f1012;
+  --shell-panel: #17181b;
+  --shell-line: #2a2c31;
+  --shell-text: #e7e8ea;
+  --shell-text-2: #a2a5ac;
+  --shell-text-3: #6c7078;
+  --shell-accent: #7aa2f7;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--shell-bg);
+  color: var(--shell-text);
+  font-family: var(--ui-font);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* ---------- Gallery chrome ---------- */
+.gallery {
+  flex: 0 0 auto;
+  background: var(--shell-panel);
+  border-bottom: 1px solid var(--shell-line);
+}
+.gallery-top {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 12px 18px 8px;
+}
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.brand-mark {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--shell-text);
+}
+.brand-mark .dot { color: var(--shell-accent); }
+.brand-sub {
+  font-size: 12px;
+  color: var(--shell-text-3);
+  letter-spacing: 0.02em;
+}
+.author-pill {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: #cdd6f4;
+  background: rgba(122,162,247,0.14);
+  border: 1px solid rgba(122,162,247,0.35);
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.gallery-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 2px 18px 12px;
+}
+.tab-group { display: flex; flex-direction: column; gap: 6px; }
+.tab-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--shell-text-3);
+}
+.tab-row { display: flex; gap: 6px; }
+.concept-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 11px;
+  border: 1px solid var(--shell-line);
+  border-radius: var(--radius-md);
+  background: #1d1f23;
+  color: var(--shell-text-2);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.concept-btn:hover { color: var(--shell-text); border-color: #3a3d44; }
+.concept-btn .swatch {
+  width: 14px; height: 14px; border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.14);
+  flex: 0 0 auto;
+}
+.concept-btn.active {
+  color: #fff;
+  background: #262a31;
+  border-color: var(--shell-accent);
+  box-shadow: inset 0 0 0 1px rgba(122,162,247,0.35);
+}
+
+.gallery-caption {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 18px;
+  border-top: 1px solid var(--shell-line);
+  font-size: 12px;
+  color: var(--shell-text-2);
+}
+.caption-name { font-weight: 700; color: var(--shell-text); }
+.caption-cat {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--shell-accent);
+  border: 1px solid rgba(122,162,247,0.35);
+  border-radius: var(--radius-pill);
+  padding: 2px 9px;
+}
+.caption-desc { color: var(--shell-text-3); }
+.caption-nav { margin-left: auto; display: flex; gap: 6px; }
+.nav-btn {
+  width: 26px; height: 26px;
+  border: 1px solid var(--shell-line);
+  border-radius: var(--radius-sm);
+  background: #1d1f23;
+  color: var(--shell-text-2);
+  font-family: inherit; font-size: 13px; cursor: pointer;
+}
+.nav-btn:hover { color: #fff; border-color: #3a3d44; }
+
+/* ---------- Stage ---------- */
+.stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 18px;
+  overflow: auto;
+  background:
+    radial-gradient(120% 120% at 50% 0%, #141518 0%, #0f1012 60%);
+}
+.stage-frame {
+  height: 100%;
+  min-height: 560px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px -20px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04);
+}
+
+/* ============================================================
+   WORKSPACE — component styles reference concept tokens only.
+   ============================================================ */
+.workspace {
+  --c-app:#191919; --c-chrome:#1f1f1f; --c-sidebar:#1c1c1c; --c-dock:#1c1c1c;
+  --c-status:#1f1f1f; --c-elevated:#262626; --c-hover:#2a2a2a; --c-selected:#2f2f31;
+  --c-border:#333; --c-border-subtle:#262626; --c-text:#e6e4e1; --c-text-2:#b4b1ac;
+  --c-text-3:#86837e; --c-text-4:#5f5d59; --c-accent:#6ea3f0;
+  --c-accent-soft:rgba(110,163,240,0.14); --c-accent-on:#cfe0fb;
+  --c-tag-bg:#2a2f38; --c-tag-text:#a9c4ef; --c-shadow:rgba(0,0,0,0.5);
+  --c-danger:#e08a7a; --c-success:#86c08a; --c-warning:#d9b36e; --c-dirty:#6ea3f0;
+
+  --e-bg:#1d1d1d; --e-text:#e6e4e1; --e-text-2:#b4b1ac; --e-text-3:#86837e;
+  --e-border:#333; --e-link:#6ea3f0; --e-accent:#e6e4e1; --e-code-bg:#242424;
+  --e-callout-bg:rgba(110,163,240,0.08); --e-callout-border:#6ea3f0;
+  --e-selection:rgba(110,163,240,0.22);
+  --sy-com:#6d6a64; --sy-key:#c79be0; --sy-str:#9ec98f; --sy-num:#e0b072;
+  --sy-fn:#6ea3f0; --sy-punc:#9a968f;
+
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-app);
+  color: var(--c-text);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+/* -- Top chrome -- */
+.ws-chrome {
+  display: flex;
+  min-height: 40px;
+  background: var(--c-chrome);
+  border-bottom: 1px solid var(--c-border);
+}
+.chrome-left, .chrome-right {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 10px 0 12px;
+  background: var(--c-sidebar);
+}
+.chrome-left { flex: 0 0 258px; border-right: 1px solid var(--c-border); }
+.chrome-right { flex: 0 0 292px; border-left: 1px solid var(--c-border); justify-content: space-between; padding-right: 8px; }
+.chrome-main { flex: 1; display: flex; align-items: flex-end; min-width: 0; overflow: hidden; padding: 0 8px; }
+
+.vault-btn {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--c-text);
+  font-family: inherit; font-size: 12.5px; font-weight: 600;
+  cursor: pointer;
+}
+.vault-btn:hover { background: var(--c-hover); }
+.vault-glyph {
+  width: 18px; height: 18px; border-radius: 5px;
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  display: grid; place-items: center; font-size: 11px; font-weight: 800;
+}
+.vault-caret { color: var(--c-text-3); font-size: 10px; }
+.chrome-spacer { flex: 1; }
+
+.icon-btn {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border: 1px solid transparent; border-radius: var(--radius-md);
+  background: transparent; color: var(--c-text-3); cursor: pointer;
+}
+.icon-btn:hover { background: var(--c-hover); color: var(--c-text); }
+.icon-btn svg { width: 16px; height: 16px; }
+
+.chrome-note-title {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--c-text); font-size: 12.5px; font-weight: 600;
+}
+
+/* -- Tabs -- */
+.ws-tabs { display: flex; gap: 4px; align-items: stretch; }
+.ws-tab {
+  display: flex; align-items: center; gap: 7px;
+  max-width: 220px;
+  padding: 7px 10px 8px;
+  background: var(--c-elevated);
+  border-top: 2px solid transparent;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  color: var(--c-text-2);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.ws-tab:hover { color: var(--c-text); }
+.ws-tab.active {
+  background: var(--e-bg);
+  color: var(--e-text);
+  border-top-color: var(--c-accent);
+}
+.ws-tab .t-icon { font-size: 12px; line-height: 1; }
+.ws-tab .t-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-tab .t-dirty { color: var(--c-dirty); font-size: 9px; }
+.ws-tab .t-close {
+  color: var(--c-text-3); border: none; background: transparent; cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 2px; opacity: 0;
+}
+.ws-tab:hover .t-close, .ws-tab.active .t-close { opacity: 1; }
+.ws-tab .t-close:hover { color: var(--c-text); }
+.ws-tab.active .t-close { color: var(--e-text-3); }
+.ws-tab.active .t-close:hover { color: var(--e-text); }
+
+/* -- Body columns -- */
+.ws-body { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+
+.ws-sidebar {
+  flex: 0 0 258px;
+  display: flex; flex-direction: column;
+  background: var(--c-sidebar);
+  border-right: 1px solid var(--c-border);
+  overflow: hidden;
+}
+.side-tabs {
+  display: flex; gap: 2px;
+  padding: 8px 8px 0;
+  border-bottom: 1px solid var(--c-border-subtle);
+}
+.side-tab {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px 8px;
+  border: none; background: transparent;
+  color: var(--c-text-3); cursor: pointer;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  border-bottom: 2px solid transparent;
+}
+.side-tab:hover { color: var(--c-text); }
+.side-tab.active { color: var(--c-text); border-bottom-color: var(--c-accent); }
+.side-tab .s-badge {
+  font-size: 10px; font-weight: 700;
+  color: var(--c-accent-on); background: var(--c-accent-soft);
+  border-radius: var(--radius-pill); padding: 1px 6px;
+}
+
+.side-search { padding: 10px; }
+.search-field {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 9px;
+  background: var(--c-elevated);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+}
+.search-field svg { width: 14px; height: 14px; color: var(--c-text-3); flex: 0 0 auto; }
+.search-field input {
+  flex: 1; min-width: 0;
+  border: none; background: transparent;
+  color: var(--c-text); font-family: inherit; font-size: 12.5px;
+  outline: none;
+}
+.search-field input::placeholder { color: var(--c-text-4); }
+
+.tree { flex: 1; overflow-y: auto; padding: 2px 8px 12px; }
+.tree-row {
+  position: relative;
+  display: flex; align-items: center; gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none; background: transparent;
+  color: var(--c-text-2);
+  font-family: inherit; font-size: 12.5px; text-align: left;
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.tree-row:hover { background: var(--c-hover); }
+.tree-row.folder { color: var(--c-text-2); font-weight: 600; }
+.tree-row.note { color: var(--c-text); }
+.tree-row.note.selected {
+  background: var(--c-selected); font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--c-accent);
+}
+.tree-row .chev {
+  width: 0; height: 0; flex: 0 0 auto;
+  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--c-text-3);
+  transition: transform .15s;
+}
+.tree-row.folder.open .chev { transform: rotate(90deg); }
+.tree-row .ic { width: 15px; text-align: center; flex: 0 0 auto; font-size: 12px; }
+.tree-row .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-indent { display: inline-block; flex: 0 0 auto; }
+.tree-children.collapsed { display: none; }
+
+.side-section { border-top: 1px solid var(--c-border-subtle); padding: 4px 0 8px; }
+.section-head {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none; background: transparent;
+  color: var(--c-text-3);
+  font-family: inherit; font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer;
+}
+.section-head .sc { font-size: 9px; color: var(--c-text-4); }
+.recent-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  padding: 5px 14px 5px 22px;
+  border: none; background: transparent;
+  color: var(--c-text-2);
+  font-family: inherit; font-size: 12.5px; text-align: left; cursor: pointer;
+}
+.recent-item:hover { background: var(--c-hover); color: var(--c-text); }
+.recent-item .ic { font-size: 12px; }
+
+/* -- Editor column -- */
+.ws-editor { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--e-bg); }
+.editor-toolbar {
+  display: flex; align-items: center;
+  height: 40px; padding: 0 16px;
+  background: var(--e-bg);
+  border-bottom: 1px solid var(--e-border);
+  color: var(--e-text-3); font-size: 12px;
+  flex: 0 0 auto;
+}
+.crumb { display: flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden; }
+.crumb .seg { color: var(--e-text-3); white-space: nowrap; }
+.crumb .seg.leaf { color: var(--e-text); font-weight: 600; }
+.crumb .sep { color: var(--e-text-3); opacity: 0.5; }
+.toolbar-right { margin-left: auto; }
+.viewmodes {
+  display: flex; gap: 3px; padding: 3px;
+  border: 1px solid var(--e-border); border-radius: var(--radius-sm);
+}
+.vmode {
+  width: 26px; height: 24px;
+  display: grid; place-items: center;
+  border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--e-text-3); cursor: pointer;
+}
+.vmode svg { width: 14px; height: 14px; }
+.vmode:hover { background: var(--e-code-bg); color: var(--e-text); }
+.vmode.active { background: var(--c-accent-soft); color: var(--c-accent); }
+
+.editor-scroll { flex: 1; overflow-y: auto; }
+.doc {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 56px 120px;
+  color: var(--e-text);
+  line-height: 1.68;
+  font-size: 15.5px;
+}
+.doc ::selection { background: var(--e-selection); }
+.doc h1 {
+  font-size: 30px; font-weight: 700; letter-spacing: -0.015em;
+  line-height: 1.2; margin: 0 0 6px; color: var(--e-accent);
+}
+.doc .subtitle { color: var(--e-text-3); font-size: 14px; margin: 0 0 26px; }
+.doc h2 {
+  font-size: 20px; font-weight: 650; letter-spacing: -0.01em;
+  margin: 34px 0 12px; color: var(--e-accent);
+  padding-bottom: 6px; border-bottom: 1px solid var(--e-border);
+}
+.doc h3 { font-size: 16px; font-weight: 650; margin: 24px 0 8px; color: var(--e-accent); }
+.doc p { margin: 0 0 15px; color: var(--e-text); }
+.doc p.muted { color: var(--e-text-2); }
+.doc ul { margin: 0 0 15px; padding-left: 22px; }
+.doc li { margin: 4px 0; }
+.doc a.wikilink {
+  color: var(--e-link); text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--e-link) 35%, transparent);
+  cursor: pointer;
+}
+.doc a.wikilink:hover { border-bottom-color: var(--e-link); }
+.doc strong { color: var(--e-accent); font-weight: 650; }
+.doc em { color: var(--e-text-2); }
+.doc code.inline {
+  font-family: var(--mono-font); font-size: 0.86em;
+  background: var(--e-code-bg); color: var(--e-text);
+  padding: 1px 6px; border-radius: 4px;
+  border: 1px solid var(--e-border);
+}
+
+.callout {
+  display: flex; gap: 12px;
+  margin: 18px 0;
+  padding: 13px 16px;
+  background: var(--e-callout-bg);
+  border: 1px solid var(--e-border);
+  border-left: 3px solid var(--e-callout-border);
+  border-radius: var(--radius-md);
+}
+.callout .co-icon {
+  flex: 0 0 auto; color: var(--e-callout-border); font-weight: 800; font-size: 15px;
+}
+.callout .co-body { font-size: 14px; }
+.callout .co-title { font-weight: 700; color: var(--e-accent); margin-bottom: 2px; }
+.callout .co-body p { margin: 0; color: var(--e-text-2); }
+
+.codeblock {
+  margin: 18px 0;
+  background: var(--e-code-bg);
+  border: 1px solid var(--e-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.code-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--e-border);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--e-text-3);
+}
+.code-head .lang-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c-accent); }
+.codeblock pre {
+  margin: 0; padding: 14px 16px; overflow-x: auto;
+  font-family: var(--mono-font); font-size: 13px; line-height: 1.6;
+  color: var(--e-text);
+}
+.sy-com { color: var(--sy-com); font-style: italic; }
+.sy-key { color: var(--sy-key); }
+.sy-str { color: var(--sy-str); }
+.sy-num { color: var(--sy-num); }
+.sy-fn  { color: var(--sy-fn); }
+.sy-punc{ color: var(--sy-punc); }
+
+.tasklist { list-style: none; padding-left: 2px; margin: 0 0 15px; }
+.tasklist li { display: flex; align-items: flex-start; gap: 10px; margin: 7px 0; }
+.tasklist .box {
+  flex: 0 0 auto; width: 16px; height: 16px; margin-top: 2px;
+  border: 1.5px solid var(--e-text-3); border-radius: 4px;
+  display: grid; place-items: center; font-size: 11px; color: transparent;
+}
+.tasklist li.done .box {
+  background: var(--c-accent); border-color: var(--c-accent); color: var(--c-app);
+}
+.tasklist li.done .task-text { color: var(--e-text-3); text-decoration: line-through; }
+
+.tagrow { display: flex; flex-wrap: wrap; gap: 7px; margin: 20px 0 0; }
+.doc-tag {
+  font-size: 12px; color: var(--c-tag-text); background: var(--c-tag-bg);
+  padding: 3px 10px; border-radius: var(--radius-pill);
+}
+
+/* -- Right dock -- */
+.ws-dock {
+  flex: 0 0 292px;
+  display: flex; flex-direction: column;
+  background: var(--c-dock);
+  border-left: 1px solid var(--c-border);
+  overflow: hidden;
+}
+.dock-tabs {
+  display: flex; gap: 2px; padding: 0 8px;
+  background: var(--c-chrome);
+  border-bottom: 1px solid var(--c-border-subtle);
+}
+.dock-tab {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 8px 12px;
+  border: none; background: transparent;
+  color: var(--c-text-3); cursor: pointer;
+  font-family: inherit; font-size: 10px; font-weight: 600;
+  border-bottom: 2px solid transparent;
+}
+.dock-tab svg { width: 16px; height: 16px; }
+.dock-tab:hover { color: var(--c-text); }
+.dock-tab.active { color: var(--c-text); border-bottom-color: var(--c-accent); }
+.dock-tab.chat { color: var(--c-accent); }
+.dock-body { flex: 1; overflow-y: auto; }
+.dock-pane { display: none; }
+.dock-pane.active { display: block; }
+
+.meta-card {
+  margin: 12px;
+  padding: 12px 4px 4px;
+  border: 1px solid var(--c-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--c-elevated);
+  box-shadow: 0 1px 2px var(--c-shadow);
+}
+.meta-row { display: flex; flex-direction: column; gap: 4px; padding: 0 14px 12px; }
+.meta-key { font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--c-text-3); }
+.meta-val { font-size: 13px; color: var(--c-text); }
+.meta-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.meta-tag {
+  font-size: 12px; color: var(--c-tag-text); background: var(--c-tag-bg);
+  padding: 2px 9px; border-radius: var(--radius-pill);
+}
+
+.links-group { padding: 6px 0; }
+.links-group + .links-group { border-top: 1px solid var(--c-border-subtle); }
+.links-head {
+  margin: 0; padding: 12px 16px 8px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--c-text-3);
+}
+.link-item {
+  display: flex; flex-direction: column; gap: 3px;
+  width: 100%; padding: 9px 16px;
+  border: none; background: transparent;
+  color: var(--c-text); text-align: left; cursor: pointer;
+  font-family: inherit;
+}
+.link-item:hover { background: var(--c-hover); }
+.link-label { font-size: 13px; font-weight: 600; }
+.link-path { font-size: 11.5px; color: var(--c-text-3); }
+.link-sig { display: flex; gap: 6px; margin-top: 3px; }
+.link-tag {
+  font-size: 10.5px; color: var(--c-accent-on); background: var(--c-accent-soft);
+  padding: 1px 7px; border-radius: var(--radius-pill);
+}
+
+.toc-list { padding: 12px 8px; }
+.toc-item {
+  display: block; width: 100%;
+  padding: 5px 12px; border: none; background: transparent;
+  color: var(--c-text-2); text-align: left; cursor: pointer;
+  font-family: inherit; font-size: 12.5px;
+  border-left: 2px solid transparent; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.toc-item:hover { color: var(--c-text); background: var(--c-hover); }
+.toc-item.h3 { padding-left: 26px; font-size: 12px; color: var(--c-text-3); }
+.toc-item.active { color: var(--c-text); border-left-color: var(--c-accent); background: var(--c-accent-soft); }
+
+/* -- Status bar -- */
+.ws-status {
+  display: flex; align-items: center; gap: 20px;
+  height: 30px; padding: 0 16px;
+  background: var(--c-status);
+  border-top: 1px solid var(--c-border-subtle);
+  color: var(--c-text-3); font-size: 11.5px;
+  flex: 0 0 auto;
+}
+.status-conn { display: flex; align-items: center; gap: 7px; }
+.conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c-success); }
+.status-vault { flex: 1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-right { display: flex; align-items: center; gap: 16px; font-variant-numeric: tabular-nums; }
+.git-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 9px;
+  border: 1px solid var(--c-border); border-radius: var(--radius-sm);
+  background: transparent; color: var(--c-text-3);
+  font-family: inherit; font-size: 11.5px; cursor: pointer;
+}
+.git-badge:hover { color: var(--c-text); border-color: var(--c-accent); }
+.git-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c-accent); }
+.save-ok { color: var(--c-success); }
+
+/* ============================================================
+   NINE CONCEPT PALETTES
+   ============================================================ */
+
+/* --- A · Fully dark --- */
+/* A1 Graphite (default tokens above, restated for clarity) */
+.workspace[data-concept="graphite"] {
+  --c-app:#191919; --c-chrome:#1f1f1f; --c-sidebar:#1c1c1c; --c-dock:#1c1c1c;
+  --c-status:#1f1f1f; --c-elevated:#262626; --c-hover:#2a2a2a; --c-selected:#2f2f31;
+  --c-border:#333; --c-border-subtle:#262626; --c-text:#e6e4e1; --c-text-2:#b4b1ac;
+  --c-text-3:#86837e; --c-text-4:#5f5d59; --c-accent:#6ea3f0;
+  --c-accent-soft:rgba(110,163,240,0.14); --c-accent-on:#cfe0fb;
+  --c-tag-bg:#2a2f38; --c-tag-text:#a9c4ef; --c-shadow:rgba(0,0,0,0.5);
+  --c-danger:#e08a7a; --c-success:#86c08a; --c-warning:#d9b36e; --c-dirty:#6ea3f0;
+  --e-bg:#1d1d1d; --e-text:#e6e4e1; --e-text-2:#b4b1ac; --e-text-3:#86837e;
+  --e-border:#333; --e-link:#6ea3f0; --e-accent:#f1efec; --e-code-bg:#242424;
+  --e-callout-bg:rgba(110,163,240,0.08); --e-callout-border:#6ea3f0;
+  --e-selection:rgba(110,163,240,0.22);
+  --sy-com:#6d6a64; --sy-key:#c79be0; --sy-str:#9ec98f; --sy-num:#e0b072;
+  --sy-fn:#6ea3f0; --sy-punc:#9a968f;
+}
+
+/* A2 Ink — cool near-black slate, teal accent */
+.workspace[data-concept="ink"] {
+  --c-app:#14171a; --c-chrome:#171a1e; --c-sidebar:#15181c; --c-dock:#15181c;
+  --c-status:#171a1e; --c-elevated:#1e2228; --c-hover:#22262d; --c-selected:#263038;
+  --c-border:#2b313a; --c-border-subtle:#1e2228; --c-text:#dfe6ea; --c-text-2:#a7b2ba;
+  --c-text-3:#74808a; --c-text-4:#505b64; --c-accent:#4fc4c0;
+  --c-accent-soft:rgba(79,196,192,0.14); --c-accent-on:#b6ede9;
+  --c-tag-bg:#1d2c30; --c-tag-text:#82d6d1; --c-shadow:rgba(0,0,0,0.55);
+  --c-danger:#e88f82; --c-success:#7fce9a; --c-warning:#d9bd77; --c-dirty:#4fc4c0;
+  --e-bg:#181b1f; --e-text:#dfe6ea; --e-text-2:#a7b2ba; --e-text-3:#74808a;
+  --e-border:#2b313a; --e-link:#5cc9d6; --e-accent:#eef4f6; --e-code-bg:#1e2228;
+  --e-callout-bg:rgba(79,196,192,0.08); --e-callout-border:#4fc4c0;
+  --e-selection:rgba(79,196,192,0.20);
+  --sy-com:#5b6672; --sy-key:#6fb2e6; --sy-str:#6fcf9b; --sy-num:#e0a978;
+  --sy-fn:#4fc4c0; --sy-punc:#8894a0;
+}
+
+/* A3 Umber — warm sepia dark, amber accent */
+.workspace[data-concept="umber"] {
+  --c-app:#1c1815; --c-chrome:#211c18; --c-sidebar:#1e1a16; --c-dock:#1e1a16;
+  --c-status:#211c18; --c-elevated:#29231d; --c-hover:#2e2820; --c-selected:#34291f;
+  --c-border:#3a3128; --c-border-subtle:#29231d; --c-text:#ece3d6; --c-text-2:#bcae9c;
+  --c-text-3:#8c7f6d; --c-text-4:#655a4b; --c-accent:#d99a54;
+  --c-accent-soft:rgba(217,154,84,0.15); --c-accent-on:#f2d3a6;
+  --c-tag-bg:#33281c; --c-tag-text:#dcb47f; --c-shadow:rgba(0,0,0,0.5);
+  --c-danger:#d98a6f; --c-success:#a4bd76; --c-warning:#dcb265; --c-dirty:#d99a54;
+  --e-bg:#201b16; --e-text:#ece3d6; --e-text-2:#bcae9c; --e-text-3:#8c7f6d;
+  --e-border:#3a3128; --e-link:#e0a866; --e-accent:#f6efe2; --e-code-bg:#29231d;
+  --e-callout-bg:rgba(217,154,84,0.09); --e-callout-border:#d99a54;
+  --e-selection:rgba(217,154,84,0.20);
+  --sy-com:#7c705d; --sy-key:#cf9d6b; --sy-str:#a8bd77; --sy-num:#d9a15a;
+  --sy-fn:#d9b06a; --sy-punc:#8c8069;
+}
+
+/* --- B · Fully light --- */
+/* B1 Paper — warm off-white, terracotta accent */
+.workspace[data-concept="paper"] {
+  --c-app:#efe9df; --c-chrome:#eae3d7; --c-sidebar:#ece5da; --c-dock:#ece5da;
+  --c-status:#eae3d7; --c-elevated:#f6f1e9; --c-hover:#e5ddcf; --c-selected:#e3dccb;
+  --c-border:#d3c9b8; --c-border-subtle:#e2d9c9; --c-text:#33302a; --c-text-2:#5e5849;
+  --c-text-3:#8a8271; --c-text-4:#b0a894; --c-accent:#b4643f;
+  --c-accent-soft:rgba(180,100,63,0.12); --c-accent-on:#7c3f24;
+  --c-tag-bg:#e7dcc9; --c-tag-text:#8a5a34; --c-shadow:rgba(60,50,30,0.14);
+  --c-danger:#b4533f; --c-success:#5f8a4f; --c-warning:#b3862f; --c-dirty:#b4643f;
+  --e-bg:#f7f3ec; --e-text:#2e2b25; --e-text-2:#5b5547; --e-text-3:#8f8674;
+  --e-border:#ded4c3; --e-link:#a85a35; --e-accent:#2e2b25; --e-code-bg:#efe8db;
+  --e-callout-bg:rgba(180,100,63,0.08); --e-callout-border:#b4643f;
+  --e-selection:rgba(180,100,63,0.16);
+  --sy-com:#9a9078; --sy-key:#9a5a8a; --sy-str:#5f7f45; --sy-num:#a86a30;
+  --sy-fn:#3a6ea5; --sy-punc:#7a7360;
+}
+
+/* B2 Bone — cool neutral, indigo accent */
+.workspace[data-concept="bone"] {
+  --c-app:#f2f3f5; --c-chrome:#eceef1; --c-sidebar:#eef0f3; --c-dock:#eef0f3;
+  --c-status:#eceef1; --c-elevated:#ffffff; --c-hover:#e6e9ee; --c-selected:#e3e8f2;
+  --c-border:#d3d8df; --c-border-subtle:#e6e9ee; --c-text:#23262b; --c-text-2:#4f555e;
+  --c-text-3:#7d838d; --c-text-4:#a7adb6; --c-accent:#4d5bd0;
+  --c-accent-soft:rgba(77,91,208,0.10); --c-accent-on:#2f3aa0;
+  --c-tag-bg:#e5e8f6; --c-tag-text:#3f49a8; --c-shadow:rgba(30,40,70,0.12);
+  --c-danger:#c04a4a; --c-success:#3f8a5a; --c-warning:#b07d2a; --c-dirty:#4d5bd0;
+  --e-bg:#ffffff; --e-text:#1f2228; --e-text-2:#565c66; --e-text-3:#868d97;
+  --e-border:#e2e5ea; --e-link:#4257c9; --e-accent:#1f2228; --e-code-bg:#f2f4f7;
+  --e-callout-bg:rgba(77,91,208,0.07); --e-callout-border:#4d5bd0;
+  --e-selection:rgba(77,91,208,0.14);
+  --sy-com:#98a0ab; --sy-key:#8244b0; --sy-str:#2f7d52; --sy-num:#b06a2a;
+  --sy-fn:#2f5fce; --sy-punc:#6b727c;
+}
+
+/* B3 Sage — warm light with green-gray tint, forest accent */
+.workspace[data-concept="sage"] {
+  --c-app:#eaece4; --c-chrome:#e4e7dc; --c-sidebar:#e7eae0; --c-dock:#e7eae0;
+  --c-status:#e4e7dc; --c-elevated:#f4f6ee; --c-hover:#dfe3d6; --c-selected:#dce4d2;
+  --c-border:#cbd1bf; --c-border-subtle:#dfe3d6; --c-text:#2c302a; --c-text-2:#565a4f;
+  --c-text-3:#838a78; --c-text-4:#aab09c; --c-accent:#4f7d4f;
+  --c-accent-soft:rgba(79,125,79,0.12); --c-accent-on:#35602f;
+  --c-tag-bg:#dde6d2; --c-tag-text:#4a6f3d; --c-shadow:rgba(50,60,40,0.13);
+  --c-danger:#a9553f; --c-success:#4f7d4f; --c-warning:#ab832c; --c-dirty:#4f7d4f;
+  --e-bg:#f5f7ef; --e-text:#292d26; --e-text-2:#545a4c; --e-text-3:#868d78;
+  --e-border:#dde1d3; --e-link:#47774a; --e-accent:#292d26; --e-code-bg:#ebeee2;
+  --e-callout-bg:rgba(79,125,79,0.08); --e-callout-border:#4f7d4f;
+  --e-selection:rgba(79,125,79,0.15);
+  --sy-com:#969c86; --sy-key:#7a6aa8; --sy-str:#4f7d3f; --sy-num:#a56d2c;
+  --sy-fn:#3f6f8a; --sy-punc:#6f7563;
+}
+
+/* --- C · Dark chrome, light editor --- */
+/* C1 Studio — charcoal chrome, warm white editor, blue accent */
+.workspace[data-concept="studio"] {
+  --c-app:#1c1e21; --c-chrome:#1f2124; --c-sidebar:#1c1e21; --c-dock:#1c1e21;
+  --c-status:#1f2124; --c-elevated:#282b2f; --c-hover:#2b2f34; --c-selected:#2f353c;
+  --c-border:#34383d; --c-border-subtle:#262a2e; --c-text:#e4e6e9; --c-text-2:#a9afb6;
+  --c-text-3:#767c84; --c-text-4:#545a61; --c-accent:#5b8def;
+  --c-accent-soft:rgba(91,141,239,0.16); --c-accent-on:#cadcfb;
+  --c-tag-bg:#26303f; --c-tag-text:#9dbdf0; --c-shadow:rgba(0,0,0,0.5);
+  --c-danger:#e08a7a; --c-success:#84c48c; --c-warning:#d9b36e; --c-dirty:#5b8def;
+  --e-bg:#faf9f6; --e-text:#26282c; --e-text-2:#565b62; --e-text-3:#8c9198;
+  --e-border:#e7e4dd; --e-link:#2f62c8; --e-accent:#26282c; --e-code-bg:#f0eee8;
+  --e-callout-bg:rgba(47,98,200,0.07); --e-callout-border:#2f62c8;
+  --e-selection:rgba(47,98,200,0.15);
+  --sy-com:#9a9488; --sy-key:#8a4bb0; --sy-str:#2f7d52; --sy-num:#b0692a;
+  --sy-fn:#2f5fce; --sy-punc:#6b6f77;
+}
+
+/* C2 Contrast — deep slate chrome, bright white editor, violet accent */
+.workspace[data-concept="contrast"] {
+  --c-app:#16181e; --c-chrome:#191b21; --c-sidebar:#16181e; --c-dock:#16181e;
+  --c-status:#191b21; --c-elevated:#23262e; --c-hover:#272b34; --c-selected:#2c313c;
+  --c-border:#2f333d; --c-border-subtle:#21242b; --c-text:#e6e7ec; --c-text-2:#a6abb6;
+  --c-text-3:#737884; --c-text-4:#4f545f; --c-accent:#9a7bf0;
+  --c-accent-soft:rgba(154,123,240,0.16); --c-accent-on:#d8ccfb;
+  --c-tag-bg:#2a2740; --c-tag-text:#b9a6f0; --c-shadow:rgba(0,0,0,0.55);
+  --c-danger:#e08a7a; --c-success:#82c68f; --c-warning:#d9b877; --c-dirty:#9a7bf0;
+  --e-bg:#ffffff; --e-text:#1c1e24; --e-text-2:#565b66; --e-text-3:#868d97;
+  --e-border:#eceef1; --e-link:#6a4fd0; --e-accent:#1c1e24; --e-code-bg:#f5f6f8;
+  --e-callout-bg:rgba(106,79,208,0.06); --e-callout-border:#6a4fd0;
+  --e-selection:rgba(106,79,208,0.13);
+  --sy-com:#a0a6b0; --sy-key:#8244b0; --sy-str:#2f7d52; --sy-num:#b0692a;
+  --sy-fn:#4257c9; --sy-punc:#6b7079;
+}
+
+/* C3 Manuscript — dark walnut chrome, cream editor, amber accent */
+.workspace[data-concept="manuscript"] {
+  --c-app:#201b16; --c-chrome:#241f1a; --c-sidebar:#201b16; --c-dock:#201b16;
+  --c-status:#241f1a; --c-elevated:#2c2620; --c-hover:#322b23; --c-selected:#392f24;
+  --c-border:#3c342b; --c-border-subtle:#2a241d; --c-text:#ece4d7; --c-text-2:#bcb0a0;
+  --c-text-3:#8b8070; --c-text-4:#635a4c; --c-accent:#cf9250;
+  --c-accent-soft:rgba(207,146,80,0.16); --c-accent-on:#f0d2a8;
+  --c-tag-bg:#352a1d; --c-tag-text:#d9b482; --c-shadow:rgba(0,0,0,0.5);
+  --c-danger:#d98a6f; --c-success:#a4bd76; --c-warning:#dcb265; --c-dirty:#cf9250;
+  --e-bg:#f6efe0; --e-text:#2f2a21; --e-text-2:#5f584a; --e-text-3:#928871;
+  --e-border:#e2d8c3; --e-link:#9a6a2f; --e-accent:#2f2a21; --e-code-bg:#efe6d2;
+  --e-callout-bg:rgba(207,146,80,0.10); --e-callout-border:#cf9250;
+  --e-selection:rgba(207,146,80,0.18);
+  --sy-com:#9a9078; --sy-key:#9a5a3a; --sy-str:#5f7d3f; --sy-num:#a86a2a;
+  --sy-fn:#4a6f8a; --sy-punc:#7a7260;
+}
+/* Manuscript editor uses a book-like serif measure */
+.workspace[data-concept="manuscript"] .doc { font-family: var(--serif-font); font-size: 16.5px; line-height: 1.72; }
+.workspace[data-concept="manuscript"] .doc h1,
+.workspace[data-concept="manuscript"] .doc h2,
+.workspace[data-concept="manuscript"] .doc h3 { font-family: var(--serif-font); }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1180px) {
+  .ws-dock, .chrome-right { display: none; }
+}
+@media (max-width: 900px) {
+  .ws-sidebar { flex-basis: 210px; }
+  .chrome-left { flex-basis: 210px; }
+  .doc { padding: 32px 32px 100px; }
+}
+@media (max-width: 720px) {
+  .ws-sidebar, .chrome-left { display: none; }
+  .gallery-tabs { gap: 12px; }
+}
+</style>
+</head>
+<body>
+
+<header class="gallery">
+  <div class="gallery-top">
+    <div class="brand">
+      <span class="brand-mark">Notesmith<span class="dot">.</span></span>
+      <span class="brand-sub">Theme Explorations</span>
+    </div>
+    <span class="author-pill">Designed by Claude Opus 4.8</span>
+  </div>
+
+  <nav class="gallery-tabs" id="tabs"><!-- concept buttons injected --></nav>
+
+  <div class="gallery-caption">
+    <span class="caption-cat" id="capCat">Fully dark</span>
+    <span class="caption-name" id="capName">Graphite</span>
+    <span class="caption-desc" id="capDesc"></span>
+    <span class="caption-nav">
+      <button class="nav-btn" id="prevBtn" title="Previous concept" aria-label="Previous concept">‹</button>
+      <button class="nav-btn" id="nextBtn" title="Next concept" aria-label="Next concept">›</button>
+    </span>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="stage-frame">
+    <div class="workspace" id="ws" data-concept="graphite">
+
+      <!-- Top chrome -->
+      <div class="ws-chrome">
+        <div class="chrome-left">
+          <button class="vault-btn" type="button">
+            <span class="vault-glyph">N</span>
+            <span>research-vault</span>
+            <span class="vault-caret">▾</span>
+          </button>
+          <span class="chrome-spacer"></span>
+          <button class="icon-btn" type="button" title="Collapse sidebar" aria-label="Collapse sidebar">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6">
+              <rect x="2.5" y="3" width="15" height="14" rx="2.5"/><line x1="7.5" y1="3" x2="7.5" y2="17"/>
+            </svg>
+          </button>
+        </div>
+        <div class="chrome-main">
+          <div class="ws-tabs" id="tabbar"><!-- tabs injected --></div>
+        </div>
+        <div class="chrome-right">
+          <span class="chrome-note-title" id="dockTitle">Atomic Notes &amp; Linking</span>
+          <span class="chrome-spacer"></span>
+          <button class="icon-btn" type="button" title="Collapse panel" aria-label="Collapse panel">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6">
+              <rect x="2.5" y="3" width="15" height="14" rx="2.5"/><line x1="12.5" y1="3" x2="12.5" y2="17"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div class="ws-body">
+
+        <!-- Sidebar -->
+        <aside class="ws-sidebar">
+          <div class="side-tabs">
+            <button class="side-tab active" type="button">📁 Files</button>
+            <button class="side-tab" type="button">✓ Tasks <span class="s-badge">6</span></button>
+            <button class="side-tab" type="button"># Tags</button>
+          </div>
+          <div class="side-search">
+            <div class="search-field">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M17 17L21 21"/><circle cx="11" cy="11" r="7"/>
+              </svg>
+              <input type="text" placeholder="Search notes…" aria-label="Search notes" />
+            </div>
+          </div>
+          <div class="tree" id="tree"><!-- tree injected --></div>
+          <div class="side-section">
+            <button class="section-head" type="button"><span class="sc">⌄</span> Recently viewed</button>
+            <button class="recent-item" type="button" data-open="daily"><span class="ic">🗓️</span> Daily · 2026-07-11</button>
+            <button class="recent-item" type="button" data-open="zettel"><span class="ic">🧠</span> Zettelkasten Workflow</button>
+            <button class="recent-item" type="button" data-open="project"><span class="ic">📌</span> Project · Notesmith</button>
+          </div>
+        </aside>
+
+        <!-- Editor -->
+        <section class="ws-editor">
+          <div class="editor-toolbar">
+            <div class="crumb" id="crumb"><!-- breadcrumb injected --></div>
+            <div class="toolbar-right">
+              <div class="viewmodes" role="group" aria-label="View mode">
+                <button class="vmode" type="button" title="Source" aria-label="Source">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                </button>
+                <button class="vmode active" type="button" title="Live Preview" aria-label="Live Preview">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                </button>
+                <button class="vmode" type="button" title="Reading" aria-label="Reading">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="editor-scroll">
+            <article class="doc" id="doc"><!-- note body injected --></article>
+          </div>
+        </section>
+
+        <!-- Right dock -->
+        <aside class="ws-dock">
+          <div class="dock-tabs" id="dockTabs">
+            <button class="dock-tab active" data-pane="metadata" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              Info
+            </button>
+            <button class="dock-tab" data-pane="links" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              Links
+            </button>
+            <button class="dock-tab" data-pane="toc" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              TOC
+            </button>
+            <button class="dock-tab chat" data-pane="chat" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              Chat
+            </button>
+          </div>
+          <div class="dock-body" id="dockBody"><!-- panes injected --></div>
+        </aside>
+      </div>
+
+      <!-- Status bar -->
+      <div class="ws-status">
+        <span class="status-conn"><span class="conn-dot"></span> Connected · local</span>
+        <span class="status-vault">~/vaults/research-vault</span>
+        <span class="status-right">
+          <button class="git-badge" type="button"><span class="git-dot"></span> 3 changed</button>
+          <span id="statLoc">Ln 24, Col 12</span>
+          <span id="statWords">318 words</span>
+          <span class="save-ok">✓ Saved</span>
+        </span>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- Concept catalog ---------- */
+  var CONCEPTS = [
+    { id:"graphite",  cat:"Fully dark",  name:"Graphite",  swatch:"#6ea3f0",
+      desc:"Warm neutral graphite with a quiet blue accent — a calm, native-desktop dark." },
+    { id:"ink",       cat:"Fully dark",  name:"Ink",       swatch:"#4fc4c0",
+      desc:"Cool near-black slate, crisp hairlines, and a teal signal color." },
+    { id:"umber",     cat:"Fully dark",  name:"Umber",     swatch:"#d99a54",
+      desc:"Sepia-tinted dark for long night writing, warmed by amber." },
+    { id:"paper",     cat:"Fully light", name:"Paper",     swatch:"#b4643f",
+      desc:"Off-white paper stock with ink text and a terracotta accent." },
+    { id:"bone",      cat:"Fully light", name:"Bone",      swatch:"#4d5bd0",
+      desc:"Cool neutral white, precise borders, and a restrained indigo." },
+    { id:"sage",      cat:"Fully light", name:"Sage",      swatch:"#4f7d4f",
+      desc:"Soft green-grey light with a forest accent — easy, organic." },
+    { id:"studio",    cat:"Dark chrome · light editor", name:"Studio", swatch:"#5b8def",
+      desc:"Charcoal chrome frames a warm-white page — focus on the words." },
+    { id:"contrast",  cat:"Dark chrome · light editor", name:"Contrast", swatch:"#9a7bf0",
+      desc:"Deep slate rails around a bright white sheet, violet highlights." },
+    { id:"manuscript",cat:"Dark chrome · light editor", name:"Manuscript", swatch:"#cf9250",
+      desc:"Walnut chrome and a cream serif page — a bookish writing desk." }
+  ];
+
+  /* ---------- Note content model ---------- */
+  var NOTES = {
+    atomic: {
+      title: "Atomic Notes & Linking",
+      path: ["Areas", "Method", "Atomic Notes & Linking"],
+      words: "318 words", loc: "Ln 24, Col 12",
+      meta: [
+        ["Title", "Atomic Notes & Linking"],
+        ["Created", "2026-06-30"],
+        ["Modified", "2026-07-11"],
+        ["Status", "evergreen"],
+        ["Tags", ["method","zettelkasten","linking"]]
+      ],
+      backlinks: [
+        ["Zettelkasten Workflow", "Areas/Method/Zettelkasten Workflow.md"],
+        ["Project · Notesmith", "Projects/Notesmith/Project · Notesmith.md"]
+      ],
+      outgoing: [
+        ["Folgezettel", "Areas/Method/Folgezettel.md"],
+        ["Daily · 2026-07-11", "Journal/2026/Daily · 2026-07-11.md"]
+      ],
+      related: [
+        ["Emergent Structure", "Areas/Method/Emergent Structure.md", ["3 shared"]],
+        ["Note IDs", "Areas/Method/Note IDs.md", ["linked"]]
+      ],
+      toc: [
+        ["Atomic Notes & Linking", 1, true],
+        ["Why one idea per note", 2, false],
+        ["Linking as the primary act", 2, false],
+        ["A query for orphans", 3, false],
+        ["Working checklist", 2, false]
+      ],
+      body: [
+        '<h1>Atomic Notes &amp; Linking</h1>',
+        '<p class="subtitle">An evergreen note on keeping ideas small and richly connected.</p>',
+        '<p>A note earns its place when it says <strong>one thing well</strong>. Keep each note narrow enough to link from many directions, and the vault stops being a folder of documents and becomes a graph of thought.</p>',
+
+        '<h2>Why one idea per note</h2>',
+        '<p>Large notes hide their contents. When a single idea lives on its own page it can be titled precisely, cited exactly, and reused without dragging unrelated context along with it.</p>',
+        '<ul>',
+        '<li>Titles become claims you can agree or disagree with.</li>',
+        '<li>Links point at <em>ideas</em>, not at scroll positions.</li>',
+        '<li>Revision is local: you edit one note, not five sections.</li>',
+        '</ul>',
+
+        '<div class="callout"><span class="co-icon">i</span><div class="co-body"><div class="co-title">Rule of thumb</div><p>If a note needs two <code class="inline">H2</code> headings to explain itself, it is probably two notes wearing a trench coat.</p></div></div>',
+
+        '<h2>Linking as the primary act</h2>',
+        '<p>Writing the note is half the work; the other half is placing it. Prefer an explicit <a class="wikilink">[[Folgezettel]]</a> chain over folders, and let structure <em>emerge</em> from the links you actually make.</p>',
+
+        '<h3>A query for orphans</h3>',
+        '<p>Notesmith indexes links, so unconnected notes are easy to surface:</p>',
+        '<div class="codeblock"><div class="code-head"><span class="lang-dot"></span> sql</div><pre>' +
+          '<span class="sy-key">SELECT</span> path, title\n' +
+          '<span class="sy-key">FROM</span> notes\n' +
+          '<span class="sy-key">WHERE</span> path <span class="sy-key">NOT IN</span> <span class="sy-punc">(</span>\n' +
+          '  <span class="sy-key">SELECT</span> target_path <span class="sy-key">FROM</span> links\n' +
+          '<span class="sy-punc">)</span>\n' +
+          '<span class="sy-key">ORDER BY</span> modified <span class="sy-key">DESC</span>\n' +
+          '<span class="sy-key">LIMIT</span> <span class="sy-num">20</span><span class="sy-punc">;</span>  <span class="sy-com">-- find the lonely notes</span>' +
+        '</pre></div>',
+
+        '<h2>Working checklist</h2>',
+        '<ul class="tasklist">',
+        '<li class="done"><span class="box">✓</span><span class="task-text">Split the meeting dump into atomic claims</span></li>',
+        '<li class="done"><span class="box">✓</span><span class="task-text">Give each claim a descriptive title</span></li>',
+        '<li><span class="box"></span><span class="task-text">Add at least two links per new note</span></li>',
+        '<li><span class="box"></span><span class="task-text">Run the orphan query weekly</span></li>',
+        '</ul>',
+
+        '<div class="tagrow"><span class="doc-tag">#method</span><span class="doc-tag">#zettelkasten</span><span class="doc-tag">#linking</span></div>'
+      ].join("\n")
+    },
+
+    daily: {
+      title: "Daily · 2026-07-11",
+      path: ["Journal", "2026", "Daily · 2026-07-11"],
+      words: "142 words", loc: "Ln 9, Col 4",
+      meta: [
+        ["Title", "Daily · 2026-07-11"],
+        ["Created", "2026-07-11"],
+        ["Modified", "2026-07-11"],
+        ["Mood", "focused"],
+        ["Tags", ["daily","log"]]
+      ],
+      backlinks: [
+        ["Atomic Notes & Linking", "Areas/Method/Atomic Notes & Linking.md"]
+      ],
+      outgoing: [
+        ["Project · Notesmith", "Projects/Notesmith/Project · Notesmith.md"],
+        ["Zettelkasten Workflow", "Areas/Method/Zettelkasten Workflow.md"]
+      ],
+      related: [
+        ["Daily · 2026-07-10", "Journal/2026/Daily · 2026-07-10.md", ["2 shared"]]
+      ],
+      toc: [
+        ["Daily · 2026-07-11", 1, true],
+        ["Log", 2, false],
+        ["Tomorrow", 2, false]
+      ],
+      body: [
+        '<h1>Daily · 2026-07-11</h1>',
+        '<p class="subtitle">A light log — capture now, refine into notes later.</p>',
+        '<h2>Log</h2>',
+        '<p>Drafted the transport ADR and finally reconciled the <code class="inline">read-only</code> permission story. The clarity came from writing it down as <a class="wikilink">[[Atomic Notes &amp; Linking]]</a> rather than one long page.</p>',
+        '<ul class="tasklist">',
+        '<li class="done"><span class="box">✓</span><span class="task-text">Morning triage of the inbox</span></li>',
+        '<li class="done"><span class="box">✓</span><span class="task-text">Ship the metadata card refactor</span></li>',
+        '<li><span class="box"></span><span class="task-text">Sketch the light editor variant</span></li>',
+        '</ul>',
+        '<h2>Tomorrow</h2>',
+        '<p>Pick up <a class="wikilink">[[Project · Notesmith]]</a> and prune stale backlinks.</p>',
+        '<div class="tagrow"><span class="doc-tag">#daily</span><span class="doc-tag">#log</span></div>'
+      ].join("\n")
+    },
+
+    zettel: {
+      title: "Zettelkasten Workflow",
+      path: ["Areas", "Method", "Zettelkasten Workflow"],
+      words: "264 words", loc: "Ln 31, Col 8",
+      meta: [
+        ["Title", "Zettelkasten Workflow"],
+        ["Created", "2026-05-18"],
+        ["Modified", "2026-07-09"],
+        ["Status", "evergreen"],
+        ["Tags", ["method","workflow"]]
+      ],
+      backlinks: [
+        ["Atomic Notes & Linking", "Areas/Method/Atomic Notes & Linking.md"],
+        ["Daily · 2026-07-11", "Journal/2026/Daily · 2026-07-11.md"]
+      ],
+      outgoing: [
+        ["Fleeting Notes", "Areas/Method/Fleeting Notes.md"],
+        ["Literature Notes", "Areas/Method/Literature Notes.md"]
+      ],
+      related: [
+        ["Emergent Structure", "Areas/Method/Emergent Structure.md", ["4 shared"]]
+      ],
+      toc: [
+        ["Zettelkasten Workflow", 1, true],
+        ["Three kinds of note", 2, false],
+        ["The daily pass", 2, false]
+      ],
+      body: [
+        '<h1>Zettelkasten Workflow</h1>',
+        '<p class="subtitle">How fleeting captures become permanent, linked notes.</p>',
+        '<p>The system only works if capture is <strong>cheap</strong> and refinement is <strong>habitual</strong>. Everything starts as a fleeting note; almost nothing stays one.</p>',
+        '<h2>Three kinds of note</h2>',
+        '<ul>',
+        '<li><strong>Fleeting</strong> — raw, disposable, captured anywhere.</li>',
+        '<li><strong>Literature</strong> — a source, restated in your words.</li>',
+        '<li><strong>Permanent</strong> — one idea, linked into the graph.</li>',
+        '</ul>',
+        '<div class="callout"><span class="co-icon">i</span><div class="co-body"><div class="co-title">Keep the funnel moving</div><p>Fleeting notes older than a week are a debt. Promote them via <a class="wikilink">[[Atomic Notes &amp; Linking]]</a> or delete them.</p></div></div>',
+        '<h2>The daily pass</h2>',
+        '<ul class="tasklist">',
+        '<li class="done"><span class="box">✓</span><span class="task-text">Empty the fleeting inbox</span></li>',
+        '<li><span class="box"></span><span class="task-text">Promote two notes to permanent</span></li>',
+        '<li><span class="box"></span><span class="task-text">Link today\'s note to something older</span></li>',
+        '</ul>',
+        '<div class="tagrow"><span class="doc-tag">#method</span><span class="doc-tag">#workflow</span></div>'
+      ].join("\n")
+    },
+
+    project: {
+      title: "Project · Notesmith",
+      path: ["Projects", "Notesmith", "Project · Notesmith"],
+      words: "231 words", loc: "Ln 18, Col 2",
+      meta: [
+        ["Title", "Project · Notesmith"],
+        ["Created", "2026-04-02"],
+        ["Modified", "2026-07-11"],
+        ["Status", "active"],
+        ["Tags", ["project","desktop"]]
+      ],
+      backlinks: [
+        ["Daily · 2026-07-11", "Journal/2026/Daily · 2026-07-11.md"]
+      ],
+      outgoing: [
+        ["Atomic Notes & Linking", "Areas/Method/Atomic Notes & Linking.md"],
+        ["Transport ADR", "Projects/Notesmith/Transport ADR.md"]
+      ],
+      related: [
+        ["Zettelkasten Workflow", "Areas/Method/Zettelkasten Workflow.md", ["linked"]]
+      ],
+      toc: [
+        ["Project · Notesmith", 1, true],
+        ["This week", 2, false],
+        ["Open questions", 2, false]
+      ],
+      body: [
+        '<h1>Project · Notesmith</h1>',
+        '<p class="subtitle">A local-first desktop for notes that link themselves.</p>',
+        '<p>Notesmith keeps plain <code class="inline">.md</code> files as the source of truth and layers a fast index on top, so search, backlinks, and queries stay instant without locking your writing into a database.</p>',
+        '<h2>This week</h2>',
+        '<ul class="tasklist">',
+        '<li class="done"><span class="box">✓</span><span class="task-text">Finish the theme token audit</span></li>',
+        '<li class="done"><span class="box">✓</span><span class="task-text">Write the agent transport ADR</span></li>',
+        '<li><span class="box"></span><span class="task-text">Ship the light-editor concept</span></li>',
+        '<li><span class="box"></span><span class="task-text">Trim the right-dock metadata card</span></li>',
+        '</ul>',
+        '<div class="callout"><span class="co-icon">i</span><div class="co-body"><div class="co-title">Principle</div><p>The file on disk always wins. The index is a cache you can delete and rebuild.</p></div></div>',
+        '<h2>Open questions</h2>',
+        '<p>How much of the workspace should follow the note versus the vault? See <a class="wikilink">[[Atomic Notes &amp; Linking]]</a> for the linking rules that shape this.</p>',
+        '<div class="tagrow"><span class="doc-tag">#project</span><span class="doc-tag">#desktop</span></div>'
+      ].join("\n")
+    }
+  };
+
+  /* ---------- File tree ---------- */
+  var TREE = [
+    { type:"folder", label:"Journal", depth:0, open:true, children:[
+      { type:"folder", label:"2026", depth:1, open:true, children:[
+        { type:"note", label:"Daily · 2026-07-11", depth:2, icon:"🗓️", key:"daily" },
+        { type:"note", label:"Daily · 2026-07-10", depth:2, icon:"🗓️", key:null }
+      ]}
+    ]},
+    { type:"folder", label:"Areas", depth:0, open:true, children:[
+      { type:"folder", label:"Method", depth:1, open:true, children:[
+        { type:"note", label:"Atomic Notes & Linking", depth:2, icon:"🌱", key:"atomic" },
+        { type:"note", label:"Zettelkasten Workflow", depth:2, icon:"🧠", key:"zettel" },
+        { type:"note", label:"Emergent Structure", depth:2, icon:"📄", key:null }
+      ]}
+    ]},
+    { type:"folder", label:"Projects", depth:0, open:true, children:[
+      { type:"folder", label:"Notesmith", depth:1, open:false, children:[
+        { type:"note", label:"Project · Notesmith", depth:2, icon:"📌", key:"project" },
+        { type:"note", label:"Transport ADR", depth:2, icon:"📄", key:null }
+      ]}
+    ]},
+    { type:"folder", label:"Inbox", depth:0, open:false, children:[
+      { type:"note", label:"Untitled capture", depth:1, icon:"📥", key:null }
+    ]}
+  ];
+
+  /* ---------- State ---------- */
+  var state = { concept:"graphite", note:"atomic", pane:"metadata", tabs:["atomic","daily","project"] };
+
+  var el = function (id) { return document.getElementById(id); };
+  var ws = el("ws");
+
+  /* ---------- Gallery tabs ---------- */
+  function buildGallery() {
+    var groups = {};
+    CONCEPTS.forEach(function (c) { (groups[c.cat] = groups[c.cat] || []).push(c); });
+    var nav = el("tabs");
+    nav.innerHTML = "";
+    Object.keys(groups).forEach(function (cat) {
+      var g = document.createElement("div"); g.className = "tab-group";
+      var lab = document.createElement("div"); lab.className = "tab-group-label"; lab.textContent = cat;
+      var row = document.createElement("div"); row.className = "tab-row";
+      groups[cat].forEach(function (c) {
+        var b = document.createElement("button");
+        b.className = "concept-btn"; b.type = "button"; b.dataset.concept = c.id;
+        b.innerHTML = '<span class="swatch" style="background:' + c.swatch + '"></span>' + c.name;
+        b.addEventListener("click", function () { setConcept(c.id); });
+        row.appendChild(b);
+      });
+      g.appendChild(lab); g.appendChild(row); nav.appendChild(g);
+    });
+  }
+
+  function setConcept(id) {
+    state.concept = id;
+    ws.setAttribute("data-concept", id);
+    if (("#" + id) !== location.hash) {
+      try { history.replaceState(null, "", "#" + id); } catch (e) { location.hash = id; }
+    }
+    var c = CONCEPTS.filter(function (x) { return x.id === id; })[0];
+    el("capCat").textContent = c.cat;
+    el("capName").textContent = c.name;
+    el("capDesc").textContent = c.desc;
+    Array.prototype.forEach.call(document.querySelectorAll(".concept-btn"), function (b) {
+      b.classList.toggle("active", b.dataset.concept === id);
+    });
+  }
+
+  function stepConcept(dir) {
+    var idx = 0;
+    CONCEPTS.forEach(function (c, i) { if (c.id === state.concept) idx = i; });
+    idx = (idx + dir + CONCEPTS.length) % CONCEPTS.length;
+    setConcept(CONCEPTS[idx].id);
+  }
+
+  /* ---------- Tree ---------- */
+  function buildTree() {
+    var root = el("tree");
+    root.innerHTML = "";
+    function indent(depth) {
+      return '<span class="tree-indent" style="width:' + (depth * 14) + 'px"></span>';
+    }
+    function render(nodes, container) {
+      nodes.forEach(function (n) {
+        if (n.type === "folder") {
+          var f = document.createElement("button");
+          f.type = "button";
+          f.className = "tree-row folder" + (n.open ? " open" : "");
+          f.innerHTML = indent(n.depth) + '<span class="chev"></span><span class="ic">' +
+            (n.open ? "📂" : "📁") + '</span><span class="label">' + n.label + "</span>";
+          container.appendChild(f);
+          var kids = document.createElement("div");
+          kids.className = "tree-children" + (n.open ? "" : " collapsed");
+          container.appendChild(kids);
+          render(n.children, kids);
+          f.addEventListener("click", function () {
+            n.open = !n.open;
+            kids.classList.toggle("collapsed", !n.open);
+            f.classList.toggle("open", n.open);
+            f.querySelector(".ic").textContent = n.open ? "📂" : "📁";
+          });
+        } else {
+          var b = document.createElement("button");
+          b.type = "button";
+          b.className = "tree-row note" + (n.key === state.note ? " selected" : "");
+          b.dataset.key = n.key || "";
+          b.innerHTML = indent(n.depth) + '<span class="ic">' + n.icon + '</span><span class="label">' + n.label + "</span>";
+          container.appendChild(b);
+          b.addEventListener("click", function () {
+            if (n.key && NOTES[n.key]) openNote(n.key);
+          });
+        }
+      });
+    }
+    render(TREE, root);
+  }
+
+  function refreshTreeSelection() {
+    Array.prototype.forEach.call(document.querySelectorAll(".tree-row.note"), function (b) {
+      b.classList.toggle("selected", b.dataset.key === state.note);
+    });
+  }
+
+  /* ---------- Tabs ---------- */
+  function buildTabs() {
+    var bar = el("tabbar");
+    bar.innerHTML = "";
+    state.tabs.forEach(function (key) {
+      var note = NOTES[key];
+      var t = document.createElement("div");
+      t.className = "ws-tab" + (key === state.note ? " active" : "");
+      var dirty = key === "project" ? '<span class="t-dirty">●</span>' : "";
+      t.innerHTML = '<span class="t-icon">' + tabIcon(key) + '</span>' + dirty +
+        '<span class="t-label">' + note.title + '</span>' +
+        '<button class="t-close" type="button" aria-label="Close">×</button>';
+      t.addEventListener("click", function (e) {
+        if (e.target.classList.contains("t-close")) return;
+        openNote(key);
+      });
+      bar.appendChild(t);
+    });
+  }
+
+  function tabIcon(key) {
+    return { atomic:"🌱", daily:"🗓️", zettel:"🧠", project:"📌" }[key] || "📄";
+  }
+
+  /* ---------- Note rendering ---------- */
+  function openNote(key) {
+    state.note = key;
+    if (state.tabs.indexOf(key) === -1) state.tabs.push(key);
+    renderNote();
+    buildTabs();
+    refreshTreeSelection();
+  }
+
+  function renderNote() {
+    var n = NOTES[state.note];
+    el("doc").innerHTML = n.body;
+    el("dockTitle").textContent = n.title;
+    el("statWords").textContent = n.words;
+    el("statLoc").textContent = n.loc;
+    // breadcrumb
+    var crumb = el("crumb");
+    crumb.innerHTML = "";
+    n.path.forEach(function (seg, i) {
+      if (i > 0) { var s = document.createElement("span"); s.className = "sep"; s.textContent = "/"; crumb.appendChild(s); }
+      var span = document.createElement("span");
+      span.className = "seg" + (i === n.path.length - 1 ? " leaf" : "");
+      span.textContent = seg;
+      crumb.appendChild(span);
+    });
+    // wikilinks jump to the primary note
+    Array.prototype.forEach.call(el("doc").querySelectorAll("a.wikilink"), function (a) {
+      a.addEventListener("click", function () { openNote("atomic"); });
+    });
+    renderPane();
+  }
+
+  /* ---------- Dock panes ---------- */
+  function renderPane() {
+    var n = NOTES[state.note];
+    var body = el("dockBody");
+    body.innerHTML = "";
+    if (state.pane === "metadata") {
+      var card = document.createElement("div"); card.className = "meta-card";
+      n.meta.forEach(function (row) {
+        var r = document.createElement("div"); r.className = "meta-row";
+        var k = document.createElement("span"); k.className = "meta-key"; k.textContent = row[0];
+        r.appendChild(k);
+        if (Array.isArray(row[1])) {
+          var tags = document.createElement("div"); tags.className = "meta-tags";
+          row[1].forEach(function (t) {
+            var tg = document.createElement("span"); tg.className = "meta-tag"; tg.textContent = t; tags.appendChild(tg);
+          });
+          r.appendChild(tags);
+        } else {
+          var v = document.createElement("span"); v.className = "meta-val"; v.textContent = row[1]; r.appendChild(v);
+        }
+        card.appendChild(r);
+      });
+      body.appendChild(card);
+    } else if (state.pane === "links") {
+      body.appendChild(linkGroup("Backlinks", n.backlinks));
+      body.appendChild(linkGroup("Outgoing", n.outgoing));
+      body.appendChild(linkGroup("Relevant", n.related));
+    } else if (state.pane === "toc") {
+      var list = document.createElement("div"); list.className = "toc-list";
+      n.toc.forEach(function (t) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "toc-item" + (t[1] === 3 ? " h3" : "") + (t[2] ? " active" : "");
+        b.textContent = t[0];
+        b.addEventListener("click", function () {
+          Array.prototype.forEach.call(list.querySelectorAll(".toc-item"), function (x) { x.classList.remove("active"); });
+          b.classList.add("active");
+        });
+        list.appendChild(b);
+      });
+      body.appendChild(list);
+    } else {
+      var wrap = document.createElement("div"); wrap.className = "toc-list";
+      wrap.innerHTML = '<div style="padding:16px;color:var(--c-text-3);font-size:13px;line-height:1.6">' +
+        'Ask the assistant about <strong style="color:var(--c-text)">' + n.title + '</strong> — summarize it, find gaps, or draft the next atomic note.</div>';
+      body.appendChild(wrap);
+    }
+  }
+
+  function linkGroup(title, items) {
+    var g = document.createElement("div"); g.className = "links-group";
+    var h = document.createElement("h3"); h.className = "links-head";
+    h.textContent = title + " (" + items.length + ")";
+    g.appendChild(h);
+    items.forEach(function (it) {
+      var b = document.createElement("button"); b.type = "button"; b.className = "link-item";
+      var sig = "";
+      if (it[2]) sig = '<span class="link-sig">' + it[2].map(function (s) { return '<span class="link-tag">' + s + '</span>'; }).join("") + '</span>';
+      b.innerHTML = '<span class="link-label">' + it[0] + '</span><span class="link-path">' + it[1] + '</span>' + sig;
+      var key = pathKey(it[1]);
+      b.addEventListener("click", function () { if (key && NOTES[key]) openNote(key); });
+      g.appendChild(b);
+    });
+    return g;
+  }
+
+  function pathKey(path) {
+    if (path.indexOf("Atomic Notes") > -1) return "atomic";
+    if (path.indexOf("Daily · 2026-07-11") > -1) return "daily";
+    if (path.indexOf("Zettelkasten") > -1) return "zettel";
+    if (path.indexOf("Project · Notesmith") > -1) return "project";
+    return null;
+  }
+
+  /* ---------- Dock tab switching ---------- */
+  function bindDockTabs() {
+    Array.prototype.forEach.call(el("dockTabs").querySelectorAll(".dock-tab"), function (t) {
+      t.addEventListener("click", function () {
+        state.pane = t.dataset.pane;
+        Array.prototype.forEach.call(el("dockTabs").querySelectorAll(".dock-tab"), function (x) {
+          x.classList.toggle("active", x === t);
+        });
+        renderPane();
+      });
+    });
+  }
+
+  /* ---------- Recently-viewed shortcuts ---------- */
+  function bindRecents() {
+    Array.prototype.forEach.call(document.querySelectorAll(".recent-item"), function (b) {
+      b.addEventListener("click", function () {
+        var key = b.dataset.open;
+        if (key && NOTES[key]) openNote(key);
+      });
+    });
+  }
+
+  /* ---------- View-mode toggle (visual only) ---------- */
+  function bindViewModes() {
+    Array.prototype.forEach.call(document.querySelectorAll(".vmode"), function (b) {
+      b.addEventListener("click", function () {
+        Array.prototype.forEach.call(document.querySelectorAll(".vmode"), function (x) { x.classList.remove("active"); });
+        b.classList.add("active");
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".side-tab"), function (b) {
+      b.addEventListener("click", function () {
+        Array.prototype.forEach.call(document.querySelectorAll(".side-tab"), function (x) { x.classList.remove("active"); });
+        b.classList.add("active");
+      });
+    });
+  }
+
+  /* ---------- Init ---------- */
+  buildGallery();
+  buildTree();
+  buildTabs();
+  bindDockTabs();
+  bindRecents();
+  bindViewModes();
+  var initial = (location.hash || "").replace("#", "");
+  var valid = CONCEPTS.some(function (c) { return c.id === initial; });
+  setConcept(valid ? initial : "graphite");
+  renderNote();
+
+  el("prevBtn").addEventListener("click", function () { stepConcept(-1); });
+  el("nextBtn").addEventListener("click", function () { stepConcept(1); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "ArrowLeft" && e.altKey) { stepConcept(-1); e.preventDefault(); }
+    if (e.key === "ArrowRight" && e.altKey) { stepConcept(1); e.preventDefault(); }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notesmith Theme Study — Copilot</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      color-scheme: dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --gallery-bg: #0d0f12;
+      --gallery-panel: #15181d;
+      --gallery-border: #2a2f37;
+      --gallery-text: #f2f4f7;
+      --gallery-muted: #949ba7;
+      --gallery-accent: #75a7ff;
+    }
+    body {
+      margin: 0;
+      min-width: 980px;
+      min-height: 100vh;
+      overflow: hidden;
+      background: var(--gallery-bg);
+      color: var(--gallery-text);
+    }
+    button, input { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    .gallery {
+      display: grid;
+      grid-template-rows: 86px minmax(0, 1fr);
+      height: 100vh;
+    }
+    .gallery-header {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto minmax(240px, 1fr);
+      align-items: center;
+      gap: 20px;
+      padding: 14px 22px;
+      border-bottom: 1px solid var(--gallery-border);
+      background: rgba(13, 15, 18, .96);
+    }
+    .eyebrow {
+      margin-bottom: 5px;
+      color: var(--gallery-accent);
+      font-size: 10px;
+      font-weight: 750;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .gallery-title {
+      margin: 0;
+      font-size: 17px;
+      letter-spacing: -.015em;
+    }
+    .gallery-subtitle {
+      margin: 3px 0 0;
+      color: var(--gallery-muted);
+      font-size: 12px;
+    }
+    .category-tabs {
+      display: flex;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--gallery-border);
+      border-radius: 9px;
+      background: var(--gallery-panel);
+    }
+    .category-tabs button {
+      border: 0;
+      border-radius: 6px;
+      padding: 7px 12px;
+      background: transparent;
+      color: var(--gallery-muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .category-tabs button.active {
+      background: #272c34;
+      color: var(--gallery-text);
+      box-shadow: inset 0 0 0 1px #353c46;
+    }
+    .concept-meta { justify-self: end; text-align: right; }
+    .concept-count { color: var(--gallery-muted); font-size: 11px; }
+    .concept-name {
+      margin-top: 3px;
+      font-size: 14px;
+      font-weight: 720;
+      letter-spacing: -.01em;
+    }
+    .concept-note {
+      margin-top: 3px;
+      color: var(--gallery-muted);
+      font-size: 11px;
+    }
+    .stage {
+      min-height: 0;
+      padding: 18px 22px 22px;
+      background:
+        radial-gradient(circle at 50% -20%, rgba(117, 167, 255, .08), transparent 42%),
+        var(--gallery-bg);
+    }
+    .mockup {
+      --chrome: #181b20;
+      --sidebar: #16191e;
+      --sidebar-2: #1c2026;
+      --editor: #111419;
+      --editor-2: #171b21;
+      --border: #292f37;
+      --border-soft: #22272e;
+      --text: #e9edf2;
+      --text-2: #b8c0cb;
+      --muted: #7f8996;
+      --faint: #59626e;
+      --accent: #73a7ff;
+      --accent-soft: rgba(115, 167, 255, .14);
+      --selection: rgba(115, 167, 255, .12);
+      --hover: rgba(255, 255, 255, .05);
+      --shadow: 0 24px 70px rgba(0, 0, 0, .38);
+      --radius: 9px;
+      --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --reading-font: ui-serif, Georgia, serif;
+      --editor-width: 760px;
+      display: grid;
+      grid-template-rows: 42px minmax(0, 1fr) 30px;
+      height: 100%;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: var(--editor);
+      color: var(--text);
+      box-shadow: var(--shadow);
+      font-family: var(--ui-font);
+    }
+    .mockup[data-theme="dark-graphite"] {
+      --chrome: #17191d; --sidebar: #15171a; --sidebar-2: #1b1e23;
+      --editor: #111316; --editor-2: #181b20; --border: #2b2f35;
+      --border-soft: #22262b; --text: #f0f2f4; --text-2: #b7bdc5;
+      --muted: #858d98; --faint: #5d6570; --accent: #79a7ff;
+      --accent-soft: rgba(121,167,255,.15); --selection: rgba(121,167,255,.12);
+      --radius: 7px; --reading-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .mockup[data-theme="dark-ink"] {
+      --chrome: #1c1c1b; --sidebar: #191918; --sidebar-2: #22211f;
+      --editor: #151514; --editor-2: #1f1e1c; --border: #34322f;
+      --border-soft: #292825; --text: #f0ece4; --text-2: #c8c0b3;
+      --muted: #918a7e; --faint: #696359; --accent: #d49a66;
+      --accent-soft: rgba(212,154,102,.14); --selection: rgba(212,154,102,.11);
+      --radius: 5px; --reading-font: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    }
+    .mockup[data-theme="dark-midnight"] {
+      --chrome: #111821; --sidebar: #0f161f; --sidebar-2: #16202b;
+      --editor: #0c131b; --editor-2: #131d27; --border: #263442;
+      --border-soft: #1d2a36; --text: #e9f0f6; --text-2: #b4c2ce;
+      --muted: #768897; --faint: #526473; --accent: #68c7c2;
+      --accent-soft: rgba(104,199,194,.13); --selection: rgba(104,199,194,.11);
+      --radius: 11px; --reading-font: Charter, "Bitstream Charter", Georgia, serif;
+    }
+    .mockup[data-theme="light-porcelain"] {
+      --chrome: #f4f5f7; --sidebar: #f7f8fa; --sidebar-2: #ffffff;
+      --editor: #ffffff; --editor-2: #f7f8fa; --border: #d9dde3;
+      --border-soft: #e8eaee; --text: #20242a; --text-2: #505862;
+      --muted: #7a838f; --faint: #a4abb4; --accent: #356fd6;
+      --accent-soft: rgba(53,111,214,.11); --selection: rgba(53,111,214,.09);
+      --hover: rgba(30,43,60,.045); --shadow: 0 24px 70px rgba(27,35,46,.16);
+      --radius: 7px; --reading-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .mockup[data-theme="light-linen"] {
+      --chrome: #ede9e0; --sidebar: #f2eee5; --sidebar-2: #faf7f0;
+      --editor: #fcfaf5; --editor-2: #f3efe6; --border: #d8d0c1;
+      --border-soft: #e7e0d4; --text: #292721; --text-2: #5e594f;
+      --muted: #837b6d; --faint: #aaa193; --accent: #9f553f;
+      --accent-soft: rgba(159,85,63,.10); --selection: rgba(159,85,63,.08);
+      --hover: rgba(70,55,35,.05); --shadow: 0 24px 70px rgba(68,56,39,.17);
+      --radius: 5px; --reading-font: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    }
+    .mockup[data-theme="light-frost"] {
+      --chrome: #e9eef4; --sidebar: #edf2f7; --sidebar-2: #f7f9fc;
+      --editor: #fbfcfe; --editor-2: #f0f4f8; --border: #cdd7e2;
+      --border-soft: #dfe6ed; --text: #17212d; --text-2: #46576a;
+      --muted: #718194; --faint: #9ba9b7; --accent: #536fc5;
+      --accent-soft: rgba(83,111,197,.11); --selection: rgba(83,111,197,.09);
+      --hover: rgba(35,60,90,.05); --shadow: 0 28px 80px rgba(51,72,96,.18);
+      --radius: 12px; --reading-font: Charter, "Bitstream Charter", Georgia, serif;
+    }
+    .mockup[data-theme="split-studio"] {
+      --chrome: #22252a; --sidebar: #1d2024; --sidebar-2: #272b31;
+      --editor: #fbfbfa; --editor-2: #f3f4f5; --border: #363b43;
+      --border-soft: #e2e4e7; --text: #f0f2f5; --text-2: #b8c0ca;
+      --muted: #828c98; --faint: #5e6772; --accent: #4f83dc;
+      --accent-soft: rgba(79,131,220,.14); --selection: rgba(79,131,220,.10);
+      --shadow: 0 24px 70px rgba(0,0,0,.31); --radius: 7px;
+      --reading-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .mockup[data-theme="split-ledger"] {
+      --chrome: #181916; --sidebar: #151613; --sidebar-2: #20211d;
+      --editor: #faf8f1; --editor-2: #f1eee4; --border: #31332d;
+      --border-soft: #ded9cc; --text: #eceee8; --text-2: #b9bcae;
+      --muted: #85897b; --faint: #606458; --accent: #6f9b73;
+      --accent-soft: rgba(111,155,115,.15); --selection: rgba(111,155,115,.11);
+      --shadow: 0 24px 70px rgba(0,0,0,.35); --radius: 4px;
+      --reading-font: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    }
+    .mockup[data-theme="split-blueprint"] {
+      --chrome: #12202c; --sidebar: #0f1c27; --sidebar-2: #182936;
+      --editor: #f7fafc; --editor-2: #edf3f7; --border: #29404f;
+      --border-soft: #d9e3ea; --text: #e8f0f5; --text-2: #afc0cb;
+      --muted: #78909f; --faint: #536c7c; --accent: #36a7bd;
+      --accent-soft: rgba(54,167,189,.14); --selection: rgba(54,167,189,.10);
+      --shadow: 0 24px 74px rgba(4,17,26,.36); --radius: 9px;
+      --reading-font: Charter, "Bitstream Charter", Georgia, serif;
+    }
+    .topbar {
+      display: grid;
+      grid-template-columns: 262px minmax(0, 1fr) 286px;
+      border-bottom: 1px solid var(--border);
+      background: var(--chrome);
+    }
+    .top-section {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      padding: 0 12px;
+    }
+    .top-section + .top-section { border-left: 1px solid var(--border); }
+    .traffic { display: flex; gap: 7px; margin-right: 15px; }
+    .traffic i { width: 10px; height: 10px; border-radius: 50%; background: var(--faint); opacity: .65; }
+    .vault-name { font-size: 12px; font-weight: 700; }
+    .chevron { margin-left: 5px; color: var(--muted); font-size: 10px; }
+    .top-icon {
+      display: grid; place-items: center; width: 27px; height: 27px; margin-left: auto;
+      border: 0; border-radius: 6px; background: transparent; color: var(--muted);
+    }
+    .top-icon:hover { background: var(--hover); color: var(--text); }
+    .tabs { gap: 4px; padding-top: 5px; align-items: stretch; }
+    .tab {
+      display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 220px;
+      padding: 0 12px; border: 1px solid transparent; border-bottom: 0;
+      border-radius: var(--radius) var(--radius) 0 0; background: var(--sidebar-2);
+      color: var(--text-2); font-size: 12px;
+    }
+    .tab.active {
+      border-color: var(--border); border-top: 2px solid var(--accent);
+      background: var(--editor); color: var(--text);
+    }
+    .split-studio .tab.active, .split-ledger .tab.active, .split-blueprint .tab.active { color: #242a31; }
+    .tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tab-close { margin-left: auto; color: var(--muted); }
+    .right-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
+    .workspace { display: grid; grid-template-columns: 262px minmax(520px, 1fr) 286px; min-height: 0; }
+    .sidebar, .rightbar {
+      min-width: 0; overflow: hidden; background: var(--sidebar); color: var(--text);
+    }
+    .sidebar { border-right: 1px solid var(--border); }
+    .rightbar { border-left: 1px solid var(--border); }
+    .side-tools {
+      display: flex; align-items: center; gap: 4px; height: 42px; padding: 0 12px;
+      border-bottom: 1px solid var(--border-soft); background: var(--sidebar);
+    }
+    .side-label {
+      color: var(--muted); font-size: 10px; font-weight: 760; letter-spacing: .12em; text-transform: uppercase;
+    }
+    .side-button {
+      display: grid; place-items: center; width: 27px; height: 27px; margin-left: auto;
+      border: 0; border-radius: 6px; background: transparent; color: var(--muted);
+    }
+    .side-button:hover { background: var(--hover); color: var(--text); }
+    .search {
+      display: flex; align-items: center; gap: 8px; margin: 10px 12px 12px; padding: 7px 9px;
+      border: 1px solid var(--border); border-radius: var(--radius); background: var(--sidebar-2);
+      color: var(--muted); font-size: 12px;
+    }
+    .search kbd { margin-left: auto; color: var(--faint); font: 10px var(--ui-font); }
+    .tree { padding: 0 8px; font-size: 12.5px; }
+    .tree-row {
+      position: relative; display: flex; align-items: center; gap: 7px; height: 29px;
+      padding: 0 8px; border: 0; border-radius: var(--radius); width: 100%;
+      background: transparent; color: var(--text-2); text-align: left;
+    }
+    .tree-row:hover { background: var(--hover); color: var(--text); }
+    .tree-row.selected {
+      background: var(--selection); color: var(--text); font-weight: 650;
+      box-shadow: inset 2px 0 0 var(--accent);
+    }
+    .tree-row.indent-1 { padding-left: 24px; }
+    .tree-row.indent-2 { padding-left: 42px; }
+    .tree-row.indent-2::before {
+      content: ""; position: absolute; left: 28px; top: -2px; bottom: -2px;
+      border-left: 1px solid var(--border);
+    }
+    .caret { width: 9px; color: var(--muted); font-size: 9px; }
+    .tree-icon { width: 16px; text-align: center; filter: saturate(.7); }
+    .tree-section {
+      margin: 15px 9px 5px; color: var(--faint); font-size: 9px;
+      font-weight: 800; letter-spacing: .13em; text-transform: uppercase;
+    }
+    .editor-pane {
+      min-width: 0; overflow: auto; background: var(--editor); color: #25292f;
+    }
+    .mockup[data-theme^="dark-"] .editor-pane { color: var(--text); }
+    .editor-toolbar {
+      position: sticky; top: 0; z-index: 2; display: grid;
+      grid-template-columns: 1fr auto 1fr; align-items: center; height: 42px; padding: 0 14px;
+      border-bottom: 1px solid var(--border-soft); background: var(--editor);
+      color: var(--muted); font-size: 11.5px;
+    }
+    .mockup[data-theme^="split-"] .editor-toolbar { color: #727983; }
+    .breadcrumbs { grid-column: 2; }
+    .breadcrumbs strong { color: inherit; font-weight: 700; }
+    .view-toggle {
+      justify-self: end; display: flex; gap: 2px; padding: 2px;
+      border: 1px solid var(--border-soft); border-radius: 7px; background: var(--editor-2);
+    }
+    .view-toggle button {
+      width: 24px; height: 23px; padding: 0; border: 0; border-radius: 5px;
+      background: transparent; color: inherit; font-size: 11px;
+    }
+    .view-toggle button.active { background: var(--accent-soft); color: var(--accent); }
+    .document {
+      width: min(var(--editor-width), calc(100% - 76px)); margin: 0 auto; padding: 52px 0 100px;
+      font-family: var(--reading-font); font-size: 16px; line-height: 1.68;
+    }
+    .document .kicker {
+      margin-bottom: 15px; color: var(--accent); font-family: var(--ui-font);
+      font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase;
+    }
+    .document h1 {
+      margin: 0 0 15px; max-width: 680px; color: inherit; font-size: 34px;
+      line-height: 1.12; letter-spacing: -.035em;
+    }
+    .document .lede {
+      margin: 0 0 30px; max-width: 680px; color: inherit; opacity: .72; font-size: 18px; line-height: 1.52;
+    }
+    .document h2 { margin: 34px 0 12px; font-size: 20px; letter-spacing: -.02em; }
+    .document p { margin: 0 0 17px; }
+    .document a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    .callout {
+      margin: 25px 0; padding: 15px 17px; border: 1px solid var(--border-soft);
+      border-left: 3px solid var(--accent); border-radius: var(--radius);
+      background: var(--editor-2); color: inherit;
+    }
+    .callout-title {
+      margin-bottom: 5px; color: var(--accent); font-family: var(--ui-font);
+      font-size: 11px; font-weight: 780; letter-spacing: .05em; text-transform: uppercase;
+    }
+    .task-line {
+      display: flex; align-items: baseline; gap: 10px; margin: 9px 0;
+    }
+    .task-box {
+      width: 14px; height: 14px; border: 1.5px solid var(--accent); border-radius: 3px;
+      background: var(--accent-soft); color: var(--accent); font: 10px/11px var(--ui-font); text-align: center;
+    }
+    .right-tabs {
+      display: grid; grid-template-columns: repeat(4, 1fr); height: 54px;
+      border-bottom: 1px solid var(--border); background: var(--sidebar);
+    }
+    .right-tab {
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+      border: 0; border-bottom: 2px solid transparent; background: transparent;
+      color: var(--muted); font-size: 9.5px; font-weight: 650;
+    }
+    .right-tab:hover { color: var(--text); }
+    .right-tab.active { border-bottom-color: var(--accent); color: var(--text); }
+    .right-tab.chat { color: var(--accent); }
+    .tab-glyph { font-size: 13px; line-height: 1; }
+    .right-content { padding: 18px 17px; font-size: 12px; }
+    .panel-section { margin-bottom: 23px; }
+    .panel-heading {
+      margin: 0 0 10px; color: var(--muted); font-size: 9.5px;
+      font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+    }
+    .metadata-row {
+      display: grid; grid-template-columns: 76px 1fr; gap: 10px; padding: 7px 0;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .mockup[data-theme^="split-"] .metadata-row { border-bottom-color: var(--border); }
+    .metadata-key { color: var(--muted); }
+    .metadata-value { color: var(--text-2); }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+    .chip {
+      padding: 3px 7px; border: 1px solid var(--border); border-radius: 99px;
+      background: var(--sidebar-2); color: var(--text-2); font-size: 10px;
+    }
+    .outline-item {
+      display: block; width: 100%; padding: 6px 8px; border: 0;
+      border-radius: 6px; background: transparent; color: var(--text-2); text-align: left;
+    }
+    .outline-item:hover { background: var(--hover); color: var(--text); }
+    .outline-item.sub { padding-left: 20px; color: var(--muted); }
+    .statusbar {
+      display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px;
+      padding: 0 13px; border-top: 1px solid var(--border); background: var(--chrome);
+      color: var(--muted); font-size: 10.5px;
+    }
+    .status-left, .status-right { display: flex; align-items: center; gap: 13px; }
+    .status-right { justify-content: end; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: #67b77a; box-shadow: 0 0 0 2px rgba(103,183,122,.12); }
+    .status-center { color: var(--faint); }
+    .palette-strip {
+      position: absolute; right: 34px; bottom: 38px; z-index: 5; display: flex; gap: 5px;
+      padding: 5px; border: 1px solid var(--gallery-border); border-radius: 99px;
+      background: rgba(13,15,18,.82); box-shadow: 0 8px 30px rgba(0,0,0,.26);
+      backdrop-filter: blur(14px);
+    }
+    .swatch { width: 13px; height: 13px; border: 1px solid rgba(255,255,255,.18); border-radius: 50%; }
+    .stage-inner { position: relative; width: 100%; height: 100%; }
+    .concept-nav {
+      position: absolute; left: 50%; bottom: 13px; z-index: 8; display: flex; gap: 6px;
+      transform: translateX(-50%);
+    }
+    .concept-dot {
+      width: 7px; height: 7px; padding: 0; border: 0; border-radius: 50%;
+      background: rgba(255,255,255,.25); color: transparent;
+    }
+    .concept-dot.active { width: 22px; border-radius: 5px; background: var(--gallery-accent); }
+    @media (max-height: 760px) {
+      .gallery { grid-template-rows: 76px minmax(0, 1fr); }
+      .stage { padding: 12px 16px 18px; }
+      .document { padding-top: 35px; font-size: 14.5px; }
+      .document h1 { font-size: 29px; }
+      .document .lede { font-size: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="gallery">
+    <header class="gallery-header">
+      <div>
+        <div class="eyebrow">Notesmith theme study · Copilot</div>
+        <h1 class="gallery-title">Fewer themes, finished more carefully</h1>
+        <p class="gallery-subtitle">Use the filters or arrow keys to compare nine directions.</p>
+      </div>
+      <nav class="category-tabs" aria-label="Theme category">
+        <button type="button" data-filter="dark" class="active">Dark</button>
+        <button type="button" data-filter="light">Light</button>
+        <button type="button" data-filter="split">Split</button>
+        <button type="button" data-filter="all">All 9</button>
+      </nav>
+      <div class="concept-meta">
+        <div class="concept-count" id="conceptCount">Concept 1 of 3 · Dark</div>
+        <div class="concept-name" id="conceptName">Graphite Precision</div>
+        <div class="concept-note" id="conceptNote">Compact, neutral, exacting</div>
+      </div>
+    </header>
+    <main class="stage">
+      <div class="stage-inner">
+        <section class="mockup" id="mockup" data-theme="dark-graphite">
+          <header class="topbar">
+            <div class="top-section">
+              <span class="traffic"><i></i><i></i><i></i></span>
+              <span class="vault-name">Notesmith</span><span class="chevron">⌄</span>
+              <button class="top-icon" type="button" title="Toggle sidebar">◧</button>
+            </div>
+            <div class="top-section tabs">
+              <div class="tab active"><span>✦</span><span class="tab-title" id="activeTabTitle">Theme direction</span><span class="tab-close">×</span></div>
+              <div class="tab"><span>◫</span><span class="tab-title">Product principles</span><span class="tab-close">×</span></div>
+            </div>
+            <div class="top-section">
+              <span class="right-title" id="rightTitle">Theme direction</span>
+              <button class="top-icon" type="button" title="Toggle right dock">◨</button>
+            </div>
+          </header>
+          <div class="workspace">
+            <aside class="sidebar">
+              <div class="side-tools">
+                <span class="side-label">Files</span>
+                <button class="side-button" type="button" title="New note">＋</button>
+              </div>
+              <div class="search"><span>⌕</span><span>Filter notes</span><kbd>⌘F</kbd></div>
+              <div class="tree">
+                <div class="tree-section">Workspace</div>
+                <button class="tree-row"><span class="caret">▾</span><span class="tree-icon">◫</span><span>Product</span></button>
+                <button class="tree-row indent-1 selected" data-note="Theme direction"><span class="tree-icon">✦</span><span>Theme direction</span></button>
+                <button class="tree-row indent-1" data-note="Product principles"><span class="tree-icon">◇</span><span>Product principles</span></button>
+                <button class="tree-row indent-1" data-note="Editor details"><span class="tree-icon">◌</span><span>Editor details</span></button>
+                <button class="tree-row"><span class="caret">▾</span><span class="tree-icon">◫</span><span>Research</span></button>
+                <button class="tree-row indent-1"><span class="caret">▾</span><span class="tree-icon">◫</span><span>Interface studies</span></button>
+                <button class="tree-row indent-2" data-note="Reading surfaces"><span class="tree-icon">◧</span><span>Reading surfaces</span></button>
+                <button class="tree-row indent-2" data-note="Native patterns"><span class="tree-icon">⌘</span><span>Native patterns</span></button>
+                <div class="tree-section">Recent</div>
+                <button class="tree-row" data-note="July review"><span class="tree-icon">◷</span><span>July review</span></button>
+                <button class="tree-row" data-note="Visual language"><span class="tree-icon">◈</span><span>Visual language</span></button>
+              </div>
+            </aside>
+            <main class="editor-pane">
+              <div class="editor-toolbar">
+                <div class="breadcrumbs">Product / <strong id="breadcrumb">Theme direction</strong></div>
+                <div class="view-toggle">
+                  <button type="button" title="Source">&lt;/&gt;</button>
+                  <button type="button" class="active" title="Live preview">✎</button>
+                  <button type="button" title="Reading">▤</button>
+                </div>
+              </div>
+              <article class="document">
+                <div class="kicker">Design direction · July 2026</div>
+                <h1 id="documentTitle">A quieter, more deliberate Notesmith</h1>
+                <p class="lede">Reduce the theme catalog to three exceptional foundations: one dark, one light, and one split surface built for long writing sessions.</p>
+                <p>Every surface should communicate its role without visual noise. The sidebars organize and orient; the editor gives the note room to breathe; the chrome stays present but recedes from attention.</p>
+                <div class="callout">
+                  <div class="callout-title">Design principle</div>
+                  Theme quality comes from rhythm, contrast, typography, and interaction states—not from the number of available palettes.
+                </div>
+                <h2>What deserves attention</h2>
+                <div class="task-line"><span class="task-box">✓</span><span>Comfortable reading contrast across long sessions</span></div>
+                <div class="task-line"><span class="task-box">✓</span><span>Clear hierarchy without heavy cards or decoration</span></div>
+                <div class="task-line"><span class="task-box"></span><span>Polish every hover, selection, focus, and inactive state</span></div>
+                <p>Keep the visual language calm enough for daily use and distinctive enough to feel authored. See <a href="#">editor surface notes</a> for typography and spacing details.</p>
+              </article>
+            </main>
+            <aside class="rightbar">
+              <div class="right-tabs" role="tablist">
+                <button class="right-tab active" type="button" data-panel="metadata"><span class="tab-glyph">ⓘ</span><span>Metadata</span></button>
+                <button class="right-tab" type="button" data-panel="links"><span class="tab-glyph">⌁</span><span>Links</span></button>
+                <button class="right-tab" type="button" data-panel="toc"><span class="tab-glyph">☷</span><span>TOC</span></button>
+                <button class="right-tab chat" type="button" data-panel="chat"><span class="tab-glyph">✦</span><span>Chat</span></button>
+              </div>
+              <div class="right-content" id="rightContent"></div>
+            </aside>
+          </div>
+          <footer class="statusbar">
+            <div class="status-left"><span class="dot"></span><span>Local</span><span>Synced</span></div>
+            <div class="status-center">notes-method</div>
+            <div class="status-right"><span>Ln 18, Col 42</span><span>188 words</span><span>Saved</span></div>
+          </footer>
+        </section>
+        <div class="palette-strip" id="paletteStrip" aria-label="Concept palette"></div>
+        <div class="concept-nav" id="conceptNav"></div>
+      </div>
+    </main>
+  </div>
+  <script>
+    const concepts = [
+      { id: "dark-graphite", category: "dark", name: "Graphite Precision", note: "Compact, neutral, exacting", colors: ["#111316", "#1b1e23", "#f0f2f4", "#79a7ff"] },
+      { id: "dark-ink", category: "dark", name: "Ink & Ember", note: "Warm editorial restraint", colors: ["#151514", "#22211f", "#f0ece4", "#d49a66"] },
+      { id: "dark-midnight", category: "dark", name: "Midnight Archive", note: "Deep navy, spacious, composed", colors: ["#0c131b", "#16202b", "#e9f0f6", "#68c7c2"] },
+      { id: "light-porcelain", category: "light", name: "Porcelain", note: "Crisp native clarity", colors: ["#ffffff", "#f4f5f7", "#20242a", "#356fd6"] },
+      { id: "light-linen", category: "light", name: "Linen & Ink", note: "Warm paper, literary calm", colors: ["#fcfaf5", "#f2eee5", "#292721", "#9f553f"] },
+      { id: "light-frost", category: "light", name: "Frosted Slate", note: "Cool, airy, quietly dimensional", colors: ["#fbfcfe", "#edf2f7", "#17212d", "#536fc5"] },
+      { id: "split-studio", category: "split", name: "Studio", note: "Dark tools around a clean canvas", colors: ["#1d2024", "#fbfbfa", "#252a31", "#4f83dc"] },
+      { id: "split-ledger", category: "split", name: "Ledger", note: "Archival paper and forest accents", colors: ["#151613", "#faf8f1", "#292921", "#6f9b73"] },
+      { id: "split-blueprint", category: "split", name: "Blueprint", note: "Technical navy with a cool page", colors: ["#0f1c27", "#f7fafc", "#1b2832", "#36a7bd"] }
+    ];
+    const panels = {
+      metadata: `
+        <section class="panel-section"><h3 class="panel-heading">Properties</h3>
+          <div class="metadata-row"><span class="metadata-key">status</span><span class="metadata-value">in progress</span></div>
+          <div class="metadata-row"><span class="metadata-key">created</span><span class="metadata-value">2026-07-11</span></div>
+          <div class="metadata-row"><span class="metadata-key">type</span><span class="metadata-value">design note</span></div>
+        </section>
+        <section class="panel-section"><h3 class="panel-heading">Tags</h3><div class="chips"><span class="chip">design</span><span class="chip">themes</span><span class="chip">notesmith</span></div></section>`,
+      links: `
+        <section class="panel-section"><h3 class="panel-heading">Backlinks</h3><button class="outline-item">Visual language</button><button class="outline-item">Product principles</button></section>
+        <section class="panel-section"><h3 class="panel-heading">Outgoing</h3><button class="outline-item">Editor surface notes</button><button class="outline-item">Accessibility baseline</button></section>`,
+      toc: `
+        <section class="panel-section"><h3 class="panel-heading">On this page</h3><button class="outline-item">A quieter Notesmith</button><button class="outline-item sub">What deserves attention</button><button class="outline-item sub">Surface hierarchy</button><button class="outline-item sub">Interaction states</button></section>`,
+      chat: `
+        <section class="panel-section"><h3 class="panel-heading">Notesmith agent</h3><div class="callout"><div class="callout-title">Ready</div>Ask about this note or compare the design principles with the current theme system.</div></section>`
+    };
+    const requestedTheme = new URLSearchParams(location.search).get("theme");
+    const requestedConcept = concepts.find(concept => concept.id === requestedTheme) || concepts[0];
+    let filter = requestedConcept.category;
+    let visible = concepts.filter(c => c.category === filter);
+    let index = visible.findIndex(concept => concept.id === requestedConcept.id);
+    const mockup = document.getElementById("mockup");
+    const count = document.getElementById("conceptCount");
+    const name = document.getElementById("conceptName");
+    const note = document.getElementById("conceptNote");
+    const palette = document.getElementById("paletteStrip");
+    const nav = document.getElementById("conceptNav");
+    const rightContent = document.getElementById("rightContent");
+
+    function renderConcept() {
+      const concept = visible[index];
+      history.replaceState(null, "", `?theme=${concept.id}`);
+      mockup.dataset.theme = concept.id;
+      mockup.className = `mockup ${concept.id}`;
+      count.textContent = `Concept ${index + 1} of ${visible.length} · ${concept.category === "split" ? "Split surface" : concept.category[0].toUpperCase() + concept.category.slice(1)}`;
+      name.textContent = concept.name;
+      note.textContent = concept.note;
+      palette.innerHTML = concept.colors.map(color => `<span class="swatch" style="background:${color}" title="${color}"></span>`).join("");
+      nav.innerHTML = visible.map((_, i) => `<button class="concept-dot ${i === index ? "active" : ""}" type="button" data-index="${i}" aria-label="Concept ${i + 1}"></button>`).join("");
+      nav.querySelectorAll("button").forEach(button => button.addEventListener("click", () => {
+        index = Number(button.dataset.index);
+        renderConcept();
+      }));
+    }
+    function setFilter(next) {
+      filter = next;
+      visible = next === "all" ? concepts : concepts.filter(c => c.category === next);
+      index = 0;
+      document.querySelectorAll(".category-tabs button").forEach(button => button.classList.toggle("active", button.dataset.filter === next));
+      renderConcept();
+    }
+    document.querySelectorAll(".category-tabs button").forEach(button => button.addEventListener("click", () => setFilter(button.dataset.filter)));
+    document.querySelectorAll(".category-tabs button").forEach(button => button.classList.toggle("active", button.dataset.filter === filter));
+    document.querySelectorAll(".right-tab").forEach(button => button.addEventListener("click", () => {
+      document.querySelectorAll(".right-tab").forEach(tab => tab.classList.remove("active"));
+      button.classList.add("active");
+      rightContent.innerHTML = panels[button.dataset.panel];
+    }));
+    document.querySelectorAll(".tree-row[data-note]").forEach(button => button.addEventListener("click", () => {
+      document.querySelectorAll(".tree-row").forEach(row => row.classList.remove("selected"));
+      button.classList.add("selected");
+      const title = button.dataset.note;
+      document.getElementById("activeTabTitle").textContent = title;
+      document.getElementById("rightTitle").textContent = title;
+      document.getElementById("breadcrumb").textContent = title;
+      document.getElementById("documentTitle").textContent = title === "Theme direction" ? "A quieter, more deliberate Notesmith" : title;
+    }));
+    document.querySelectorAll(".view-toggle button").forEach(button => button.addEventListener("click", () => {
+      document.querySelectorAll(".view-toggle button").forEach(item => item.classList.remove("active"));
+      button.classList.add("active");
+    }));
+    document.addEventListener("keydown", event => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      index = (index + (event.key === "ArrowRight" ? 1 : -1) + visible.length) % visible.length;
+      renderConcept();
+    });
+    rightContent.innerHTML = panels.metadata;
+    renderConcept();
+  </script>
+</body>
+</html>
