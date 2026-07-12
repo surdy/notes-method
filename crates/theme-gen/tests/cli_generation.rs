@@ -14,7 +14,6 @@ fn generator_creates_css_files_for_catalog_and_clears_stale_output() {
   {
     "name": "dark",
     "display_name": "Dark",
-    "author": "Notesmith",
     "tone": "dark",
     "split_surface": false,
     "palette": {
@@ -42,13 +41,11 @@ fn generator_creates_css_files_for_catalog_and_clears_stale_output() {
       "border_strong": "#363b43",
       "border_subtle": "#22262b",
       "border_input": "#343941"
-    },
-    "tags": ["neutral", "native"]
+    }
   },
   {
     "name": "split",
     "display_name": "Split",
-    "author": "Notesmith",
     "tone": "dark",
     "split_surface": true,
     "palette": {
@@ -88,8 +85,7 @@ fn generator_creates_css_files_for_catalog_and_clears_stale_output() {
       "border_strong": "#cbd0d6",
       "border_subtle": "#e2e4e7",
       "border_input": "#d9dde1"
-    },
-    "tags": ["paper", "split"]
+    }
   }
 ]"##,
     )

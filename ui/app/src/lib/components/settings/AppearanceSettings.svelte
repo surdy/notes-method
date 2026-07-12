@@ -3,7 +3,6 @@ import { onDestroy } from 'svelte';
 
 import type { VaultConfigData } from '$lib/api/config';
 import { themeStore, type ThemeEntry, type VisualMode } from '$lib/theme.svelte';
-import { findThemeByName } from '$lib/theme-picker';
 import themeCatalog from '../../../styles/theme-catalog.json';
 
 let {
@@ -16,7 +15,6 @@ saveImmediate: (section: string) => Promise<void>;
 
 const themeOptions: ThemeEntry[] = themeCatalog as ThemeEntry[];
 const darkThemeOptions = themeOptions.filter((theme) => theme.tone === 'dark');
-const lightThemeOptions = themeOptions.filter((theme) => theme.tone === 'light');
 let previewRestore = $state<(() => void) | null>(null);
 
 type AppearanceState = {
@@ -27,29 +25,19 @@ lightTheme: string;
 visualMode: VisualMode;
 };
 
-function currentAppearance(): AppearanceState {
-return {
+function updateAppearance(partial: Partial<AppearanceState>) {
+cfg.appearance = {
 theme: themeStore.theme,
 followSystem: themeStore.followSystem,
 darkTheme: themeStore.darkTheme,
 lightTheme: themeStore.lightTheme,
-visualMode: themeStore.visualMode
-};
-}
-
-function updateAppearance(partial: Partial<AppearanceState>) {
-cfg.appearance = {
-...currentAppearance(),
+visualMode: themeStore.visualMode,
 ...partial
 };
 }
 
-function themeLabel(themeName: string): string {
-return findThemeByName(themeOptions, themeName)?.display_name ?? themeName;
-}
-
 function activeThemeEntry(): ThemeEntry | undefined {
-return findThemeByName(themeOptions, themeStore.activeTheme);
+return themeOptions.find((theme) => theme.name === themeStore.activeTheme);
 }
 
 function clearPreview() {
@@ -58,9 +46,6 @@ previewRestore = null;
 }
 
 function previewTheme(themeName: string) {
-if (previewRestore && themeStore.theme === themeName) {
-clearPreview();
-}
 clearPreview();
 previewRestore = themeStore.preview(themeName);
 }
@@ -86,13 +71,6 @@ themeStore.setFollowSystem(true);
 await saveImmediate('appearance');
 }
 
-async function selectLightTheme(themeName: string) {
-updateAppearance({ lightTheme: themeName, followSystem: true });
-themeStore.setLightTheme(themeName);
-themeStore.setFollowSystem(true);
-await saveImmediate('appearance');
-}
-
 async function setVisualMode(visualMode: VisualMode) {
 updateAppearance({ visualMode });
 themeStore.setVisualMode(visualMode);
@@ -111,61 +89,18 @@ clearPreview();
 </script>
 
 <section class="section-content appearance-section">
-<h2>Appearance</h2>
 <p class="section-description">
-Choose Dark, Light, or Split. Follow system appearance can use Dark or Split for the dark
-appearance and Light for the light appearance. The high-contrast overlay remains available.
+Choose one of three carefully tuned themes, then optionally adapt it to the system appearance.
 </p>
 
 <div class="theme-section">
-<div class="theme-toolbar">
-<div class="theme-summary">
-<span class="summary-label">Current theme</span>
-<strong>{activeThemeEntry()?.display_name ?? themeStore.activeTheme}</strong>
-{#if activeThemeEntry()}
-<span class="field-hint">by {activeThemeEntry()?.author}</span>
-{/if}
-<span class="field-hint">
-{themeStore.followSystem
-? `Following system appearance (${themeLabel(themeStore.darkTheme)} / ${themeLabel(themeStore.lightTheme)})`
-: 'Manual theme selection'}
-</span>
-</div>
-
-<div class="toggle-stack">
-<label class="setting-toggle">
-<input
-type="checkbox"
-checked={themeStore.followSystem}
-onchange={(event) =>
-void setFollowSystem((event.currentTarget as HTMLInputElement).checked)}
-/>
-<span>Follow system appearance</span>
-</label>
-
-<label class="setting-toggle">
-<input
-type="checkbox"
-checked={themeStore.visualMode === 'high-contrast'}
-onchange={(event) =>
-void setVisualMode(
-(event.currentTarget as HTMLInputElement).checked
-? 'high-contrast'
-: 'default'
-)}
-/>
-<span>High Contrast</span>
-</label>
-</div>
-</div>
-
 <div class="theme-group">
 <div class="group-header">
 <h3>Theme</h3>
 <span class="field-hint">
 {themeStore.followSystem
-? 'Used when Follow system appearance is off.'
-: 'Hover to preview, click to apply immediately.'}
+? `Following the system · currently ${activeThemeEntry()?.display_name ?? themeStore.activeTheme}`
+: 'Hover to preview. Changes apply immediately.'}
 </span>
 </div>
 
@@ -173,98 +108,137 @@ void setVisualMode(
 {#each themeOptions as theme}
 <button
 class="theme-card"
-class:active={!themeStore.followSystem && themeStore.theme === theme.name}
+class:active={themeStore.activeTheme === theme.name}
 type="button"
-aria-pressed={!themeStore.followSystem && themeStore.theme === theme.name}
+aria-pressed={themeStore.activeTheme === theme.name}
 onmouseenter={() => previewTheme(theme.name)}
 onmouseleave={clearPreview}
 onfocus={() => previewTheme(theme.name)}
 onblur={clearPreview}
 onclick={() => void selectTheme(theme.name)}
 >
-<div class="theme-swatch" aria-hidden="true">
-<span class="swatch swatch-bg" style={`background: ${theme.palette.bg}`}></span>
-<span class="swatch swatch-fg" style={`background: ${theme.palette.fg}`}></span>
-<span class="swatch swatch-accent" style={`background: ${theme.palette.blue}`}></span>
-<span class="swatch swatch-red" style={`background: ${theme.palette.red}`}></span>
-<span class="swatch swatch-green" style={`background: ${theme.palette.green}`}></span>
+<div
+class="workspace-preview"
+aria-hidden="true"
+style={`--preview-chrome: ${theme.semantic?.bg_panel ?? theme.palette.bg}; --preview-sidebar: ${theme.semantic?.bg_secondary ?? theme.palette.bg}; --preview-editor: ${theme.editor_semantic?.bg_default ?? theme.semantic?.bg_default ?? theme.palette.bg}; --preview-text: ${theme.editor_palette?.fg ?? theme.palette.fg}; --preview-border: ${theme.semantic?.border_default ?? theme.palette.black}; --preview-accent: ${theme.palette.blue}`}
+>
+<span class="preview-sidebar">
+<span></span>
+<span></span>
+<span></span>
+</span>
+<span class="preview-editor">
+<span></span>
+<span></span>
+<span></span>
+</span>
+<span class="preview-rail">
+<span></span>
+<span></span>
+</span>
 </div>
+<span class="theme-copy">
 <span class="theme-name">{theme.display_name}</span>
-<span class="theme-meta">{theme.tags.join(' · ')}</span>
+<span class="theme-description">{theme.description}</span>
+</span>
 </button>
 {/each}
 </div>
 </div>
 
-{#if themeStore.followSystem}
-<div class="system-pairings">
-<label class="system-select">
-<span class="system-label">When dark</span>
-<select
-value={themeStore.darkTheme}
+<div class="preference-list">
+<label class="preference-row">
+<span class="preference-copy">
+<strong>Follow system appearance</strong>
+<span>Use Light during the day and your preferred dark appearance at night.</span>
+</span>
+<input
+class="toggle-input"
+type="checkbox"
+role="switch"
+checked={themeStore.followSystem}
 onchange={(event) =>
-void selectDarkTheme((event.currentTarget as HTMLSelectElement).value)}
->
-{#each darkThemeOptions as theme}
-<option value={theme.name}>{theme.display_name}</option>
-{/each}
-</select>
+void setFollowSystem((event.currentTarget as HTMLInputElement).checked)}
+/>
+<span class="toggle-track" aria-hidden="true"><span></span></span>
 </label>
 
-<label class="system-select">
-<span class="system-label">When light</span>
-<select
-value={themeStore.lightTheme}
-onchange={(event) =>
-void selectLightTheme((event.currentTarget as HTMLSelectElement).value)}
+{#if themeStore.followSystem}
+<div class="system-pairings">
+<div class="pairing-row">
+<span class="pairing-copy">
+<strong>Dark appearance</strong>
+<span>Choose the theme used when the system is dark.</span>
+</span>
+<div class="segmented-control" role="group" aria-label="Dark appearance">
+{#each darkThemeOptions as theme}
+<button
+type="button"
+class:active={themeStore.darkTheme === theme.name}
+aria-pressed={themeStore.darkTheme === theme.name}
+onclick={() => void selectDarkTheme(theme.name)}
+>{theme.display_name}</button
 >
-{#each lightThemeOptions as theme}
-<option value={theme.name}>{theme.display_name}</option>
 {/each}
-</select>
-</label>
+</div>
+</div>
+
+<div class="pairing-row">
+<span class="pairing-copy">
+<strong>Light appearance</strong>
+<span>Light is the single carefully tuned light theme.</span>
+</span>
+<span class="fixed-choice">Light</span>
+</div>
 </div>
 {/if}
+
+<label class="preference-row">
+<span class="preference-copy">
+<strong>High contrast</strong>
+<span>Strengthen text, borders, and selection states in any theme.</span>
+</span>
+<input
+class="toggle-input"
+type="checkbox"
+role="switch"
+checked={themeStore.visualMode === 'high-contrast'}
+onchange={(event) =>
+void setVisualMode(
+(event.currentTarget as HTMLInputElement).checked ? 'high-contrast' : 'default'
+)}
+/>
+<span class="toggle-track" aria-hidden="true"><span></span></span>
+</label>
+</div>
 </div>
 </section>
 
 <style>
 .appearance-section {
-max-width: 1120px;
+max-width: 960px;
 }
 
-.theme-section {
-display: flex;
-flex-direction: column;
-gap: 24px;
-}
-
-.theme-toolbar,
-.system-pairings {
-display: flex;
-flex-wrap: wrap;
-justify-content: space-between;
-gap: 20px;
-padding: 18px;
-border: 1px solid var(--border-default);
-border-radius: 16px;
-background: var(--bg-surface);
-}
-
-.theme-summary,
-.toggle-stack,
+.theme-section,
 .theme-group {
 display: flex;
 flex-direction: column;
-gap: 10px;
+}
+
+.theme-section {
+gap: 28px;
+}
+
+.theme-group {
+gap: 14px;
 }
 
 .group-header {
 display: flex;
 flex-wrap: wrap;
-justify-content: space-between;
-gap: 8px 16px;
 align-items: baseline;
+justify-content: space-between;
+gap: 4px 16px;
 }
 
 .group-header h3 {
@@ -274,72 +248,34 @@ font-weight: 600;
 color: var(--text-default);
 }
 
-.theme-summary {
-align-items: flex-start;
-}
-
-.summary-label {
-display: block;
-font-size: 11px;
-font-weight: 600;
-letter-spacing: 0.08em;
-text-transform: uppercase;
-color: var(--text-muted);
-}
-
 .field-hint,
-.theme-meta,
-.system-label {
+.theme-description,
+.preference-copy span,
+.pairing-copy span {
 font-size: 12px;
+line-height: 1.45;
 color: var(--text-muted);
-}
-
-.toggle-stack {
-align-items: flex-start;
-}
-
-.setting-toggle,
-.theme-card,
-.system-select select {
-color: var(--text-default);
-}
-
-.setting-toggle {
-display: inline-flex;
-align-items: center;
-gap: 10px;
-padding: 10px 12px;
-border: 1px solid var(--border-default);
-border-radius: 12px;
-background: var(--bg-default);
-font-size: 13px;
-font-weight: 500;
-}
-
-.setting-toggle input {
-accent-color: var(--accent);
-color: var(--text-default);
 }
 
 .theme-grid {
 display: grid;
-grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-gap: 14px;
+grid-template-columns: repeat(3, minmax(0, 1fr));
+gap: 12px;
 }
 
 .theme-card {
 display: flex;
+min-width: 0;
 flex-direction: column;
-gap: 10px;
-min-height: 124px;
-padding: 14px;
+gap: 12px;
+padding: 12px;
 border: 1px solid var(--border-default);
-border-radius: 14px;
+border-radius: 12px;
 background: var(--bg-surface);
+color: var(--text-default);
 cursor: pointer;
 text-align: left;
 transition:
-transform 120ms ease,
 border-color 120ms ease,
 background-color 120ms ease,
 box-shadow 120ms ease;
@@ -347,11 +283,10 @@ box-shadow 120ms ease;
 
 .theme-card:hover,
 .theme-card:focus-visible {
-background: var(--bg-hover);
 border-color: var(--border-strong);
-box-shadow: 0 12px 28px color-mix(in srgb, var(--bg-default) 82%, transparent);
-transform: translateY(-1px);
 outline: none;
+background: var(--bg-hover);
+box-shadow: 0 8px 22px color-mix(in srgb, var(--bg-default) 86%, transparent);
 }
 
 .theme-card.active {
@@ -359,20 +294,82 @@ border-color: var(--accent);
 box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
-.theme-swatch {
+.workspace-preview {
 display: grid;
-grid-template-columns: repeat(5, minmax(0, 1fr));
-gap: 4px;
-padding: 6px;
-border: 1px solid var(--border-subtle);
-border-radius: 10px;
-background: var(--bg-default);
+height: 88px;
+grid-template-columns: 24% 1fr 22%;
+overflow: hidden;
+border: 1px solid var(--preview-border);
+border-radius: 8px;
+background: var(--preview-chrome);
 }
 
-.swatch {
+.preview-sidebar,
+.preview-rail,
+.preview-editor {
+display: flex;
+flex-direction: column;
+gap: 7px;
+padding: 12px 8px;
+}
+
+.preview-sidebar,
+.preview-rail {
+background: var(--preview-sidebar);
+}
+
+.preview-sidebar {
+border-right: 1px solid var(--preview-border);
+}
+
+.preview-rail {
+border-left: 1px solid var(--preview-border);
+}
+
+.preview-editor {
+padding: 14px 12px;
+background: var(--preview-editor);
+}
+
+.preview-sidebar span,
+.preview-rail span,
+.preview-editor span {
 display: block;
-height: 30px;
-border-radius: 6px;
+height: 3px;
+border-radius: 999px;
+background: color-mix(in srgb, var(--preview-text) 24%, transparent);
+}
+
+.preview-sidebar span:first-child {
+width: 72%;
+background: var(--preview-accent);
+}
+
+.preview-sidebar span:last-child,
+.preview-rail span:last-child {
+width: 64%;
+}
+
+.preview-editor span:first-child {
+width: 52%;
+height: 5px;
+background: color-mix(in srgb, var(--preview-text) 72%, transparent);
+}
+
+.preview-editor span:nth-child(2) {
+width: 88%;
+}
+
+.preview-editor span:last-child {
+width: 74%;
+}
+
+.theme-copy,
+.preference-copy,
+.pairing-copy {
+display: flex;
+flex-direction: column;
+gap: 3px;
 }
 
 .theme-name {
@@ -381,48 +378,151 @@ font-weight: 600;
 color: var(--text-default);
 }
 
-.system-pairings {
-align-items: flex-end;
-}
-
-.system-select {
-display: flex;
-flex-direction: column;
-gap: 8px;
-min-width: min(260px, 100%);
-}
-
-.system-select select {
-padding: 10px 12px;
+.preference-list {
+overflow: hidden;
 border: 1px solid var(--border-default);
 border-radius: 12px;
-background: var(--bg-default);
-font-size: 13px;
-font-weight: 500;
+background: var(--bg-surface);
 }
 
-.system-select select:focus-visible {
-outline: 1px solid var(--accent);
-outline-offset: 1px;
+.preference-row,
+.pairing-row {
+position: relative;
+display: flex;
+min-height: 66px;
+align-items: center;
+justify-content: space-between;
+gap: 24px;
+padding: 14px 16px;
+color: var(--text-default);
+}
+
+.preference-row + .preference-row,
+.system-pairings + .preference-row {
+border-top: 1px solid var(--border-subtle);
+}
+
+.preference-copy strong,
+.pairing-copy strong {
+font-size: 13px;
+font-weight: 600;
+color: var(--text-default);
+}
+
+.toggle-input {
+position: absolute;
+width: 1px;
+height: 1px;
+opacity: 0;
+color: var(--text-default);
+}
+
+.toggle-track {
+display: flex;
+width: 36px;
+height: 20px;
+flex: 0 0 auto;
+align-items: center;
+padding: 2px;
+border: 1px solid var(--border-strong);
+border-radius: 999px;
+background: var(--bg-elevated);
+transition:
+background-color 120ms ease,
+border-color 120ms ease;
+}
+
+.toggle-track span {
+width: 14px;
+height: 14px;
+border-radius: 50%;
+background: var(--text-muted);
+transition:
+transform 120ms ease,
+background-color 120ms ease;
+}
+
+.toggle-input:checked + .toggle-track {
 border-color: var(--accent);
+background: var(--accent);
+}
+
+.toggle-input:checked + .toggle-track span {
+transform: translateX(16px);
+background: var(--accent-text);
+}
+
+.toggle-input:focus-visible + .toggle-track {
+outline: 2px solid var(--accent);
+outline-offset: 2px;
+}
+
+.system-pairings {
+border-top: 1px solid var(--border-subtle);
+border-bottom: 1px solid var(--border-subtle);
+background: var(--bg-secondary);
+}
+
+.pairing-row + .pairing-row {
+border-top: 1px solid var(--border-subtle);
+}
+
+.segmented-control {
+display: inline-flex;
+padding: 2px;
+border: 1px solid var(--border-default);
+border-radius: 8px;
+background: var(--bg-default);
+}
+
+.segmented-control button {
+padding: 6px 12px;
+border: 0;
+border-radius: 6px;
+background: transparent;
+color: var(--text-muted);
+font-size: 12px;
+font-weight: 600;
+cursor: pointer;
+}
+
+.segmented-control button:hover,
+.segmented-control button:focus-visible {
+outline: none;
+color: var(--text-default);
+}
+
+.segmented-control button:focus-visible {
+box-shadow: 0 0 0 1px var(--accent);
+}
+
+.segmented-control button.active {
+background: var(--bg-active);
+color: var(--text-default);
+}
+
+.fixed-choice {
+padding: 6px 12px;
+border: 1px solid var(--border-default);
+border-radius: 8px;
+background: var(--bg-default);
+color: var(--text-default);
+font-size: 12px;
+font-weight: 600;
 }
 
 @media (max-width: 720px) {
-.theme-toolbar,
-.system-pairings {
-padding: 16px;
-}
-
 .theme-grid {
-grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+grid-template-columns: 1fr;
 }
 
-.system-pairings {
-align-items: stretch;
+.workspace-preview {
+height: 74px;
 }
 
-.system-select {
-min-width: 100%;
+.preference-row,
+.pairing-row {
+gap: 16px;
 }
 }
 </style>

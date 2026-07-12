@@ -27,7 +27,7 @@ Components reference semantic tokens without fallbacks (`var(--bg-default)`, not
 
 ### Theme System
 
-A deliberately small catalog of three first-party palettes is authored in `ui/app/src/styles/theme-catalog.json` and compiled by the `theme-gen` workspace binary into `ui/app/src/styles/themes/*.css`: **Dark** (Graphite Precision), **Light** (Porcelain), and **Split** (Studio).
+A deliberately small catalog of three first-party palettes is authored in `ui/app/src/styles/theme-catalog.json` and compiled by the `theme-gen` workspace binary into `ui/app/src/styles/themes/*.css`: **Dark** (Graphite Precision), **Light** (Porcelain), and **Split** (Studio). Entries carry one concise user-facing description; broad-catalog author and search-tag metadata is intentionally absent.
 
 The generated files expose 12-step ramp primitives (`--neutral-*`, `--red-*`, `--blue-*`, etc.) under `[data-theme="..."][data-tone="..."]` selectors, with OKLab interpolation between catalog endpoints. Catalog entries also emit explicit semantic surface and border overrides for design-critical chrome; sidebars and tabs must match the approved palettes rather than inherit overly gray evenly spaced neutral steps. Split emits `[data-theme="split"] .editor-surface` from an explicit editor palette and editor semantic overrides so the light writing surface can be tuned independently from the dark outer chrome.
 

@@ -7,7 +7,7 @@ const themes: ThemeEntry[] = [
 {
 name: 'dark',
 display_name: 'Dark',
-author: 'Notesmith',
+description: 'Low-glare graphite',
 tone: 'dark',
 split_surface: false,
 palette: {
@@ -22,12 +22,11 @@ magenta: '#bb9af7',
 cyan: '#7dcfff',
 white: '#a9b1d6'
 },
-tags: ['neutral', 'native']
 },
 {
 name: 'split',
 display_name: 'Split',
-author: 'Notesmith',
+description: 'Dark chrome, light editor',
 tone: 'dark',
 split_surface: true,
 palette: {
@@ -42,12 +41,11 @@ magenta: '#9b6aa0',
 cyan: '#5f9ea0',
 white: '#faf6ed'
 },
-tags: ['neutral', 'split']
 },
 {
 name: 'light',
 display_name: 'Light',
-author: 'Notesmith',
+description: 'Crisp porcelain',
 tone: 'light',
 split_surface: false,
 palette: {
@@ -62,23 +60,15 @@ magenta: '#8250df',
 cyan: '#1b7c83',
 white: '#f6f8fa'
 },
-tags: ['neutral', 'native']
 }
 ];
 
 describe('theme picker helpers', () => {
-it('filters themes by display name, tone, author, and tags', () => {
+it('filters themes by their concise user-facing identity', () => {
 expect(filterThemes(themes, 'split').map((theme) => theme.name)).toEqual(['split']);
-expect(filterThemes(themes, 'native').map((theme) => theme.name)).toEqual(['light', 'dark']);
-expect(filterThemes(themes, 'dark').map((theme) => theme.name)).toEqual([
-'dark',
-'split'
-]);
-expect(filterThemes(themes, 'notesmith').map((theme) => theme.name).sort()).toEqual([
-'dark',
-'light',
-'split'
-]);
+expect(filterThemes(themes, 'graphite').map((theme) => theme.name)).toEqual(['dark']);
+expect(filterThemes(themes, 'porcelain').map((theme) => theme.name)).toEqual(['light']);
+expect(filterThemes(themes, 'light editor').map((theme) => theme.name)).toEqual(['split']);
 });
 
 it('finds themes by exact internal name', () => {

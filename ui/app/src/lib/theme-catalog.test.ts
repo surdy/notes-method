@@ -10,14 +10,13 @@ it('defines exactly the three selected Notesmith themes', () => {
 const themeCatalog = JSON.parse(readFileSync(themeCatalogPath, 'utf8')) as Array<{
 name: string;
 display_name: string;
-author: string;
+description: string;
 tone: 'dark' | 'light';
 split_surface: boolean;
 palette: Record<string, string>;
 editor_palette?: Record<string, string>;
 semantic?: Record<string, string>;
 editor_semantic?: Record<string, string>;
-tags: string[];
 }>;
 
 expect(themeCatalog.map(({ name, display_name, tone, split_surface }) => ({
@@ -74,10 +73,9 @@ border_default: '#d9dde1'
 for (const theme of themeCatalog) {
 expect(theme.name).toMatch(/^[a-z0-9-]+$/);
 expect(theme.display_name.length).toBeGreaterThan(0);
-expect(theme.author.length).toBeGreaterThan(0);
+expect(theme.description.length).toBeGreaterThan(0);
 expect(['dark', 'light']).toContain(theme.tone);
 expect(typeof theme.split_surface).toBe('boolean');
-expect(theme.tags.length).toBeGreaterThan(0);
 expect(Object.keys(theme.palette).sort()).toEqual([...paletteKeys].sort());
 
 for (const key of paletteKeys) {

@@ -554,7 +554,7 @@
 										{/if}
 									</span>
 									<span class="theme-description">
-										{item.theme.author} · {item.theme.tags.slice(0, 2).join(' · ')}
+										{item.theme.description}
 									</span>
 								</span>
 							</span>

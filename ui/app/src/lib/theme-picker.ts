@@ -8,14 +8,7 @@ if (!trimmedQuery) return themes;
 return fuzzyFilter(
 trimmedQuery,
 themes,
-(theme) =>
-[
-theme.display_name,
-theme.name,
-theme.author,
-theme.tone,
-...theme.tags
-].join(' ')
+(theme) => [theme.display_name, theme.name, theme.description].join(' ')
 ).map((match) => match.item);
 }
 

@@ -2,7 +2,7 @@
   {
     "name": "dark",
     "display_name": "Dark",
-    "author": "Notesmith",
+    "description": "Low-glare graphite",
     "tone": "dark",
     "split_surface": false,
     "palette": {
@@ -30,17 +30,12 @@
       "border_strong": "#363b43",
       "border_subtle": "#22262b",
       "border_input": "#343941"
-    },
-    "tags": [
-      "neutral",
-      "native",
-      "high-contrast"
-    ]
+    }
   },
   {
     "name": "light",
     "display_name": "Light",
-    "author": "Notesmith",
+    "description": "Crisp porcelain",
     "tone": "light",
     "split_surface": false,
     "palette": {
@@ -68,17 +63,12 @@
       "border_strong": "#c7ccd3",
       "border_subtle": "#e8eaee",
       "border_input": "#d9dde3"
-    },
-    "tags": [
-      "neutral",
-      "native",
-      "crisp"
-    ]
+    }
   },
   {
     "name": "split",
     "display_name": "Split",
-    "author": "Notesmith",
+    "description": "Dark chrome, light editor",
     "tone": "dark",
     "split_surface": true,
     "palette": {
@@ -132,11 +122,6 @@
       "border_strong": "#cbd0d6",
       "border_subtle": "#e2e4e7",
       "border_input": "#d9dde1"
-    },
-    "tags": [
-      "neutral",
-      "native",
-      "split"
-    ]
+    }
   }
 ]
