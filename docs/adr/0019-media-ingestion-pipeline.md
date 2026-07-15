@@ -176,6 +176,13 @@ the filename. This lets refresh jobs detect changed source content, update the
 note, and trigger [ADR 0018](0018-embedding-and-vector-search.md)'s
 `content_hash`-based delete/re-embed flow.
 
+> **Extended by [ADR 0022](0022-local-drop-folder-ingestion.md):** URL-less
+> local sources (files dropped into a raw folder) have no `source_url`, so for
+> that source the identity/dedup key is the canonical vault-relative **raw path
+> plus the content hash** of the raw bytes. The rest of this ADR (worker
+> placement, provenance frontmatter, per-item resilience, chunk-boundary
+> handoff) is reused unchanged.
+
 ### 7. Hand off at the chunk boundary
 
 Ingestion does not define a second embedding pipeline. After a note is
