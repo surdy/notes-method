@@ -210,7 +210,7 @@ incompatible vectors.
 |---|----------|--------|
 | 1 | Query-time embedding | **Daemon hosts the embedder** for queries (§7) |
 | 2 | `embeddings.db` location | **Persistent `data_dir/<vault>/embeddings.db`** (the `TranscriptStore` precedent, *not* the rebuildable cache dir); daemon `ATTACH`es it read-only |
-| 3 | Worker scheduling | **Daemon spawns + supervises** an interval embed worker; `notesmith embed` also runnable manually |
+| 3 | Worker scheduling | **Daemon supervisor reconciles** an interval embed worker per live vault (spawns/reaps on runtime vault add/remove, no restart — [#258](https://github.com/surdy/notes-method/issues/258)); `notesmith embed` also runnable manually |
 | 4 | Local embedder packaging | **Cargo feature `local-embed`** (cloud/lean builds omit ONNX Runtime) + **download-on-first-run** to `data_dir`, with offline messaging |
 | 5 | Cloud embedder + API key | **Deferred** to a later phase; P0 is local-only, no credential handling |
 | 6 | Change feed | **Worker does its own filesystem walk + `content_hash`** — fully decoupled from the daemon's (rebuildable) cache index |
