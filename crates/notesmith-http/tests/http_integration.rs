@@ -3724,3 +3724,74 @@ async fn clip_duplicate_url_returns_existing_note() {
 
     server.server.abort();
 }
+
+#[tokio::test]
+async fn clip_youtube_duplicate_returns_existing_note() {
+    // A note already carrying the canonical YouTube source_url is indexed at
+    // startup; clipping the same video (with tracking/time/playlist params)
+    // must canonicalize + dedup to that note without any network fetch.
+    let existing = "---\nsource_url: https://www.youtube.com/watch?v=dQw4w9WgXcQ\nsource_type: youtube\ntags: [inbox]\n---\n\nTranscript.\n";
+    let server = TestServer::with_files(&[("Inbox/existing-video.md", existing)]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/clip"))
+        // &t= and &list= must be stripped by canonicalize_youtube_url.
+        .json(&serde_json::json!({
+            "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s&list=PL123"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["duplicate"], serde_json::json!(true));
+    assert_eq!(body["path"], serde_json::json!("Inbox/existing-video.md"));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn clip_youtube_shorturl_dedup_matches_watch_url() {
+    // A youtu.be short link canonicalizes to the same watch URL identity.
+    let existing = "---\nsource_url: https://www.youtube.com/watch?v=dQw4w9WgXcQ\nsource_type: youtube\ntags: [inbox]\n---\n\nTranscript.\n";
+    let server = TestServer::with_files(&[("Inbox/existing-video.md", existing)]).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/clip"))
+        .json(&serde_json::json!({ "url": "https://youtu.be/dQw4w9WgXcQ?t=10" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["duplicate"], serde_json::json!(true));
+    assert_eq!(body["path"], serde_json::json!("Inbox/existing-video.md"));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn clip_youtube_disabled_vault_returns_forbidden() {
+    // The YouTube branch honors the same clip.enabled gate as articles.
+    let server = TestServer::with_config_and_files(
+        "name = \"test-vault\"\n\n[capture]\nfolder = \"Inbox\"\n\n[clip]\nenabled = false\n",
+        &[],
+    )
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/clip"))
+        .json(&serde_json::json!({ "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+
+    server.server.abort();
+}

@@ -31,8 +31,8 @@ pub use url::{canonicalize_url, host_of};
 pub use youtube::{
     CaptionTrack, PlayerResponse, SOURCE_TYPE_YOUTUBE, TranscriptSegment, YoutubeMeta,
     YoutubeOutcome, YoutubeTranscript, canonicalize_youtube_url, fetch_youtube, is_youtube_url,
-    parse_player_response, parse_timedtext, render_youtube_note, select_caption_track,
-    youtube_video_id,
+    parse_player_response, parse_timedtext, render_youtube_note, render_youtube_note_with_template,
+    select_caption_track, youtube_video_id,
 };
 
 use chrono::Local;

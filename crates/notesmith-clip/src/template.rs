@@ -77,7 +77,7 @@ fn template_context(doc: &ClipDocument, ingested_at: &str, tags: &[String]) -> m
 
 /// Render `template_value` against `ctx`, returning `None` on error so callers
 /// can skip a broken frontmatter entry.
-fn render_str(
+pub(crate) fn render_str(
     env: &Environment<'_>,
     template_value: &str,
     ctx: &minijinja::Value,
@@ -93,7 +93,7 @@ fn parse_yaml_value(rendered: &str) -> Value {
 }
 
 /// Apply `template`'s extra frontmatter entries onto `fm`, rendering each value.
-fn apply_template_frontmatter(
+pub(crate) fn apply_template_frontmatter(
     fm: &mut Mapping,
     template: &ClipTemplate,
     env: &Environment<'_>,

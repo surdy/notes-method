@@ -562,7 +562,8 @@ Only `text` is required. `title` is optional — when provided it's used as the 
 Clip a web article into the vault. The daemon fetches the URL, extracts the
 readable article (title, author, published date, body), converts it to
 Markdown, and writes a new note with `source_url`/`source_type: article`
-frontmatter and an `inbox` tag.
+frontmatter and an `inbox` tag. YouTube URLs are handled as an interactive
+`source_type: youtube` on this same endpoint (see **YouTube** below).
 
 **Request body:**
 ```json
@@ -592,6 +593,16 @@ frontmatter and body per source host — see `docs/vault-configuration.md`.
 both for the requested URL and the post-redirect final URL), no new note is
 written.
 
+**YouTube:** a YouTube URL (`youtube.com`/`youtu.be`) is detected automatically
+and clipped as `source_type: youtube` on this same endpoint (ADR 0020 §8). The
+URL is canonicalized to `https://www.youtube.com/watch?v=<id>` (dropping `t`,
+`list`, `index`, and tracking params) for dedup. The daemon fetches the
+published caption track (a single bounded, SSRF-guarded `GET` — it never runs
+Whisper) and writes a note with media provenance frontmatter (`title`,
+`channel`, `published`, `duration`, `source_url`, `source_type: youtube`,
+`ingested_at`, `tags`) and a timestamped transcript body. Per-domain templates
+apply to `youtube.com`/`youtu.be` like any other host.
+
 **Response:** `201 Created` — new note written
 ```json
 {
@@ -604,11 +615,37 @@ written.
 }
 ```
 
+For a YouTube clip the response includes `source_type: "youtube"` and omits
+`images`:
+```json
+{
+  "path": "Inbox/2026-05-09 16-30-00 - Never Gonna Give You Up.md",
+  "hash": "a1b2c3...",
+  "source_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "title": "Never Gonna Give You Up",
+  "source_type": "youtube",
+  "duplicate": false
+}
+```
+
 **Response:** `200 OK` — URL already clipped (no write)
 ```json
 {
   "path": "Inbox/2026-05-01 09-00-00 - Some Article.md",
   "duplicate": true
+}
+```
+
+**Response:** `200 OK` — YouTube video with no published captions (non-fatal).
+The daemon does not transcribe; the video is handed off for Whisper
+transcription by the worker. No note is written.
+```json
+{
+  "status": "no_captions",
+  "source_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "video_id": "dQw4w9WgXcQ",
+  "source_type": "youtube",
+  "message": "no published captions; queued for transcription"
 }
 ```
 

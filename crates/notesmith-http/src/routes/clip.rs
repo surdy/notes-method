@@ -3,9 +3,11 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
+use chrono::{DateTime, Local};
 use notesmith_clip::{
-    ClipTemplate, FetchLimits, canonicalize_url, clip_url, download_and_rewrite_images, host_of,
-    render_note_with_template, select_template,
+    ClipTemplate, FetchLimits, YoutubeOutcome, canonicalize_url, canonicalize_youtube_url,
+    clip_url, download_and_rewrite_images, fetch_youtube, host_of, is_youtube_url,
+    render_note_with_template, render_youtube_note_with_template, select_template,
 };
 use notesmith_core::VaultPath;
 use serde::Deserialize;
@@ -45,6 +47,13 @@ pub async fn clip_note(
     Path(vault_name): Path<String>,
     Json(request): Json<ClipRequest>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    // YouTube is a `source_type: youtube` module on the same shared clip flow
+    // (ADR 0020 §8): detect it up front and branch, leaving the article path
+    // below unchanged for every other URL.
+    if is_youtube_url(&request.url) {
+        return clip_youtube(state, vault_name, request).await;
+    }
+
     // Snapshot the config and dedup-check under the read lock, then release it
     // before the (potentially slow) network fetch so we never hold the lock
     // across `.await` on the network.
@@ -182,6 +191,195 @@ pub async fn clip_note(
     ))
 }
 
+/// Post-fetch plan for a YouTube clip. Pure, so the outcome → note/response
+/// mapping is unit-testable without hitting the network.
+#[derive(Debug, PartialEq)]
+enum YoutubeClipPlan {
+    /// A caption track was found: write this rendered note.
+    Note {
+        content: String,
+        title: String,
+        source_url: String,
+    },
+    /// No usable captions: hand off to the Whisper worker (non-fatal).
+    NoCaptions {
+        source_url: String,
+        video_id: String,
+    },
+}
+
+/// Turn a [`YoutubeOutcome`] into a [`YoutubeClipPlan`], selecting the per-domain
+/// template (ADR 0020 §8.5) for the captions case.
+fn plan_youtube_clip(
+    outcome: YoutubeOutcome,
+    tags: &[String],
+    templates: &[ClipTemplate],
+    now: DateTime<Local>,
+) -> YoutubeClipPlan {
+    match outcome {
+        YoutubeOutcome::Captions(transcript) => {
+            let host = host_of(&transcript.meta.source_url);
+            let template = select_template(templates, &host);
+            let content = render_youtube_note_with_template(&transcript, tags, now, template);
+            let title = transcript
+                .meta
+                .title
+                .clone()
+                .unwrap_or_else(|| transcript.meta.source_url.clone());
+            YoutubeClipPlan::Note {
+                content,
+                title,
+                source_url: transcript.meta.source_url,
+            }
+        }
+        YoutubeOutcome::NoCaptions(meta) => YoutubeClipPlan::NoCaptions {
+            source_url: meta.source_url,
+            video_id: meta.video_id,
+        },
+    }
+}
+
+/// Clip a YouTube URL as a `source_type: youtube` note (ADR 0020 §8). Mirrors
+/// the article path: same `clip.enabled` gate, canonical-URL dedup, per-domain
+/// templates, inbox write, and `NoteClipped` event. Captions are fetched with a
+/// single bounded, SSRF-guarded `GET`; the daemon never runs Whisper.
+async fn clip_youtube(
+    state: SharedAppState,
+    vault_name: String,
+    request: ClipRequest,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    // Snapshot config + dedup under the read lock, release before the fetch.
+    let (clip_folder, capture_folder, templates, existing_for_input, canonical) = {
+        let state = state.read().await;
+        let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": format!("vault not found: {vault_name}") })),
+            )
+        })?;
+
+        let config = vault.vault_config.load();
+        if !config.clip.enabled {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "clipping is disabled for this vault" })),
+            ));
+        }
+
+        // Canonical identity is the watch URL; fall back to the generic
+        // canonicalizer if the id can't be parsed (dedup still best-effort).
+        let canonical = canonicalize_youtube_url(&request.url)
+            .unwrap_or_else(|| canonicalize_url(&request.url));
+        let existing = find_existing(&vault.cache, &canonical);
+        let templates: Vec<ClipTemplate> =
+            config.clip.templates.iter().map(to_clip_template).collect();
+        (
+            config.clip.folder.clone(),
+            config.capture.folder.clone(),
+            templates,
+            existing,
+            canonical,
+        )
+    };
+
+    // Fast path: the video is already clipped.
+    if let Some(path) = existing_for_input {
+        return Ok((
+            StatusCode::OK,
+            Json(json!({ "path": path, "duplicate": true })),
+        ));
+    }
+
+    // Fetch the published caption track (bounded, SSRF-guarded, no lock held).
+    let outcome = fetch_youtube(&request.url, &FetchLimits::default())
+        .await
+        .map_err(map_clip_error)?;
+
+    match plan_youtube_clip(outcome, &request.tags, &templates, chrono::Local::now()) {
+        YoutubeClipPlan::Note {
+            content,
+            title,
+            source_url,
+        } => {
+            let state = state.read().await;
+            let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": format!("vault not found: {vault_name}") })),
+                )
+            })?;
+
+            // Re-check dedup against the resolved canonical URL.
+            if source_url != canonical {
+                if let Some(path) = find_existing(&vault.cache, &source_url) {
+                    return Ok((
+                        StatusCode::OK,
+                        Json(json!({ "path": path, "duplicate": true })),
+                    ));
+                }
+            }
+
+            let folder = if !clip_folder.is_empty() {
+                clip_folder
+            } else {
+                capture_folder
+            };
+            let timestamp = chrono::Local::now().format("%Y-%m-%d %H-%M-%S").to_string();
+            let slug = sanitize_slug(&title);
+            let filename = if slug.is_empty() {
+                format!("{timestamp}.md")
+            } else {
+                format!("{timestamp} - {slug}.md")
+            };
+            let note_path = if folder.is_empty() {
+                VaultPath::new(filename)
+            } else {
+                VaultPath::new(format!("{folder}/{filename}"))
+            };
+
+            let response = write_note(&vault.engine, &vault.root, &note_path, None, &content)?;
+
+            events::emit(
+                &state.event_tx,
+                &state.event_buffer,
+                VaultEvent::new(&vault_name, EventType::NoteClipped, note_path.as_str()),
+            );
+
+            Ok((
+                StatusCode::CREATED,
+                Json(json!({
+                    "path": response.path,
+                    "hash": response.hash,
+                    "source_url": source_url,
+                    "title": title,
+                    "source_type": notesmith_clip::SOURCE_TYPE_YOUTUBE,
+                    "duplicate": false,
+                })),
+            ))
+        }
+        YoutubeClipPlan::NoCaptions {
+            source_url,
+            video_id,
+        } => {
+            // Non-fatal: no published captions. The daemon must not run Whisper
+            // (ADR 0019 §4 / ADR 0020 §8.3). No ingestion/worker queue exists in
+            // the codebase yet, so return a structured 200 rather than writing a
+            // transcript note or emitting an event.
+            // TODO(#208 P2): enqueue Whisper worker handoff
+            Ok((
+                StatusCode::OK,
+                Json(json!({
+                    "status": "no_captions",
+                    "source_url": source_url,
+                    "video_id": video_id,
+                    "source_type": notesmith_clip::SOURCE_TYPE_YOUTUBE,
+                    "message": "no published captions; queued for transcription",
+                })),
+            ))
+        }
+    }
+}
+
 /// Map a config-layer [`notesmith_config::ClipTemplate`] to the clip crate's
 /// template model.
 fn to_clip_template(template: &notesmith_config::ClipTemplate) -> ClipTemplate {
@@ -229,4 +427,103 @@ fn map_clip_error(error: notesmith_clip::ClipError) -> (StatusCode, Json<Value>)
         ClipError::Extract(_) => StatusCode::UNPROCESSABLE_ENTITY,
     };
     (status, Json(json!({ "error": error.to_string() })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notesmith_clip::{TranscriptSegment, YoutubeMeta, YoutubeTranscript};
+    use std::collections::BTreeMap;
+
+    fn meta() -> YoutubeMeta {
+        YoutubeMeta {
+            video_id: "dQw4w9WgXcQ".into(),
+            source_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".into(),
+            title: Some("Never Gonna Give You Up".into()),
+            channel: Some("Rick Astley".into()),
+            published: Some("2009-10-25".into()),
+            duration: Some(212),
+        }
+    }
+
+    fn now() -> DateTime<Local> {
+        use chrono::TimeZone;
+        Local.with_ymd_and_hms(2026, 7, 15, 12, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn captions_outcome_plans_a_note() {
+        let transcript = YoutubeTranscript {
+            meta: meta(),
+            segments: vec![TranscriptSegment {
+                start: 0.0,
+                end: 2.0,
+                text: "We're no strangers to love".into(),
+            }],
+        };
+        let plan = plan_youtube_clip(
+            YoutubeOutcome::Captions(transcript),
+            &["watch-later".into()],
+            &[],
+            now(),
+        );
+        match plan {
+            YoutubeClipPlan::Note {
+                content,
+                title,
+                source_url,
+            } => {
+                assert_eq!(title, "Never Gonna Give You Up");
+                assert_eq!(source_url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+                assert!(content.contains("source_type: youtube"));
+                assert!(content.contains("[0:00] We're no strangers to love"));
+                assert!(content.contains("- watch-later"));
+            }
+            other => panic!("expected Note, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn captions_outcome_applies_matching_template() {
+        let transcript = YoutubeTranscript {
+            meta: meta(),
+            segments: vec![TranscriptSegment {
+                start: 0.0,
+                end: 2.0,
+                text: "line".into(),
+            }],
+        };
+        let mut fm = BTreeMap::new();
+        fm.insert("channel_note".to_string(), "{{ channel }}".to_string());
+        let template = ClipTemplate {
+            match_host: "youtube.com".to_string(),
+            frontmatter: fm,
+            body: Some("# {{ title }}\n\n{{ content }}".to_string()),
+        };
+        let plan = plan_youtube_clip(
+            YoutubeOutcome::Captions(transcript),
+            &[],
+            std::slice::from_ref(&template),
+            now(),
+        );
+        match plan {
+            YoutubeClipPlan::Note { content, .. } => {
+                assert!(content.contains("channel_note: Rick Astley"));
+                assert!(content.contains("# Never Gonna Give You Up"));
+            }
+            other => panic!("expected Note, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_captions_outcome_plans_worker_handoff() {
+        let plan = plan_youtube_clip(YoutubeOutcome::NoCaptions(meta()), &[], &[], now());
+        assert_eq!(
+            plan,
+            YoutubeClipPlan::NoCaptions {
+                source_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".into(),
+                video_id: "dQw4w9WgXcQ".into(),
+            }
+        );
+    }
 }

@@ -21,6 +21,7 @@
 //! degrades to `None`/empty and never panics.
 
 use chrono::{DateTime, Local};
+use minijinja::{Environment, context};
 use serde_json::Value as Json;
 use serde_yaml::{Mapping, Value as Yaml};
 use url::Url;
@@ -28,6 +29,7 @@ use url::Url;
 use crate::error::ClipError;
 use crate::fetch::{FetchLimits, fetch_html};
 use crate::note::resolve_tags;
+use crate::template::{ClipTemplate, apply_template_frontmatter};
 
 /// The `source_type` value used for YouTube clips.
 pub const SOURCE_TYPE_YOUTUBE: &str = "youtube";
@@ -420,19 +422,8 @@ fn format_timestamp(seconds: f64) -> String {
     }
 }
 
-/// Render a [`YoutubeTranscript`] into a Markdown note with media provenance
-/// frontmatter (ADR 0019 §3) and a timestamped transcript body.
-///
-/// `extra_tags` are appended after the mandatory `inbox` tag. `now` controls the
-/// `ingested_at` timestamp.
-pub fn render_youtube_note(
-    transcript: &YoutubeTranscript,
-    extra_tags: &[String],
-    now: DateTime<Local>,
-) -> String {
-    let meta = &transcript.meta;
-    let (tag_values, _tag_strings) = resolve_tags(extra_tags);
-
+/// Media provenance frontmatter (ADR 0019 §3) for a YouTube video.
+fn youtube_frontmatter(meta: &YoutubeMeta, ingested_at: &str, tag_values: &[Yaml]) -> Mapping {
     let mut fm = Mapping::new();
     let title = meta
         .title
@@ -453,20 +444,86 @@ pub fn render_youtube_note(
     if let Some(duration) = meta.duration {
         fm.insert(Yaml::from("duration"), Yaml::from(duration));
     }
-    fm.insert(Yaml::from("ingested_at"), Yaml::from(now.to_rfc3339()));
-    fm.insert(Yaml::from("tags"), Yaml::Sequence(tag_values));
+    fm.insert(Yaml::from("ingested_at"), Yaml::from(ingested_at));
+    fm.insert(Yaml::from("tags"), Yaml::Sequence(tag_values.to_vec()));
+    fm
+}
+
+/// The timestamped transcript body (`[M:SS] text` per line).
+fn transcript_body(transcript: &YoutubeTranscript) -> String {
+    transcript
+        .segments
+        .iter()
+        .map(|seg| format!("[{}] {}", format_timestamp(seg.start), seg.text))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Render a [`YoutubeTranscript`] into a Markdown note with media provenance
+/// frontmatter (ADR 0019 §3) and a timestamped transcript body.
+///
+/// `extra_tags` are appended after the mandatory `inbox` tag. `now` controls the
+/// `ingested_at` timestamp.
+pub fn render_youtube_note(
+    transcript: &YoutubeTranscript,
+    extra_tags: &[String],
+    now: DateTime<Local>,
+) -> String {
+    render_youtube_note_with_template(transcript, extra_tags, now, None)
+}
+
+/// Render a [`YoutubeTranscript`] into a Markdown note, optionally applying a
+/// per-domain `template` ([`ClipTemplate`]) — the media equivalent of
+/// [`crate::render_note_with_template`] (ADR 0020 §8.5).
+///
+/// The minijinja context exposes `title`, `source_url`, `source_type`,
+/// `channel`, `published`, `duration`, `content` (the timestamped transcript),
+/// `host`, `ingested_at`, and `tags`. Rendering is resilient: a broken template
+/// body degrades to the default transcript body (ADR 0009).
+pub fn render_youtube_note_with_template(
+    transcript: &YoutubeTranscript,
+    extra_tags: &[String],
+    now: DateTime<Local>,
+    template: Option<&ClipTemplate>,
+) -> String {
+    let meta = &transcript.meta;
+    let (tag_values, tag_strings) = resolve_tags(extra_tags);
+    let ingested_at = now.to_rfc3339();
+
+    let mut fm = youtube_frontmatter(meta, &ingested_at, &tag_values);
+    let default_body = transcript_body(transcript);
+
+    let body = if let Some(template) = template {
+        let env = Environment::new();
+        let ctx = context! {
+            title => meta.title.clone().unwrap_or_else(|| meta.source_url.clone()),
+            source_url => meta.source_url.clone(),
+            source_type => SOURCE_TYPE_YOUTUBE,
+            channel => meta.channel.clone(),
+            published => meta.published.clone(),
+            duration => meta.duration,
+            content => default_body.clone(),
+            host => crate::url::host_of(&meta.source_url),
+            ingested_at => ingested_at.clone(),
+            tags => tag_strings.clone(),
+        };
+        apply_template_frontmatter(&mut fm, template, &env, &ctx);
+        match &template.body {
+            Some(body_tpl) => env
+                .render_str(body_tpl, &ctx)
+                .unwrap_or_else(|_| default_body.clone())
+                .trim()
+                .to_string(),
+            None => default_body.trim().to_string(),
+        }
+    } else {
+        default_body
+    };
 
     let yaml = serde_yaml::to_string(&Yaml::Mapping(fm))
         .unwrap_or_default()
         .trim_end()
         .to_string();
-
-    let body = transcript
-        .segments
-        .iter()
-        .map(|seg| format!("[{}] {}", format_timestamp(seg.start), seg.text))
-        .collect::<Vec<_>>()
-        .join("\n");
 
     format!("---\n{yaml}\n---\n\n{body}\n")
 }
@@ -721,6 +778,59 @@ mod tests {
         assert!(!note.contains("channel:"));
         assert!(!note.contains("published:"));
         assert!(!note.contains("duration:"));
+    }
+
+    #[test]
+    fn template_adds_media_frontmatter_and_body() {
+        use std::collections::BTreeMap;
+        let mut fm = BTreeMap::new();
+        fm.insert("category".to_string(), "{{ host }}".to_string());
+        fm.insert("secs".to_string(), "{{ duration }}".to_string());
+        let template = ClipTemplate {
+            match_host: "youtube.com".to_string(),
+            frontmatter: fm,
+            body: Some(
+                "# {{ title }}\n\n> {{ channel }} on {{ published }}\n\n{{ content }}".to_string(),
+            ),
+        };
+        let note = render_youtube_note_with_template(
+            &sample_transcript(),
+            &[],
+            fixed_now(),
+            Some(&template),
+        );
+        assert!(note.contains("category: www.youtube.com"));
+        // Numeric YAML scalar, not a quoted string.
+        assert!(note.contains("secs: 212"));
+        assert!(note.contains("# Never Gonna Give You Up"));
+        assert!(note.contains("> Rick Astley on 2009-10-25"));
+        assert!(note.contains("[0:00] We're no strangers to love"));
+        assert!(note.contains("source_type: youtube"));
+    }
+
+    #[test]
+    fn broken_template_body_falls_back_to_transcript() {
+        let template = ClipTemplate {
+            match_host: "youtube.com".to_string(),
+            frontmatter: std::collections::BTreeMap::new(),
+            body: Some("{{ unclosed".to_string()),
+        };
+        let note = render_youtube_note_with_template(
+            &sample_transcript(),
+            &[],
+            fixed_now(),
+            Some(&template),
+        );
+        assert!(note.contains("[0:00] We're no strangers to love"));
+        assert!(note.contains("source_type: youtube"));
+    }
+
+    #[test]
+    fn none_template_matches_render_youtube_note() {
+        let with_none =
+            render_youtube_note_with_template(&sample_transcript(), &[], fixed_now(), None);
+        let plain = render_youtube_note(&sample_transcript(), &[], fixed_now());
+        assert_eq!(with_none, plain);
     }
 
     #[tokio::test]
