@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted (2026-07-09).
+Accepted (2026-07-09). Amended (2026-07-15) to cover **YouTube as an interactive
+source type** — see [§8](#8-youtube-is-an-interactive-source-type-on-the-shared-path).
 
 Amends [ADR 0019](0019-media-ingestion-pipeline.md) §4 (placement) for the
 narrow case of user-initiated article clips. Reuses ADR 0019's article
@@ -12,7 +13,9 @@ resilience unchanged, and hands the resulting note to
 Builds on the existing capture path ([`capture.rs`](../../crates/notesmith-http/src/routes/capture.rs),
 `CaptureConfig`) and the routing engine (`notesmith-routing`).
 
-Tracking issue: [#261](https://github.com/surdy/notes-method/issues/261).
+Tracking issues: [#261](https://github.com/surdy/notes-method/issues/261)
+(article clipper, done), [#208](https://github.com/surdy/notes-method/issues/208)
+(YouTube-as-source, §8).
 
 ## Context
 
@@ -165,6 +168,54 @@ prerequisites for that follow-up, not blockers for it.
 - **Minimal browser extension** — Manifest V3 toolbar button; config = base URL
   + vault picker (via `GET /api/app/vaults`); POSTs the current tab's URL. No
   client-side extraction.
+
+### 8. YouTube is an interactive source type on the shared path
+
+This section extends the clipper to YouTube, resolving the ambiguity between the
+standalone `youtube_transcript` MCP tool ([#208](https://github.com/surdy/notes-method/issues/208),
+[ADR 0019](0019-media-ingestion-pipeline.md) P1) and the interactive clipper.
+They are **not two implementations**: YouTube is a `source_type` on the same
+shared extraction/ingestion library from §2, with two thin entry points.
+
+**8.1 Same shared library, new source module.** Caption-track fetch, segment
+normalization, timestamp preservation, canonical-URL dedup, and provenance
+frontmatter for YouTube live in the same crate as article extraction
+(`notesmith-clip` / shared `ingestion`), behind the ADR 0019 §1 `Source` trait.
+No forked YouTube fetch/parse path may exist. This is the §2 rule applied to a
+second source type.
+
+**8.2 The clip endpoint detects source type.** `POST /api/v/{vault}/clip` (§3)
+classifies the incoming `url`. A YouTube URL is canonicalized (strip `&t=`,
+`&list=`, `&index=`, and tracking params; identity is the canonical video URL
+plus `source_type: youtube` per [ADR 0019](0019-media-ingestion-pipeline.md) §6),
+dedup-checked against the `source_url` field, then routed to the YouTube source
+module. All other §3 steps (template render, inbox write, `NoteClipped` event,
+routing) are unchanged. Frontmatter follows
+[ADR 0019](0019-media-ingestion-pipeline.md) §3 for media:
+`source_type: youtube`, `title`, `channel`, `published`, `duration`,
+`source_url`, `ingested_at`, plus `tags: [inbox, ...]`. Segment timestamps are
+preserved as `media_ts_start` / `media_ts_end` at the chunk handoff so search
+results deep-link to the moment.
+
+**8.3 Captions in-daemon; Whisper stays worker-only.** A published caption track
+is a single bounded `GET` — the same shape as the §1 article carve-out — so
+fetching it interactively inside the daemon is allowed, under the §6 SSRF guard
+and bounded-fetch limits. **If no usable caption track exists, the daemon does
+not transcribe.** It returns a clear, non-fatal result and hands the video to the
+[ADR 0019](0019-media-ingestion-pipeline.md) §4 CLI worker for Whisper fallback.
+ADR 0019 §4 is otherwise unchanged: the daemon still never runs Whisper and never
+fetches media in bulk.
+
+**8.4 The MCP tool is a thin wrapper.** The `youtube_transcript` MCP tool (#208)
+calls the same source module and returns the transcript text (and, where useful,
+the normalized note). It is a second entry point over the shared library, not a
+parallel extractor — matching the §2 / "one extraction code path" invariant.
+Because it is agent-invoked and may run against a remote daemon, it obeys the
+same captions-in-daemon / Whisper-in-worker boundary as §8.3.
+
+**8.5 Per-domain templates cover YouTube.** The §4 `ClipConfig` template list
+matches `youtube.com` / `youtu.be` like any other domain, with access to the
+media variables (`channel`, `duration`, `published`, timestamped `content`).
 
 ## Consequences
 

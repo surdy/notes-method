@@ -88,6 +88,11 @@ Each source type has a different cheapest reliable path:
   usable caption track exists, fall back to Whisper over the audio and keep
   segment timestamps.
 
+> **Extended by [ADR 0020](0020-web-clipper.md) §8:** YouTube is also an
+> *interactive* clip source. A user-initiated caption-track fetch is a bounded
+> `GET` and may run inside the daemon (like the article carve-out); only the
+> **no-captions Whisper fallback** stays worker-only.
+
 For media, segment timestamps are mandatory. They become
 `media_ts_start` / `media_ts_end` on [ADR 0018](0018-embedding-and-vector-search.md)
 chunks so search results can deep-link to the moment, not merely cite the note.
@@ -225,7 +230,11 @@ fork those decisions.
 2. **P1 — YouTube transcript ingestion.** Implement
    [#208](https://github.com/surdy/notes-method/issues/208): fetch published
    caption/transcript tracks, normalize segments, preserve timestamps, and hand
-   timestamped content to [ADR 0018](0018-embedding-and-vector-search.md).
+   timestamped content to [ADR 0018](0018-embedding-and-vector-search.md). Per
+   [ADR 0020](0020-web-clipper.md) §8, this ships as a `source_type: youtube`
+   module on the shared clip/ingestion library with two entry points (the
+   interactive clip endpoint and the `youtube_transcript` MCP tool), not a
+   standalone extractor.
 3. **P2 — podcast/audio ingestion via local Whisper.** Add audio fetch and local
    transcription, adjacent to [#204](https://github.com/surdy/notes-method/issues/204)
    and [#205](https://github.com/surdy/notes-method/issues/205). Store segment
