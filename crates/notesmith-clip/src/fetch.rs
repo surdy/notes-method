@@ -57,6 +57,23 @@ pub struct FetchedBytes {
     pub content_type: Option<String>,
 }
 
+/// Optional overrides for a single request: HTTP method/body, extra request
+/// headers, and a `User-Agent` override. `Default` yields a plain `GET` with
+/// the limits' `User-Agent` and no extra headers.
+///
+/// Used by the YouTube source to POST to YouTube's InnerTube API with the
+/// `Origin`/`Referer`/`User-Agent` headers the (unofficial) endpoint requires
+/// ([ADR 0020](../../docs/adr/0020-web-clipper.md) §8).
+#[derive(Debug, Clone, Default)]
+pub struct RequestSpec {
+    /// When set, issue a `POST` with this `(body, content_type)`; otherwise `GET`.
+    pub post_body: Option<(Vec<u8>, String)>,
+    /// Extra request headers to set (e.g. `Origin`, `Referer`).
+    pub extra_headers: Vec<(String, String)>,
+    /// Overrides the limits' `User-Agent` for this request.
+    pub user_agent: Option<String>,
+}
+
 fn require_http(url: &Url) -> Result<(), ClipError> {
     match url.scheme() {
         "http" | "https" => Ok(()),
@@ -80,7 +97,39 @@ pub async fn fetch_html(url: &str, limits: &FetchLimits) -> Result<FetchedPage, 
 /// SSRF validation and size/time bounds. Shares the redirect/SSRF loop with
 /// [`fetch_html`].
 pub async fn fetch_bytes(url: &str, limits: &FetchLimits) -> Result<FetchedBytes, ClipError> {
+    fetch_request(url, &RequestSpec::default(), limits).await
+}
+
+/// POST `body` (with `content_type`) to `url` and return the raw response
+/// bytes, following redirects manually with SSRF validation and size/time
+/// bounds. `extra_headers` and `user_agent` let callers satisfy APIs (such as
+/// YouTube's InnerTube endpoint) that require specific `Origin`/`Referer`/UA
+/// headers ([ADR 0020](../../docs/adr/0020-web-clipper.md) §8).
+pub async fn fetch_json_post(
+    url: &str,
+    body: Vec<u8>,
+    content_type: &str,
+    extra_headers: Vec<(String, String)>,
+    user_agent: Option<String>,
+    limits: &FetchLimits,
+) -> Result<FetchedBytes, ClipError> {
+    let spec = RequestSpec {
+        post_body: Some((body, content_type.to_string())),
+        extra_headers,
+        user_agent,
+    };
+    fetch_request(url, &spec, limits).await
+}
+
+/// Core fetch loop: issues the request described by `spec`, following redirects
+/// manually with per-hop SSRF validation and size/time bounds.
+pub async fn fetch_request(
+    url: &str,
+    spec: &RequestSpec,
+    limits: &FetchLimits,
+) -> Result<FetchedBytes, ClipError> {
     let mut current = Url::parse(url).map_err(|e| ClipError::InvalidUrl(e.to_string()))?;
+    let user_agent = spec.user_agent.as_deref().unwrap_or(&limits.user_agent);
 
     for _ in 0..=limits.max_redirects {
         require_http(&current)?;
@@ -97,13 +146,23 @@ pub async fn fetch_bytes(url: &str, limits: &FetchLimits) -> Result<FetchedBytes
         let client = reqwest::Client::builder()
             .timeout(limits.timeout)
             .redirect(Policy::none())
-            .user_agent(&limits.user_agent)
+            .user_agent(user_agent)
             .resolve_to_addrs(&host, &addrs)
             .build()
             .map_err(|e| ClipError::Fetch(e.to_string()))?;
 
-        let resp = client
-            .get(current.clone())
+        let mut req = match &spec.post_body {
+            Some((body, content_type)) => client
+                .post(current.clone())
+                .header(reqwest::header::CONTENT_TYPE, content_type)
+                .body(body.clone()),
+            None => client.get(current.clone()),
+        };
+        for (name, value) in &spec.extra_headers {
+            req = req.header(name.as_str(), value.as_str());
+        }
+
+        let resp = req
             .send()
             .await
             .map_err(|e| ClipError::Fetch(e.to_string()))?;

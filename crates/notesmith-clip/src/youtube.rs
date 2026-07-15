@@ -27,12 +27,21 @@ use serde_yaml::{Mapping, Value as Yaml};
 use url::Url;
 
 use crate::error::ClipError;
-use crate::fetch::{FetchLimits, fetch_html};
+use crate::fetch::{FetchLimits, fetch_html, fetch_json_post};
 use crate::note::resolve_tags;
 use crate::template::{ClipTemplate, apply_template_frontmatter};
 
 /// The `source_type` value used for YouTube clips.
 pub const SOURCE_TYPE_YOUTUBE: &str = "youtube";
+
+/// YouTube's unofficial InnerTube player endpoint. Fetched with the ANDROID
+/// client context below, it returns caption `baseUrl`s that serve real
+/// timedtext — unlike the watch page's `ytInitialPlayerResponse` baseUrls,
+/// which are PoToken/session-locked and return empty bodies to plain scrapes
+/// ([ADR 0020](../../docs/adr/0020-web-clipper.md) §8).
+const INNERTUBE_PLAYER_URL: &str = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
+/// Pinned ANDROID client version for the InnerTube context.
+const INNERTUBE_CLIENT_VERSION: &str = "20.10.38";
 
 /// Hosts recognized as YouTube.
 const YOUTUBE_HOSTS: &[&str] = &[
@@ -299,18 +308,26 @@ fn json_str(v: &Json, path: &[&str]) -> Option<String> {
 pub fn parse_player_response(html: &str) -> Option<PlayerResponse> {
     let raw = extract_json_object_after(html, "ytInitialPlayerResponse")?;
     let json: Json = serde_json::from_str(raw).ok()?;
+    Some(parse_player_json(&json))
+}
 
-    let title = json_str(&json, &["videoDetails", "title"]);
-    let channel = json_str(&json, &["videoDetails", "author"]);
+/// Parse a player-response JSON value (as returned by the InnerTube
+/// `/youtubei/v1/player` endpoint, or embedded as `ytInitialPlayerResponse`)
+/// into a [`PlayerResponse`].
+///
+/// Resilient (ADR 0009): every field degrades to `None`/empty independently.
+pub fn parse_player_json(json: &Json) -> PlayerResponse {
+    let title = json_str(json, &["videoDetails", "title"]);
+    let channel = json_str(json, &["videoDetails", "author"]);
     let duration =
-        json_str(&json, &["videoDetails", "lengthSeconds"]).and_then(|s| s.parse::<u64>().ok());
+        json_str(json, &["videoDetails", "lengthSeconds"]).and_then(|s| s.parse::<u64>().ok());
     let published = json_str(
-        &json,
+        json,
         &["microformat", "playerMicroformatRenderer", "publishDate"],
     )
     .or_else(|| {
         json_str(
-            &json,
+            json,
             &["microformat", "playerMicroformatRenderer", "uploadDate"],
         )
     });
@@ -338,13 +355,13 @@ pub fn parse_player_response(html: &str) -> Option<PlayerResponse> {
         }
     }
 
-    Some(PlayerResponse {
+    PlayerResponse {
         title,
         channel,
         published,
         duration,
         caption_tracks,
-    })
+    }
 }
 
 /// Select the best caption track: prefer a manual (non-ASR) track in
@@ -365,9 +382,60 @@ pub fn select_caption_track<'a>(
 
 /// Parse a YouTube `timedtext` XML body into ordered [`TranscriptSegment`]s.
 ///
+/// Handles both timedtext formats returned by YouTube:
+/// - **srv3** (`fmt=srv3`, what the InnerTube ANDROID track serves):
+///   `<p t="ms" d="ms">...<s>word</s>...</p>` — times in **milliseconds**,
+///   text optionally split across nested `<s>` word tags.
+/// - **legacy** (`<text start="s" dur="s">...</text>`): times in **seconds**.
+///
 /// Resilient: malformed or partial entries are skipped; a body with no parseable
-/// `<text>` entries yields an empty vec (treated as "no captions" by callers).
+/// entries yields an empty vec (treated as "no captions" by callers).
 pub fn parse_timedtext(xml: &str) -> Vec<TranscriptSegment> {
+    let srv3 = parse_timedtext_srv3(xml);
+    if !srv3.is_empty() {
+        return srv3;
+    }
+    parse_timedtext_legacy(xml)
+}
+
+/// Parse the srv3 `<p t="ms" d="ms">` format (milliseconds).
+fn parse_timedtext_srv3(xml: &str) -> Vec<TranscriptSegment> {
+    let mut segments = Vec::new();
+    let mut rest = xml;
+    while let Some(open) = rest.find("<p ") {
+        let after_open = &rest[open..];
+        let Some(gt) = after_open.find('>') else {
+            break;
+        };
+        let attrs = &after_open[..gt];
+        let body_and_rest = &after_open[gt + 1..];
+        let (inner, next) = match body_and_rest.find("</p>") {
+            Some(close) => (&body_and_rest[..close], &body_and_rest[close + 4..]),
+            None => (body_and_rest, ""),
+        };
+        rest = next;
+
+        let Some(start_ms) = attr_value(attrs, "t").and_then(|s| s.parse::<f64>().ok()) else {
+            continue;
+        };
+        let dur_ms = attr_value(attrs, "d")
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        let text = decode_entities(&strip_tags(inner)).trim().to_string();
+        if text.is_empty() {
+            continue;
+        }
+        segments.push(TranscriptSegment {
+            start: start_ms / 1000.0,
+            end: (start_ms + dur_ms) / 1000.0,
+            text,
+        });
+    }
+    segments
+}
+
+/// Parse the legacy `<text start="s" dur="s">` format (seconds).
+fn parse_timedtext_legacy(xml: &str) -> Vec<TranscriptSegment> {
     let mut segments = Vec::new();
     let mut rest = xml;
     while let Some(open) = rest.find("<text") {
@@ -530,18 +598,19 @@ pub fn render_youtube_note_with_template(
 
 /// Fetch and normalize a YouTube video's *published caption track*.
 ///
-/// Reuses the SSRF-guarded, bounded [`fetch_html`] for both the watch page and
-/// the timedtext track. Returns [`YoutubeOutcome::NoCaptions`] (non-fatal) when
-/// no usable caption track exists — the caller hands off to the Whisper worker.
-/// This function never transcribes audio (ADR 0019 §4 / ADR 0020 §8.3).
+/// Uses YouTube's InnerTube `/youtubei/v1/player` endpoint with the ANDROID
+/// client context to obtain caption `baseUrl`s that actually serve timedtext
+/// (the watch-page baseUrls are PoToken-locked). Both the player POST and the
+/// timedtext GET go through the SSRF-guarded, bounded fetch path. Returns
+/// [`YoutubeOutcome::NoCaptions`] (non-fatal) when no usable caption track
+/// exists — the caller hands off to the Whisper worker. This function never
+/// transcribes audio (ADR 0019 §4 / ADR 0020 §8.3).
 pub async fn fetch_youtube(url: &str, limits: &FetchLimits) -> Result<YoutubeOutcome, ClipError> {
     let video_id = youtube_video_id(url)
         .ok_or_else(|| ClipError::InvalidUrl(format!("not a YouTube video URL: {url}")))?;
     let source_url = format!("https://www.youtube.com/watch?v={video_id}");
 
-    let page = fetch_html(&source_url, limits).await?;
-    let player = parse_player_response(&page.html)
-        .ok_or_else(|| ClipError::Extract("could not parse YouTube player response".to_string()))?;
+    let player = fetch_innertube_player(&video_id, limits).await?;
 
     let meta = YoutubeMeta {
         video_id,
@@ -566,6 +635,52 @@ pub async fn fetch_youtube(url: &str, limits: &FetchLimits) -> Result<YoutubeOut
         meta,
         segments,
     }))
+}
+
+/// POST the ANDROID InnerTube player request for `video_id` and parse the
+/// response into a [`PlayerResponse`].
+async fn fetch_innertube_player(
+    video_id: &str,
+    limits: &FetchLimits,
+) -> Result<PlayerResponse, ClipError> {
+    let body = serde_json::json!({
+        "context": {
+            "client": {
+                "clientName": "ANDROID",
+                "clientVersion": INNERTUBE_CLIENT_VERSION,
+                "androidSdkVersion": 30,
+                "hl": "en",
+                "gl": "US",
+            }
+        },
+        "videoId": video_id,
+    });
+    let body = serde_json::to_vec(&body).map_err(|e| ClipError::Fetch(e.to_string()))?;
+
+    let user_agent =
+        format!("com.google.android.youtube/{INNERTUBE_CLIENT_VERSION} (Linux; U; Android 11)");
+    let headers = vec![
+        ("Origin".to_string(), "https://www.youtube.com".to_string()),
+        (
+            "Referer".to_string(),
+            "https://www.youtube.com/".to_string(),
+        ),
+    ];
+
+    let resp = fetch_json_post(
+        INNERTUBE_PLAYER_URL,
+        body,
+        "application/json",
+        headers,
+        Some(user_agent),
+        limits,
+    )
+    .await?;
+
+    let json: Json = serde_json::from_slice(&resp.bytes).map_err(|_| {
+        ClipError::Extract("could not parse YouTube InnerTube player response".to_string())
+    })?;
+    Ok(parse_player_json(&json))
 }
 
 #[cfg(test)]
@@ -715,6 +830,38 @@ mod tests {
     fn empty_timedtext_yields_no_segments() {
         assert!(parse_timedtext("<transcript></transcript>").is_empty());
         assert!(parse_timedtext("garbage not xml").is_empty());
+    }
+
+    const TIMEDTEXT_SRV3: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<timedtext format="3">
+<body>
+<p t="0" d="3360"><s>We&#39;re</s><s> no</s><s> strangers</s></p>
+<p t="3360" d="2640">You know the &lt;rules&gt; &amp; so do I</p>
+<p t="6000" d="2000"> </p>
+<p t="8000" d="4000">A full commitment</p>
+</body>
+</timedtext>"#;
+
+    #[test]
+    fn parses_srv3_timedtext_milliseconds() {
+        let segs = parse_timedtext(TIMEDTEXT_SRV3);
+        assert_eq!(segs.len(), 3); // blank segment skipped
+        assert_eq!(segs[0].start, 0.0);
+        assert!((segs[0].end - 3.36).abs() < 1e-9);
+        assert_eq!(segs[0].text, "We're no strangers");
+        assert_eq!(segs[1].start, 3.36);
+        assert_eq!(segs[1].text, "You know the <rules> & so do I");
+        assert_eq!(segs[2].start, 8.0);
+        assert!((segs[2].end - 12.0).abs() < 1e-9);
+        assert_eq!(segs[2].text, "A full commitment");
+    }
+
+    #[test]
+    fn srv3_preferred_over_legacy_when_both_present() {
+        // A body containing srv3 <p> tags must parse as srv3 (ms), not legacy.
+        let segs = parse_timedtext(r#"<p t="1500" d="500">hi</p>"#);
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].start, 1.5);
     }
 
     #[test]

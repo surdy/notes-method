@@ -206,6 +206,24 @@ not transcribe.** It returns a clear, non-fatal result and hands the video to th
 ADR 0019 §4 is otherwise unchanged: the daemon still never runs Whisper and never
 fetches media in bulk.
 
+**8.3.1 Caption tracks come from the InnerTube player API, not the watch page.**
+The caption `baseUrl`s embedded in a watch page's `ytInitialPlayerResponse` are
+PoToken/session-locked and return empty bodies to a plain server-side scrape
+(confirmed by smoke test; the same wall that breaks `youtube-transcript-api`).
+To obtain caption tracks that actually serve timedtext, the source module POSTs
+to YouTube's unofficial InnerTube endpoint
+(`https://www.youtube.com/youtubei/v1/player`) with the **ANDROID client
+context** and matching `Origin`/`Referer`/`User-Agent` headers, then reads the
+caption `baseUrl`s from that response. This mirrors how Obsidian's clipper
+(via its Defuddle extractor) fetches transcripts. The tradeoff is a dependency
+on a private API and a pinned client version — an accepted, contained
+maintenance surface: the blast radius is a single POST-plus-parse path inside
+`notesmith-clip::youtube`, still under the §6 SSRF guard and bounded-fetch
+limits, and callers (§8.2 clip endpoint, §8.4 MCP tool) consume `fetch_youtube`
+unchanged. The timedtext parser accepts both the **srv3** `<p t="ms" d="ms">`
+format (what the InnerTube ANDROID track serves) and the legacy
+`<text start="s" dur="s">` format.
+
 **8.4 The MCP tool is a thin wrapper.** The `youtube_transcript` MCP tool (#208)
 calls the same source module and returns the transcript text (and, where useful,
 the normalized note). It is a second entry point over the shared library, not a
