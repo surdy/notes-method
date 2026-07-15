@@ -39,6 +39,14 @@ pub struct EmbeddingStats {
     pub sample_count: usize,
     /// Unix seconds of the last embeddings.db write, if the file exists.
     pub last_ingest_at: Option<u64>,
+    /// Whether an embed pass is currently running for this vault (#260).
+    pub running: bool,
+    /// Total notes the current (or most recent) pass will visit.
+    pub notes_total: u64,
+    /// Notes visited so far in the current (or most recent) pass.
+    pub notes_done: u64,
+    /// Unix seconds when the current (or most recent) pass began, if any.
+    pub started_at: Option<u64>,
 }
 
 pub async fn get_embedding_stats(
@@ -66,6 +74,10 @@ pub async fn get_embedding_stats(
     let metrics = notesmith_embed::metrics_for(&vault_name);
     let (p50_ms, p95_ms) = metrics.percentiles();
     let sample_count = metrics.sample_count();
+
+    // Live worker progress: authoritative running/total/done for the current
+    // (or most recent) pass, so the UI can show a determinate bar (#260).
+    let progress = notesmith_embed::progress_for(&vault_name).snapshot();
 
     // File-level facts: size + last-write time. Absent file => never embedded.
     let (db_bytes, last_ingest_at) = match std::fs::metadata(&db_path) {
@@ -102,5 +114,9 @@ pub async fn get_embedding_stats(
         p95_ms,
         sample_count,
         last_ingest_at,
+        running: progress.running,
+        notes_total: progress.notes_total,
+        notes_done: progress.notes_done,
+        started_at: progress.started_at,
     }))
 }

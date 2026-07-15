@@ -80,6 +80,10 @@ impl<'a> EmbedWorker<'a> {
         let mut seen = std::collections::HashSet::new();
         let mut report = WorkerReport::default();
 
+        // Collect the candidate note list up front so the pass has a known
+        // total for the live progress signal (#260). This walk only reads
+        // directory entries, not file contents.
+        let mut notes: Vec<(PathBuf, String)> = Vec::new();
         for entry in WalkDir::new(&self.vault_root)
             .into_iter()
             .filter_entry(|e| e.depth() == 0 || !is_hidden(e.path()))
@@ -102,8 +106,17 @@ impl<'a> EmbedWorker<'a> {
                 None => continue,
             };
             seen.insert(rel.clone());
+            notes.push((entry.path().to_path_buf(), rel));
+        }
 
-            match self.process_note(entry.path(), &rel, &stored) {
+        // Publish the live progress signal for the stats endpoint. `finish()`
+        // below runs on every non-panicking exit path (the loops handle their
+        // own errors, so no `?` escapes between here and there).
+        let progress = crate::progress_for(&self.vault_name);
+        progress.begin(notes.len() as u64);
+
+        for (abs_path, rel) in &notes {
+            match self.process_note(abs_path, rel, &stored) {
                 Ok(Outcome::Skipped) => report.skipped += 1,
                 Ok(Outcome::Embedded { chunks }) => {
                     report.embedded += 1;
@@ -119,6 +132,7 @@ impl<'a> EmbedWorker<'a> {
                     );
                 }
             }
+            progress.advance();
         }
 
         // Notes present in the store but no longer on disk → delete.
@@ -132,6 +146,7 @@ impl<'a> EmbedWorker<'a> {
             }
         }
 
+        progress.finish();
         Ok(report)
     }
 
@@ -367,5 +382,28 @@ mod tests {
             .unwrap();
         assert_eq!(report.embedded, 1);
         assert_eq!(report.failed, 0);
+    }
+
+    #[test]
+    fn run_publishes_completed_progress_snapshot() {
+        let vault = TempDir::new().unwrap();
+        write(vault.path(), "a.md", "alpha content here");
+        write(vault.path(), "sub/b.md", "beta content here");
+        let data = TempDir::new().unwrap();
+        let store = open_store(&data);
+        let emb = HashEmbedder::new(64);
+
+        // A unique vault name keeps this pass's progress isolated in the
+        // process-global registry.
+        let vault_name = "progress-worker-test-vault";
+        EmbedWorker::new(vault_name, vault.path(), &store, &emb)
+            .run()
+            .unwrap();
+
+        let snap = crate::progress_for(vault_name).snapshot();
+        assert!(!snap.running, "pass should be finished");
+        assert_eq!(snap.notes_total, 2);
+        assert_eq!(snap.notes_done, 2);
+        assert!(snap.started_at.is_some());
     }
 }

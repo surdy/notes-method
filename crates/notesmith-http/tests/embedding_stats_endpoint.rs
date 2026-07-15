@@ -87,6 +87,12 @@ async fn embedding_stats_reports_vectors_and_empty_index() {
     assert!(body["last_ingest_at"].as_u64().is_some());
     assert!(body["p50_ms"].is_number());
     assert!(body["p95_ms"].is_number());
+    // Progress fields are always present (#260); after the setup pass the
+    // vault is not running and totals reflect the completed pass.
+    assert!(body["running"].is_boolean());
+    assert_eq!(body["running"].as_bool().unwrap(), false);
+    assert!(body["notes_total"].as_u64().is_some());
+    assert!(body["notes_done"].as_u64().is_some());
 
     // Empty vault: valid response, zero vectors, no dim/embedder.
     let empty: serde_json::Value =

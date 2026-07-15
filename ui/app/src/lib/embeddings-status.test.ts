@@ -64,6 +64,17 @@ describe('isIndexingInProgress', () => {
 		const current = stats({ vector_count: 10, last_ingest_at: 100 });
 		expect(isIndexingInProgress(prev, current)).toBe(false);
 	});
+
+	it('prefers the authoritative running flag over inference', () => {
+		// running:false wins even when the vector count climbed between polls.
+		const prev = stats({ vector_count: 10 });
+		const current = stats({ vector_count: 20, running: false });
+		expect(isIndexingInProgress(prev, current)).toBe(false);
+	});
+
+	it('reports running:true on the first poll (no inference needed)', () => {
+		expect(isIndexingInProgress(null, stats({ running: true }))).toBe(true);
+	});
 });
 
 describe('deriveEmbeddingStatusView', () => {
@@ -124,5 +135,52 @@ describe('deriveEmbeddingStatusView', () => {
 		);
 		expect(view.p50Ms).toBeNull();
 		expect(view.p95Ms).toBeNull();
+	});
+
+	it('exposes a determinate progress bar while indexing with known totals', () => {
+		const view = deriveEmbeddingStatusView(
+			true,
+			stats({ vector_count: 120, notes_total: 1340, notes_done: 612, running: true }),
+			true
+		);
+		expect(view.state).toBe('indexing');
+		expect(view.determinate).toBe(true);
+		expect(view.notesTotal).toBe(1340);
+		expect(view.notesDone).toBe(612);
+		expect(view.percent).toBe(46);
+	});
+
+	it('falls back to indeterminate when totals are absent (old daemon)', () => {
+		const view = deriveEmbeddingStatusView(
+			true,
+			stats({ vector_count: 120, running: true }),
+			true
+		);
+		expect(view.state).toBe('indexing');
+		expect(view.determinate).toBe(false);
+		expect(view.percent).toBeNull();
+		expect(view.notesTotal).toBeNull();
+	});
+
+	it('treats a running first pass over an empty index as indexing, not never-indexed', () => {
+		const view = deriveEmbeddingStatusView(
+			true,
+			stats({ vector_count: 0, last_ingest_at: null, notes_total: 50, notes_done: 3, running: true }),
+			true
+		);
+		expect(view.state).toBe('indexing');
+		expect(view.percent).toBe(6);
+	});
+
+	it('clears progress fields once the pass is no longer indexing', () => {
+		const view = deriveEmbeddingStatusView(
+			true,
+			stats({ vector_count: 200, last_ingest_at: 100, notes_total: 50, notes_done: 50 }),
+			false
+		);
+		expect(view.state).toBe('ready');
+		expect(view.notesTotal).toBeNull();
+		expect(view.percent).toBeNull();
+		expect(view.determinate).toBe(false);
 	});
 });

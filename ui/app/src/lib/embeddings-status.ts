@@ -11,18 +11,29 @@ export interface EmbeddingStatusView {
 	dim: number | null;
 	p50Ms: number | null;
 	p95Ms: number | null;
+	/** Total notes the active/most-recent pass will visit, if the daemon reports it. */
+	notesTotal: number | null;
+	/** Notes visited so far in that pass, if the daemon reports it. */
+	notesDone: number | null;
+	/** Whole-integer percent 0–100 when a determinate total is available, else null. */
+	percent: number | null;
+	/** True when a real `N / M` bar can be drawn; false → indeterminate spinner. */
+	determinate: boolean;
 }
 
 /**
- * Determines whether a (re)build appears to be in progress by comparing two
- * consecutive polls of `/embeddings/stats`. The endpoint has no `running`
- * flag, so progress is inferred: a climbing vector count, or a `last_ingest_at`
- * that just moved forward, means the worker is actively writing.
+ * Whether an embed (re)build appears to be in progress.
+ *
+ * Prefers the authoritative `running` flag from the exact-progress extension
+ * (#260). Falls back to inference — a climbing vector count or a freshly moved
+ * `last_ingest_at` between two polls — when talking to an older daemon that
+ * doesn't report `running`.
  */
 export function isIndexingInProgress(
 	previous: EmbeddingStats | null,
 	current: EmbeddingStats
 ): boolean {
+	if (current.running !== undefined) return current.running;
 	if (!previous) return false;
 	if (current.vector_count !== previous.vector_count) return true;
 	if (
@@ -48,21 +59,39 @@ export function deriveEmbeddingStatusView(
 			embedderId: null,
 			dim: null,
 			p50Ms: null,
-			p95Ms: null
+			p95Ms: null,
+			notesTotal: null,
+			notesDone: null,
+			percent: null,
+			determinate: false
 		};
 	}
 
 	const neverIndexed = stats.vector_count === 0 && stats.last_ingest_at === null;
 
+	const notesTotal = stats.notes_total ?? null;
+	const notesDone = stats.notes_done ?? null;
+	const determinate = notesTotal !== null && notesTotal > 0;
+	const percent =
+		determinate && notesDone !== null
+			? Math.min(100, Math.max(0, Math.round((notesDone / (notesTotal as number)) * 100)))
+			: null;
+
 	return {
-		state: neverIndexed ? 'never-indexed' : indexing ? 'indexing' : 'ready',
+		// A running first pass over a still-empty index is "indexing", not
+		// "never-indexed": the authoritative flag wins over the zero-vector heuristic.
+		state: indexing ? 'indexing' : neverIndexed ? 'never-indexed' : 'ready',
 		vectorCount: stats.vector_count,
 		lastIndexedLabel:
 			stats.last_ingest_at !== null ? relativeTimeFromUnixSeconds(stats.last_ingest_at, nowMs) : null,
 		embedderId: stats.embedder_id,
 		dim: stats.dim,
 		p50Ms: stats.sample_count > 0 ? stats.p50_ms : null,
-		p95Ms: stats.sample_count > 0 ? stats.p95_ms : null
+		p95Ms: stats.sample_count > 0 ? stats.p95_ms : null,
+		notesTotal: indexing ? notesTotal : null,
+		notesDone: indexing ? notesDone : null,
+		percent: indexing ? percent : null,
+		determinate: indexing ? determinate : false
 	};
 }
 

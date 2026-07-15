@@ -112,8 +112,29 @@ onDestroy(() => {
 				{:else if statusView.state === 'indexing'}
 					<p class="subsection-hint">
 						<span class="status-dot status-dot--active"></span>
-						Indexing… {statusView.vectorCount} vectors so far.
+						{#if statusView.determinate && statusView.notesTotal !== null && statusView.notesDone !== null}
+							Indexing… <strong
+								>{statusView.notesDone.toLocaleString()} / {statusView.notesTotal.toLocaleString()}
+								notes</strong
+							>
+						{:else}
+							Indexing… {statusView.vectorCount.toLocaleString()} vectors so far.
+						{/if}
 					</p>
+					{#if statusView.determinate && statusView.percent !== null}
+						<div class="progress-bar" role="progressbar" aria-valuenow={statusView.percent} aria-valuemin="0" aria-valuemax="100">
+							<span style="width: {statusView.percent}%"></span>
+						</div>
+						<p class="progress-meta">
+							<span>{statusView.percent}%</span>
+							<span>{statusView.vectorCount.toLocaleString()} vectors so far</span>
+						</p>
+					{:else}
+						<div class="progress-bar progress-bar--indeterminate"><span></span></div>
+						<p class="progress-caption">
+							Progress total unavailable from this server — showing activity only.
+						</p>
+					{/if}
 				{:else if statusView.state === 'ready'}
 					<p class="subsection-hint">
 						<span class="status-dot status-dot--ready"></span>
@@ -256,6 +277,54 @@ code {
 	50% {
 		opacity: 0.35;
 	}
+}
+
+.progress-bar {
+	height: 6px;
+	margin: 8px 0 4px;
+	border: 1px solid var(--border-default);
+	border-radius: 999px;
+	background: var(--bg-secondary);
+	overflow: hidden;
+	max-width: 400px;
+}
+
+.progress-bar > span {
+	display: block;
+	height: 100%;
+	border-radius: 999px;
+	background: var(--accent-bg);
+	transition: width 0.3s ease;
+}
+
+.progress-bar--indeterminate > span {
+	width: 40%;
+	animation: indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes indeterminate {
+	0% {
+		margin-left: -40%;
+	}
+	100% {
+		margin-left: 100%;
+	}
+}
+
+.progress-meta {
+	display: flex;
+	justify-content: space-between;
+	max-width: 400px;
+	margin: 0;
+	font-size: 10px;
+	color: var(--text-muted);
+}
+
+.progress-caption {
+	margin: 4px 0 0;
+	font-size: 10px;
+	color: var(--text-muted);
+	max-width: 400px;
 }
 
 @media (max-width: 600px) {

@@ -737,7 +737,11 @@ not an error.
   "p50_ms": 12.4,
   "p95_ms": 31.8,
   "sample_count": 128,
-  "last_ingest_at": 1731000000
+  "last_ingest_at": 1731000000,
+  "running": false,
+  "notes_total": 1200,
+  "notes_done": 1200,
+  "started_at": 1731000000
 }
 ```
 
@@ -750,6 +754,10 @@ not an error.
 | `p50_ms` / `p95_ms` | number | Rolling search latency percentiles over the recent query window |
 | `sample_count` | integer | Number of latency samples backing the percentiles |
 | `last_ingest_at` | integer \| null | Unix seconds of the last `embeddings.db` write |
+| `running` | boolean | Whether an embed pass is currently running for this vault (#260) |
+| `notes_total` | integer | Notes the current/most-recent pass will visit (0 before the first pass) |
+| `notes_done` | integer | Notes visited so far in that pass; equals `notes_total` when finished |
+| `started_at` | integer \| null | Unix seconds when the current/most-recent pass began |
 
 **Errors:** `404 Not Found` if the vault does not exist.
 

@@ -9,6 +9,12 @@ export interface EmbeddingStats {
 	p95_ms: number;
 	sample_count: number;
 	last_ingest_at: number | null;
+	// Live embed-worker progress (#260). Absent on older daemons that predate
+	// the exact-progress extension — consumers must treat these as optional.
+	running?: boolean;
+	notes_total?: number;
+	notes_done?: number;
+	started_at?: number | null;
 }
 
 export async function getEmbeddingStats(vault: string): Promise<EmbeddingStats> {
