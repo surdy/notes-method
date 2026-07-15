@@ -35,6 +35,7 @@ pub mod hybrid;
 pub mod memory;
 pub mod related;
 pub mod time_query;
+pub mod youtube;
 pub use hybrid::{DEFAULT_RRF_K, HybridHit, HybridSearch, rrf_fuse};
 pub use memory::{
     DEFAULT_MEMORY_LIST_LIMIT, DEFAULT_MEMORY_RECALL_LIMIT, DEFAULT_MEMORY_REVIEW_LIMIT,
@@ -42,6 +43,7 @@ pub use memory::{
     MemoryListFact, MemoryListResponse, MemoryMutationPlan, MemoryMutationPreview, MemoryRecallHit,
     MemoryRecallResponse, MemoryReviewCandidate,
 };
+pub use youtube::{youtube_outcome_to_value, youtube_transcript};
 
 /// Result alias for vault operations.
 pub type Result<T> = anyhow::Result<T>;

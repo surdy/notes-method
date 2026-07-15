@@ -55,6 +55,7 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `capture` | `content`, `title?` |
 | `create_daily_note` | `date?` (`YYYY-MM-DD`) |
 | `create_from_template` | `template_name`, `prompts?` |
+| `youtube_transcript` | `url` |
 
 ## Resources
 
@@ -220,6 +221,45 @@ The response contains:
 
 Wikilink targets are resolved to notes by title (which defaults to the filename
 stem) or path, so `[[Some Note]]` counts toward that note's backlinks.
+
+
+### `youtube_transcript`
+
+Fetches the published caption transcript for a YouTube URL via the captions
+API and returns the transcript text with timestamps. It is a thin wrapper over
+the shared YouTube source module in `notesmith-clip`
+([ADR 0020](adr/0020-web-clipper.md) §8.4) — a single SSRF-guarded, bounded
+`GET`. The tool never transcribes audio: videos without a published caption
+track return a clear, non-fatal `no_captions` result rather than an error
+(ADR 0019 §4 / ADR 0020 §8.3).
+
+- `url` — a YouTube video URL (`youtube.com/watch?v=…`, `youtu.be/…`, etc.).
+
+Response when captions exist:
+
+- `status` — `"captions"`.
+- `source_url`, `video_id`, `title`, `channel`, `published`, `duration` —
+  provenance metadata (some fields may be `null` when the source omits them).
+- `text` — the joined transcript, one `[m:ss] text` line per segment.
+- `segments` — an array of `{ start, end, text }` (seconds).
+
+Response when no captions are available:
+
+- `status` — `"no_captions"`.
+- `source_url`, `video_id`, and a `message` explaining the video has no
+  published captions.
+
+Invalid URLs, blocked (SSRF-guarded) targets, and fetch failures surface as a
+tool error.
+
+Example:
+
+```json
+{
+  "name": "youtube_transcript",
+  "arguments": { "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }
+}
+```
 
 
 ## Claude Desktop example

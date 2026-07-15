@@ -3216,6 +3216,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "chrono",
+ "notesmith-clip",
  "notesmith-config",
  "notesmith-core",
  "notesmith-embed",

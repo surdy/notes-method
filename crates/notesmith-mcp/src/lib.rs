@@ -193,6 +193,11 @@ struct CreateFromTemplateParams {
     prompts: Option<HashMap<String, String>>,
 }
 
+#[derive(Debug, Deserialize)]
+struct YoutubeTranscriptParams {
+    url: String,
+}
+
 impl NotesmithMcp {
     pub fn new(
         vault_name: String,
@@ -638,6 +643,22 @@ impl NotesmithMcp {
                     "additionalProperties": false
                 }),
             ),
+            tool_definition(
+                "youtube_transcript",
+                scoped(
+                    "Fetch the published caption transcript for a YouTube URL via the captions \
+                     API; returns transcript text with timestamps. Videos without published \
+                     captions return a clear non-fatal result (no audio is transcribed)",
+                ),
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string"}
+                    },
+                    "required": ["url"],
+                    "additionalProperties": false
+                }),
+            ),
         ]
     }
 
@@ -889,6 +910,18 @@ impl ServerHandler for NotesmithMcp {
                     self.ops
                         .create_from_template(&params.template_name, params.prompts)
                 })
+            }
+            "youtube_transcript" => {
+                // `youtube_transcript` is async (bounded network fetch via the
+                // shared clip module), so it cannot flow through the sync
+                // `handle_tool_call` closure. Await the free async op directly.
+                match parse_arguments::<YoutubeTranscriptParams>(request.arguments) {
+                    Ok(params) => match notesmith_ops::youtube_transcript(&params.url).await {
+                        Ok(value) => CallToolResult::structured(ensure_structured_object(value)),
+                        Err(error) => CallToolResult::error(vec![Content::text(error.to_string())]),
+                    },
+                    Err(error) => CallToolResult::error(vec![Content::text(error.to_string())]),
+                }
             }
             other => {
                 return Err(McpError::new(
@@ -1254,7 +1287,7 @@ mod tests {
         let mcp = build_test_mcp(temp_dir.path());
 
         let tools = mcp.registered_tools();
-        assert_eq!(tools.len(), 22);
+        assert_eq!(tools.len(), 23);
         assert!(tools.iter().any(|t| t.name == "memory_recall"));
         assert!(tools.iter().any(|t| t.name == "memory_list"));
         assert!(tools.iter().any(|t| t.name == "memory_save"));
@@ -1264,6 +1297,25 @@ mod tests {
         assert!(tools.iter().any(|t| t.name == "vault_search"));
         assert!(tools.iter().any(|t| t.name == "time_query"));
         assert!(tools.iter().any(|t| t.name == "vault_stats"));
+        assert!(tools.iter().any(|t| t.name == "youtube_transcript"));
+    }
+
+    #[test]
+    fn youtube_transcript_tool_has_expected_schema() {
+        let temp_dir = TempDir::new().unwrap();
+        let mcp = build_test_mcp(temp_dir.path());
+
+        let tools = mcp.registered_tools();
+        let tool = tools
+            .iter()
+            .find(|t| t.name == "youtube_transcript")
+            .expect("youtube_transcript tool must be registered");
+
+        let schema = tool.input_schema.as_ref();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["properties"]["url"]["type"], "string");
+        assert_eq!(schema["required"], json!(["url"]));
+        assert_eq!(schema["additionalProperties"], json!(false));
     }
 
     #[test]
