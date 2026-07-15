@@ -30,7 +30,21 @@ Rich daemon status for resilient clients and diagnostics.
   "pid": 12345,
   "started_at": "2026-05-14T19:00:00Z",
   "binary_path": "/path/to/notesmith",
-  "vaults": [{ "name": "work", "state": "ready", "notes": 421 }],
+  "vaults": [{
+    "name": "work",
+    "state": "ready",
+    "notes": 421,
+    "parse_warning_count": 1,
+    "parse_warnings_truncated": false,
+    "parse_warnings": [
+      {
+        "path": "Inbox/Bad.md",
+        "stage": "frontmatter",
+        "reason": "mapping values are not allowed in this context at line 2 column 8",
+        "occurred_at": "2026-05-14T19:00:00Z"
+      }
+    ]
+  }],
   "watchers": [{ "vault": "work", "state": "healthy", "message": null }],
   "indexes": [{ "vault": "work", "state": "healthy", "last_reindex": "2026-05-14T19:00:00Z" }],
   "resources": {
@@ -45,6 +59,9 @@ Rich daemon status for resilient clients and diagnostics.
 **Notes:**
 - `api_schema` is the daemon compatibility contract version.
 - `vaults[*].state` is `"ready"` or `"rebuilding"`.
+- `vaults[*].parse_warning_count` is the number of notes in the vault that parsed in a degraded way (e.g. valid `---` frontmatter delimiters wrapping invalid YAML, which is silently dropped during indexing).
+- `vaults[*].parse_warnings` lists up to 100 of those notes. Each entry has `path` (vault-relative), `stage` (currently `"frontmatter"`), `reason` (the parser error), and `occurred_at`.
+- `vaults[*].parse_warnings_truncated` is `true` when more than 100 notes have warnings and the list was capped.
 - `watchers[*].state` is `"healthy"`, `"degraded"`, or `"polling"`.
 - `watchers[*].message` is present when the daemon has an operator hint (for example, a network-drive warning or automatic resync message).
 - `indexes[*].state` currently returns `"healthy"`.

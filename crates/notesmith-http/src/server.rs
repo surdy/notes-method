@@ -52,6 +52,9 @@ pub struct VaultState {
     pub rebuilding: AtomicBool,
     pub template_engine: Arc<notesmith_templates::TemplateEngine>,
     pub preview_signing_key: Arc<[u8; blake3::KEY_LEN]>,
+    /// Bounded per-vault accumulator of parse warnings (malformed frontmatter,
+    /// etc.) surfaced through `GET /api/status` (issue #92, ADR 0009).
+    pub parse_warnings: Arc<crate::parse_warnings::ParseWarnings>,
 }
 
 pub struct AppState {
@@ -664,6 +667,14 @@ pub fn create_vault_state(vault_name: &str, vault_path: &Path) -> anyhow::Result
     let template_engine =
         notesmith_templates::TemplateEngine::new(vault_path.to_path_buf(), Some(cache_path));
 
+    let parse_warnings = crate::parse_warnings::ParseWarnings::new();
+    let now = chrono::Utc::now();
+    parse_warnings.replace_all(
+        notes
+            .iter()
+            .filter_map(|note| crate::parse_warnings::note_parse_warning(note, now)),
+    );
+
     Ok(VaultState {
         cache: Arc::new(cache),
         search_index: Arc::new(search_index),
@@ -674,6 +685,7 @@ pub fn create_vault_state(vault_name: &str, vault_path: &Path) -> anyhow::Result
         rebuilding: AtomicBool::new(false),
         template_engine: Arc::new(template_engine),
         preview_signing_key: notesmith_ops::LocalOps::new_preview_signing_key(),
+        parse_warnings: Arc::new(parse_warnings),
     })
 }
 

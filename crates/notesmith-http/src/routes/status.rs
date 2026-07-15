@@ -33,6 +33,9 @@ struct VaultStatus {
     name: String,
     state: &'static str,
     notes: u64,
+    parse_warning_count: usize,
+    parse_warnings_truncated: bool,
+    parse_warnings: Vec<crate::parse_warnings::NoteWarning>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -70,6 +73,7 @@ pub async fn get_status(State(state): State<SharedAppState>) -> Json<StatusRespo
         .map(|vault_name| {
             let vault = &state.vaults[vault_name];
             let rebuilding = vault.rebuilding.load(Ordering::Relaxed);
+            let warnings = vault.parse_warnings.snapshot();
             VaultStatus {
                 name: vault_name.clone(),
                 state: if rebuilding { "rebuilding" } else { "ready" },
@@ -78,6 +82,9 @@ pub async fn get_status(State(state): State<SharedAppState>) -> Json<StatusRespo
                 } else {
                     note_count(&vault.cache, vault_name)
                 },
+                parse_warning_count: warnings.count,
+                parse_warnings_truncated: warnings.truncated,
+                parse_warnings: warnings.warnings,
             }
         })
         .collect();
@@ -289,7 +296,14 @@ mod tests {
         );
         assert_eq!(
             payload["vaults"],
-            json!([{ "name": "work", "state": "ready", "notes": 1 }])
+            json!([{
+                "name": "work",
+                "state": "ready",
+                "notes": 1,
+                "parse_warning_count": 0,
+                "parse_warnings_truncated": false,
+                "parse_warnings": []
+            }])
         );
         assert_eq!(
             payload["watchers"],
@@ -302,6 +316,51 @@ mod tests {
         assert!(payload["resources"]["open_fds"].as_u64().unwrap() > 0);
         assert_eq!(payload["resources"]["sse_connections"], 0);
         assert!(payload["resources"]["cache_size_bytes"].as_u64().unwrap() > 0);
+    }
+
+    #[tokio::test]
+    async fn get_status_reports_parse_warnings_for_malformed_note() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let vault_root = temp_dir.path().join("vault");
+        fs::create_dir_all(vault_root.join("Inbox")).unwrap();
+        fs::write(vault_root.join("Inbox/Good.md"), "# Good\n\nfine\n").unwrap();
+        fs::write(
+            vault_root.join("Inbox/Bad.md"),
+            "---\ntitle: [unterminated\n---\n\nbody\n",
+        )
+        .unwrap();
+
+        let cache_path = temp_dir.path().join("cache.sqlite");
+        let response = crate::server::build_router(build_test_state(
+            "work",
+            &vault_root,
+            &cache_path,
+            Utc.with_ymd_and_hms(2026, 5, 14, 19, 0, 0).unwrap(),
+        ))
+        .oneshot(
+            Request::builder()
+                .uri("/api/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+
+        let vault = &payload["vaults"][0];
+        assert_eq!(vault["parse_warning_count"], 1);
+        assert_eq!(vault["parse_warnings_truncated"], false);
+        let warnings = vault["parse_warnings"].as_array().unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0]["path"], "Inbox/Bad.md");
+        assert_eq!(warnings[0]["stage"], "frontmatter");
+        assert!(!warnings[0]["reason"].as_str().unwrap().is_empty());
+        assert!(warnings[0]["occurred_at"].as_str().is_some());
     }
 
     #[test]
@@ -330,6 +389,14 @@ mod tests {
         let search_index = SearchIndex::open_in_memory().unwrap();
         search_index.reindex(vault_name, &notes).unwrap();
 
+        let parse_warnings = crate::parse_warnings::ParseWarnings::new();
+        let now = Utc::now();
+        parse_warnings.replace_all(
+            notes
+                .iter()
+                .filter_map(|note| crate::parse_warnings::note_parse_warning(note, now)),
+        );
+
         let (event_tx, _) = create_event_channel();
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         AppState {
@@ -348,6 +415,7 @@ mod tests {
                         Some(PathBuf::from(cache_path)),
                     )),
                     preview_signing_key: notesmith_ops::LocalOps::new_preview_signing_key(),
+                    parse_warnings: Arc::new(parse_warnings),
                 },
             )]),
             event_tx,
@@ -411,7 +479,14 @@ mod tests {
 
         assert_eq!(
             payload["vaults"],
-            json!([{ "name": "work", "state": "rebuilding", "notes": 0 }])
+            json!([{
+                "name": "work",
+                "state": "rebuilding",
+                "notes": 0,
+                "parse_warning_count": 0,
+                "parse_warnings_truncated": false,
+                "parse_warnings": []
+            }])
         );
     }
 

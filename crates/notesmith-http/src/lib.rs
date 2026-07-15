@@ -6,6 +6,7 @@ pub mod embed_scheduler;
 pub mod events;
 pub mod hooks;
 pub mod logging;
+pub mod parse_warnings;
 pub mod routes;
 pub mod scheduler;
 pub mod server;

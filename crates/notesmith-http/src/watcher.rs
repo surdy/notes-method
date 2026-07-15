@@ -397,6 +397,12 @@ async fn trigger_rescan(
         .cache
         .reindex_with_periodic(vault_name, &notes, &vault.vault_config.load().periodic)?;
     vault.search_index.reindex(vault_name, &notes)?;
+    let now = chrono::Utc::now();
+    vault.parse_warnings.replace_all(
+        notes
+            .iter()
+            .filter_map(|note| crate::parse_warnings::note_parse_warning(note, now)),
+    );
     Ok(())
 }
 
@@ -571,6 +577,7 @@ fn handle_note_change(
             vault
                 .search_index
                 .remove_note(event_context.vault_name, relative_path)?;
+            vault.parse_warnings.clear_path(relative_path);
             crate::events::emit(
                 event_context.event_tx,
                 event_context.event_buffer,
@@ -589,6 +596,7 @@ fn handle_note_change(
                 vault
                     .search_index
                     .remove_note(event_context.vault_name, relative_path)?;
+                vault.parse_warnings.clear_path(relative_path);
                 crate::events::emit(
                     event_context.event_tx,
                     event_context.event_buffer,
@@ -615,6 +623,9 @@ fn handle_note_change(
             vault
                 .search_index
                 .update_note(event_context.vault_name, &note)?;
+            vault
+                .parse_warnings
+                .update_for_note(&note, chrono::Utc::now());
             crate::events::emit(
                 event_context.event_tx,
                 event_context.event_buffer,
@@ -917,6 +928,7 @@ mod tests {
                         None,
                     )),
                     preview_signing_key: notesmith_ops::LocalOps::new_preview_signing_key(),
+                    parse_warnings: Default::default(),
                 },
             )]),
             event_tx,

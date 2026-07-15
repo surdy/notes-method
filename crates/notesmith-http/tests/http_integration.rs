@@ -46,6 +46,7 @@ fn build_vault_state(vault_name: &str, root: &Path) -> VaultState {
         rebuilding: std::sync::atomic::AtomicBool::new(false),
         template_engine: std::sync::Arc::new(template_engine),
         preview_signing_key: notesmith_ops::LocalOps::new_preview_signing_key(),
+        parse_warnings: Default::default(),
     }
 }
 

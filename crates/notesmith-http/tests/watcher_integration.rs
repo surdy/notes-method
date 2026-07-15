@@ -56,6 +56,7 @@ async fn watcher_indexes_new_markdown_files() {
                     None,
                 )),
                 preview_signing_key: notesmith_ops::LocalOps::new_preview_signing_key(),
+                parse_warnings: Default::default(),
             },
         )]),
         event_tx,

@@ -179,6 +179,7 @@ mod tests {
                     rebuilding: std::sync::atomic::AtomicBool::new(false),
                     template_engine: Arc::new(notesmith_templates::TemplateEngine::new(root, None)),
                     preview_signing_key: notesmith_ops::LocalOps::new_preview_signing_key(),
+                    parse_warnings: Default::default(),
                 },
             )]),
             event_tx: create_event_channel().0,
@@ -265,6 +266,7 @@ mod tests {
                     None,
                 )),
                 preview_signing_key: notesmith_ops::LocalOps::new_preview_signing_key(),
+                parse_warnings: Default::default(),
             },
         );
 

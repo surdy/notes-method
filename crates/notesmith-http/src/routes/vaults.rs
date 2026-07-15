@@ -346,6 +346,13 @@ pub async fn reindex_vault(
             .map_err(internal_error)?;
     }
 
+    let now = chrono::Utc::now();
+    vault.parse_warnings.replace_all(
+        notes
+            .iter()
+            .filter_map(|note| crate::parse_warnings::note_parse_warning(note, now)),
+    );
+
     Ok(Json(
         json!({ "vault": vault_name, "status": "reindexed", "notes": notes.len() }),
     ))
@@ -548,6 +555,7 @@ mod tests {
                     )),
                     rebuilding: std::sync::atomic::AtomicBool::new(false),
                     preview_signing_key: notesmith_ops::LocalOps::new_preview_signing_key(),
+                    parse_warnings: Default::default(),
                 },
             )]),
             event_tx: create_event_channel().0,

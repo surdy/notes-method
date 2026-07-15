@@ -87,6 +87,7 @@ fn build_state(vault_name: &str, root: &Path) -> AppState {
         rebuilding: std::sync::atomic::AtomicBool::new(false),
         template_engine: Arc::new(template_engine),
         preview_signing_key: notesmith_ops::LocalOps::new_preview_signing_key(),
+        parse_warnings: Default::default(),
     };
 
     let (event_tx, _) = notesmith_http::create_event_channel();
