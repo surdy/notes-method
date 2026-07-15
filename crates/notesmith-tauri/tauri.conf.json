@@ -33,6 +33,9 @@
     "active": true,
     "targets": ["dmg", "app"],
     "externalBin": ["binaries/notesmith"],
+    "resources": {
+      "resources/embed-model/*": "embed-model/"
+    },
     "macOS": {
       "minimumSystemVersion": "10.15"
     }

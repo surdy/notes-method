@@ -708,6 +708,40 @@ fn find_sidecar_in(dir: &std::path::Path, target_triple: &str) -> Option<PathBuf
     .find(|candidate| candidate.exists())
 }
 
+/// The ONNX weight filename that marks a directory as a usable bundled model,
+/// matching `notesmith_embed::BUNDLED_ONNX_FILE`.
+const BUNDLED_MODEL_ONNX: &str = "model.onnx";
+
+/// Resolve the app-bundled embedding-model directory, if present.
+///
+/// The model is shipped as a Tauri bundle resource (`resources/embed-model`),
+/// which lands next to the executable at runtime: on macOS at
+/// `Notesmith.app/Contents/Resources/embed-model` (i.e. `../Resources` from the
+/// `MacOS` executable dir), and alongside the binary in flat/dev layouts. When
+/// found, its path is passed to the spawned daemon via `NOTESMITH_EMBED_MODEL_DIR`
+/// so enabling embeddings is offline (ADR 0018 §9.2, #256 Part B). Returns `None`
+/// in unbundled/dev builds, where the daemon downloads the model on first run.
+fn resolve_bundled_model_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let exe_dir = exe.parent()?;
+    let candidates = [
+        exe_dir.join("../Resources/embed-model"),
+        exe_dir.join("embed-model"),
+    ];
+    find_bundled_model_dir_in(candidates.iter().map(PathBuf::as_path))
+}
+
+/// Pure selection over candidate directories, separated for unit testing: the
+/// first candidate that contains [`BUNDLED_MODEL_ONNX`] wins.
+fn find_bundled_model_dir_in<'a>(
+    candidates: impl IntoIterator<Item = &'a std::path::Path>,
+) -> Option<PathBuf> {
+    candidates
+        .into_iter()
+        .find(|dir| dir.join(BUNDLED_MODEL_ONNX).is_file())
+        .map(std::path::Path::to_path_buf)
+}
+
 fn setup_deep_links<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
     let handle = app.clone();
     app.deep_link().on_open_url(move |event| {
@@ -1827,6 +1861,7 @@ fn request_exit<R: Runtime>(app: &AppHandle<R>) {
 fn startup_settings() -> DaemonSettings {
     DaemonSettings {
         sidecar_path: resolve_sidecar_path(),
+        model_dir: resolve_bundled_model_dir(),
         ..Default::default()
     }
 }
@@ -3417,8 +3452,8 @@ mod tests {
     use super::{
         CrashAction, CrashTracker, DaemonSettings, QuitRequestAction, VaultCacheState,
         VaultRefreshGate, admin_route_url, cached_vaults_for_settings, classify_vault_response,
-        daemon_error_detail, evaluate_quit_request, find_sidecar_in, open_windows_guard_message,
-        should_use_local_vault_state,
+        daemon_error_detail, evaluate_quit_request, find_bundled_model_dir_in, find_sidecar_in,
+        open_windows_guard_message, should_use_local_vault_state,
     };
     use notesmith_tauri::servers::{ServerEntry, ServersFile};
     use notesmith_tauri::vault_cache::RefreshOutcome;
@@ -3508,6 +3543,29 @@ mod tests {
     fn find_sidecar_returns_none_when_absent() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(find_sidecar_in(dir.path(), "aarch64-apple-darwin"), None);
+    }
+
+    #[test]
+    fn find_bundled_model_dir_picks_first_dir_with_onnx() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("resources-missing");
+        let present = root.path().join("resources-present");
+        std::fs::create_dir_all(&missing).unwrap();
+        std::fs::create_dir_all(&present).unwrap();
+        // Only the second candidate holds the ONNX weights.
+        std::fs::write(present.join("model.onnx"), b"stub").unwrap();
+
+        assert_eq!(
+            find_bundled_model_dir_in([missing.as_path(), present.as_path()]),
+            Some(present.clone())
+        );
+    }
+
+    #[test]
+    fn find_bundled_model_dir_is_none_without_onnx() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory that exists but lacks model.onnx must not qualify.
+        assert_eq!(find_bundled_model_dir_in([dir.path()]), None);
     }
 
     #[test]

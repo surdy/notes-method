@@ -361,11 +361,13 @@ Deferred: `OpenAiCompatible` cloud embedder
 Settings → Semantic Search toggle + adaptive UI
 ([#255](https://github.com/surdy/notes-method/issues/255)), the embed-capable
 desktop sidecar ([#256](https://github.com/surdy/notes-method/issues/256) Part A),
-and the server `*-embed` container image flavor
-([#257](https://github.com/surdy/notes-method/issues/257)). Still open: bundling
-the model in the desktop app for a fully-offline first-enable
-([#256](https://github.com/surdy/notes-method/issues/256) Part B, deferred — the
-first enable otherwise downloads the model once).
+the server `*-embed` container image flavor
+([#257](https://github.com/surdy/notes-method/issues/257)), and bundling the
+model in the desktop app for a fully-offline first-enable
+([#256](https://github.com/surdy/notes-method/issues/256) Part B — the desktop
+ships `bge-small-en-v1.5` as a Tauri resource and points the daemon at it via
+`NOTESMITH_EMBED_MODEL_DIR`, loaded through fastembed's "bring your own model"
+bytes API, so the first enable no longer downloads anything).
 
 ## Suggested phasing
 

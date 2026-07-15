@@ -101,6 +101,39 @@ pub const CANONICAL_MODEL_ID: &str = "bge-small-en-v1.5";
 /// Vector dimension of [`CANONICAL_MODEL_ID`].
 pub const CANONICAL_DIM: usize = 384;
 
+/// Environment variable pointing at a directory of pre-bundled model files
+/// (`model.onnx` + the four tokenizer JSON files). When set and populated, the
+/// [`default_embedder`] loads the model from disk via fastembed's
+/// "bring your own model" bytes API instead of downloading it from HuggingFace.
+/// The desktop app sets this to its bundled model resource so first-enable is
+/// offline and instant (ADR 0018 §9.2, #256 Part B). Server/CLI builds leave it
+/// unset and keep the download-on-first-run behaviour.
+pub const EMBED_MODEL_DIR_ENV: &str = "NOTESMITH_EMBED_MODEL_DIR";
+
+/// The ONNX weight filename expected inside [`EMBED_MODEL_DIR_ENV`].
+pub const BUNDLED_ONNX_FILE: &str = "model.onnx";
+
+/// Resolve a usable pre-bundled model directory from [`EMBED_MODEL_DIR_ENV`].
+///
+/// Returns `Some(dir)` only when the variable is set to a directory that
+/// actually contains [`BUNDLED_ONNX_FILE`]; otherwise `None`, so callers cleanly
+/// fall back to the network download path. Kept free of the `local-embed`
+/// feature gate so the resolution rules are unit-testable in lean builds.
+pub fn bundled_model_dir() -> Option<std::path::PathBuf> {
+    resolve_bundled_model_dir(std::env::var_os(EMBED_MODEL_DIR_ENV))
+}
+
+/// Pure resolution used by [`bundled_model_dir`], separated so the rules are
+/// unit-testable without mutating the process environment.
+fn resolve_bundled_model_dir(value: Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
+    let dir = std::path::PathBuf::from(value?);
+    if dir.join(BUNDLED_ONNX_FILE).is_file() {
+        Some(dir)
+    } else {
+        None
+    }
+}
+
 /// Whether the real local embedding runtime (fastembed/ONNX) is compiled into
 /// this build — i.e. whether [`default_embedder`] returns [`LocalFastEmbed`]
 /// rather than the [`HashEmbedder`] placeholder. This is the single source of
@@ -148,6 +181,59 @@ impl LocalFastEmbed {
             dim: Self::DEFAULT_DIM,
         })
     }
+
+    /// Construct the default `bge-small-en-v1.5` embedder from a directory of
+    /// pre-bundled model files, with **no network access**.
+    ///
+    /// `model_dir` must contain [`BUNDLED_ONNX_FILE`](crate::BUNDLED_ONNX_FILE)
+    /// plus the four tokenizer JSON files (`tokenizer.json`, `config.json`,
+    /// `special_tokens_map.json`, `tokenizer_config.json`). Files are read as
+    /// bytes and handed to fastembed's "bring your own model" API, bypassing the
+    /// HuggingFace hub cache entirely. This is how the desktop app achieves an
+    /// offline first-enable (ADR 0018 §9.2, #256 Part B). The resulting
+    /// embedder's [`id`](Embedder::id)/[`dim`](Embedder::dim) match
+    /// [`bge_small`](Self::bge_small), so stores embedded either way are
+    /// interchangeable.
+    pub fn bge_small_from_dir(model_dir: &std::path::Path) -> Result<Self> {
+        use fastembed::{
+            InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel,
+        };
+
+        let read = |name: &str| -> Result<Vec<u8>> {
+            let path = model_dir.join(name);
+            std::fs::read(&path).map_err(|e| {
+                EmbedError::Embed(format!(
+                    "could not read bundled model file {}: {e}",
+                    path.display()
+                ))
+            })
+        };
+
+        let onnx_file = read(crate::BUNDLED_ONNX_FILE)?;
+        let tokenizer_files = TokenizerFiles {
+            tokenizer_file: read("tokenizer.json")?,
+            config_file: read("config.json")?,
+            special_tokens_map_file: read("special_tokens_map.json")?,
+            tokenizer_config_file: read("tokenizer_config.json")?,
+        };
+
+        let model = UserDefinedEmbeddingModel::new(onnx_file, tokenizer_files);
+        let model =
+            TextEmbedding::try_new_from_user_defined(model, InitOptionsUserDefined::default())
+                .map_err(|e| {
+                    EmbedError::Embed(format!(
+                        "could not load bundled '{}' from {}: {e}",
+                        Self::DEFAULT_MODEL_ID,
+                        model_dir.display(),
+                    ))
+                })?;
+
+        Ok(Self {
+            model,
+            id: Self::DEFAULT_MODEL_ID.to_string(),
+            dim: Self::DEFAULT_DIM,
+        })
+    }
 }
 
 #[cfg(feature = "local-embed")]
@@ -183,6 +269,12 @@ impl Embedder for LocalFastEmbed {
 /// `cargo test` keep working.
 #[cfg(feature = "local-embed")]
 pub fn default_embedder() -> Result<std::sync::Arc<dyn Embedder>> {
+    if let Some(dir) = bundled_model_dir() {
+        tracing::info!("loading bundled embedding model from {}", dir.display());
+        return Ok(std::sync::Arc::new(LocalFastEmbed::bge_small_from_dir(
+            &dir,
+        )?));
+    }
     let cache = crate::data_dir()?.join("models");
     Ok(std::sync::Arc::new(LocalFastEmbed::bge_small(&cache)?))
 }
@@ -233,6 +325,27 @@ mod tests {
         let a = emb.embed(&["database systems".to_string()]).unwrap();
         let b = emb.embed(&["mountain hiking".to_string()]).unwrap();
         assert_ne!(a[0], b[0]);
+    }
+
+    #[test]
+    fn bundled_model_dir_is_none_when_env_unset() {
+        assert!(resolve_bundled_model_dir(None).is_none());
+    }
+
+    #[test]
+    fn bundled_model_dir_is_none_when_onnx_missing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        assert!(resolve_bundled_model_dir(Some(dir.path().as_os_str().to_owned())).is_none());
+    }
+
+    #[test]
+    fn bundled_model_dir_resolves_when_onnx_present() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join(BUNDLED_ONNX_FILE), b"stub").unwrap();
+        assert_eq!(
+            resolve_bundled_model_dir(Some(dir.path().as_os_str().to_owned())).as_deref(),
+            Some(dir.path())
+        );
     }
 
     // Requires network + model download; run with:

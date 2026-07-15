@@ -30,8 +30,11 @@ pub use bench::{
     synthetic_knn_bench,
 };
 pub use chunker::{ChunkSpan, ChunkerOptions, chunk_note};
+pub use embedder::{
+    BUNDLED_ONNX_FILE, EMBED_MODEL_DIR_ENV, Embedder, HashEmbedder, bundled_model_dir,
+    default_embedder,
+};
 pub use embedder::{CANONICAL_DIM, CANONICAL_MODEL_ID, LOCAL_EMBED_COMPILED};
-pub use embedder::{Embedder, HashEmbedder, default_embedder};
 pub use metrics::{SearchMetrics, SearchSample, metrics_for};
 pub use paths::{data_dir, embeddings_db_path, sanitize_vault_name};
 pub use progress::{EmbedProgress, EmbedProgressSnapshot, progress_for};

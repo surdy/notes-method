@@ -70,7 +70,9 @@ the toggle on. The toggle writes that vault's `[embed] enabled` on the daemon th
 window is connected to. If you're connected to a server that was built *without*
 embedding support (a lean image), the toggle is disabled and explains why —
 switch to an embed-enabled build (the `*-embed` container image) to turn it on.
-The first enable loads the model (downloaded on first run unless pre-seeded).
+The desktop app **bundles the model**, so enabling it against your local daemon
+is offline and instant — no download. (Against a remote server, the model lives
+on that server, which fetches it on first use unless pre-seeded.)
 
 Keep setup, worker operation, and monitoring details in one place: see [running & monitoring](embeddings-operations.md).
 

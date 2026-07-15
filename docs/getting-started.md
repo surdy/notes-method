@@ -44,6 +44,9 @@ cargo build --release --workspace
 ```bash
 cd ui/app && pnpm install && pnpm build
 cd ../../crates/notesmith-tauri
+# Optional: bundle the embedding model so Semantic Search enables offline.
+# Skip this and the model is downloaded on first enable instead.
+./fetch-embed-model.sh
 cargo tauri build
 # App bundle: target/release/bundle/dmg/
 ```

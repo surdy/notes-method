@@ -16,6 +16,12 @@ pub struct DaemonSettings {
     /// When set, use this path instead of `daemon_bin` for spawning.
     /// Populated from Tauri sidecar resolution at app startup.
     pub sidecar_path: Option<PathBuf>,
+    /// When set, points the spawned local daemon at a directory of pre-bundled
+    /// embedding-model files via `NOTESMITH_EMBED_MODEL_DIR`, so first-enable of
+    /// embeddings is offline (ADR 0018 §9.2, #256 Part B). Populated from the
+    /// Tauri resource dir at startup; `None` in dev/unbundled builds, which then
+    /// fall back to the download-on-first-run path.
+    pub model_dir: Option<PathBuf>,
     pub ping_timeout: Duration,
     pub startup_wait: Duration,
     pub startup_poll_interval: Duration,
@@ -39,6 +45,7 @@ impl Default for DaemonSettings {
                 .filter(|bin| !bin.is_empty())
                 .unwrap_or_else(|| DEFAULT_DAEMON_BIN.to_string()),
             sidecar_path: None,
+            model_dir: None,
             ping_timeout: Duration::from_secs(2),
             startup_wait: Duration::from_secs(10),
             startup_poll_interval: Duration::from_millis(500),
@@ -710,6 +717,13 @@ async fn spawn_daemon(
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
+    // Point the local daemon's embed worker at the app-bundled model so enabling
+    // embeddings is offline/instant (ADR 0018 §9.2, #256 Part B). Unset in
+    // unbundled/dev builds, where the daemon falls back to downloading the model.
+    if let Some(model_dir) = settings.model_dir.as_deref() {
+        command.env("NOTESMITH_EMBED_MODEL_DIR", model_dir);
+    }
+
     #[cfg(unix)]
     if detach {
         // SAFETY: The child process immediately detaches before exec so the daemon
@@ -798,6 +812,7 @@ mod tests {
             daemon_url: "http://127.0.0.1:27183".into(),
             daemon_bin: "notesmith".into(),
             sidecar_path: None,
+            model_dir: None,
             ping_timeout: std::time::Duration::from_millis(5),
             startup_wait: std::time::Duration::from_millis(30),
             startup_poll_interval: std::time::Duration::from_millis(5),

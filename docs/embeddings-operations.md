@@ -45,6 +45,12 @@ To get real semantic retrieval, build the binary with `--features local-embed`. 
 
 > **Note:** The worker and query-time embedding use the same embedder factory. Stored `embedder_id` and `dim` should therefore match the query embedder; if they do not, search fails loudly instead of mixing incompatible vectors.
 
+### Bundled model (desktop app — offline first-enable)
+
+The desktop app ships the model inside the bundle so enabling Semantic Search never hits the network (ADR 0018 §9.2). When the environment variable `NOTESMITH_EMBED_MODEL_DIR` points at a directory containing the model files, the embedder loads them from disk (via fastembed's "bring your own model" bytes API) instead of downloading from HuggingFace. The desktop shell sets this automatically to its bundled resource; if the directory is missing or lacks `model.onnx`, the daemon falls back to the download path above.
+
+The bundled directory holds five files: `model.onnx`, `tokenizer.json`, `config.json`, `special_tokens_map.json`, `tokenizer_config.json`. For a desktop release build, fetch them first with `crates/notesmith-tauri/fetch-embed-model.sh` (they are not committed). The `model.onnx` weights add roughly **130 MB** to the app bundle (the four tokenizer files are negligible).
+
 ---
 
 ## Container image flavors
