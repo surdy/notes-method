@@ -16,8 +16,8 @@ pub const SOURCE_TYPE_ARTICLE: &str = "article";
 
 /// Resolve the tag list for a clip: mandatory `inbox` first, then de-duplicated
 /// non-empty extras. Returns both YAML values (for frontmatter) and strings
-/// (for template context).
-fn resolve_tags(extra_tags: &[String]) -> (Vec<Value>, Vec<String>) {
+/// (for template context). Shared with the YouTube source module.
+pub(crate) fn resolve_tags(extra_tags: &[String]) -> (Vec<Value>, Vec<String>) {
     let mut strings = vec!["inbox".to_string()];
     for tag in extra_tags {
         let tag = tag.trim();
