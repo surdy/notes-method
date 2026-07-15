@@ -203,6 +203,8 @@ fetching it interactively inside the daemon is allowed, under the §6 SSRF guard
 and bounded-fetch limits. **If no usable caption track exists, the daemon does
 not transcribe.** It returns a clear, non-fatal result and hands the video to the
 [ADR 0019](0019-media-ingestion-pipeline.md) §4 CLI worker for Whisper fallback.
+The worker, its queue, engine, and bundled model are defined by
+[ADR 0023](0023-local-whisper-transcription-worker.md).
 ADR 0019 §4 is otherwise unchanged: the daemon still never runs Whisper and never
 fetches media in bulk.
 

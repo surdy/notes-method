@@ -92,6 +92,11 @@ Each source type has a different cheapest reliable path:
 > *interactive* clip source. A user-initiated caption-track fetch is a bounded
 > `GET` and may run inside the daemon (like the article carve-out); only the
 > **no-captions Whisper fallback** stays worker-only.
+>
+> **Realized by [ADR 0023](0023-local-whisper-transcription-worker.md):** the
+> concrete Whisper engine (whisper.cpp via `whisper-rs`), the bundled-model
+> delivery (mirroring `bge-small`), the worker/queue, and the audio-acquisition
+> rules are decided there.
 
 For media, segment timestamps are mandatory. They become
 `media_ts_start` / `media_ts_end` on [ADR 0018](0018-embedding-and-vector-search.md)
