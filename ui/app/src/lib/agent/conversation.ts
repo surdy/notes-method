@@ -7,6 +7,7 @@
  */
 
 import type { AgentEvent, Role } from './types.ts';
+import { extractNoteSources, mergeSources, type NoteSource } from './sources.ts';
 
 export interface MessageItem {
 	kind: 'message';
@@ -15,6 +16,13 @@ export interface MessageItem {
 	text: string;
 	/** True while assistant deltas are still streaming into this bubble. */
 	streaming: boolean;
+	/**
+	 * Vault notes that grounded this assistant message (issue #242), captured
+	 * from the turn's `vault_search`/`get_note` tool results. Absent/empty when
+	 * the answer was not grounded in vault notes. Web grounding is deliberately
+	 * excluded — it renders as inline citations in {@link text}, not here.
+	 */
+	sources?: NoteSource[];
 }
 
 export interface ToolItem {
@@ -46,15 +54,36 @@ export interface ConversationState {
 	/** True between sending a prompt and the matching `done` event. */
 	busy: boolean;
 	seq: number;
+	/**
+	 * Vault note sources accumulated for the turn in progress (issue #242). Reset
+	 * on each user message and bound onto that turn's agent message as it streams.
+	 */
+	pendingSources: NoteSource[];
 }
 
 export function emptyConversation(): ConversationState {
-	return { items: [], busy: false, seq: 0 };
+	return { items: [], busy: false, seq: 0, pendingSources: [] };
 }
 
 function nextId(state: ConversationState, prefix: string): string {
 	state.seq += 1;
 	return `${prefix}-${state.seq}`;
+}
+
+/**
+ * Bind the turn's accumulated sources onto its agent message. Finds the last
+ * agent message (streaming or just-finished) and sets a fresh `sources` array,
+ * or does nothing when the turn has no agent bubble or no sources yet.
+ */
+function bindSources(items: ConversationItem[], sources: NoteSource[]): void {
+	if (sources.length === 0) return;
+	for (let i = items.length - 1; i >= 0; i -= 1) {
+		const item = items[i];
+		if (item.kind !== 'message') continue;
+		if (item.role !== 'agent') return;
+		items[i] = { ...item, sources: sources.slice() };
+		return;
+	}
 }
 
 /**
@@ -64,7 +93,12 @@ function nextId(state: ConversationState, prefix: string): string {
  */
 export function reduce(state: ConversationState, event: AgentEvent): ConversationState {
 	const items = state.items.slice();
-	const next: ConversationState = { items, busy: state.busy, seq: state.seq };
+	const next: ConversationState = {
+		items,
+		busy: state.busy,
+		seq: state.seq,
+		pendingSources: state.pendingSources
+	};
 
 	switch (event.type) {
 		case 'user_message': {
@@ -76,6 +110,7 @@ export function reduce(state: ConversationState, event: AgentEvent): Conversatio
 				streaming: false
 			});
 			next.busy = true;
+			next.pendingSources = [];
 			break;
 		}
 		case 'agent_message_delta': {
@@ -92,6 +127,7 @@ export function reduce(state: ConversationState, event: AgentEvent): Conversatio
 				});
 			}
 			next.busy = true;
+			bindSources(items, next.pendingSources);
 			break;
 		}
 		case 'tool_call': {
@@ -122,6 +158,11 @@ export function reduce(state: ConversationState, event: AgentEvent): Conversatio
 					...tool,
 					result: { content: event.content, isError: event.is_error }
 				};
+				const found = extractNoteSources(tool.name, event.content, event.is_error);
+				if (found.length > 0) {
+					next.pendingSources = mergeSources(next.pendingSources, found);
+					bindSources(items, next.pendingSources);
+				}
 			} else {
 				// Orphan result — surface it rather than dropping it.
 				items.push({
@@ -152,6 +193,7 @@ export function reduce(state: ConversationState, event: AgentEvent): Conversatio
 					streaming: false
 				});
 			}
+			bindSources(items, next.pendingSources);
 			next.busy = false;
 			break;
 		}

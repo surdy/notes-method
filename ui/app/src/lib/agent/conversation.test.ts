@@ -124,3 +124,103 @@ describe('conversation reducer', () => {
 		expect(state.busy).toBe(false);
 	});
 });
+
+describe('per-message vault sources (#242)', () => {
+	const searchHits = JSON.stringify([
+		{
+			path: 'people/Acme.md',
+			title: 'Acme Corp',
+			snippet: 'Acme is a customer',
+			score: 0.03,
+			lexical_rank: 2,
+			semantic_rank: 1
+		}
+	]);
+	const webHits = JSON.stringify([
+		{ title: 'Docs', url: 'https://example.com', snippet: 'x' }
+	]);
+
+	function agentMessages(state: ConversationState): MessageItem[] {
+		return state.items.filter(
+			(i): i is MessageItem => i.kind === 'message' && i.role === 'agent'
+		);
+	}
+
+	it('binds sources onto an agent message grounded in vault_search (notes-only)', () => {
+		const state = play([
+			{ type: 'user_message', text: 'who is acme?' },
+			{ type: 'tool_call', id: 'c1', name: 'notesmith-people-vault_search', args: { query: 'acme' } },
+			{ type: 'tool_result', id: 'c1', content: searchHits, is_error: false },
+			{ type: 'agent_message_delta', text: 'Acme is a customer.' },
+			{ type: 'done', result: null }
+		]);
+		const [agent] = agentMessages(state);
+		expect(agent.sources).toHaveLength(1);
+		expect(agent.sources?.[0]).toMatchObject({ path: 'people/Acme.md', score: 0.03 });
+	});
+
+	it('captures sources even when the tool runs after the text streams', () => {
+		const state = play([
+			{ type: 'user_message', text: 'who is acme?' },
+			{ type: 'agent_message_delta', text: 'Let me check.' },
+			{ type: 'tool_call', id: 'c1', name: 'vault_search', args: { query: 'acme' } },
+			{ type: 'tool_result', id: 'c1', content: searchHits, is_error: false },
+			{ type: 'done', result: null }
+		]);
+		const [agent] = agentMessages(state);
+		expect(agent.sources?.[0]?.path).toBe('people/Acme.md');
+	});
+
+	it('does not attach web-search results to the note-sources control (web-only)', () => {
+		const state = play([
+			{ type: 'user_message', text: 'latest news?' },
+			{ type: 'tool_call', id: 'c1', name: 'web_search', args: { q: 'news' } },
+			{ type: 'tool_result', id: 'c1', content: webHits, is_error: false },
+			{ type: 'agent_message_delta', text: 'See [1] https://example.com' },
+			{ type: 'done', result: null }
+		]);
+		const [agent] = agentMessages(state);
+		expect(agent.sources ?? []).toEqual([]);
+	});
+
+	it('captures only vault sources in a mixed web+notes answer', () => {
+		const state = play([
+			{ type: 'user_message', text: 'compare acme with the web' },
+			{ type: 'tool_call', id: 'c1', name: 'web_search', args: { q: 'acme' } },
+			{ type: 'tool_result', id: 'c1', content: webHits, is_error: false },
+			{ type: 'tool_call', id: 'c2', name: 'vault_search', args: { query: 'acme' } },
+			{ type: 'tool_result', id: 'c2', content: searchHits, is_error: false },
+			{ type: 'agent_message_delta', text: 'Acme, per your notes and [1] the web.' },
+			{ type: 'done', result: null }
+		]);
+		const [agent] = agentMessages(state);
+		expect(agent.sources).toHaveLength(1);
+		expect(agent.sources?.[0]?.path).toBe('people/Acme.md');
+	});
+
+	it('leaves an ungrounded answer without sources (none)', () => {
+		const state = play([
+			{ type: 'user_message', text: 'hello' },
+			{ type: 'agent_message_delta', text: 'Hi there!' },
+			{ type: 'done', result: null }
+		]);
+		const [agent] = agentMessages(state);
+		expect(agent.sources).toBeUndefined();
+	});
+
+	it('resets pending sources between turns', () => {
+		const state = play([
+			{ type: 'user_message', text: 'who is acme?' },
+			{ type: 'tool_call', id: 'c1', name: 'vault_search', args: {} },
+			{ type: 'tool_result', id: 'c1', content: searchHits, is_error: false },
+			{ type: 'agent_message_delta', text: 'Acme.' },
+			{ type: 'done', result: null },
+			{ type: 'user_message', text: 'hello' },
+			{ type: 'agent_message_delta', text: 'Hi!' },
+			{ type: 'done', result: null }
+		]);
+		const agents = agentMessages(state);
+		expect(agents[0].sources?.[0]?.path).toBe('people/Acme.md');
+		expect(agents[1].sources).toBeUndefined();
+	});
+});

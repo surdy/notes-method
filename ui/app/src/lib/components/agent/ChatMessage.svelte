@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { MessageItem } from '$lib/agent/conversation';
 	import { renderMarkdown } from '$lib/agent/markdown';
+	import MessageSources from './MessageSources.svelte';
 	import { activeEditorStore } from '$lib/editor/active-editor.svelte';
 	import type { ApplyMode } from '$lib/editor/apply-output';
 	import { toastStore } from '$lib/toast-store.svelte';
@@ -80,6 +81,9 @@
 			<span class="thinking" aria-label="Agent is responding">…</span>
 		{/if}
 	</div>
+	{#if isAgent && item.sources && item.sources.length > 0}
+		<MessageSources sources={item.sources} />
+	{/if}
 	{#if canApply}
 		<div class="actions">
 			<button

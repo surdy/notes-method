@@ -128,6 +128,25 @@ The current note in the editor is automatically included as context. You can tog
 
 ---
 
+## Message Sources
+
+When the agent grounds an answer in your vault — by calling the `vault_search`
+tool or reading a note with `get_note` — a **Show sources** control appears
+below that message, with a count of the notes it used. Expand it to see each
+grounding note:
+
+- Click a source to **open that note** in the editor.
+- Sources are sorted by relevance, with the ranking explanation shown when
+  available (e.g. `lexical #2 · semantic #1 · score 0.031`) plus a matching
+  snippet.
+
+The control is **vault-only** on purpose. If the agent cites the web, those
+references stay as inline numbered citations in the message text, not in the
+sources control — so you can always tell note-grounded claims from web-grounded
+ones. Messages that weren't grounded in vault notes show no sources control.
+
+---
+
 ## Stop and Regenerate
 
 While the agent is replying, the **Send** button becomes a **Stop** button. Click it to cancel the in-flight response immediately.
