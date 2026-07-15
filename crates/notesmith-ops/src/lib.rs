@@ -106,6 +106,11 @@ pub trait Ops: Send + Sync {
     ) -> Result<Value>;
     /// List tasks, optionally filtered by status/customer.
     fn list_tasks(&self, status: Option<&str>, customer: Option<&str>) -> Result<Value>;
+    /// Summarise the vault's structure from the index: totals, the most-used
+    /// tags, the most-linked-to notes, and orphan notes (no resolved incoming
+    /// or outgoing links). `top` caps how many rows each ranked list returns.
+    /// Embedding-independent — reads only the note index.
+    fn vault_stats(&self, top: Option<usize>) -> Result<Value>;
     /// Resolve an MCP-style resource URI to its text content.
     fn read_resource(&self, uri: &str) -> Result<String>;
 
@@ -1782,6 +1787,103 @@ impl Ops for LocalOps {
         Ok(Value::Array(rows))
     }
 
+    fn vault_stats(&self, top: Option<usize>) -> Result<Value> {
+        const DEFAULT_TOP: usize = 20;
+        const MAX_TOP: usize = 200;
+        let top = top.unwrap_or(DEFAULT_TOP).clamp(1, MAX_TOP) as i64;
+
+        let conn = self.cache.connection();
+
+        // Wikilink targets are stored as raw link text (e.g. "Acme Corp"), not
+        // note paths, so resolve each target to a note by title (which the
+        // indexer defaults to the filename stem) or by an explicit path form.
+        // `resolved` holds distinct source→target *note* edges, from which
+        // backlink counts and orphan detection follow.
+        const RESOLVED_CTE: &str = "WITH resolved AS ( \
+             SELECT DISTINCT l.source_path AS src, n.path AS dst \
+             FROM links l \
+             JOIN notes n ON n.path <> l.source_path AND ( \
+                 n.title = l.target_path \
+                 OR n.path = l.target_path \
+                 OR n.path = l.target_path || '.md' \
+                 OR n.path LIKE '%/' || l.target_path || '.md') \
+             WHERE l.target_path IS NOT NULL )";
+
+        let scalar =
+            |sql: &str| -> Result<i64> { Ok(conn.query_row(sql, [], |row| row.get::<_, i64>(0))?) };
+
+        let total_notes = scalar("SELECT COUNT(*) FROM notes")?;
+        let total_tasks = scalar("SELECT COUNT(*) FROM tasks")?;
+        let total_words = scalar("SELECT COALESCE(SUM(word_count), 0) FROM notes")?;
+        let distinct_tags = scalar("SELECT COUNT(DISTINCT tag) FROM tags")?;
+        let resolved_links = scalar(&format!("{RESOLVED_CTE} SELECT COUNT(*) FROM resolved"))?;
+        let orphan_count = scalar(&format!(
+            "{RESOLVED_CTE} SELECT COUNT(*) FROM notes \
+             WHERE path NOT IN (SELECT src FROM resolved) \
+               AND path NOT IN (SELECT dst FROM resolved)"
+        ))?;
+
+        let mut tag_stmt = conn.prepare(
+            "SELECT tag, COUNT(*) AS c FROM tags \
+             GROUP BY tag ORDER BY c DESC, tag ASC LIMIT ?1",
+        )?;
+        let tags = tag_stmt
+            .query_map([top], |row| {
+                Ok(json!({
+                    "tag": row.get::<_, String>(0)?,
+                    "note_count": row.get::<_, i64>(1)?,
+                }))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let mut backlink_stmt = conn.prepare(&format!(
+            "{RESOLVED_CTE} \
+             SELECT r.dst, n.title, COUNT(*) AS c \
+             FROM resolved r JOIN notes n ON n.path = r.dst \
+             GROUP BY r.dst ORDER BY c DESC, r.dst ASC LIMIT ?1"
+        ))?;
+        let backlinks = backlink_stmt
+            .query_map([top], |row| {
+                Ok(json!({
+                    "path": row.get::<_, String>(0)?,
+                    "title": row.get::<_, Option<String>>(1)?,
+                    "backlink_count": row.get::<_, i64>(2)?,
+                }))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let mut orphan_stmt = conn.prepare(&format!(
+            "{RESOLVED_CTE} \
+             SELECT path, title FROM notes \
+             WHERE path NOT IN (SELECT src FROM resolved) \
+               AND path NOT IN (SELECT dst FROM resolved) \
+             ORDER BY path ASC LIMIT ?1"
+        ))?;
+        let orphans = orphan_stmt
+            .query_map([top], |row| {
+                Ok(json!({
+                    "path": row.get::<_, String>(0)?,
+                    "title": row.get::<_, Option<String>>(1)?,
+                }))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(json!({
+            "vault": self.vault_name(),
+            "totals": {
+                "notes": total_notes,
+                "tags": distinct_tags,
+                "links": resolved_links,
+                "tasks": total_tasks,
+                "words": total_words,
+                "orphans": orphan_count,
+            },
+            "tags": tags,
+            "backlinks": backlinks,
+            "orphans": orphans,
+        }))
+    }
+
     fn read_resource(&self, uri: &str) -> Result<String> {
         if uri == "note:///vault/structure" {
             let notes = self.engine.scan(&self.vault_root)?;
@@ -2360,6 +2462,10 @@ impl<O: Ops> Ops for ReadOnlyOps<O> {
 
     fn list_tasks(&self, status: Option<&str>, customer: Option<&str>) -> Result<Value> {
         self.inner.list_tasks(status, customer)
+    }
+
+    fn vault_stats(&self, top: Option<usize>) -> Result<Value> {
+        self.inner.vault_stats(top)
     }
 
     fn read_resource(&self, uri: &str) -> Result<String> {
@@ -5379,6 +5485,52 @@ mod tests {
         let results = results.as_array().unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["path"], "Customers/Acme.md");
+    }
+
+    #[test]
+    fn vault_stats_summarises_structure() {
+        let temp_dir = TempDir::new().unwrap();
+        // Hub links to Spoke; Spoke is linked-to; Lonely has no links at all.
+        write_note(
+            temp_dir.path(),
+            "Notes/Hub.md",
+            "---\ntype: note\ntags: [project, active]\n---\nSee [[Spoke]] for details.",
+        );
+        write_note(
+            temp_dir.path(),
+            "Notes/Spoke.md",
+            "---\ntype: note\ntags: [project]\n---\nSpoke body.",
+        );
+        write_note(
+            temp_dir.path(),
+            "Notes/Lonely.md",
+            "---\ntype: note\ntags: [archive]\n---\nNo links here.",
+        );
+        let ops = build_test_ops(temp_dir.path());
+
+        let stats = ops.vault_stats(None).unwrap();
+
+        let totals = &stats["totals"];
+        assert_eq!(totals["notes"], 3);
+        assert_eq!(totals["tags"], 3); // project, active, archive
+        assert_eq!(totals["links"], 1); // Hub -> Spoke (resolved)
+        assert_eq!(totals["orphans"], 1); // Lonely only
+
+        // project is the most-used tag (Hub + Spoke).
+        let tags = stats["tags"].as_array().unwrap();
+        assert_eq!(tags[0]["tag"], "project");
+        assert_eq!(tags[0]["note_count"], 2);
+
+        // Spoke is the sole backlink target.
+        let backlinks = stats["backlinks"].as_array().unwrap();
+        assert_eq!(backlinks.len(), 1);
+        assert_eq!(backlinks[0]["path"], "Notes/Spoke.md");
+        assert_eq!(backlinks[0]["backlink_count"], 1);
+
+        // Lonely is the only orphan; Hub (outgoing) and Spoke (incoming) are not.
+        let orphans = stats["orphans"].as_array().unwrap();
+        assert_eq!(orphans.len(), 1);
+        assert_eq!(orphans[0]["path"], "Notes/Lonely.md");
     }
 
     #[test]

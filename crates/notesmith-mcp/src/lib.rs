@@ -165,6 +165,11 @@ struct ListTasksParams {
 }
 
 #[derive(Debug, Deserialize)]
+struct VaultStatsParams {
+    top: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
 struct UpdateTaskStatusParams {
     note_path: String,
     task_hash: String,
@@ -560,6 +565,29 @@ impl NotesmithMcp {
                 }),
             ),
             tool_definition(
+                "vault_stats",
+                scoped(
+                    "Summarise this vault's structure from the note index: \
+                     totals (notes, distinct tags, resolved links, tasks, \
+                     words, orphans), the most-used tags, the most-linked-to \
+                     notes, and orphan notes (no resolved incoming or outgoing \
+                     links). Use it to reason about the vault's shape for \
+                     PKM/cleanup. `top` caps each ranked list (default 20). \
+                     Embedding-independent",
+                ),
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "top": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Max rows per ranked list (default 20)"
+                        }
+                    },
+                    "additionalProperties": false
+                }),
+            ),
+            tool_definition(
                 "update_task_status",
                 scoped("Set the status of a task in a note"),
                 json!({
@@ -835,6 +863,10 @@ impl ServerHandler for NotesmithMcp {
                         .list_tasks(params.status.as_deref(), params.customer.as_deref())
                 })
             }
+            "vault_stats" => self
+                .handle_tool_call::<VaultStatsParams, _>(request.arguments, |params| {
+                    self.ops.vault_stats(params.top)
+                }),
             "update_task_status" => {
                 self.handle_tool_call::<UpdateTaskStatusParams, _>(request.arguments, |params| {
                     self.ops.update_task_status(
@@ -1222,7 +1254,7 @@ mod tests {
         let mcp = build_test_mcp(temp_dir.path());
 
         let tools = mcp.registered_tools();
-        assert_eq!(tools.len(), 21);
+        assert_eq!(tools.len(), 22);
         assert!(tools.iter().any(|t| t.name == "memory_recall"));
         assert!(tools.iter().any(|t| t.name == "memory_list"));
         assert!(tools.iter().any(|t| t.name == "memory_save"));
@@ -1231,6 +1263,7 @@ mod tests {
         assert!(tools.iter().any(|t| t.name == "memory_delete"));
         assert!(tools.iter().any(|t| t.name == "vault_search"));
         assert!(tools.iter().any(|t| t.name == "time_query"));
+        assert!(tools.iter().any(|t| t.name == "vault_stats"));
     }
 
     #[test]

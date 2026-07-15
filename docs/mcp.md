@@ -50,6 +50,7 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `time_query` | `when`, `date_field?` (`mtime`\|`updated`\|`created`), `query?`, `limit?` |
 | `list_notes` | `type?`, `customer?`, `archived?` |
 | `list_tasks` | `status?`, `customer?` |
+| `vault_stats` | `top?` |
 | `update_task_status` | `note_path`, `task_hash`, `status` |
 | `capture` | `content`, `title?` |
 | `create_daily_note` | `date?` (`YYYY-MM-DD`) |
@@ -200,6 +201,25 @@ overlaps the range, regardless of `date_field`, so "in May" surfaces May's
 daily notes even when their file mtime is later. Each result carries a `source`
 of `note` or `periodic`. The response also echoes the resolved `range_start` /
 `range_end` and total `match_count`. This tool is embedding-independent.
+
+### `vault_stats`
+
+Summarises the vault's structure from the note index so an agent can reason
+about its shape for PKM/cleanup. Embedding-independent.
+
+- `top?` — how many rows each ranked list returns (default 20, capped at 200).
+
+The response contains:
+
+- `totals` — `notes`, `tags` (distinct), `links` (resolved note→note edges),
+  `tasks`, `words`, and `orphans`.
+- `tags` — the most-used tags with their `note_count`.
+- `backlinks` — the most-linked-to notes (`path`, `title`, `backlink_count`).
+- `orphans` — notes with no resolved incoming or outgoing links (`path`,
+  `title`).
+
+Wikilink targets are resolved to notes by title (which defaults to the filename
+stem) or path, so `[[Some Note]]` counts toward that note's backlinks.
 
 
 ## Claude Desktop example
