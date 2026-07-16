@@ -2,7 +2,15 @@
 
 ## Status
 
-Proposed (2026-07-15).
+Accepted (2026-07-15). Engine choice **ratified** on 2026-07-15: **Whisper
+(whisper.cpp via `whisper-rs`)** is the primary `Transcriber` backend for the
+first slice; **Parakeet (ONNX via `transcribe-rs`)** is explicitly preserved as
+a future trait-backed backend (§1/§2), added later without caller changes.
+Implementation is phased via
+[#271](https://github.com/surdy/notes-method/issues/271) (P2a core),
+[#270](https://github.com/surdy/notes-method/issues/270) (P2b worker/queue),
+[#272](https://github.com/surdy/notes-method/issues/272) (P2c YouTube fallback),
+and [#273](https://github.com/surdy/notes-method/issues/273) (P2d agent structuring).
 
 Part of Phase 3 ([#187](https://github.com/surdy/notes-method/issues/187))
 (Memory & multimodal). Implements the transcription half of
