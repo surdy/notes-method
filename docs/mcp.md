@@ -303,6 +303,39 @@ Example:
 ```
 
 
+## Structuring a transcript note (agent workflow)
+
+Transcription (audio/YouTube → note) produces a **timestamped transcript note**
+only — a `source_type: youtube|podcast|audio` frontmatter block plus a body of
+`H:MM:SS` segments ([ADR 0023](adr/0023-local-whisper-transcription-worker.md)
+§7). Notesmith deliberately does **not** summarize the transcript, extract action
+items, or pull out decisions itself: per
+[ADR 0015](adr/0015-ai-agent-integration-roadmap.md) Option A the daemon runs no
+chat LLM. The "structured note (summary + action items + decisions)" outcome of
+[#204](https://github.com/surdy/notes-method/issues/204) is produced by **the
+user's ACP agent** calling the MCP tools already listed above over the transcript
+note — there is no Notesmith-side model or endpoint for it.
+
+A typical agent pass:
+
+1. **Find the transcript note.** `search_notes`/`vault_search` for the topic, or
+   `list_notes` / `query_sql` filtered to the vault's `transcribed/` folder
+   (`[transcribe] notes_dir`). Recently drained items surface via `time_query`.
+2. **Read it.** `get_note` returns the frontmatter (provenance: `source_url`,
+   `title`, `channel`, `published`, `duration`) and the timestamped body. The
+   agent summarizes/extracts in its **own** context — Notesmith just serves text.
+3. **Write the structured note.** `create_note` (e.g. under `summaries/`) with a
+   Summary / Action items / Decisions body, linking back to the transcript via a
+   `[[wikilink]]` and carrying the same `source_url` for provenance. To enrich
+   the transcript in place instead, `append_to_note` (add a summary section) or
+   `update_note`.
+4. **Track action items as tasks.** Write action items as Markdown task lines
+   (`- [ ] …`) in the structured note; the indexer picks them up so `list_tasks`
+   and `update_task_status` manage them like any other task.
+
+The agent chooses and sequences these tools; Notesmith adds no transcript-specific
+tool for this step — structuring is composition over the existing surface.
+
 ## Claude Desktop example
 
 ```json

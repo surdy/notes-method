@@ -283,6 +283,11 @@ max bytes) so one file cannot wedge the worker.
    Closes the ADR 0020 §8.3 loop. TDD: trait seam, adaptive-format parse/select,
    DSP, and worker dispatch are unit-tested; the real network + AAC decode path
    is feature-gated/manual-only (like whisper.cpp itself).
-4. **P2d — agent structuring (docs only).** Confirm the MCP surface an agent uses
-   to turn a transcript note into summary/action-items/decisions; no new
-   Notesmith-side model.
+4. **P2d — agent structuring (docs only). ✅ Realized (#273, this commit).**
+   Documents (in `docs/mcp.md`, "Structuring a transcript note") how the user's
+   ACP agent turns a transcript note into a structured summary/action-items/
+   decisions note purely by composing existing MCP tools (`get_note` →
+   summarize in the agent's own context → `create_note`/`append_to_note`, with
+   action items as task lines managed by `list_tasks`/`update_task_status`). No
+   new Notesmith-side model or endpoint — per ADR 0015 Option A the daemon runs
+   no chat LLM.
