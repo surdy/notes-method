@@ -34,7 +34,8 @@
     "targets": ["dmg", "app"],
     "externalBin": ["binaries/notesmith"],
     "resources": {
-      "resources/embed-model/*": "embed-model/"
+      "resources/embed-model/*": "embed-model/",
+      "resources/whisper-model/*": "whisper-model/"
     },
     "macOS": {
       "minimumSystemVersion": "10.15"

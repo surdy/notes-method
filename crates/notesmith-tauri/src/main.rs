@@ -742,6 +742,56 @@ fn find_bundled_model_dir_in<'a>(
         .map(std::path::Path::to_path_buf)
 }
 
+/// Resolve the app-bundled whisper-model directory, if present.
+///
+/// Mirrors [`resolve_bundled_model_dir`] (embeddings) for transcription: the
+/// model ships as a Tauri bundle resource (`resources/whisper-model`) that lands
+/// at `Notesmith.app/Contents/Resources/whisper-model` (or alongside the binary
+/// in dev/flat layouts). When found, the path is passed to the spawned daemon
+/// via `NOTESMITH_WHISPER_MODEL_DIR` and inherited by the colocated transcription
+/// worker, so first-enable is offline (ADR 0023 §3). Returns `None` in
+/// unbundled/dev builds, where the worker downloads the model on first run.
+fn resolve_bundled_whisper_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let exe_dir = exe.parent()?;
+    let candidates = [
+        exe_dir.join("../Resources/whisper-model"),
+        exe_dir.join("whisper-model"),
+    ];
+    find_bundled_whisper_dir_in(candidates.iter().map(PathBuf::as_path))
+}
+
+/// Pure selection over candidate directories, separated for unit testing: the
+/// first candidate that holds a whisper.cpp GGML model (`ggml-*.bin`) wins. The
+/// filename is not hard-coded so any bundled tier/quantization resolves (matches
+/// `notesmith_transcribe::whisper_model_file`).
+fn find_bundled_whisper_dir_in<'a>(
+    candidates: impl IntoIterator<Item = &'a std::path::Path>,
+) -> Option<PathBuf> {
+    candidates
+        .into_iter()
+        .find(|dir| dir_has_ggml_model(dir))
+        .map(std::path::Path::to_path_buf)
+}
+
+/// Whether `dir` contains at least one whisper.cpp GGML model file
+/// (`ggml-*.bin`). Mirrors the detection in `notesmith_transcribe::model`
+/// without taking a crate dependency (as the embed resolver duplicates
+/// [`BUNDLED_MODEL_ONNX`]).
+fn dir_has_ggml_model(dir: &std::path::Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.filter_map(Result::ok).any(|entry| {
+        let path = entry.path();
+        path.is_file()
+            && path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("ggml-") && n.ends_with(".bin"))
+    })
+}
+
 fn setup_deep_links<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
     let handle = app.clone();
     app.deep_link().on_open_url(move |event| {
@@ -1862,6 +1912,7 @@ fn startup_settings() -> DaemonSettings {
     DaemonSettings {
         sidecar_path: resolve_sidecar_path(),
         model_dir: resolve_bundled_model_dir(),
+        whisper_model_dir: resolve_bundled_whisper_dir(),
         ..Default::default()
     }
 }
@@ -3452,8 +3503,9 @@ mod tests {
     use super::{
         CrashAction, CrashTracker, DaemonSettings, QuitRequestAction, VaultCacheState,
         VaultRefreshGate, admin_route_url, cached_vaults_for_settings, classify_vault_response,
-        daemon_error_detail, evaluate_quit_request, find_bundled_model_dir_in, find_sidecar_in,
-        open_windows_guard_message, should_use_local_vault_state,
+        daemon_error_detail, evaluate_quit_request, find_bundled_model_dir_in,
+        find_bundled_whisper_dir_in, find_sidecar_in, open_windows_guard_message,
+        should_use_local_vault_state,
     };
     use notesmith_tauri::servers::{ServerEntry, ServersFile};
     use notesmith_tauri::vault_cache::RefreshOutcome;
@@ -3566,6 +3618,31 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // A directory that exists but lacks model.onnx must not qualify.
         assert_eq!(find_bundled_model_dir_in([dir.path()]), None);
+    }
+
+    #[test]
+    fn find_bundled_whisper_dir_picks_first_dir_with_ggml_model() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("whisper-missing");
+        let present = root.path().join("whisper-present");
+        std::fs::create_dir_all(&missing).unwrap();
+        std::fs::create_dir_all(&present).unwrap();
+        // Only the second candidate holds a ggml model (quantized filename).
+        std::fs::write(present.join("ggml-small.en-q5_1.bin"), b"stub").unwrap();
+
+        assert_eq!(
+            find_bundled_whisper_dir_in([missing.as_path(), present.as_path()]),
+            Some(present.clone())
+        );
+    }
+
+    #[test]
+    fn find_bundled_whisper_dir_ignores_readme_only_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        // A README-only resource dir (weights not fetched) must not qualify.
+        std::fs::write(dir.path().join("README.md"), b"docs").unwrap();
+        std::fs::write(dir.path().join("model.bin"), b"not ggml").unwrap();
+        assert_eq!(find_bundled_whisper_dir_in([dir.path()]), None);
     }
 
     #[test]

@@ -47,6 +47,9 @@ cd ../../crates/notesmith-tauri
 # Optional: bundle the embedding model so Semantic Search enables offline.
 # Skip this and the model is downloaded on first enable instead.
 ./fetch-embed-model.sh
+# Optional: bundle the whisper model so Transcription enables offline.
+# Skip this and the model is downloaded on first enable instead.
+./fetch-whisper-model.sh
 cargo tauri build
 # App bundle: target/release/bundle/dmg/
 ```

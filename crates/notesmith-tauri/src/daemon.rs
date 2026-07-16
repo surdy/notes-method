@@ -22,6 +22,13 @@ pub struct DaemonSettings {
     /// Tauri resource dir at startup; `None` in dev/unbundled builds, which then
     /// fall back to the download-on-first-run path.
     pub model_dir: Option<PathBuf>,
+    /// When set, points the spawned local daemon at a directory of a pre-bundled
+    /// whisper.cpp GGML model via `NOTESMITH_WHISPER_MODEL_DIR`, so first-enable
+    /// of transcription is offline (ADR 0023 §3). The daemon never transcribes
+    /// itself, but the value is inherited by the colocated `notesmith transcribe`
+    /// worker it spawns. `None` in dev/unbundled builds, which then fall back to
+    /// the download-on-first-run path.
+    pub whisper_model_dir: Option<PathBuf>,
     pub ping_timeout: Duration,
     pub startup_wait: Duration,
     pub startup_poll_interval: Duration,
@@ -46,6 +53,7 @@ impl Default for DaemonSettings {
                 .unwrap_or_else(|| DEFAULT_DAEMON_BIN.to_string()),
             sidecar_path: None,
             model_dir: None,
+            whisper_model_dir: None,
             ping_timeout: Duration::from_secs(2),
             startup_wait: Duration::from_secs(10),
             startup_poll_interval: Duration::from_millis(500),
@@ -724,6 +732,14 @@ async fn spawn_daemon(
         command.env("NOTESMITH_EMBED_MODEL_DIR", model_dir);
     }
 
+    // Point the colocated transcription worker (spawned by the daemon's
+    // transcribe scheduler, which inherits this environment) at the app-bundled
+    // whisper model so enabling transcription is offline/instant (ADR 0023 §3).
+    // Unset in unbundled/dev builds, where the worker downloads the model.
+    if let Some(whisper_model_dir) = settings.whisper_model_dir.as_deref() {
+        command.env("NOTESMITH_WHISPER_MODEL_DIR", whisper_model_dir);
+    }
+
     #[cfg(unix)]
     if detach {
         // SAFETY: The child process immediately detaches before exec so the daemon
@@ -813,6 +829,7 @@ mod tests {
             daemon_bin: "notesmith".into(),
             sidecar_path: None,
             model_dir: None,
+            whisper_model_dir: None,
             ping_timeout: std::time::Duration::from_millis(5),
             startup_wait: std::time::Duration::from_millis(30),
             startup_poll_interval: std::time::Duration::from_millis(5),
