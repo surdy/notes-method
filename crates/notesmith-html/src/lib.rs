@@ -2,6 +2,35 @@
 
 use comrak::{Options, markdown_to_html};
 use regex::Regex;
+use std::sync::LazyLock;
+
+// Regexes used by the per-render OFM post-processing passes. Compiled once at
+// module init (the ADR 0009-sanctioned form) rather than on every render — the
+// patterns are compile-time literals, so `expect` here can never fire on
+// (untrusted) note content.
+static WIKILINK_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]").expect("valid wikilink regex")
+});
+static STYLED_WIKILINK_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"<a class="wikilink" data-target="([^"]+)">"#)
+        .expect("valid styled wikilink regex")
+});
+static COMMENT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?s)(```[^\n]*\n.*?```)|(`[^`\n]+`)|%%.*?%%").expect("valid comment-aware regex")
+});
+static HIGHLIGHT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"==([^=]+)==").expect("valid highlight regex"));
+static CODE_TAG_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?s)(<code>.*?</code>|<pre>.*?</pre>)").expect("valid code tag regex")
+});
+static EMBED_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"!\[\[([^\]]+?)\]\]").expect("valid embed regex"));
+static EXTENDED_TASK_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<li>\[([^\]\s])\]\s*").expect("valid extended task regex"));
+static CALLOUT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?s)^<blockquote>\s*<p>\[!([\w-]+)\]([+-])? ?([^\n]*)(.*?)</p>(.*?)</blockquote>$")
+        .expect("valid callout regex")
+});
 
 const INLINE_STYLE_SHEET: &str = r#"html {
     background: #ffffff;
@@ -214,19 +243,19 @@ pub fn strip_frontmatter(content: &str) -> &str {
 }
 
 fn convert_wikilinks(html: &str) -> String {
-    let re = Regex::new(r"\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]").expect("valid wikilink regex");
-    re.replace_all(html, |caps: &regex::Captures<'_>| {
-        let target = &caps[1];
-        let display = caps.get(2).map(|m| m.as_str()).unwrap_or(target);
-        format!(r#"<a class="wikilink" data-target="{target}">{display}</a>"#)
-    })
-    .to_string()
+    WIKILINK_RE
+        .replace_all(html, |caps: &regex::Captures<'_>| {
+            let target = &caps[1];
+            let display = caps.get(2).map(|m| m.as_str()).unwrap_or(target);
+            format!(r#"<a class="wikilink" data-target="{target}">{display}</a>"#)
+        })
+        .to_string()
 }
 
 fn convert_styled_wikilinks(html: &str) -> String {
-    let re = Regex::new(r#"<a class="wikilink" data-target="([^"]+)">"#)
-        .expect("valid styled wikilink regex");
-    re.replace_all(html, r#"<a href="$1">"#).to_string()
+    STYLED_WIKILINK_RE
+        .replace_all(html, r#"<a href="$1">"#)
+        .to_string()
 }
 
 /// Strip `%%...%%` comments from markdown before rendering.
@@ -237,8 +266,7 @@ fn strip_comments(markdown: &str) -> String {
     // 1. Fenced code blocks (``` ... ```) — captured in group 1 to preserve
     // 2. Inline code (`...`) — captured in group 2 to preserve
     // 3. %%...%% comments — matched without a group to strip
-    let re = Regex::new(r"(?s)(```[^\n]*\n.*?```)|(`[^`\n]+`)|%%.*?%%")
-        .expect("valid comment-aware regex");
+    let re = &COMMENT_RE;
 
     re.replace_all(markdown, |caps: &regex::Captures| {
         // If group 1 (fenced code) or group 2 (inline code) matched, preserve it
@@ -255,10 +283,9 @@ fn strip_comments(markdown: &str) -> String {
 /// Convert `==text==` highlights to `<mark>text</mark>`.
 /// Skips content inside `<code>` and `<pre>` elements.
 fn convert_highlights(html: &str) -> String {
-    let highlight_re = Regex::new(r"==([^=]+)==").expect("valid highlight regex");
+    let highlight_re = &HIGHLIGHT_RE;
     // Split by code/pre tags to avoid converting highlights inside them
-    let tag_re =
-        Regex::new(r"(?s)(<code>.*?</code>|<pre>.*?</pre>)").expect("valid code tag regex");
+    let tag_re = &CODE_TAG_RE;
 
     let mut result = String::with_capacity(html.len());
     let mut last_end = 0;
@@ -282,7 +309,7 @@ fn convert_highlights(html: &str) -> String {
 /// Convert `![[target]]` embeds to appropriate HTML elements.
 /// Image embeds produce `<img>`, note embeds produce a placeholder div.
 fn convert_embeds(html: &str) -> String {
-    let re = Regex::new(r"!\[\[([^\]]+?)\]\]").expect("valid embed regex");
+    let re = &EMBED_RE;
     re.replace_all(html, |caps: &regex::Captures<'_>| {
         let target = &caps[1];
         let lower = target.to_lowercase();
@@ -311,7 +338,7 @@ fn convert_embeds(html: &str) -> String {
 /// comrak only handles `[ ]` and `[x]`/`[X]`, so we post-process the HTML
 /// for extended markers that comrak rendered as plain list items.
 fn convert_extended_tasks(html: &str) -> String {
-    let re = Regex::new(r"<li>\[([^\]\s])\]\s*").expect("valid extended task regex");
+    let re = &EXTENDED_TASK_RE;
     re.replace_all(html, |caps: &regex::Captures<'_>| {
         let marker = &caps[1];
         format!(
@@ -367,10 +394,7 @@ fn convert_one_innermost_callout(html: &str) -> Option<String> {
 }
 
 fn convert_callout_block(html: &str) -> Option<String> {
-    let re = Regex::new(
-        r"(?s)^<blockquote>\s*<p>\[!([\w-]+)\]([+-])? ?([^\n]*)(.*?)</p>(.*?)</blockquote>$",
-    )
-    .expect("valid callout regex");
+    let re = &CALLOUT_RE;
     let caps = re.captures(html)?;
     Some({
         let callout_identifier = caps[1].to_lowercase();

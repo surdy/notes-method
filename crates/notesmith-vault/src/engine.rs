@@ -31,8 +31,24 @@ impl VaultEngine for NativeVaultEngine {
                 }
             })
             .filter(|entry| is_markdown_file(entry.path()))
-            .map(|entry| load_note(root, &vault_name, entry.path()))
-            .collect::<Result<Vec<_>>>()?;
+            .filter_map(|entry| {
+                // Per ADR 0009, a single unreadable/malformed note (e.g. a
+                // non-UTF-8 file) must not abort the whole vault scan. Skip it
+                // with a structured warning and keep indexing the rest.
+                match load_note(root, &vault_name, entry.path()) {
+                    Ok(note) => Some(note),
+                    Err(err) => {
+                        tracing::warn!(
+                            note = %entry.path().display(),
+                            stage = "read",
+                            reason = %err,
+                            "skipping note that failed to load during scan"
+                        );
+                        None
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
 
         notes.sort_by(|left, right| left.path.as_str().cmp(right.path.as_str()));
         Ok(notes)
@@ -189,6 +205,24 @@ mod tests {
             .filter_map(std::result::Result::ok)
             .find(|entry| entry.file_name().to_str() == Some(name))
             .unwrap()
+    }
+
+    #[test]
+    fn scan_skips_unreadable_note_and_keeps_the_rest() {
+        // Per ADR 0009, a single unreadable/malformed note must not abort the
+        // whole vault scan (which historically propagated up and killed daemon
+        // startup). A non-UTF-8 `.md` file makes `read_to_string` fail; scan
+        // must skip+warn it and still return the well-formed notes.
+        let root = TempDir::new().unwrap();
+        write_file(&root, "good.md", "# Good\n");
+        let bad = root.path().join("bad.md");
+        fs::write(&bad, [0xff, 0xfe, 0x00, 0x9f, 0x92, 0xa9]).unwrap();
+
+        let engine = NativeVaultEngine;
+        let notes = engine.scan(root.path()).unwrap();
+        let paths: Vec<_> = notes.iter().map(|note| note.path.as_str()).collect();
+
+        assert_eq!(paths, vec!["good.md"]);
     }
 
     #[test]

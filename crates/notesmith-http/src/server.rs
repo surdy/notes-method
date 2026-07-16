@@ -791,10 +791,22 @@ pub fn build_app_state(config: &GlobalConfig) -> anyhow::Result<AppState> {
     let mut vaults = HashMap::new();
 
     for (vault_name, registration) in &config.vaults {
-        vaults.insert(
-            vault_name.clone(),
-            create_vault_state(vault_name, &registration.path)?,
-        );
+        // Per ADR 0009, a single unloadable vault must not abort daemon startup
+        // (which would take down every *other* vault too). Log and skip the
+        // failing vault; the rest of the daemon comes up normally.
+        match create_vault_state(vault_name, &registration.path) {
+            Ok(vault_state) => {
+                vaults.insert(vault_name.clone(), vault_state);
+            }
+            Err(error) => {
+                tracing::error!(
+                    vault = %vault_name,
+                    path = %registration.path.display(),
+                    reason = %error,
+                    "skipping vault that failed to initialize during startup"
+                );
+            }
+        }
     }
 
     Ok(AppState {

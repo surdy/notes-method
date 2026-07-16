@@ -51,7 +51,11 @@ pub fn toggle_task(
             let stripped = strip_line_ending(line);
             let ending = &line[stripped.len()..];
 
-            let caps = re.captures(stripped).expect("already matched");
+            let Some(caps) = re.captures(stripped) else {
+                return Err(ToggleError::TaskNotFound {
+                    hash: task_hash.to_string(),
+                });
+            };
             let indent = caps.name("indent").map_or("", |m| m.as_str());
             let task_content = caps.name("content").map_or("", |m| m.as_str());
             let new_line = format!(

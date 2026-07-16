@@ -196,7 +196,12 @@ fn parse_tasks(body: &str) -> Vec<Task> {
 
         let line = trim_line_ending(segment);
         if let Some(captures) = task_regex().captures(line) {
-            let full = captures.get(0).expect("task regex has full match");
+            // Capture group 0 (the whole match) is guaranteed to be present
+            // whenever `captures()` returns `Some` — a regex-crate invariant,
+            // not a value derived from (untrusted) note content.
+            let full = captures
+                .get(0)
+                .expect("capture group 0 always exists on a match");
             let status_char = captures
                 .name("marker")
                 .and_then(|marker| marker.as_str().chars().next())
