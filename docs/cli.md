@@ -316,6 +316,19 @@ Each pass is incremental and content-hash driven:
   retried while unchanged
 - **orphaned** notes (raw file removed) are reported, never deleted
 
+Each pass also appends one greppable line per **state-changing** action to a
+per-vault append-only ledger at `raw/log.md` (#264):
+
+```
+## [2026-07-15T09:12:00Z] ingest | ingested/talk.md | status=ingested | source=raw/talk.pdf | hash=abc123def456
+```
+
+Status tokens are `ingested | reingest | renamed | failed | unsupported`.
+Steady-state no-ops (unchanged files) are intentionally **not** logged, so the
+ledger stays a meaningful audit trail rather than a per-tick heartbeat. The
+ledger is purely derived observability — deleting `log.md` is always safe (it
+resumes on the next state change) and it is never re-ingested.
+
 Configure per vault in `.notesmith/vault.toml`:
 
 ```toml

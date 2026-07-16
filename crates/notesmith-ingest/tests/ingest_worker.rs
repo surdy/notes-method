@@ -254,3 +254,125 @@ fn failed_document_is_retried_on_next_pass() {
     }
     let _ = ItemOutcome::Failed;
 }
+
+// ---------------------------------------------------------------------------
+// Ingestion ledger (#264): per-vault append-only `raw/log.md`.
+// ---------------------------------------------------------------------------
+
+fn ledger_entries(root: &Path) -> Vec<String> {
+    let log = fs::read_to_string(root.join("raw/log.md")).unwrap_or_default();
+    log.lines()
+        .filter(|l| l.starts_with("## ["))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn ledger_records_one_entry_per_state_changing_action() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_raw(root, "raw/talk.pdf", &sample_pdf(&["Hello"]));
+    write_raw(root, "raw/notes.xyz", b"some bytes");
+
+    worker(root).run().unwrap();
+
+    let entries = ledger_entries(root);
+    assert_eq!(entries.len(), 2, "one greppable entry per processed file");
+    let log = fs::read_to_string(root.join("raw/log.md")).unwrap();
+    assert!(log.contains("## [2026-07-15T12:00:00Z] ingest"));
+    assert!(log.contains("ingested/talk.md"));
+    assert!(log.contains("status=ingested"));
+    assert!(log.contains("source=raw/talk.pdf"));
+    assert!(log.contains("hash="));
+    assert!(log.contains("status=unsupported"));
+    assert!(log.contains("source=raw/notes.xyz"));
+}
+
+#[test]
+fn ledger_is_append_only_and_skips_steady_state_noops() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_raw(root, "raw/talk.pdf", &sample_pdf(&["Hello"]));
+
+    worker(root).run().unwrap();
+    let after_first = fs::read_to_string(root.join("raw/log.md")).unwrap();
+    assert_eq!(ledger_entries(root).len(), 1);
+
+    // Second pass: file unchanged -> Unchanged (noop) -> nothing appended.
+    let report = worker(root).run().unwrap();
+    assert_eq!(report.unchanged(), 1);
+    let after_second = fs::read_to_string(root.join("raw/log.md")).unwrap();
+    assert_eq!(
+        after_first, after_second,
+        "steady-state noop appends nothing and never rewrites prior entries"
+    );
+}
+
+#[test]
+fn ledger_appends_reingest_without_touching_prior_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_raw(root, "raw/talk.pdf", &sample_pdf(&["version one"]));
+    worker(root).run().unwrap();
+    let after_first = fs::read_to_string(root.join("raw/log.md")).unwrap();
+
+    write_raw(root, "raw/talk.pdf", &sample_pdf(&["version two changed"]));
+    worker(root).run().unwrap();
+
+    let after_second = fs::read_to_string(root.join("raw/log.md")).unwrap();
+    assert!(
+        after_second.starts_with(&after_first),
+        "prior ledger content preserved verbatim (append-only)"
+    );
+    assert_eq!(ledger_entries(root).len(), 2);
+    assert!(after_second.contains("status=reingest"));
+}
+
+#[test]
+fn ledger_is_never_ingested_and_delete_then_rerun_is_safe() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_raw(root, "raw/talk.pdf", &sample_pdf(&["Hello"]));
+    assert_eq!(worker(root).run().unwrap().ingested(), 1);
+
+    // The ledger itself is never treated as a raw input.
+    let second = worker(root).run().unwrap();
+    assert_eq!(
+        second.items.len(),
+        1,
+        "only the pdf is processed, not log.md"
+    );
+    assert_eq!(second.unsupported(), 0);
+    assert!(!root.join("ingested/log.md").exists());
+
+    // Deleting the ledger and re-running is safe: already-ingested file is a
+    // noop (no crash). A later state change cleanly resumes the ledger.
+    fs::remove_file(root.join("raw/log.md")).unwrap();
+    assert_eq!(worker(root).run().unwrap().unchanged(), 1);
+
+    write_raw(root, "raw/two.pdf", &sample_pdf(&["second"]));
+    worker(root).run().unwrap();
+    let log = fs::read_to_string(root.join("raw/log.md")).unwrap();
+    assert!(log.contains("ingested/two.md"));
+    assert_eq!(
+        ledger_entries(root).len(),
+        1,
+        "ledger resumed after deletion"
+    );
+}
+
+#[test]
+fn ledger_records_failed_or_unsupported_for_broken_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_raw(root, "raw/broken.pdf", b"%PDF not a real pdf");
+
+    let report = worker(root).run().unwrap();
+    let log = fs::read_to_string(root.join("raw/log.md")).unwrap();
+    if report.failed() == 1 {
+        assert!(log.contains("status=failed"));
+    } else {
+        assert!(log.contains("status=unsupported"));
+    }
+    assert_eq!(ledger_entries(root).len(), 1);
+}

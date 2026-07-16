@@ -30,6 +30,11 @@ pub const STATUS_FAILED: &str = "failed";
 /// Frontmatter `status` for a document that cannot be extracted at all.
 pub const STATUS_UNSUPPORTED: &str = "unsupported";
 
+/// Filename of the per-vault append-only ingestion ledger, written inside the
+/// raw drop folder (#264). Purely derived observability: deleting it never
+/// affects correctness (identity stays `hash + frontmatter`, ADR 0022 §4).
+pub const LEDGER_FILENAME: &str = "log.md";
+
 /// A fatal error that prevents the ingest pass from running at all (as opposed
 /// to a per-item failure, which is recorded in the report and never aborts).
 #[derive(Debug, thiserror::Error)]
@@ -69,6 +74,9 @@ pub struct IngestItem {
     pub source_path: String,
     /// Vault-relative path of the generated sidecar note.
     pub note_path: String,
+    /// Content hash of the raw file (`sha256:…`), or empty when the file could
+    /// not be read. Surfaced in the ingestion ledger (#264).
+    pub source_hash: String,
     /// What happened to this item.
     pub outcome: ItemOutcome,
 }
@@ -200,7 +208,78 @@ impl IngestWorker {
         }
         report.orphaned.sort();
 
+        self.append_ledger(&report);
+
         Ok(report)
+    }
+
+    /// Vault-relative path of the ingestion ledger, e.g. `raw/log.md`.
+    fn ledger_rel_path(&self) -> String {
+        format!("{}/{}", self.raw_dir, LEDGER_FILENAME)
+    }
+
+    /// Append one greppable line per state-changing action to the per-vault
+    /// ingestion ledger (#264). Steady-state no-ops (`Unchanged`) are skipped so
+    /// the append-only log stays a meaningful audit trail rather than a
+    /// per-tick heartbeat. Best-effort: any I/O failure logs a `WARN` and is
+    /// swallowed — the ledger is derived observability and must never abort or
+    /// affect an ingest pass (ADR 0009, ADR 0022 §4).
+    fn append_ledger(&self, report: &IngestReport) {
+        use std::io::Write as _;
+
+        let ts = rfc3339(self.now);
+        let mut lines = String::new();
+        for item in &report.items {
+            let Some(status) = ledger_status(&item.outcome) else {
+                continue;
+            };
+            let short = short_hash(&item.source_hash);
+            lines.push_str(&format!(
+                "## [{ts}] ingest | {} | status={status} | source={}",
+                item.note_path, item.source_path
+            ));
+            if !short.is_empty() {
+                lines.push_str(&format!(" | hash={short}"));
+            }
+            lines.push('\n');
+        }
+        if lines.is_empty() {
+            return;
+        }
+
+        let path = self.vault_root.join(&self.raw_dir).join(LEDGER_FILENAME);
+        if let Some(parent) = path.parent() {
+            if let Err(error) = std::fs::create_dir_all(parent) {
+                tracing::warn!(
+                    stage = "ledger",
+                    reason = %error,
+                    "failed to ensure ingest ledger directory; skipping"
+                );
+                return;
+            }
+        }
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                if let Err(error) = file.write_all(lines.as_bytes()) {
+                    tracing::warn!(
+                        stage = "ledger",
+                        reason = %error,
+                        "failed to append ingest ledger; skipping"
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    stage = "ledger",
+                    reason = %error,
+                    "failed to open ingest ledger; skipping"
+                );
+            }
+        }
     }
 
     fn process_raw(
@@ -224,6 +303,7 @@ impl IngestWorker {
                 report.items.push(IngestItem {
                     source_path: raw.rel_path.clone(),
                     note_path: self.note_path_for(&raw.rel_path),
+                    source_hash: String::new(),
                     outcome: ItemOutcome::Failed,
                 });
                 return Ok(());
@@ -239,6 +319,7 @@ impl IngestWorker {
                 report.items.push(IngestItem {
                     source_path: raw.rel_path.clone(),
                     note_path: sidecar.note_path.clone(),
+                    source_hash: current_hash.clone(),
                     outcome: ItemOutcome::Unchanged,
                 });
                 return Ok(());
@@ -248,6 +329,7 @@ impl IngestWorker {
             report.items.push(IngestItem {
                 source_path: raw.rel_path.clone(),
                 note_path: sidecar.note_path.clone(),
+                source_hash: current_hash.clone(),
                 outcome: promote_to_reingest(outcome),
             });
             return Ok(());
@@ -261,6 +343,7 @@ impl IngestWorker {
                 report.items.push(IngestItem {
                     source_path: raw.rel_path.clone(),
                     note_path: expected_note,
+                    source_hash: current_hash.clone(),
                     outcome: ItemOutcome::Renamed,
                 });
                 return Ok(());
@@ -272,6 +355,7 @@ impl IngestWorker {
         report.items.push(IngestItem {
             source_path: raw.rel_path.clone(),
             note_path: expected_note,
+            source_hash: current_hash.clone(),
             outcome,
         });
         Ok(())
@@ -516,6 +600,7 @@ impl IngestWorker {
         if !raw_root.is_dir() {
             return Vec::new();
         }
+        let ledger_rel = self.ledger_rel_path();
         let mut files = Vec::new();
         for entry in walkdir::WalkDir::new(&raw_root)
             .into_iter()
@@ -535,6 +620,9 @@ impl IngestWorker {
                 continue; // non-UTF-8 path: skip
             };
             let rel_path = rel_str.replace('\\', "/");
+            if rel_path == ledger_rel {
+                continue; // never treat the ingestion ledger as an input
+            }
             let kind = DocumentKind::from_filename(&rel_path);
             files.push(RawFile {
                 rel_path,
@@ -573,6 +661,29 @@ fn hash_bytes(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     format!("sha256:{:x}", hasher.finalize())
+}
+
+/// Ledger status token for a state-changing outcome, or `None` for the
+/// steady-state `Unchanged` no-op (which is deliberately not logged, #264).
+fn ledger_status(outcome: &ItemOutcome) -> Option<&'static str> {
+    match outcome {
+        ItemOutcome::Ingested => Some("ingested"),
+        ItemOutcome::Reingested => Some("reingest"),
+        ItemOutcome::Renamed => Some("renamed"),
+        ItemOutcome::Failed => Some("failed"),
+        ItemOutcome::Unsupported => Some("unsupported"),
+        ItemOutcome::Unchanged => None,
+    }
+}
+
+/// Short, greppable form of a `sha256:…` hash for the ledger line (first 12 hex
+/// chars); empty when the source could not be hashed.
+fn short_hash(hash: &str) -> String {
+    hash.strip_prefix("sha256:")
+        .unwrap_or(hash)
+        .chars()
+        .take(12)
+        .collect()
 }
 
 fn rfc3339(dt: DateTime<Utc>) -> String {
@@ -646,5 +757,25 @@ mod tests {
     fn normalize_dir_strips_slashes() {
         assert_eq!(normalize_dir("/raw/"), "raw");
         assert_eq!(normalize_dir("ingested"), "ingested");
+    }
+
+    #[test]
+    fn ledger_status_skips_only_unchanged() {
+        assert_eq!(ledger_status(&ItemOutcome::Ingested), Some("ingested"));
+        assert_eq!(ledger_status(&ItemOutcome::Reingested), Some("reingest"));
+        assert_eq!(ledger_status(&ItemOutcome::Renamed), Some("renamed"));
+        assert_eq!(ledger_status(&ItemOutcome::Failed), Some("failed"));
+        assert_eq!(
+            ledger_status(&ItemOutcome::Unsupported),
+            Some("unsupported")
+        );
+        assert_eq!(ledger_status(&ItemOutcome::Unchanged), None);
+    }
+
+    #[test]
+    fn short_hash_trims_prefix_and_length() {
+        assert_eq!(short_hash("sha256:0123456789abcdef00"), "0123456789ab");
+        assert_eq!(short_hash(""), "");
+        assert_eq!(short_hash("sha256:abc"), "abc");
     }
 }

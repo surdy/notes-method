@@ -120,6 +120,31 @@ worker-owned SQLite (not the daemon's index, per ADR 0012). The **sidecar note
 remains the source of truth**; the table is a derived cache the worker may
 rebuild from the vault. Do not add it speculatively.
 
+### 6a. Append-only human-readable ingestion ledger (`raw/log.md`, #264)
+
+Each pass appends one greppable line per **state-changing** action to a per-vault
+append-only ledger at `raw/log.md`:
+
+```
+## [2026-07-15T09:12:00Z] ingest | ingested/talk.md | status=ingested | source=raw/talk.pdf | hash=abc123def456
+```
+
+- **Status tokens:** `ingested | reingest | renamed | failed | unsupported`.
+- **Steady-state no-ops are not logged.** With a periodic scheduler (default 5
+  min) an unchanged file recurs every tick; logging it would drown the signal
+  and grow the append-only file unboundedly. `Unchanged` outcomes are therefore
+  skipped — the ledger records what the pipeline *did*, not a heartbeat.
+- **Purely derived observability.** Correctness stays anchored on `source_hash` +
+  sidecar frontmatter (§4/§5); deleting `log.md` is always safe — it simply
+  resumes on the next state-changing action. The ledger is never read back as an
+  input and is excluded from the raw-folder scan.
+- **Best-effort (ADR 0009).** A failed append logs a `WARN stage=ledger` and is
+  swallowed; it never aborts or alters an ingest pass.
+
+This is complementary to the optional §6 SQLite table: `log.md` is a portable,
+human-greppable audit trail ("what got ingested/failed/skipped last night");
+the table (if ever added) is a machine cache for scan/retry bookkeeping.
+
 ### 7. Placement stays a colocated worker; the daemon does not ingest
 
 Placement is unchanged from [ADR 0019](0019-media-ingestion-pipeline.md) §4:
