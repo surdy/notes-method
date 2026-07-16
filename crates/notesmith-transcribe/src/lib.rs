@@ -133,6 +133,40 @@ pub trait Transcriber: Send + Sync {
     fn transcribe(&self, audio: &AudioInput) -> Result<Transcript, TranscribeError>;
 }
 
+/// Audio acquired for a non-local queue item (e.g. a YouTube no-caption
+/// fallback), together with the provenance the worker needs to render a
+/// faithful note.
+///
+/// Implementations of [`AudioAcquirer`] live in higher crates (`notesmith-clip`
+/// owns YouTube/InnerTube, the SSRF-guarded bounded fetch, and decoding), so
+/// `notesmith-transcribe` stays free of network and codec concerns (ADR 0023
+/// §6). The acquirer produces a decodable [`AudioInput`] (typically
+/// [`AudioInput::Pcm`]) the build's [`Transcriber`] then consumes.
+pub struct AcquiredAudio {
+    /// The decoded/downloaded audio ready for a [`Transcriber`].
+    pub audio: AudioInput,
+    /// Video/media title, when detected.
+    pub title: Option<String>,
+    /// Channel / author name, when detected.
+    pub channel: Option<String>,
+    /// Publish date string as reported by the source, when detected.
+    pub published: Option<String>,
+    /// Media duration in seconds, when detected.
+    pub duration: Option<u64>,
+}
+
+/// Acquires source audio for queue items the worker cannot read directly from
+/// disk — currently the YouTube no-caption fallback (ADR 0023 §6). The daemon
+/// only ever *enqueues* such items; the colocated CLI worker acquires + decodes
+/// + transcribes them out of process.
+pub trait AudioAcquirer: Send + Sync {
+    /// Acquire audio for a YouTube `source_url` (a canonical watch URL),
+    /// returning decoded audio plus refreshed provenance. An error is a
+    /// *degraded success* signal: per ADR 0009 the worker logs
+    /// `WARN stage=acquire` and retries the item next tick rather than crashing.
+    fn acquire_youtube(&self, source_url: &str) -> Result<AcquiredAudio, TranscribeError>;
+}
+
 /// A deterministic, model-free [`Transcriber`] used as the lean-build
 /// placeholder and in tests. It never touches disk or native code and always
 /// succeeds with the configured canned segments.

@@ -390,10 +390,12 @@ notesmith transcribe --drain --format json   # machine-readable report
   instead of a text summary.
 
 Each drained item becomes a note under the vault's `[transcribe] notes_dir`
-(default `transcribed/`). Non-audio items (e.g. YouTube entries awaiting audio
-acquisition, P2c) are left pending and reported as `skipped`. A per-item failure
-is retried on later passes under an attempt cap; it never aborts the pass
-(resilience policy, ADR 0009).
+(default `transcribed/`). YouTube items with no captions are acquired by
+downloading the audio-only stream and transcribing it — this requires a build
+with the `youtube-audio` feature (and `local-whisper` for a real transcript);
+lean builds report such items as `failed` with an `Unsupported` reason and retry
+them on later passes. A per-item failure is retried under an attempt cap; it
+never aborts the pass (resilience policy, ADR 0009).
 
 ---
 

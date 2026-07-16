@@ -19,6 +19,7 @@ mod ssrf;
 mod template;
 mod url;
 mod youtube;
+mod youtube_audio;
 
 pub use error::ClipError;
 pub use extract::{ClipDocument, extract_from_html};
@@ -29,11 +30,13 @@ pub use ssrf::{is_blocked_ip, resolve_public_addrs};
 pub use template::{ClipTemplate, select_template};
 pub use url::{canonicalize_url, host_of};
 pub use youtube::{
-    CaptionTrack, PlayerResponse, SOURCE_TYPE_YOUTUBE, TranscriptSegment, YoutubeMeta,
-    YoutubeOutcome, YoutubeTranscript, canonicalize_youtube_url, fetch_youtube, is_youtube_url,
-    parse_player_response, parse_timedtext, render_youtube_note, render_youtube_note_with_template,
+    AudioFormat, CaptionTrack, PlayerResponse, SOURCE_TYPE_YOUTUBE, TranscriptSegment, YoutubeMeta,
+    YoutubeOutcome, YoutubeTranscript, canonicalize_youtube_url, fetch_youtube,
+    fetch_youtube_player, is_youtube_url, parse_player_response, parse_timedtext,
+    render_youtube_note, render_youtube_note_with_template, select_audio_format,
     select_caption_track, youtube_video_id,
 };
+pub use youtube_audio::YoutubeAudioAcquirer;
 
 use chrono::Local;
 

@@ -15,6 +15,7 @@
 use std::path::PathBuf;
 
 use chrono::Local;
+use notesmith_clip::YoutubeAudioAcquirer;
 use notesmith_config::{GlobalConfig, VaultConfig};
 use notesmith_transcribe::{
     AudioInput, LOCAL_WHISPER_COMPILED, MediaMeta, TranscribeWorker, TranscriptionQueue,
@@ -55,7 +56,7 @@ impl TranscribeCommand {
         format: OutputFormat,
     ) -> anyhow::Result<()> {
         if self.drain {
-            return self.run_drain(global_config, explicit_vault, format);
+            return self.run_drain(global_config, explicit_vault, format).await;
         }
         self.run_single(format)
     }
@@ -85,6 +86,8 @@ impl TranscribeCommand {
             source: audio.display().to_string(),
             source_type: SOURCE_TYPE_AUDIO.to_string(),
             duration: transcript.segments.last().map(|s| s.end.max(0.0) as u64),
+            channel: None,
+            published: None,
         };
         let note = render_transcript_note(&meta, &transcript, &self.tags, Local::now());
 
@@ -120,7 +123,7 @@ impl TranscribeCommand {
         Ok(())
     }
 
-    fn run_drain(
+    async fn run_drain(
         &self,
         global_config: &GlobalConfig,
         explicit_vault: Option<&str>,
@@ -143,10 +146,18 @@ impl TranscribeCommand {
                 .map_err(|e| anyhow::anyhow!("open queue for '{vault_name}': {e}"))?;
 
             let notes_dir = root.join(&vault_config.transcribe.notes_dir);
-            let worker = TranscribeWorker::with_default_transcriber(queue, notes_dir);
-            let report = worker
-                .run()
-                .map_err(|e| anyhow::anyhow!("transcribe worker for '{vault_name}': {e}"))?;
+            let queue_for_task = queue;
+            // The worker is CPU-bound (Whisper) and the YouTube acquirer builds
+            // its own async runtime, so it must run off the async runtime thread.
+            let vault_for_task = vault_name.clone();
+            let report = tokio::task::spawn_blocking(move || {
+                let worker = TranscribeWorker::with_default_transcriber(queue_for_task, notes_dir)
+                    .with_acquirer(Box::new(YoutubeAudioAcquirer::new()));
+                worker.run()
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("transcribe worker task for '{vault_for_task}': {e}"))?
+            .map_err(|e| anyhow::anyhow!("transcribe worker for '{vault_name}': {e}"))?;
             reports.push((vault_name, report));
         }
 

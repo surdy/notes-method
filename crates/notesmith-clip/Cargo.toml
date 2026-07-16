@@ -17,10 +17,18 @@ chrono = { workspace = true }
 tracing = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
+tokio = { workspace = true }
 url = "2"
 dom_smoothie = "0.18"
 htmd = "0.5"
 minijinja = { workspace = true }
+symphonia = { version = "0.5", default-features = false, features = ["isomp4", "aac"], optional = true }
+
+[features]
+# Compiles the symphonia MP4/AAC decode stack for the YouTube no-caption audio
+# fallback (ADR 0023 §6). Off by default so the standard workspace gates never
+# build the audio-codec stack (mirrors notesmith-transcribe's `local-whisper`).
+youtube-audio = ["dep:symphonia"]
 
 [dev-dependencies]
 tokio = { workspace = true }

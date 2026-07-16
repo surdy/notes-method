@@ -268,10 +268,21 @@ max bytes) so one file cannot wedge the worker.
    daemon), the `[transcribe]` vault config, the `/api/capabilities`
    transcription block, and the `clip.rs` `NoCaptions` branch now enqueuing a
    `youtube` intent (daemon records intent only). TDD throughout.
-3. **P2c — YouTube audio fallback.** The `clip.rs` `NoCaptions` branch already
-   enqueues a `youtube` queue row (P2b); P2c is the worker side: download the
-   InnerTube audio-only stream (bounded, SSRF-guarded) for those rows and
-   transcribe. Closes the ADR 0020 §8.3 loop.
+3. **P2c — YouTube audio fallback. ✅ Realized (#272, this commit).** The
+   `clip.rs` `NoCaptions` branch already enqueues a `youtube` queue row (P2b);
+   P2c is the worker side. A `notesmith-transcribe` `AudioAcquirer` trait seam
+   (implemented as `YoutubeAudioAcquirer` in `notesmith-clip`, injected by the
+   CLI via `TranscribeWorker::with_acquirer` — the worker crate cannot depend on
+   `notesmith-clip`) fetches the InnerTube player, selects the smallest MP4/AAC
+   audio-only adaptive stream, downloads it bounded + SSRF-guarded, and decodes
+   to mono 16 kHz PCM for the transcriber. The symphonia MP4/AAC decode sits
+   behind the off-by-default `youtube-audio` feature (mirroring `local-whisper`);
+   a lean build short-circuits with `Unsupported` before any network fetch. The
+   worker dispatches on `source_type`, logging structured `WARN stage=acquire|
+   decode|transcribe|normalize` and retrying under the attempt cap (ADR 0009).
+   Closes the ADR 0020 §8.3 loop. TDD: trait seam, adaptive-format parse/select,
+   DSP, and worker dispatch are unit-tested; the real network + AAC decode path
+   is feature-gated/manual-only (like whisper.cpp itself).
 4. **P2d — agent structuring (docs only).** Confirm the MCP surface an agent uses
    to turn a transcript note into summary/action-items/decisions; no new
    Notesmith-side model.

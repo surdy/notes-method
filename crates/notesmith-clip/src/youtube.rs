@@ -96,6 +96,33 @@ pub enum YoutubeOutcome {
     NoCaptions(YoutubeMeta),
 }
 
+/// An audio-only adaptive stream advertised by the player response's
+/// `streamingData.adaptiveFormats`. Only formats exposing a direct `url` are
+/// captured — signature-ciphered formats require the player JS and are out of
+/// scope (ADR 0023 §6, no `yt-dlp`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AudioFormat {
+    /// YouTube format tag (e.g. 140 = AAC/m4a, 251 = Opus/webm).
+    pub itag: u32,
+    /// Direct progressive download URL.
+    pub url: String,
+    /// Full `mimeType` (e.g. `audio/mp4; codecs="mp4a.40.2"`).
+    pub mime_type: String,
+    /// Average bitrate in bits/sec, when reported (used to prefer smaller
+    /// streams — Whisper resamples to 16 kHz mono regardless of quality).
+    pub bitrate: Option<u64>,
+    /// `contentLength` in bytes, when reported.
+    pub content_length: Option<u64>,
+}
+
+impl AudioFormat {
+    /// Whether this is an MP4/AAC (`audio/mp4`) stream — the container/codec the
+    /// worker can decode without an external demuxer (ADR 0023 §6).
+    pub fn is_mp4_aac(&self) -> bool {
+        self.mime_type.starts_with("audio/mp4")
+    }
+}
+
 /// A caption track advertised by the player response.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CaptionTrack {
@@ -115,6 +142,9 @@ pub struct PlayerResponse {
     pub published: Option<String>,
     pub duration: Option<u64>,
     pub caption_tracks: Vec<CaptionTrack>,
+    /// Audio-only adaptive formats with a direct URL (for the no-captions
+    /// Whisper fallback, ADR 0023 §6).
+    pub audio_formats: Vec<AudioFormat>,
 }
 
 /// Returns `true` when `url` points at a recognized YouTube host.
@@ -353,7 +383,75 @@ pub fn parse_player_json(json: &Json) -> PlayerResponse {
         published,
         duration,
         caption_tracks,
+        audio_formats: parse_audio_formats(json),
     }
+}
+
+/// Parse audio-only entries from `streamingData.adaptiveFormats`. Only formats
+/// with a direct `url` are kept (signature-ciphered formats need the player JS
+/// and are out of scope, ADR 0023 §6). Resilient (ADR 0009): a missing/broken
+/// `streamingData` yields an empty vec.
+fn parse_audio_formats(json: &Json) -> Vec<AudioFormat> {
+    let Some(formats) = json
+        .get("streamingData")
+        .and_then(|s| s.get("adaptiveFormats"))
+        .and_then(Json::as_array)
+    else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for f in formats {
+        let mime_type = f
+            .get("mimeType")
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if !mime_type.starts_with("audio/") {
+            continue;
+        }
+        // Skip ciphered formats: no direct URL means we'd need the player JS.
+        let Some(url) = f.get("url").and_then(Json::as_str) else {
+            continue;
+        };
+        let itag = f.get("itag").and_then(Json::as_u64).unwrap_or(0) as u32;
+        let bitrate = f
+            .get("averageBitrate")
+            .and_then(Json::as_u64)
+            .or_else(|| f.get("bitrate").and_then(Json::as_u64));
+        // `contentLength` is a stringified integer in the InnerTube response.
+        let content_length = f
+            .get("contentLength")
+            .and_then(Json::as_str)
+            .and_then(|s| s.parse::<u64>().ok())
+            .or_else(|| f.get("contentLength").and_then(Json::as_u64));
+        out.push(AudioFormat {
+            itag,
+            url: url.to_string(),
+            mime_type,
+            bitrate,
+            content_length,
+        });
+    }
+    out
+}
+
+/// Select the best audio-only stream to transcribe: prefer an MP4/AAC stream
+/// (decodable without an external demuxer, ADR 0023 §6), choosing the smallest
+/// bitrate among them (Whisper resamples to 16 kHz mono, so higher bitrate is
+/// wasted bandwidth); fall back to the smallest-bitrate audio stream of any
+/// codec if no MP4/AAC exists.
+pub fn select_audio_format(formats: &[AudioFormat]) -> Option<&AudioFormat> {
+    let by_bitrate = |a: &&AudioFormat, b: &&AudioFormat| {
+        a.bitrate
+            .unwrap_or(u64::MAX)
+            .cmp(&b.bitrate.unwrap_or(u64::MAX))
+    };
+    formats
+        .iter()
+        .filter(|f| f.is_mp4_aac())
+        .min_by(by_bitrate)
+        .or_else(|| formats.iter().min_by(by_bitrate))
 }
 
 /// Select the best caption track: prefer a manual (non-ASR) track in
@@ -613,6 +711,17 @@ pub async fn fetch_youtube(url: &str, limits: &FetchLimits) -> Result<YoutubeOut
     }))
 }
 
+/// Fetch and parse the InnerTube player response for `video_id` (title,
+/// channel, caption tracks, and audio-only adaptive formats). Public entry point
+/// for the transcription worker's YouTube audio fallback (ADR 0023 §6); the
+/// captions path uses this internally too.
+pub async fn fetch_youtube_player(
+    video_id: &str,
+    limits: &FetchLimits,
+) -> Result<PlayerResponse, ClipError> {
+    fetch_innertube_player(video_id, limits).await
+}
+
 /// POST the ANDROID InnerTube player request for `video_id` and parse the
 /// response into a [`PlayerResponse`].
 async fn fetch_innertube_player(
@@ -782,6 +891,97 @@ mod tests {
         let sel = select_caption_track(std::slice::from_ref(&other), "en").unwrap();
         assert_eq!(sel.language_code, "fr");
         assert!(select_caption_track(&[], "en").is_none());
+    }
+
+    #[test]
+    fn parses_audio_only_adaptive_formats_skipping_ciphered_and_video() {
+        let json = serde_json::json!({
+            "streamingData": {
+                "adaptiveFormats": [
+                    {
+                        "itag": 137,
+                        "url": "https://r1.googlevideo.com/videoplayback?itag=137",
+                        "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+                        "bitrate": 4_000_000
+                    },
+                    {
+                        "itag": 140,
+                        "url": "https://r1.googlevideo.com/videoplayback?itag=140",
+                        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+                        "averageBitrate": 128_000,
+                        "contentLength": "3456789"
+                    },
+                    {
+                        "itag": 251,
+                        "url": "https://r1.googlevideo.com/videoplayback?itag=251",
+                        "mimeType": "audio/webm; codecs=\"opus\"",
+                        "averageBitrate": 96_000
+                    },
+                    {
+                        "itag": 141,
+                        "signatureCipher": "s=abc&url=https%3A%2F%2Fexample.com",
+                        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+                        "averageBitrate": 256_000
+                    }
+                ]
+            }
+        });
+        let pr = parse_player_json(&json);
+        // Video and ciphered (no url) formats are excluded.
+        assert_eq!(pr.audio_formats.len(), 2);
+        let m4a = pr.audio_formats.iter().find(|f| f.itag == 140).unwrap();
+        assert!(m4a.is_mp4_aac());
+        assert_eq!(m4a.bitrate, Some(128_000));
+        assert_eq!(m4a.content_length, Some(3_456_789));
+    }
+
+    #[test]
+    fn selects_smallest_mp4_aac_audio_format() {
+        let formats = vec![
+            AudioFormat {
+                itag: 251,
+                url: "opus".into(),
+                mime_type: "audio/webm; codecs=\"opus\"".into(),
+                bitrate: Some(96_000),
+                content_length: None,
+            },
+            AudioFormat {
+                itag: 140,
+                url: "aac-hi".into(),
+                mime_type: "audio/mp4; codecs=\"mp4a.40.2\"".into(),
+                bitrate: Some(128_000),
+                content_length: None,
+            },
+            AudioFormat {
+                itag: 139,
+                url: "aac-lo".into(),
+                mime_type: "audio/mp4; codecs=\"mp4a.40.5\"".into(),
+                bitrate: Some(48_000),
+                content_length: None,
+            },
+        ];
+        // Prefers MP4/AAC (decodable without a demuxer) and the smallest bitrate.
+        let sel = select_audio_format(&formats).unwrap();
+        assert_eq!(sel.itag, 139);
+    }
+
+    #[test]
+    fn selects_any_audio_when_no_mp4_aac() {
+        let formats = vec![AudioFormat {
+            itag: 251,
+            url: "opus".into(),
+            mime_type: "audio/webm; codecs=\"opus\"".into(),
+            bitrate: Some(96_000),
+            content_length: None,
+        }];
+        assert_eq!(select_audio_format(&formats).unwrap().itag, 251);
+        assert!(select_audio_format(&[]).is_none());
+    }
+
+    #[test]
+    fn missing_streaming_data_yields_no_audio_formats() {
+        let json = serde_json::json!({ "videoDetails": { "title": "x" } });
+        assert!(parse_player_json(&json).audio_formats.is_empty());
     }
 
     const TIMEDTEXT: &str = r#"<?xml version="1.0" encoding="utf-8"?>

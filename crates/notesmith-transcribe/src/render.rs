@@ -43,6 +43,10 @@ pub struct MediaMeta {
     pub source_type: String,
     /// Media duration in seconds, when known.
     pub duration: Option<u64>,
+    /// Channel / author name, when known (e.g. a YouTube channel).
+    pub channel: Option<String>,
+    /// Publish date string as reported by the source, when known.
+    pub published: Option<String>,
 }
 
 /// Render a [`Transcript`] into a Markdown note with media-provenance
@@ -87,6 +91,16 @@ fn media_frontmatter(
         Value::from("source_type"),
         Value::from(meta.source_type.clone()),
     );
+    if let Some(channel) = &meta.channel {
+        if !channel.trim().is_empty() {
+            fm.insert(Value::from("channel"), Value::from(channel.clone()));
+        }
+    }
+    if let Some(published) = &meta.published {
+        if !published.trim().is_empty() {
+            fm.insert(Value::from("published"), Value::from(published.clone()));
+        }
+    }
     if let Some(duration) = meta.duration {
         fm.insert(Value::from("duration"), Value::from(duration));
     }
@@ -149,6 +163,8 @@ mod tests {
             source: "/drop/interview.wav".into(),
             source_type: "audio".into(),
             duration: Some(125),
+            channel: None,
+            published: None,
         };
         let transcript = Transcript {
             language: Some("en".into()),
@@ -179,9 +195,28 @@ mod tests {
             source: "/drop/clip.wav".into(),
             source_type: "audio".into(),
             duration: None,
+            channel: None,
+            published: None,
         };
         let now = Local.with_ymd_and_hms(2025, 1, 2, 3, 4, 5).unwrap();
         let note = render_transcript_note(&meta, &Transcript::default(), &[], now);
         assert!(note.contains("title: /drop/clip.wav"));
+    }
+
+    #[test]
+    fn renders_channel_and_published_when_present() {
+        let meta = MediaMeta {
+            title: "Talk".into(),
+            source: "https://www.youtube.com/watch?v=abc".into(),
+            source_type: "youtube".into(),
+            duration: Some(600),
+            channel: Some("Some Channel".into()),
+            published: Some("2025-01-01".into()),
+        };
+        let now = Local.with_ymd_and_hms(2025, 1, 2, 3, 4, 5).unwrap();
+        let note = render_transcript_note(&meta, &Transcript::default(), &[], now);
+        assert!(note.contains("source_type: youtube"));
+        assert!(note.contains("channel: Some Channel"));
+        assert!(note.contains("published:") && note.contains("2025-01-01"));
     }
 }

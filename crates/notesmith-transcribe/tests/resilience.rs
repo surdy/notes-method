@@ -61,6 +61,8 @@ fn renderer_handles_degenerate_transcripts() {
         source: "x".into(),
         source_type: "audio".into(),
         duration: None,
+        channel: None,
+        published: None,
     };
     // Empty transcript renders valid frontmatter + empty body, no panic.
     let note = render_transcript_note(&meta, &Transcript::default(), &[], chrono::Local::now());
