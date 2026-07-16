@@ -149,17 +149,28 @@ a `transcribe-rs`/Parakeet backend later (e.g. a faster non-bundled
 Per the user decision, the default model is **bundled**, reusing the embeddings
 mechanism exactly:
 
-- Bundle a **quantized `ggml` English model** (target `base.en`, q5_1 ≈ ~60 MB)
-  under a new Tauri resource `resources/whisper-model/*` → `whisper-model/`,
-  gitignored weights + a tracked README, fetched by a
-  `fetch-whisper-model.sh` (mirroring `fetch-embed-model.sh`).
+- Bundle a **quantized `ggml` English model** — **`small.en` q5_1 (≈ 181 MB)**,
+  chosen 2026-07-16 for accuracy over app size (it fumbles names/jargon far less
+  than `base.en`/`tiny.en` on real podcast/voice-memo audio; the CLI worker runs
+  off the daemon thread so its slower inference is acceptable) — under a new
+  Tauri resource `resources/whisper-model/*` → `whisper-model/`, gitignored
+  weights + a tracked README, fetched by a `fetch-whisper-model.sh` (mirroring
+  `fetch-embed-model.sh`).
 - Resolve at runtime from **`NOTESMITH_WHISPER_MODEL_DIR`** (mirroring
   `NOTESMITH_EMBED_MODEL_DIR`): if it points at a directory containing the
   expected `ggml-*.bin`, load it; otherwise fall back to a cached download.
 - The desktop sets `NOTESMITH_WHISPER_MODEL_DIR` when spawning the worker, the
   same way `daemon.rs` passes `model_dir` for embeddings.
-- A larger/more-accurate model (e.g. `small`, or multilingual) is opt-in via the
-  env var or config, never bundled by default (bundle size discipline).
+- **Multilingual and larger/smaller tiers are opt-in** via the env var or config,
+  never bundled by default (bundle-size discipline). Because the resolver accepts
+  any `ggml-*.bin`, pointing `NOTESMITH_WHISPER_MODEL_DIR` at a dir holding e.g.
+  `ggml-small.bin` (multilingual) or `ggml-medium.en.bin` swaps the engine with
+  no code change. Non-English audio is served this way.
+
+> **Tier history.** The ADR originally targeted `base.en` q5_1 (≈ 57 MB) for the
+> size/speed balance. On 2026-07-16 the default was revised to **`small.en`**
+> (accuracy-first) with a **multilingual `small` opt-in**; delivery stays
+> **bundled** (offline-ready, consistent with `bge-small`).
 
 Compiled-in availability is reported through the existing
 `/api/capabilities` surface (a `transcription` block mirroring `embeddings`), so
