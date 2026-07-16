@@ -205,7 +205,9 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
         }
         Command::Transcribe(command) => {
-            command.run(format).await?;
+            command
+                .run(&global_config, cli.vault.as_deref(), format)
+                .await?;
         }
         Command::Task { command } => {
             command

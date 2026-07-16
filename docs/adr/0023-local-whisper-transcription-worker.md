@@ -258,11 +258,20 @@ max bytes) so one file cannot wedge the worker.
    consumed (re-exporting `TranscriptSegment`) by `notesmith-clip`. Ships the
    `notesmith transcribe <audio>` CLI. TDD, resilience + no-panic tests. No
    network. Satisfies #204's core (transcript → note).
-2. **P2b — worker + queue + capabilities.** Pending-transcription queue, worker
-   loop mirroring the embed scheduler, `/api/capabilities` transcription block.
-3. **P2c — YouTube audio fallback.** Wire the `clip.rs` `NoCaptions` branch to
-   enqueue; worker downloads the InnerTube audio-only stream (bounded,
-   SSRF-guarded) and transcribes. Closes the ADR 0020 §8.3 loop.
+2. **P2b — worker + queue + capabilities. ✅ Realized (#270, this commit).**
+   Per-vault pending-transcription queue (`transcribe.db`, worker-domain SQLite
+   keyed by canonical `source_url`, version-guarded, WAL), `TranscribeWorker`
+   draining it into notes (per-item isolation, retry under an attempt cap),
+   `notesmith transcribe --drain` CLI, a daemon-supervised `transcribe_scheduler`
+   shelling out to that CLI per vault on an interval (gated by `[transcribe]
+   enabled`, mirroring the ingest scheduler — heavy inference never runs in the
+   daemon), the `[transcribe]` vault config, the `/api/capabilities`
+   transcription block, and the `clip.rs` `NoCaptions` branch now enqueuing a
+   `youtube` intent (daemon records intent only). TDD throughout.
+3. **P2c — YouTube audio fallback.** The `clip.rs` `NoCaptions` branch already
+   enqueues a `youtube` queue row (P2b); P2c is the worker side: download the
+   InnerTube audio-only stream (bounded, SSRF-guarded) for those rows and
+   transcribe. Closes the ADR 0020 §8.3 loop.
 4. **P2d — agent structuring (docs only).** Confirm the MCP surface an agent uses
    to turn a transcript note into summary/action-items/decisions; no new
    Notesmith-side model.

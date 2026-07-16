@@ -11,6 +11,7 @@ pub mod parse_warnings;
 pub mod routes;
 pub mod scheduler;
 pub mod server;
+pub mod transcribe_scheduler;
 pub mod watcher;
 pub mod write_guard;
 

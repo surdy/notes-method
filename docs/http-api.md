@@ -121,6 +121,9 @@ Returns server capabilities and deployment mode. Used by the frontend to determi
     "compiled_in": false,
     "model": "bge-small-en-v1.5",
     "dim": 384
+  },
+  "transcription": {
+    "compiled_in": false
   }
 }
 ```
@@ -130,6 +133,11 @@ The `embeddings` block advertises process-global facts only: `compiled_in` is
 and `model`/`dim` name the model an embed-capable build uses. Whether embeddings
 are actually *on* is **per vault** — read `embed.enabled` from
 `GET /api/v/{vault}/config`, not from here (ADR 0018 §9.3).
+
+The `transcription` block is likewise process-global: `compiled_in` is `true`
+when the daemon was built with the `local-whisper` feature (whisper.cpp
+compiled in). Whether transcription is actually *on* is **per vault** — read
+`transcribe.enabled` from `GET /api/v/{vault}/config`, not from here (ADR 0023).
 
 **Example:**
 ```bash
@@ -654,14 +662,19 @@ For a YouTube clip the response includes `source_type: "youtube"` and omits
 ```
 
 **Response:** `200 OK` — YouTube video with no published captions (non-fatal).
-The daemon does not transcribe; the video is handed off for Whisper
-transcription by the worker. No note is written.
+The daemon does not transcribe; it appends an intent row to the vault's
+pending-transcription queue (ADR 0023 §5), keyed by canonical `source_url` so
+repeated clips are idempotent. The colocated `notesmith transcribe --drain`
+worker acquires the audio and renders the note out of process. `queued` is
+`true` when a new queue row was inserted, `false` when the video was already
+queued. No note is written by this request.
 ```json
 {
   "status": "no_captions",
   "source_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
   "video_id": "dQw4w9WgXcQ",
   "source_type": "youtube",
+  "queued": true,
   "message": "no published captions; queued for transcription"
 }
 ```

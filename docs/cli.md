@@ -371,6 +371,30 @@ The real engine loads a whisper.cpp GGML model from
 `NOTESMITH_WHISPER_MODEL_DIR` (a directory containing a `ggml-*.bin` file); when
 unset or empty, the stub is used.
 
+### `transcribe --drain [--vault NAME] [--format json]`
+
+Drain each vault's pending-transcription queue into notes instead of
+transcribing a single file (ADR 0023 §4/§5). This is the worker the daemon
+spawns on an interval when `[transcribe] enabled = true`, but it is runnable by
+hand.
+
+```bash
+notesmith transcribe --drain                 # drain every registered vault
+notesmith transcribe --drain --vault work    # drain one vault
+notesmith transcribe --drain --format json   # machine-readable report
+```
+
+- `--vault NAME` — restrict the pass to one vault (default: all registered
+  vaults, alphabetically).
+- `--format json` — emit `[{ vault, transcribed, failed, skipped, notes }]`
+  instead of a text summary.
+
+Each drained item becomes a note under the vault's `[transcribe] notes_dir`
+(default `transcribed/`). Non-audio items (e.g. YouTube entries awaiting audio
+acquisition, P2c) are left pending and reported as `skipped`. A per-item failure
+is retried on later passes under an attempt cap; it never aborts the pass
+(resilience policy, ADR 0009).
+
 ---
 
 ## note

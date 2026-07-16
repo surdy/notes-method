@@ -201,11 +201,29 @@ enum YoutubeClipPlan {
         title: String,
         source_url: String,
     },
-    /// No usable captions: hand off to the Whisper worker (non-fatal).
+    /// No usable captions: hand off to the transcription worker (non-fatal).
     NoCaptions {
         source_url: String,
         video_id: String,
+        /// JSON provenance blob (title/channel/published/duration) recorded on
+        /// the queue row so the worker can render a faithful note later.
+        meta_json: String,
     },
+}
+
+/// Serialize a [`YoutubeMeta`] into the compact provenance JSON stored on a
+/// pending-transcription queue row. Best-effort: falls back to `"{}"` if
+/// serialization somehow fails so a clip never errors on provenance.
+fn youtube_meta_json(meta: &notesmith_clip::YoutubeMeta) -> String {
+    serde_json::to_string(&json!({
+        "title": meta.title,
+        "channel": meta.channel,
+        "published": meta.published,
+        "duration": meta.duration,
+        "video_id": meta.video_id,
+        "source_url": meta.source_url,
+    }))
+    .unwrap_or_else(|_| "{}".to_string())
 }
 
 /// Turn a [`YoutubeOutcome`] into a [`YoutubeClipPlan`], selecting the per-domain
@@ -233,13 +251,42 @@ fn plan_youtube_clip(
             }
         }
         YoutubeOutcome::NoCaptions(meta) => YoutubeClipPlan::NoCaptions {
+            meta_json: youtube_meta_json(&meta),
             source_url: meta.source_url,
             video_id: meta.video_id,
         },
     }
 }
 
-/// Clip a YouTube URL as a `source_type: youtube` note (ADR 0020 §8). Mirrors
+/// Append a YouTube-transcription intent to the vault's pending queue (ADR 0023
+/// §5: the daemon enqueues only). Keyed by canonical `source_url` so repeated
+/// clips of a caption-less video are idempotent. Returns whether a new row was
+/// inserted; any queue error is logged and swallowed so a clip never fails on
+/// the transcription handoff (resilience policy, ADR 0009).
+fn enqueue_youtube_transcription(vault_name: &str, source_url: &str, meta_json: &str) -> bool {
+    let entry = notesmith_transcribe::NewQueueEntry {
+        source_url: source_url.to_string(),
+        source_type: notesmith_transcribe::SOURCE_TYPE_YOUTUBE.to_string(),
+        audio_path: None,
+        meta_json: meta_json.to_string(),
+    };
+    let result = notesmith_transcribe::queue_db_path(vault_name)
+        .and_then(|path| notesmith_transcribe::TranscriptionQueue::open(&path))
+        .and_then(|queue| queue.enqueue(&entry));
+    match result {
+        Ok(notesmith_transcribe::EnqueueOutcome::Inserted) => true,
+        Ok(notesmith_transcribe::EnqueueOutcome::Existed) => false,
+        Err(error) => {
+            tracing::warn!(
+                vault = %vault_name,
+                source_url = %source_url,
+                reason = %error,
+                "could not enqueue youtube transcription; clip still succeeded"
+            );
+            false
+        }
+    }
+}
 /// the article path: same `clip.enabled` gate, canonical-URL dedup, per-domain
 /// templates, inbox write, and `NoteClipped` event. Captions are fetched with a
 /// single bounded, SSRF-guarded `GET`; the daemon never runs Whisper.
@@ -360,12 +407,15 @@ async fn clip_youtube(
         YoutubeClipPlan::NoCaptions {
             source_url,
             video_id,
+            meta_json,
         } => {
             // Non-fatal: no published captions. The daemon must not run Whisper
-            // (ADR 0019 §4 / ADR 0020 §8.3). No ingestion/worker queue exists in
-            // the codebase yet, so return a structured 200 rather than writing a
-            // transcript note or emitting an event.
-            // TODO(#208 P2): enqueue Whisper worker handoff
+            // (ADR 0019 §4 / ADR 0020 §8.3 / ADR 0023 §5); it only records the
+            // intent by appending a row to the per-vault pending-transcription
+            // queue. The colocated `notesmith transcribe --drain` worker (P2c)
+            // acquires the audio and renders the note out of process. A queue
+            // failure must never fail the clip, so it is logged, not returned.
+            let queued = enqueue_youtube_transcription(&vault_name, &source_url, &meta_json);
             Ok((
                 StatusCode::OK,
                 Json(json!({
@@ -373,6 +423,7 @@ async fn clip_youtube(
                     "source_url": source_url,
                     "video_id": video_id,
                     "source_type": notesmith_clip::SOURCE_TYPE_YOUTUBE,
+                    "queued": queued,
                     "message": "no published captions; queued for transcription",
                 })),
             ))
@@ -518,12 +569,19 @@ mod tests {
     #[test]
     fn no_captions_outcome_plans_worker_handoff() {
         let plan = plan_youtube_clip(YoutubeOutcome::NoCaptions(meta()), &[], &[], now());
-        assert_eq!(
-            plan,
+        match plan {
             YoutubeClipPlan::NoCaptions {
-                source_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".into(),
-                video_id: "dQw4w9WgXcQ".into(),
+                source_url,
+                video_id,
+                meta_json,
+            } => {
+                assert_eq!(source_url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+                assert_eq!(video_id, "dQw4w9WgXcQ");
+                // Provenance is captured for the worker to render later.
+                let parsed: serde_json::Value = serde_json::from_str(&meta_json).unwrap();
+                assert_eq!(parsed["video_id"], "dQw4w9WgXcQ");
             }
-        );
+            other => panic!("expected NoCaptions, got {other:?}"),
+        }
     }
 }
