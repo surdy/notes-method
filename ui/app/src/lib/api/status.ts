@@ -2,6 +2,14 @@ import { API_BASE, apiFetch } from './core.ts';
 
 export type WatcherHealth = 'healthy' | 'degraded' | 'polling';
 
+/** A single note that degraded during parsing/indexing (ADR 0009, issue #92). */
+export interface NoteWarning {
+	path: string;
+	stage: string;
+	reason: string;
+	occurred_at: string;
+}
+
 export interface DaemonStatus {
 	version: string;
 	started_at: string;
@@ -20,6 +28,9 @@ export interface VaultStatus {
 	watcher_active: boolean;
 	watcher_health?: WatcherHealth;
 	watcher_message?: string;
+	parse_warning_count: number;
+	parse_warnings_truncated: boolean;
+	parse_warnings: NoteWarning[];
 }
 
 export interface ResourceStatus {
@@ -30,7 +41,14 @@ export interface ResourceStatus {
 export interface RawDaemonStatus {
 	version: string;
 	started_at: string;
-	vaults: Array<{ name: string; state: string; notes: number }>;
+	vaults: Array<{
+		name: string;
+		state: string;
+		notes: number;
+		parse_warning_count?: number;
+		parse_warnings_truncated?: boolean;
+		parse_warnings?: NoteWarning[];
+	}>;
 	watchers: Array<{ vault: string; state: string; message?: string | null }>;
 	indexes: Array<{ vault: string; state: string }>;
 	resources: { rss_bytes: number; sse_connections: number };
@@ -86,7 +104,10 @@ export function normalizeDaemonStatus(raw: RawDaemonStatus): DaemonStatus {
 					search_indexed: index?.state === 'healthy',
 					watcher_active: watcher !== undefined,
 					watcher_health: normalizeWatcherHealth(watcher?.state),
-					watcher_message: watcher?.message ?? undefined
+					watcher_message: watcher?.message ?? undefined,
+					parse_warning_count: vault.parse_warning_count ?? 0,
+					parse_warnings_truncated: vault.parse_warnings_truncated ?? false,
+					parse_warnings: vault.parse_warnings ?? []
 				} satisfies VaultStatus
 			];
 		})

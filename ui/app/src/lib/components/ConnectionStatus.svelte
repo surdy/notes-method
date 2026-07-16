@@ -240,6 +240,21 @@
 						{#if currentVaultStatus.watcher_message}
 							<div class="detail-line hint">{currentVaultStatus.watcher_message}</div>
 						{/if}
+						{#if currentVaultStatus.parse_warning_count > 0}
+							<div class="detail-line warning">
+								⚠ {currentVaultStatus.parse_warning_count}
+								{currentVaultStatus.parse_warning_count === 1 ? 'note' : 'notes'} degraded during
+								parsing{currentVaultStatus.parse_warnings_truncated ? ' (showing most recent)' : ''}
+							</div>
+							<ul class="warning-list">
+								{#each currentVaultStatus.parse_warnings as warning (warning.path + warning.occurred_at)}
+									<li class="warning-item">
+										<span class="warning-path" title={warning.path}>{warning.path}</span>
+										<span class="warning-reason">{warning.stage}: {warning.reason}</span>
+									</li>
+								{/each}
+							</ul>
+						{/if}
 					</div>
 				{:else}
 					<div class="state-text">
@@ -454,6 +469,44 @@
 	}
 
 	.detail-line.hint {
+		color: var(--text-muted);
+	}
+
+	.detail-line.warning {
+		color: var(--warning-text);
+		font-weight: 600;
+	}
+
+	.warning-list {
+		margin: 2px 0 0;
+		padding: 0;
+		list-style: none;
+		display: grid;
+		gap: 4px;
+		max-height: 160px;
+		overflow-y: auto;
+	}
+
+	.warning-item {
+		display: grid;
+		gap: 1px;
+		padding: 3px 6px;
+		border-left: 2px solid var(--warning-border);
+		background: var(--warning-bg-soft);
+		border-radius: 2px;
+	}
+
+	.warning-path {
+		font-family: var(--font-mono);
+		font-size: 0.85em;
+		color: var(--text-default);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.warning-reason {
+		font-size: 0.85em;
 		color: var(--text-muted);
 	}
 
