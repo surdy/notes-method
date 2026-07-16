@@ -338,9 +338,42 @@ on its next pass.
 
 ---
 
-## note
+## transcribe
 
-Note CRUD commands go through the daemon and auto-start it when needed.
+Transcribe a local audio file into a timestamped Markdown note using the local
+speech-to-text engine (ADR 0023, #271). The real engine (whisper.cpp via
+`whisper-rs`) is compiled in only with `--features local-whisper`; lean builds
+fall back to a stub that produces an empty transcript (mirroring how `embed`
+falls back without `--features local-embed`).
+
+### `transcribe <AUDIO> [--output FILE] [--tag TAG ...]`
+
+```bash
+notesmith transcribe interview.wav                 # print the note to stdout
+notesmith transcribe interview.wav --output note.md # write the note to a file
+notesmith transcribe interview.wav --tag voice --tag meeting
+notesmith transcribe interview.wav --format json
+```
+
+- `<AUDIO>` — path to the audio file. WAV is decoded natively (downmixed to
+  mono, resampled to 16 kHz). Other containers are out of scope for now (ADR
+  0023 §6).
+- `--output FILE` — write the rendered note to `FILE` instead of stdout.
+- `--tag TAG` — extra tag added after the mandatory `inbox` tag (repeatable).
+- `--format json` — emit `{ source, language, segments, compiled_in, output,
+  note }` instead of the raw note.
+
+The note carries ADR 0019 §3 media-provenance frontmatter (`title`,
+`source_url`, `source_type: audio`, `duration`, detected `language`,
+`ingested_at`, `tags`) followed by a `[M:SS] text` timestamped transcript body.
+
+The real engine loads a whisper.cpp GGML model from
+`NOTESMITH_WHISPER_MODEL_DIR` (a directory containing a `ggml-*.bin` file); when
+unset or empty, the stub is used.
+
+---
+
+## note
 
 ### `note create`
 

@@ -15,6 +15,7 @@ members = [
     "crates/notesmith-clip",
     "crates/notesmith-document",
     "crates/notesmith-ingest",
+    "crates/notesmith-transcribe",
     "crates/notesmith-prompts",
     "crates/notesmith-ops",
     "crates/notesmith-transcript",
@@ -54,6 +55,7 @@ notesmith-config = { path = "crates/notesmith-config" }
 notesmith-clip = { path = "crates/notesmith-clip" }
 notesmith-document = { path = "crates/notesmith-document" }
 notesmith-ingest = { path = "crates/notesmith-ingest" }
+notesmith-transcribe = { path = "crates/notesmith-transcribe" }
 notesmith-prompts = { path = "crates/notesmith-prompts" }
 notesmith-ops = { path = "crates/notesmith-ops" }
 notesmith-transcript = { path = "crates/notesmith-transcript" }

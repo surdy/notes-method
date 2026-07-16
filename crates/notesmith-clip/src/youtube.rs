@@ -31,6 +31,9 @@ use crate::fetch::{FetchLimits, fetch_html, fetch_json_post};
 use crate::note::resolve_tags;
 use crate::template::{ClipTemplate, apply_template_frontmatter};
 
+pub use notesmith_transcribe::TranscriptSegment;
+use notesmith_transcribe::transcript_body as render_transcript_body;
+
 /// The `source_type` value used for YouTube clips.
 pub const SOURCE_TYPE_YOUTUBE: &str = "youtube";
 
@@ -51,17 +54,6 @@ const YOUTUBE_HOSTS: &[&str] = &[
     "music.youtube.com",
     "youtu.be",
 ];
-
-/// A single timestamped caption segment.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TranscriptSegment {
-    /// Segment start, in seconds from the beginning of the video.
-    pub start: f64,
-    /// Segment end, in seconds. Preserved for the ADR 0018 `media_ts_end`.
-    pub end: f64,
-    /// Caption text, HTML-entity-decoded and tag-stripped.
-    pub text: String,
-}
 
 /// Provenance metadata for a YouTube video, independent of whether captions
 /// exist. Carries everything a Whisper-fallback handoff needs.
@@ -479,17 +471,6 @@ fn attr_value(attrs: &str, name: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// Format `seconds` as `H:MM:SS` (or `M:SS` under an hour) for transcript lines.
-fn format_timestamp(seconds: f64) -> String {
-    let total = seconds.max(0.0) as u64;
-    let (h, m, s) = (total / 3600, (total % 3600) / 60, total % 60);
-    if h > 0 {
-        format!("{h}:{m:02}:{s:02}")
-    } else {
-        format!("{m}:{s:02}")
-    }
-}
-
 /// Media provenance frontmatter (ADR 0019 §3) for a YouTube video.
 fn youtube_frontmatter(meta: &YoutubeMeta, ingested_at: &str, tag_values: &[Yaml]) -> Mapping {
     let mut fm = Mapping::new();
@@ -519,12 +500,7 @@ fn youtube_frontmatter(meta: &YoutubeMeta, ingested_at: &str, tag_values: &[Yaml
 
 /// The timestamped transcript body (`[M:SS] text` per line).
 fn transcript_body(transcript: &YoutubeTranscript) -> String {
-    transcript
-        .segments
-        .iter()
-        .map(|seg| format!("[{}] {}", format_timestamp(seg.start), seg.text))
-        .collect::<Vec<_>>()
-        .join("\n")
+    render_transcript_body(&transcript.segments)
 }
 
 /// Render a [`YoutubeTranscript`] into a Markdown note with media provenance
@@ -687,6 +663,7 @@ async fn fetch_innertube_player(
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use notesmith_transcribe::format_timestamp;
 
     #[test]
     fn recognizes_youtube_hosts() {

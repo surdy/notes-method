@@ -248,9 +248,14 @@ max bytes) so one file cannot wedge the worker.
 
 ## Suggested phasing
 
-1. **P2a — transcription core.** `notesmith-transcribe` crate: `Transcriber`
-   trait + `whisper-rs` engine, bundled-model resolution mirroring
-   `bge-small`, transcript → note renderer (shared with `notesmith-clip`),
+1. **P2a — transcription core. ✅ Realized (#271, this commit).**
+   `notesmith-transcribe` crate: engine-agnostic `Transcriber` trait +
+   `AudioInput`/`Transcript`/`TranscriptSegment`/`TranscribeError` data model,
+   `StubTranscriber` (lean placeholder) and feature-gated `LocalWhisper`
+   (`whisper-rs`) engine, `LOCAL_WHISPER_COMPILED` capability constant,
+   bundled-model resolution via `NOTESMITH_WHISPER_MODEL_DIR` mirroring
+   `bge-small`, and the shared transcript → note renderer now owned here and
+   consumed (re-exporting `TranscriptSegment`) by `notesmith-clip`. Ships the
    `notesmith transcribe <audio>` CLI. TDD, resilience + no-panic tests. No
    network. Satisfies #204's core (transcript → note).
 2. **P2b — worker + queue + capabilities.** Pending-transcription queue, worker

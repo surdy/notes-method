@@ -1,0 +1,27 @@
+[package]
+name = "notesmith-transcribe"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Local, in-process speech-to-text via whisper.cpp (`whisper-rs`). Off by
+# default so the standard workspace gates never compile the C/C++ whisper.cpp
+# backend. Server/CLI images opt in explicitly (ADR 0023 §2).
+local-whisper = ["dep:whisper-rs", "dep:hound"]
+
+[dependencies]
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+
+# Real local transcription runtime (optional, feature-gated).
+whisper-rs = { version = "0.16", default-features = false, optional = true }
+hound = { version = "3", optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

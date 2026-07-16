@@ -18,6 +18,7 @@ use notesmith_cli::commands::{
     skill::SkillCommand,
     task::TaskCommand,
     template::TemplateCommand,
+    transcribe::TranscribeCommand,
     url_open::UrlOpenCommand,
     vault::{OutputFormat, VaultCommand},
 };
@@ -98,6 +99,8 @@ enum Command {
     Embed(EmbedCommand),
     /// Ingest documents from each vault's raw drop folder into notes
     Ingest(IngestCommand),
+    /// Transcribe a local audio file into a timestamped Markdown note
+    Transcribe(TranscribeCommand),
     /// Task management commands
     Task {
         #[command(subcommand)]
@@ -200,6 +203,9 @@ async fn main() -> anyhow::Result<()> {
             command
                 .run(&global_config, cli.vault.as_deref(), format)
                 .await?;
+        }
+        Command::Transcribe(command) => {
+            command.run(format).await?;
         }
         Command::Task { command } => {
             command

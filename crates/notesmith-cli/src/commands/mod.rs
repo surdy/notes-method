@@ -18,5 +18,6 @@ pub mod search;
 pub mod skill;
 pub mod task;
 pub mod template;
+pub mod transcribe;
 pub mod url_open;
 pub mod vault;

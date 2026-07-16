@@ -52,6 +52,7 @@ crates/
 ├── notesmith-clip       # Server-side web clipping: SSRF-guarded fetch, readability extraction, HTML→Markdown
 ├── notesmith-document   # Pure-Rust PDF/EPUB text extraction for document ingestion
 ├── notesmith-ingest     # Local drop-folder ingestion worker (raw/ → provenance-tracked notes)
+├── notesmith-transcribe # Engine-agnostic speech-to-text core (Transcriber trait, feature-gated whisper.cpp)
 ├── notesmith-config     # Global and per-vault configuration loading
 ├── notesmith-http       # Axum daemon, REST endpoints, SSE, daemon-hosted MCP
 ├── notesmith-ops        # Canonical vault operations (Ops trait, LocalOps, ReadOnlyOps)
