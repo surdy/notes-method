@@ -3,7 +3,8 @@
 ## Status
 
 Accepted (2026-07-15). P0 realized by the `notesmith-ingest` crate and
-`notesmith ingest` CLI command (issue [#263](https://github.com/surdy/notes-method/issues/263)).
+`notesmith ingest` CLI command; P1 realized by the daemon-supervised
+subprocess scheduler (issue [#263](https://github.com/surdy/notes-method/issues/263)).
 
 Part of Phase 3 ([#187](https://github.com/surdy/notes-method/issues/187))
 (Memory & multimodal). **Extends [ADR 0019](0019-media-ingestion-pipeline.md)**
@@ -122,12 +123,26 @@ rebuild from the vault. Do not add it speculatively.
 ### 7. Placement stays a colocated worker; the daemon does not ingest
 
 Placement is unchanged from [ADR 0019](0019-media-ingestion-pipeline.md) §4:
-ingestion runs in a **colocated `notesmith` CLI worker** on a launchd/systemd
-timer or queue, never inside the interactive daemon. The trigger is a periodic
-**scan of `raw/`** and/or a `notify` watch that only **enqueues** changed paths;
-the daemon never runs Whisper, never performs heavy extraction, and remains the
-sole reader/owner of the note index (ADR 0012). This keeps bursty,
-CPU/IO-heavy ingestion out of the interactive process.
+ingestion runs in a **colocated `notesmith` CLI worker**, never inside the
+interactive daemon. The daemon never runs Whisper, never performs heavy
+extraction, and remains the sole reader/owner of the note index (ADR 0012). This
+keeps bursty, CPU/IO-heavy ingestion out of the interactive process.
+
+**Realized triggering (P1).** The colocated worker is triggered two ways, both
+running the extraction outside the daemon process:
+
+- **On demand** — `notesmith ingest [--vault <name>]` runs one incremental pass
+  by hand (backfills, debugging, or driven by an external launchd/systemd timer).
+- **Daemon-supervised subprocess scheduler** — the daemon supervises one
+  long-lived task per vault (`ingest_scheduler`, mirroring the embed
+  supervisor's runtime add/remove reconciliation) that, on an interval, **shells
+  out to `notesmith ingest --vault <name>` as a subprocess**. The heavy
+  extraction therefore runs in a child process, honouring the "never inside the
+  interactive daemon" invariant while still being automatic. Each pass is gated
+  per vault by the `vault.toml` `[ingest] enabled` flag, re-read fresh every tick
+  so runtime toggling takes effect within one interval; a failed pass is logged
+  and retried next tick. Interval and supervision cadence are overridable via
+  `NOTESMITH_INGEST_INTERVAL_SECS` / `NOTESMITH_INGEST_SUPERVISE_SECS`.
 
 ### 8. Scope stops at "clean, embedded, provenance-tracked note"
 
@@ -189,8 +204,9 @@ invalidation, and `Embedder` / `VectorStore` choice.
    [ADR 0018](0018-embedding-and-vector-search.md). Establishes the drop-folder
    trigger, sidecar-ledger, and keep-in-place invariants.
 2. **P1 — tracking & refresh polish.** Hash-based staleness detection, the
-   optional ledger table, retry/backoff, `unsupported` handling, and operational
-   counters (pending / failed / unsupported).
+   optional ledger table, retry/backoff, `unsupported` handling, operational
+   counters (pending / failed / unsupported), **and daemon-supervised subprocess
+   scheduling gated by `[ingest] enabled`**. _Realized (#263)._
 3. **P2 — audio drop folder via local Whisper.** Extend to `.mp3`/`.m4a`/`.wav`
    using [#204](https://github.com/surdy/notes-method/issues/204)'s
    transcription, preserving segment timestamps for media deep-links.

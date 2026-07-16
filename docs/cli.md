@@ -320,10 +320,17 @@ Configure per vault in `.notesmith/vault.toml`:
 
 ```toml
 [ingest]
-enabled = false      # reserved for future daemon auto-scheduling
+enabled = false      # when true, the daemon auto-runs a pass on an interval
 raw_dir = "raw"      # drop folder scanned for documents
 notes_dir = "ingested"  # where sidecar notes are written
 ```
+
+When `[ingest] enabled = true`, the daemon supervises a per-vault scheduler that
+shells out to `notesmith ingest --vault <name>` on an interval (default 300s,
+override with `NOTESMITH_INGEST_INTERVAL_SECS`) — keeping heavy extraction out of
+the interactive daemon process (ADR 0022 §7). The flag is re-read each tick, so
+toggling it takes effect within one interval without a daemon restart. The
+`notesmith ingest` command remains fully runnable by hand regardless of the flag.
 
 Supported document types match `read_document` (PDF, EPUB; ADR 0019 §8). Ingested
 notes are ordinary Markdown, so the embedding worker picks them up automatically
