@@ -31,11 +31,13 @@ use serde_yaml::{Mapping, Value as YamlValue};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
+pub mod document;
 pub mod hybrid;
 pub mod memory;
 pub mod related;
 pub mod time_query;
 pub mod youtube;
+pub use document::{parsed_document_to_value, read_document};
 pub use hybrid::{DEFAULT_RRF_K, HybridHit, HybridSearch, rrf_fuse};
 pub use memory::{
     DEFAULT_MEMORY_LIST_LIMIT, DEFAULT_MEMORY_RECALL_LIMIT, DEFAULT_MEMORY_REVIEW_LIMIT,
@@ -115,6 +117,11 @@ pub trait Ops: Send + Sync {
     fn vault_stats(&self, top: Option<usize>) -> Result<Value>;
     /// Resolve an MCP-style resource URI to its text content.
     fn read_resource(&self, uri: &str) -> Result<String>;
+
+    /// Parse a PDF/EPUB at a vault-relative `path` into extracted text, chunks,
+    /// provenance metadata, and a normalized note body. Read-only: it never
+    /// writes the vault (callers persist the note separately).
+    fn read_document(&self, path: &str) -> Result<Value>;
 
     // --- writes ---
 
@@ -1910,6 +1917,10 @@ impl Ops for LocalOps {
         anyhow::bail!("unknown resource: {uri}")
     }
 
+    fn read_document(&self, path: &str) -> Result<Value> {
+        document::read_document(&self.vault_root, path)
+    }
+
     fn create_note(
         &self,
         title: &str,
@@ -2472,6 +2483,10 @@ impl<O: Ops> Ops for ReadOnlyOps<O> {
 
     fn read_resource(&self, uri: &str) -> Result<String> {
         self.inner.read_resource(uri)
+    }
+
+    fn read_document(&self, path: &str) -> Result<Value> {
+        self.inner.read_document(path)
     }
 
     fn create_note(

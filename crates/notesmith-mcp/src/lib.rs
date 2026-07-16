@@ -198,6 +198,14 @@ struct YoutubeTranscriptParams {
     url: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct ReadDocumentParams {
+    path: String,
+    #[serde(default)]
+    save: bool,
+    folder: Option<String>,
+}
+
 impl NotesmithMcp {
     pub fn new(
         vault_name: String,
@@ -659,6 +667,27 @@ impl NotesmithMcp {
                     "additionalProperties": false
                 }),
             ),
+            tool_definition(
+                "read_document",
+                scoped(
+                    "Extract text from a PDF or EPUB file stored in the vault (by \
+                     vault-relative path) into plain text plus fixed-size chunks and \
+                     provenance metadata (title, author, page/chapter count). Pure local \
+                     parsing, no OCR: scanned/image-only PDFs yield little or no text. Set \
+                     `save: true` to also write a normalized note (into `folder`, default \
+                     `attachments`)",
+                ),
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "save": {"type": "boolean"},
+                        "folder": {"type": "string"}
+                    },
+                    "required": ["path"],
+                    "additionalProperties": false
+                }),
+            ),
         ]
     }
 
@@ -691,6 +720,46 @@ impl NotesmithMcp {
             Ok(value) => CallToolResult::structured(ensure_structured_object(value)),
             Err(error) => CallToolResult::error(vec![Content::text(error.to_string())]),
         }
+    }
+
+    /// Extract a vault document and, when `save` is set, persist the normalized
+    /// note through the gated `create_note` path (so a read-only surface refuses
+    /// the write). Returns the extraction result, augmented with `saved` /
+    /// `saved_path` when a note was written.
+    fn read_document_op(
+        &self,
+        path: &str,
+        save: bool,
+        folder: Option<&str>,
+    ) -> anyhow::Result<Value> {
+        let mut result = self.ops.read_document(path)?;
+        if save {
+            let title = result
+                .get("title")
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| document_title_from_path(path));
+            let body = result
+                .get("body")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let frontmatter = result
+                .get("frontmatter")
+                .and_then(|value| value.as_object())
+                .cloned();
+            let folder = folder.unwrap_or("attachments");
+            let created =
+                self.ops
+                    .create_note(&title, Some(&body), Some(folder), frontmatter.as_ref())?;
+            if let Value::Object(map) = &mut result {
+                map.insert("saved".to_string(), Value::Bool(true));
+                if let Some(path) = created.get("path") {
+                    map.insert("saved_path".to_string(), path.clone());
+                }
+            }
+        }
+        Ok(result)
     }
 }
 
@@ -923,6 +992,10 @@ impl ServerHandler for NotesmithMcp {
                     Err(error) => CallToolResult::error(vec![Content::text(error.to_string())]),
                 }
             }
+            "read_document" => self
+                .handle_tool_call::<ReadDocumentParams, _>(request.arguments, |params| {
+                    self.read_document_op(&params.path, params.save, params.folder.as_deref())
+                }),
             other => {
                 return Err(McpError::new(
                     ErrorCode::METHOD_NOT_FOUND,
@@ -1005,6 +1078,18 @@ fn ensure_structured_object(value: Value) -> Value {
         Value::Object(_) => value,
         Value::Array(_) => json!({ "results": value }),
         other => json!({ "result": other }),
+    }
+}
+
+/// Derive a fallback note title from a document's vault-relative path when the
+/// document has no embedded title (file stem, minus extension).
+fn document_title_from_path(path: &str) -> String {
+    let file = path.rsplit('/').next().unwrap_or(path);
+    let stem = file.rsplit_once('.').map(|(name, _)| name).unwrap_or(file);
+    if stem.is_empty() {
+        "Document".to_string()
+    } else {
+        stem.to_string()
     }
 }
 
@@ -1287,7 +1372,7 @@ mod tests {
         let mcp = build_test_mcp(temp_dir.path());
 
         let tools = mcp.registered_tools();
-        assert_eq!(tools.len(), 23);
+        assert_eq!(tools.len(), 24);
         assert!(tools.iter().any(|t| t.name == "memory_recall"));
         assert!(tools.iter().any(|t| t.name == "memory_list"));
         assert!(tools.iter().any(|t| t.name == "memory_save"));
@@ -1298,6 +1383,7 @@ mod tests {
         assert!(tools.iter().any(|t| t.name == "time_query"));
         assert!(tools.iter().any(|t| t.name == "vault_stats"));
         assert!(tools.iter().any(|t| t.name == "youtube_transcript"));
+        assert!(tools.iter().any(|t| t.name == "read_document"));
     }
 
     #[test]
@@ -1350,5 +1436,112 @@ mod tests {
         assert_eq!(resources[0].uri, "note:///{vault-path}");
         assert_eq!(resources[1].uri, "note:///daily/{date}");
         assert_eq!(resources[2].uri, "note:///vault/structure");
+    }
+
+    #[test]
+    fn read_document_tool_has_expected_schema() {
+        let temp_dir = TempDir::new().unwrap();
+        let mcp = build_test_mcp(temp_dir.path());
+
+        let tools = mcp.registered_tools();
+        let tool = tools
+            .iter()
+            .find(|t| t.name == "read_document")
+            .expect("read_document tool must be registered");
+
+        let schema = tool.input_schema.as_ref();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["properties"]["path"]["type"], "string");
+        assert_eq!(schema["properties"]["save"]["type"], "boolean");
+        assert_eq!(schema["properties"]["folder"]["type"], "string");
+        assert_eq!(schema["required"], json!(["path"]));
+        assert_eq!(schema["additionalProperties"], json!(false));
+    }
+
+    fn write_sample_pdf(path: &Path, lines: &[&str]) {
+        use printpdf::*;
+        let (doc, page1, layer1) = PdfDocument::new("Fixture", Mm(210.0), Mm(297.0), "Layer 1");
+        let font = doc.add_builtin_font(BuiltinFont::Helvetica).unwrap();
+        let layer = doc.get_page(page1).get_layer(layer1);
+        let mut y = 280.0;
+        for line in lines {
+            layer.use_text(*line, 14.0, Mm(20.0), Mm(y), &font);
+            y -= 10.0;
+        }
+        let bytes = doc.save_to_bytes().unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn read_document_extracts_pdf_text_and_chunks() {
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp_dir.path().join("attachments")).unwrap();
+        write_sample_pdf(
+            &temp_dir.path().join("attachments/paper.pdf"),
+            &["Ingested from a PDF via MCP.", "Second extractable line."],
+        );
+        let mcp = build_test_mcp(temp_dir.path());
+
+        let value = mcp
+            .read_document_op("attachments/paper.pdf", false, None)
+            .unwrap();
+
+        assert_eq!(value["source_type"], "pdf");
+        assert_eq!(value["source_path"], "attachments/paper.pdf");
+        assert!(
+            value["text"]
+                .as_str()
+                .unwrap()
+                .contains("Ingested from a PDF")
+        );
+        assert!(value["chunk_count"].as_u64().unwrap() >= 1);
+        assert!(value.get("saved").is_none());
+    }
+
+    #[test]
+    fn read_document_with_save_writes_a_normalized_note() {
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp_dir.path().join("attachments")).unwrap();
+        write_sample_pdf(
+            &temp_dir.path().join("attachments/paper.pdf"),
+            &["Persisted document body."],
+        );
+        let mcp = build_test_mcp(temp_dir.path());
+
+        let value = mcp
+            .read_document_op("attachments/paper.pdf", true, Some("Documents"))
+            .unwrap();
+
+        assert_eq!(value["saved"], true);
+        let saved_path = value["saved_path"].as_str().unwrap();
+        assert_eq!(saved_path, "Documents/paper.md");
+
+        let note = mcp.ops().get_note(saved_path).unwrap();
+        let content = note["content"].as_str().unwrap();
+        assert!(content.contains("source_type: pdf"));
+        assert!(content.contains("source_path: attachments/paper.pdf"));
+        assert!(content.contains("Persisted document body."));
+    }
+
+    #[test]
+    fn read_document_missing_file_errors_without_panic() {
+        let temp_dir = TempDir::new().unwrap();
+        let mcp = build_test_mcp(temp_dir.path());
+
+        let err = mcp
+            .read_document_op("attachments/nope.pdf", false, None)
+            .unwrap_err();
+        assert!(err.to_string().contains("cannot read document"));
+    }
+
+    #[test]
+    fn read_document_rejects_path_traversal() {
+        let temp_dir = TempDir::new().unwrap();
+        let mcp = build_test_mcp(temp_dir.path());
+
+        let err = mcp
+            .read_document_op("../outside.pdf", false, None)
+            .unwrap_err();
+        assert!(err.to_string().contains("invalid document path"));
     }
 }

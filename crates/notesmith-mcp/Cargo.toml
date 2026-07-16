@@ -20,3 +20,4 @@ rmcp = { workspace = true }
 tempfile = { workspace = true }
 notesmith-core = { workspace = true }
 notesmith-vault = { workspace = true }
+printpdf = "0.7"

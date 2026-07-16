@@ -87,6 +87,12 @@ Each source type has a different cheapest reliable path:
   This is cheap, timestamped, and avoids unnecessary local transcription. If no
   usable caption track exists, fall back to Whisper over the audio and keep
   segment timestamps.
+- **Local documents (PDF/EPUB):** these are already-local files referenced by
+  vault-relative path, not fetched URLs. Extract text directly with pure-Rust
+  parsers — `pdf-extract` for PDF pages, `epub` + `htmd` for EPUB chapters — with
+  **no OCR**. An image-only/scanned PDF therefore extracts little or no text and
+  degrades to a non-fatal "no extractable text" result. Structural units are
+  pages (PDF) or chapters (EPUB) rather than media timestamps. See §8.
 
 > **Extended by [ADR 0020](0020-web-clipper.md) §8:** YouTube is also an
 > *interactive* clip source. A user-initiated caption-track fetch is a bounded
@@ -112,7 +118,7 @@ frontmatter:
 ---
 title: "Example title"
 source_url: "https://example.com/post"
-source_type: "article" # article | podcast | youtube
+source_type: "article" # article | podcast | youtube | pdf | epub
 author: "Example Author"
 channel: "Example Channel"
 published: "2026-07-02"
@@ -123,7 +129,11 @@ duration: 3600
 
 Required fields are `source_url`, `source_type` (`article` | `podcast` |
 `youtube`), `title`, `author` and/or `channel` when known, `published` when
-known, `ingested_at`, and `duration` for media sources. These fields are indexed
+known, `ingested_at`, and `duration` for media sources. For local document
+sources (`pdf` | `epub`) there is no `source_url`; identity is instead the
+vault-relative `source_path`, and the structural-unit count is recorded as
+`page_count` (PDF) or `chapter_count` (EPUB) in place of `duration`. These
+fields are indexed
 through the existing SQLite metadata pipeline as `fields`, making them joinable
 in hybrid search with notes, tags, tasks, and chunks. Provenance is metadata, not
 graph structure: wikilinks in arbitrary frontmatter are not backlink-indexed and
@@ -211,6 +221,35 @@ The media scale above is one of the reasons [ADR 0018](0018-embedding-and-vector
 chooses chunk-level vectors and a sqlite-vec → LanceDB path. This ADR must not
 fork those decisions.
 
+### 8. Local document sources (PDF/EPUB)
+
+PDF and EPUB files are the first **local, on-demand** ingestion source and the
+first that is not a network fetch. They are realized by the pure-Rust
+`notesmith-document` crate and exposed through the `read_document` MCP tool
+(issue [#205](https://github.com/surdy/notes-method/issues/205)), following the
+same thin-wrapper shape as `youtube_transcript`:
+
+- **Pure-Rust, no native deps, no OCR.** `pdf-extract` (+ `lopdf`) extracts PDF
+  page text; `epub` (+ `htmd`) walks EPUB chapters and converts each chapter's
+  XHTML to markdown. Nothing shells out, downloads a model, or transcribes. A
+  scanned/image-only PDF yields no text and returns `DocumentError::Empty`.
+- **Vault-relative input, path-scoped.** The tool takes a vault-relative `path`;
+  traversal, absolute, and Windows-prefixed paths are rejected so extraction can
+  only read files inside the vault root.
+- **Provenance frontmatter (§3).** Notes carry `source_type` (`pdf` | `epub`),
+  `title`/`author` when the document embeds them, `source_path`, a
+  `page_count`/`chapter_count`, and `ingested_at`.
+- **Per-item resilience (§5, [ADR 0009](0009-resilience-to-malformed-content.md)).**
+  All parsing is panic-isolated with `catch_unwind`; malformed or encrypted
+  files return a typed, non-fatal `DocumentError` (`Empty`, `Encrypted`,
+  `Unsupported`, `Parse`) instead of aborting.
+- **Chunk handoff (§7).** Extracted text is normalized and split into
+  fixed-size character chunks with `char_start`/`char_end` offsets, ready for the
+  [ADR 0018](0018-embedding-and-vector-search.md) chunk → embed → store path.
+- **Read/write split.** Extraction is read-only; the tool only writes a
+  normalized note when the caller opts in (`save: true`), and that write flows
+  through the already-gated `create_note` path (a read-only surface refuses it).
+
 ## Consequences
 
 - Long-form external media becomes first-class vault content: searchable,
@@ -241,10 +280,13 @@ fork those decisions.
    interactive clip endpoint and the `youtube_transcript` MCP tool), not a
    standalone extractor.
 3. **P2 — podcast/audio ingestion via local Whisper.** Add audio fetch and local
-   transcription, adjacent to [#204](https://github.com/surdy/notes-method/issues/204)
-   and [#205](https://github.com/surdy/notes-method/issues/205). Store segment
-   timestamps so chunks support media deep-links.
-4. **P3 — dedup, refresh, and scheduling polish.** Canonical URL identity,
+   transcription, adjacent to [#204](https://github.com/surdy/notes-method/issues/204).
+   Store segment timestamps so chunks support media deep-links.
+4. **P2b — local document ingestion (PDF/EPUB).** Realized by §8 and issue
+   [#205](https://github.com/surdy/notes-method/issues/205): the pure-Rust
+   `notesmith-document` crate plus the `read_document` MCP tool. Independent of
+   the Whisper track (no audio, no model), so it ships without waiting on P2.
+5. **P3 — dedup, refresh, and scheduling polish.** Canonical URL identity,
    generated-note update policy, retry/backoff, launchd/systemd timer support,
    queue support, and operational metrics for failed stages and stale content.
 

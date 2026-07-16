@@ -56,6 +56,7 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `create_daily_note` | `date?` (`YYYY-MM-DD`) |
 | `create_from_template` | `template_name`, `prompts?` |
 | `youtube_transcript` | `url` |
+| `read_document` | `path`, `save?`, `folder?` |
 
 ## Resources
 
@@ -258,6 +259,46 @@ Example:
 {
   "name": "youtube_transcript",
   "arguments": { "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }
+}
+```
+
+### `read_document`
+
+Extracts text from a PDF or EPUB stored in the vault (referenced by its
+vault-relative `path`) into plain text plus fixed-size chunks and provenance
+metadata. It is a thin wrapper over the pure-Rust `notesmith-document` parser
+([ADR 0019](adr/0019-media-ingestion-pipeline.md) §PDF/EPUB): `pdf-extract` for
+PDF pages and `epub` + `htmd` for EPUB chapters. There is **no OCR** — an
+image-only/scanned PDF extracts little or no text and returns a non-fatal
+"no extractable text" error rather than crashing. Parsing is panic-isolated per
+document (ADR 0009), so a malformed or encrypted file returns a typed error.
+
+- `path` — vault-relative path to a `.pdf` or `.epub` file (traversal outside
+  the vault is rejected).
+- `save` — when `true`, also write a normalized note (default `false`).
+- `folder` — vault folder for the saved note (default `attachments`).
+
+Response:
+
+- `source_path`, `source_type` (`"pdf"`\|`"epub"`), `title`, `author` —
+  provenance metadata (`title`/`author` may be `null`).
+- `unit_label` (`"page"`\|`"chapter"`), `unit_count` — structural units.
+- `text` — the full extracted, normalized text.
+- `chunks` — an array of `{ index, char_start, char_end, text }`.
+- `chunk_count` — number of chunks.
+- `frontmatter`, `body`, `note_markdown` — the normalized note, split into
+  structured frontmatter + body and the fully rendered markdown.
+- `saved`, `saved_path` — present only when `save: true`; the created note path.
+
+Missing files, paths outside the vault, unsupported extensions, and malformed
+or encrypted documents surface as a tool error.
+
+Example:
+
+```json
+{
+  "name": "read_document",
+  "arguments": { "path": "attachments/paper.pdf", "save": true }
 }
 ```
 

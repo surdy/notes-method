@@ -16,6 +16,7 @@ notesmith-templates = { workspace = true }
 notesmith-routing = { workspace = true }
 notesmith-config = { workspace = true }
 notesmith-clip = { workspace = true }
+notesmith-document = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
