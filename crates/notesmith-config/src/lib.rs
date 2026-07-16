@@ -20,5 +20,5 @@ pub use lockfile::DaemonLockfile;
 pub use vault::{
     AppearanceConfig, CURRENT_SCHEMA_VERSION, CaptureConfig, ClipConfig, ClipTemplate, DailyConfig,
     EditorConfig, EmbedConfig, GitConfig, HooksConfig, IngestConfig, PeriodKindConfig,
-    PeriodicConfig, PeriodicNoteMatch, VaultConfig,
+    PeriodicConfig, PeriodicNoteMatch, TranscribeConfig, VaultConfig,
 };

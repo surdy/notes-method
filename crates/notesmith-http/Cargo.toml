@@ -14,6 +14,7 @@ notesmith-customization = { workspace = true }
 notesmith-vault = { workspace = true }
 notesmith-index = { workspace = true }
 notesmith-embed = { workspace = true }
+notesmith-transcribe = { workspace = true }
 notesmith-query = { workspace = true }
 notesmith-templates = { workspace = true }
 notesmith-routing = { workspace = true }
@@ -65,3 +66,7 @@ git2 = { workspace = true }
 # query-time embedding. Off by default so the standard daemon build stays lean
 # (ADR 0018 §8); without it a non-semantic HashEmbedder placeholder is used.
 local-embed = ["notesmith-embed/local-embed"]
+# Real local transcription (whisper.cpp) for the daemon-supervised transcribe
+# worker. Off by default so the standard daemon build never compiles whisper.cpp
+# (ADR 0023 §2); without it the StubTranscriber placeholder is used.
+local-whisper = ["notesmith-transcribe/local-whisper"]

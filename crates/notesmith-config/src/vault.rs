@@ -21,6 +21,7 @@ pub struct VaultConfig {
     pub embed: EmbedConfig,
     pub clip: ClipConfig,
     pub ingest: IngestConfig,
+    pub transcribe: TranscribeConfig,
 }
 
 fn default_schema_version() -> u32 {
@@ -48,6 +49,7 @@ impl Default for VaultConfig {
             embed: Default::default(),
             clip: Default::default(),
             ingest: Default::default(),
+            transcribe: Default::default(),
         }
     }
 }
@@ -481,6 +483,39 @@ impl Default for IngestConfig {
     }
 }
 
+/// Local audio transcription configuration
+/// ([ADR 0023](../../docs/adr/0023-local-whisper-transcription-worker.md)).
+///
+/// A colocated `notesmith transcribe --drain` worker reads audio queued for a
+/// vault, transcribes it locally (whisper.cpp), and writes a timestamped note
+/// into `notes_dir`. `#[serde(default)]` throughout so older `vault.toml` files
+/// without a `[transcribe]` table still parse; off by default so no work is
+/// scheduled unless the user opts in.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TranscribeConfig {
+    /// When `true`, the daemon supervises a per-vault scheduler that drains the
+    /// transcription queue on an interval. Off by default (ADR 0023 §4/§5).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Vault-relative folder the generated transcript notes are written to
+    /// (ADR 0023 §7).
+    #[serde(default = "default_transcribe_notes_dir")]
+    pub notes_dir: String,
+}
+
+fn default_transcribe_notes_dir() -> String {
+    "transcribed".to_string()
+}
+
+impl Default for TranscribeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            notes_dir: default_transcribe_notes_dir(),
+        }
+    }
+}
+
 /// A per-domain clip template ([ADR 0020](../../docs/adr/0020-web-clipper.md)).
 ///
 /// Serialized in `vault.toml` as an array-of-tables under `[[clip.templates]]`.
@@ -570,6 +605,8 @@ struct RawVaultConfig {
     clip: ClipConfig,
     #[serde(default)]
     ingest: IngestConfig,
+    #[serde(default)]
+    transcribe: TranscribeConfig,
 }
 
 #[derive(Serialize)]
@@ -591,6 +628,8 @@ struct PersistedVaultConfig<'a> {
     clip: &'a ClipConfig,
     #[serde(skip_serializing_if = "ingest_config_is_default")]
     ingest: &'a IngestConfig,
+    #[serde(skip_serializing_if = "transcribe_config_is_default")]
+    transcribe: &'a TranscribeConfig,
 }
 
 fn embed_config_is_default(config: &EmbedConfig) -> bool {
@@ -603,6 +642,10 @@ fn clip_config_is_default(config: &ClipConfig) -> bool {
 
 fn ingest_config_is_default(config: &IngestConfig) -> bool {
     *config == IngestConfig::default()
+}
+
+fn transcribe_config_is_default(config: &TranscribeConfig) -> bool {
+    *config == TranscribeConfig::default()
 }
 
 fn periodic_config_is_empty(config: &PeriodicConfig) -> bool {
@@ -672,6 +715,7 @@ impl<'de> Deserialize<'de> for VaultConfig {
             embed: raw.embed,
             clip: raw.clip,
             ingest: raw.ingest,
+            transcribe: raw.transcribe,
         })
     }
 }
@@ -719,6 +763,7 @@ impl VaultConfig {
             embed: &self.embed,
             clip: &self.clip,
             ingest: &self.ingest,
+            transcribe: &self.transcribe,
         })
         .map_err(|error| ConfigError::SerializeError {
             message: error.to_string(),
@@ -933,6 +978,7 @@ on_note_create = "hooks/create.py"
             embed: EmbedConfig::default(),
             clip: ClipConfig::default(),
             ingest: IngestConfig::default(),
+            transcribe: TranscribeConfig::default(),
         }
     }
 
@@ -1267,5 +1313,52 @@ filename = ""
         config.save_to(&path).unwrap();
         let raw = std::fs::read_to_string(&path).unwrap();
         assert!(!raw.contains("[ingest]"));
+    }
+
+    #[test]
+    fn transcribe_defaults_when_table_absent() {
+        let config: VaultConfig = toml::from_str(r#"name = "x""#).unwrap();
+        assert!(!config.transcribe.enabled);
+        assert_eq!(config.transcribe.notes_dir, "transcribed");
+    }
+
+    #[test]
+    fn transcribe_parses_from_table() {
+        let toml = r#"
+            name = "with-transcribe"
+
+            [transcribe]
+            enabled = true
+            notes_dir = "audio-notes"
+        "#;
+        let config: VaultConfig = toml::from_str(toml).unwrap();
+        assert!(config.transcribe.enabled);
+        assert_eq!(config.transcribe.notes_dir, "audio-notes");
+    }
+
+    #[test]
+    fn transcribe_round_trips_through_disk() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().join("vault.toml");
+        let mut config = VaultConfig::default();
+        config.name = "round-trip".to_string();
+        config.transcribe.enabled = true;
+
+        config.save_to(&path).unwrap();
+        let loaded = VaultConfig::load_from(&path).unwrap();
+        assert!(loaded.transcribe.enabled);
+        assert_eq!(loaded.transcribe.notes_dir, "transcribed");
+    }
+
+    #[test]
+    fn default_transcribe_config_is_omitted_from_disk() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().join("vault.toml");
+        let mut config = VaultConfig::default();
+        config.name = "no-transcribe".to_string();
+
+        config.save_to(&path).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("[transcribe]"));
     }
 }

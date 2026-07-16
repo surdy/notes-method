@@ -338,6 +338,7 @@ fn vault_config_roundtrip() {
         embed: EmbedConfig::default(),
         clip: ClipConfig::default(),
         ingest: IngestConfig::default(),
+        transcribe: TranscribeConfig::default(),
     };
 
     config.save_to(&path).unwrap();

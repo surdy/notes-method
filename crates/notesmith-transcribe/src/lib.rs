@@ -17,13 +17,22 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 mod model;
+mod paths;
+mod queue;
 mod render;
+mod worker;
 
 #[cfg(feature = "local-whisper")]
 mod whisper;
 
 pub use model::{WHISPER_MODEL_DIR_ENV, bundled_model_dir, whisper_model_file};
+pub use paths::{data_dir, queue_db_path, sanitize_vault_name};
+pub use queue::{
+    EnqueueOutcome, NewQueueEntry, QueueItem, QueueStatus, SOURCE_TYPE_AUDIO, SOURCE_TYPE_YOUTUBE,
+    TranscriptionQueue,
+};
 pub use render::{MediaMeta, format_timestamp, render_transcript_note, transcript_body};
+pub use worker::{TranscribeReport, TranscribeWorker};
 
 #[cfg(feature = "local-whisper")]
 pub use whisper::LocalWhisper;
@@ -109,6 +118,12 @@ pub enum TranscribeError {
     /// The transcription backend itself failed.
     #[error("transcription backend error: {0}")]
     Backend(String),
+    /// The pending-transcription queue (SQLite) could not be accessed.
+    #[error("transcription queue error: {0}")]
+    Queue(String),
+    /// A filesystem operation (reading audio, writing a note) failed.
+    #[error("io error: {0}")]
+    Io(String),
 }
 
 /// The engine-agnostic transcription boundary. Mirrors `notesmith_embed`'s
