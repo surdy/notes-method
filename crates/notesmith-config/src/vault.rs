@@ -20,6 +20,7 @@ pub struct VaultConfig {
     pub hooks: HooksConfig,
     pub embed: EmbedConfig,
     pub clip: ClipConfig,
+    pub ingest: IngestConfig,
 }
 
 fn default_schema_version() -> u32 {
@@ -46,6 +47,7 @@ impl Default for VaultConfig {
             hooks: Default::default(),
             embed: Default::default(),
             clip: Default::default(),
+            ingest: Default::default(),
         }
     }
 }
@@ -437,6 +439,48 @@ pub struct EmbedConfig {
     pub enabled: bool,
 }
 
+/// Local drop-folder ingestion configuration
+/// ([ADR 0022](../../docs/adr/0022-local-drop-folder-ingestion.md)).
+///
+/// A colocated `notesmith ingest` worker scans `raw_dir` for dropped documents
+/// and writes provenance-tracked sidecar notes into `notes_dir`, leaving the
+/// raw files untouched. `#[serde(default)]` throughout so older `vault.toml`
+/// files without an `[ingest]` table still parse; off by default so no scanning
+/// happens unless the user opts in.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct IngestConfig {
+    /// When `true`, `notesmith ingest` processes files dropped in `raw_dir`.
+    /// Off by default (ADR 0022 §2).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Vault-relative drop folder scanned for raw documents. Raw files are
+    /// never moved, renamed, or deleted (ADR 0022 §2 keep-in-place invariant).
+    #[serde(default = "default_raw_dir")]
+    pub raw_dir: String,
+    /// Vault-relative folder the generated provenance sidecar notes are written
+    /// to (ADR 0022 §4).
+    #[serde(default = "default_ingest_notes_dir")]
+    pub notes_dir: String,
+}
+
+fn default_raw_dir() -> String {
+    "raw".to_string()
+}
+
+fn default_ingest_notes_dir() -> String {
+    "ingested".to_string()
+}
+
+impl Default for IngestConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            raw_dir: default_raw_dir(),
+            notes_dir: default_ingest_notes_dir(),
+        }
+    }
+}
+
 /// A per-domain clip template ([ADR 0020](../../docs/adr/0020-web-clipper.md)).
 ///
 /// Serialized in `vault.toml` as an array-of-tables under `[[clip.templates]]`.
@@ -524,6 +568,8 @@ struct RawVaultConfig {
     embed: EmbedConfig,
     #[serde(default)]
     clip: ClipConfig,
+    #[serde(default)]
+    ingest: IngestConfig,
 }
 
 #[derive(Serialize)]
@@ -543,6 +589,8 @@ struct PersistedVaultConfig<'a> {
     embed: &'a EmbedConfig,
     #[serde(skip_serializing_if = "clip_config_is_default")]
     clip: &'a ClipConfig,
+    #[serde(skip_serializing_if = "ingest_config_is_default")]
+    ingest: &'a IngestConfig,
 }
 
 fn embed_config_is_default(config: &EmbedConfig) -> bool {
@@ -551,6 +599,10 @@ fn embed_config_is_default(config: &EmbedConfig) -> bool {
 
 fn clip_config_is_default(config: &ClipConfig) -> bool {
     *config == ClipConfig::default()
+}
+
+fn ingest_config_is_default(config: &IngestConfig) -> bool {
+    *config == IngestConfig::default()
 }
 
 fn periodic_config_is_empty(config: &PeriodicConfig) -> bool {
@@ -619,6 +671,7 @@ impl<'de> Deserialize<'de> for VaultConfig {
             hooks: raw.hooks,
             embed: raw.embed,
             clip: raw.clip,
+            ingest: raw.ingest,
         })
     }
 }
@@ -665,6 +718,7 @@ impl VaultConfig {
             hooks: &self.hooks,
             embed: &self.embed,
             clip: &self.clip,
+            ingest: &self.ingest,
         })
         .map_err(|error| ConfigError::SerializeError {
             message: error.to_string(),
@@ -878,6 +932,7 @@ on_note_create = "hooks/create.py"
             },
             embed: EmbedConfig::default(),
             clip: ClipConfig::default(),
+            ingest: IngestConfig::default(),
         }
     }
 
@@ -1149,5 +1204,68 @@ filename = ""
         config.save_to(&path).unwrap();
         let loaded = VaultConfig::load_from(&path).unwrap();
         assert!(loaded.embed.enabled);
+    }
+
+    #[test]
+    fn ingest_has_expected_defaults() {
+        let config = VaultConfig::default();
+        assert!(!config.ingest.enabled);
+        assert_eq!(config.ingest.raw_dir, "raw");
+        assert_eq!(config.ingest.notes_dir, "ingested");
+    }
+
+    #[test]
+    fn ingest_defaults_when_table_absent() {
+        let toml = r#"
+            name = "no-ingest-table"
+        "#;
+        let config: VaultConfig = toml::from_str(toml).unwrap();
+        assert!(!config.ingest.enabled);
+        assert_eq!(config.ingest.raw_dir, "raw");
+        assert_eq!(config.ingest.notes_dir, "ingested");
+    }
+
+    #[test]
+    fn ingest_parses_from_table() {
+        let toml = r#"
+            name = "with-ingest"
+
+            [ingest]
+            enabled = true
+            raw_dir = "drop"
+            notes_dir = "library"
+        "#;
+        let config: VaultConfig = toml::from_str(toml).unwrap();
+        assert!(config.ingest.enabled);
+        assert_eq!(config.ingest.raw_dir, "drop");
+        assert_eq!(config.ingest.notes_dir, "library");
+    }
+
+    #[test]
+    fn ingest_round_trips_through_disk() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().join("vault.toml");
+        let mut config = VaultConfig::default();
+        config.name = "round-trip".to_string();
+        config.ingest.enabled = true;
+        config.ingest.raw_dir = "drop".to_string();
+
+        config.save_to(&path).unwrap();
+        let loaded = VaultConfig::load_from(&path).unwrap();
+        assert!(loaded.ingest.enabled);
+        assert_eq!(loaded.ingest.raw_dir, "drop");
+        assert_eq!(loaded.ingest.notes_dir, "ingested");
+    }
+
+    #[test]
+    fn default_ingest_config_is_omitted_from_disk() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().join("vault.toml");
+        let mut config = VaultConfig::default();
+        config.name = "no-ingest".to_string();
+
+        config.save_to(&path).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("[ingest]"));
     }
 }

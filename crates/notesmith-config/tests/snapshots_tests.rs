@@ -72,6 +72,7 @@ fn snapshot_vault_config_full() {
         },
         embed: EmbedConfig::default(),
         clip: ClipConfig::default(),
+        ingest: IngestConfig::default(),
     };
     let temp_dir = tempfile::tempdir().unwrap();
     let path = temp_dir.path().join("vault.toml");

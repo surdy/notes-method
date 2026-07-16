@@ -7,6 +7,7 @@ use notesmith_cli::commands::{
     daemon::DaemonCommand,
     daily::DailyCommand,
     embed::EmbedCommand,
+    ingest::IngestCommand,
     mcp::McpCommand,
     note::NoteCommand,
     periodic::PeriodicCommand,
@@ -95,6 +96,8 @@ enum Command {
     Reindex(ReindexCommand),
     /// Run the embedding worker over one or more vaults
     Embed(EmbedCommand),
+    /// Ingest documents from each vault's raw drop folder into notes
+    Ingest(IngestCommand),
     /// Task management commands
     Task {
         #[command(subcommand)]
@@ -189,6 +192,11 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
         }
         Command::Embed(command) => {
+            command
+                .run(&global_config, cli.vault.as_deref(), format)
+                .await?;
+        }
+        Command::Ingest(command) => {
             command
                 .run(&global_config, cli.vault.as_deref(), format)
                 .await?;

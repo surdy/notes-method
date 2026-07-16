@@ -1,0 +1,25 @@
+[package]
+name = "notesmith-ingest"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+notesmith-core = { workspace = true }
+notesmith-vault = { workspace = true }
+notesmith-config = { workspace = true }
+notesmith-document = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+printpdf = "0.7"
+zip = "2"

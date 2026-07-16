@@ -7,6 +7,7 @@ pub mod copy_html;
 pub mod daemon;
 pub mod daily;
 pub mod embed;
+pub mod ingest;
 pub mod mcp;
 pub mod note;
 pub mod periodic;

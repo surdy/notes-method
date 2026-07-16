@@ -286,6 +286,51 @@ notesmith embed bench --baseline --format json
 
 ---
 
+## ingest
+
+Run the drop-folder ingestion worker over one or all vaults (ADR 0022, #263).
+Each vault's raw drop folder (`[ingest] raw_dir`, default `raw/`) is scanned for
+documents an external tool dropped in; each is extracted into a
+provenance-tracked sidecar note under `[ingest] notes_dir` (default
+`ingested/`). Raw files are **never moved, renamed, or deleted** (keep-in-place
+invariant). Like `embed`, it runs one incremental pass and is fully runnable by
+hand.
+
+### `ingest`
+
+```bash
+notesmith ingest                 # all registered vaults
+notesmith --vault work ingest    # a single vault
+notesmith ingest --format json
+```
+
+Each pass is incremental and content-hash driven:
+
+- **new** documents are extracted into a fresh sidecar note (`status: ingested`)
+- **unchanged** documents (same content hash) are skipped
+- **changed** documents are re-extracted (reingested)
+- a **renamed** raw file (same content at a new path) moves its note without
+  re-extraction
+- **failed** extractions (`status: failed`) are recorded and retried next pass
+- **unsupported** file types (`status: unsupported`) are recorded once and not
+  retried while unchanged
+- **orphaned** notes (raw file removed) are reported, never deleted
+
+Configure per vault in `.notesmith/vault.toml`:
+
+```toml
+[ingest]
+enabled = false      # reserved for future daemon auto-scheduling
+raw_dir = "raw"      # drop folder scanned for documents
+notes_dir = "ingested"  # where sidecar notes are written
+```
+
+Supported document types match `read_document` (PDF, EPUB; ADR 0019 §8). Ingested
+notes are ordinary Markdown, so the embedding worker picks them up automatically
+on its next pass.
+
+---
+
 ## note
 
 Note CRUD commands go through the daemon and auto-start it when needed.

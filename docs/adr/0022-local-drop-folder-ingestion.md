@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed (2026-07-15).
+Accepted (2026-07-15). P0 realized by the `notesmith-ingest` crate and
+`notesmith ingest` CLI command (issue [#263](https://github.com/surdy/notes-method/issues/263)).
 
 Part of Phase 3 ([#187](https://github.com/surdy/notes-method/issues/187))
 (Memory & multimodal). **Extends [ADR 0019](0019-media-ingestion-pipeline.md)**

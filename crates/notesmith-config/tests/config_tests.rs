@@ -337,6 +337,7 @@ fn vault_config_roundtrip() {
         hooks: HooksConfig::default(),
         embed: EmbedConfig::default(),
         clip: ClipConfig::default(),
+        ingest: IngestConfig::default(),
     };
 
     config.save_to(&path).unwrap();

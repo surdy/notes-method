@@ -14,6 +14,7 @@ members = [
     "crates/notesmith-config",
     "crates/notesmith-clip",
     "crates/notesmith-document",
+    "crates/notesmith-ingest",
     "crates/notesmith-prompts",
     "crates/notesmith-ops",
     "crates/notesmith-transcript",
@@ -52,6 +53,7 @@ notesmith-html = { path = "crates/notesmith-html" }
 notesmith-config = { path = "crates/notesmith-config" }
 notesmith-clip = { path = "crates/notesmith-clip" }
 notesmith-document = { path = "crates/notesmith-document" }
+notesmith-ingest = { path = "crates/notesmith-ingest" }
 notesmith-prompts = { path = "crates/notesmith-prompts" }
 notesmith-ops = { path = "crates/notesmith-ops" }
 notesmith-transcript = { path = "crates/notesmith-transcript" }
@@ -71,6 +73,7 @@ toml = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 blake3 = "1"
+sha2 = "0.10"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

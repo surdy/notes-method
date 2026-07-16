@@ -11,6 +11,7 @@ notesmith-config = { workspace = true }
 notesmith-vault = { workspace = true }
 notesmith-index = { workspace = true }
 notesmith-embed = { workspace = true }
+notesmith-ingest = { workspace = true }
 notesmith-query = { workspace = true }
 notesmith-http = { workspace = true }
 notesmith-mcp = { workspace = true }
