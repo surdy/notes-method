@@ -778,6 +778,108 @@ mod tests {
     }
 
     #[test]
+    fn index_note_extracts_dangling_wikilinks_into_view() {
+        let conn = test_connection();
+
+        // Source note references four wikilink-style targets and two
+        // non-wikilink links (external + markdown, which store NULL target_path
+        // and must never appear as dangling).
+        let mut source = make_note("hub.md", "hub body");
+        source.links = vec![
+            make_link(LinkType::WikiLink, "Existing Note", Some("here"), 1),
+            make_link(LinkType::WikiLink, "Ghost Concept", None, 2),
+            make_link(LinkType::Embed, "assets/missing.png", None, 3),
+            make_link(LinkType::ExternalLink, "https://example.com", None, 4),
+            make_link(LinkType::MarkdownLink, "./other.md", Some("other"), 5),
+        ];
+
+        // A target note that resolves the first wikilink by its stem/title.
+        let existing = make_note("Existing Note.md", "existing body");
+
+        let indexer = CacheIndexer::new(&conn);
+        indexer.index_note(VAULT_NAME, &source).unwrap();
+        indexer.index_note(VAULT_NAME, &existing).unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT source_path, source_title, raw_target, kind, line_number
+                 FROM v_dangling_links ORDER BY line_number",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        // Only the unresolved wikilink + embed are dangling; the resolved
+        // wikilink and both NULL-target links are excluded.
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "hub.md".to_string(),
+                    Some("hub".to_string()),
+                    "Ghost Concept".to_string(),
+                    "wikilink".to_string(),
+                    2,
+                ),
+                (
+                    "hub.md".to_string(),
+                    Some("hub".to_string()),
+                    "assets/missing.png".to_string(),
+                    "embed".to_string(),
+                    3,
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn dangling_link_view_honors_all_resolution_forms() {
+        let conn = test_connection();
+
+        let mut source = make_note("refs.md", "refs body");
+        source.links = vec![
+            make_link(LinkType::WikiLink, "By Title", None, 1),
+            make_link(LinkType::WikiLink, "notes/by-path", None, 2),
+            make_link(LinkType::WikiLink, "sub/deep", None, 3),
+            make_link(LinkType::WikiLink, "Nowhere", None, 4),
+        ];
+
+        let indexer = CacheIndexer::new(&conn);
+        indexer.index_note(VAULT_NAME, &source).unwrap();
+        // Title match (stem defaults to title), path+".md" match, and
+        // "%/target.md" subdirectory match respectively resolve the first three.
+        indexer
+            .index_note(VAULT_NAME, &make_note("By Title.md", "a"))
+            .unwrap();
+        indexer
+            .index_note(VAULT_NAME, &make_note("notes/by-path.md", "b"))
+            .unwrap();
+        indexer
+            .index_note(VAULT_NAME, &make_note("wiki/sub/deep.md", "c"))
+            .unwrap();
+
+        let dangling: Vec<String> = conn
+            .prepare("SELECT raw_target FROM v_dangling_links ORDER BY raw_target")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(dangling, vec!["Nowhere".to_string()]);
+    }
+
+    #[test]
     fn index_note_extracts_tasks() {
         let conn = test_connection();
         let mut note = make_note("tasks.md", "tasks body");

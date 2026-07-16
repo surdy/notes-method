@@ -336,6 +336,48 @@ A typical agent pass:
 The agent chooses and sequences these tools; Notesmith adds no transcript-specific
 tool for this step — structuring is composition over the existing surface.
 
+## Vault lint / knowledge-health (agent workflow)
+
+The third Karpathy "LLM Wiki" workflow (after Ingest and Query) is **Lint**: a
+repeatable health pass that surfaces contradictions, stale claims, orphan notes,
+missing cross-links, and concepts referenced but never written up. Per
+[ADR 0015](adr/0015-ai-agent-integration-roadmap.md) the daemon runs no LLM, so
+the *reasoning* is done by the user's ACP agent — Notesmith's job is to expose
+the raw, read-only **signals** the agent composes into findings (issue #265).
+
+### Lint signal inventory
+
+| Signal | Provided by | How |
+|--------|-------------|-----|
+| **Orphan notes** (no inbound or outbound resolved links) | `vault_stats` | `orphans` array + `totals.orphans` count |
+| **Dangling links / concepts with no note** | `query_sql` on `v_dangling_links` | Wikilink targets that resolve to no note; group by `raw_target` to rank missing concepts |
+| **Missing cross-links / near-duplicates** | `vault_search` | Semantic+lexical neighbours of a note that aren't already linked (candidate `[[wikilinks]]`) |
+| **Stale claims** (source changed after the note) | `query_sql` on `v_fields` + `time_query` | Compare provenance `source_mtime`/`source_hash` fields against note `updated`; ingest re-writes provenance on change ([ADR 0022](adr/0022-local-drop-folder-ingestion.md)) |
+| **Structure / hotspots** | `vault_stats` | `backlinks` (most-referenced), `tags`, totals |
+
+### A typical lint pass
+
+1. **Snapshot health.** `vault_stats` for orphans, top backlinks, tags, totals.
+2. **Find missing concepts.** `query_sql`:
+   ```sql
+   SELECT raw_target, COUNT(*) AS refs
+   FROM v_dangling_links
+   GROUP BY raw_target ORDER BY refs DESC, raw_target;
+   ```
+   High-`refs` targets are concepts worth creating a note for.
+3. **Find missing cross-links.** For key notes, `vault_search` the title/topic and
+   flag strong neighbours not already in `v_backlinks` — candidate links.
+4. **Flag stale provenance.** `query_sql` over `v_fields` for ingested notes whose
+   `source_*` provenance post-dates the note body, corroborated with `time_query`.
+5. **Report, don't edit.** The agent returns a findings list (orphans, dangling
+   targets, suggested links, stale notes). **Lint is read-only by default** —
+   creating notes, adding `[[wikilinks]]`, or resolving staleness is a separate,
+   explicitly-invoked step using `create_note` / `append_to_note` / `update_note`.
+
+Lint adds no dedicated tool: every signal is a read-only view or existing tool,
+so an operator runs the whole pass over MCP via `query_sql`, `vault_stats`, and
+`vault_search`.
+
 ## Claude Desktop example
 
 ```json

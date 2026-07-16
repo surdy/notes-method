@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
     // Check schema version — if mismatch, drop all tables and recreate
@@ -22,6 +22,7 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
             DROP VIEW IF EXISTS v_tasks;
             DROP VIEW IF EXISTS v_task_fields;
             DROP VIEW IF EXISTS v_backlinks;
+            DROP VIEW IF EXISTS v_dangling_links;
             DROP VIEW IF EXISTS v_periodic;
             DROP VIEW IF EXISTS v_customers;
             DROP VIEW IF EXISTS v_streams;
@@ -164,6 +165,23 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
         FROM links l
         JOIN notes n ON l.vault_name = n.vault_name AND l.source_path = n.path
         WHERE l.target_path IS NOT NULL;
+
+        DROP VIEW IF EXISTS v_dangling_links;
+        CREATE VIEW v_dangling_links AS
+        SELECT l.vault_name, l.source_path, n.title AS source_title,
+               l.raw_target, l.link_text, l.kind, l.line_number
+        FROM links l
+        JOIN notes n ON l.vault_name = n.vault_name AND l.source_path = n.path
+        WHERE l.target_path IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM notes t
+              WHERE t.vault_name = l.vault_name
+                AND t.path <> l.source_path
+                AND ( t.title = l.target_path
+                   OR t.path = l.target_path
+                   OR t.path = l.target_path || '.md'
+                   OR t.path LIKE '%/' || l.target_path || '.md' )
+          );
 
         DROP VIEW IF EXISTS v_periodic;
         CREATE VIEW v_periodic AS

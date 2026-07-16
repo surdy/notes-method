@@ -103,9 +103,35 @@ Example:
 SELECT source_path, source_title FROM v_backlinks WHERE target_path = 'Acme Corp';
 ```
 
-## v_periodic
+## v_dangling_links
 
-Detected periodic notes.
+Wikilink-style references (`wikilink`, `embed`, `heading_ref`, `block_ref`)
+whose target does not resolve to any note in the vault — i.e. concepts referenced
+but with no page. This is the **dangling-links lint signal** (issue #265): the
+complement of `v_backlinks`, using the same target-resolution rules
+(match a note by `title`, exact `path`, `target + '.md'`, or `%/target.md'`).
+External and inline Markdown links are never dangling (they carry no note target).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `vault_name` | TEXT | Vault identifier |
+| `source_path` | TEXT | Note containing the unresolved link |
+| `source_title` | TEXT | Title of the source note |
+| `raw_target` | TEXT | The referenced target as written (e.g. `Acme Corp`) |
+| `link_text` | TEXT | Alias/display text when present |
+| `kind` | TEXT | `wikilink`, `embed`, `heading_ref`, or `block_ref` |
+| `line_number` | INTEGER | 1-based line of the link in the source note |
+
+Example — the most-referenced missing concepts (candidates for a new note):
+
+```sql
+SELECT raw_target, COUNT(*) AS refs
+FROM v_dangling_links
+GROUP BY raw_target
+ORDER BY refs DESC, raw_target;
+```
+
+## v_periodic
 
 | Column | Type | Description |
 |--------|------|-------------|
