@@ -154,7 +154,9 @@ ORDER BY due.value IS NULL, due.value;
 
 ## v_backlinks
 
-Resolved inbound links.
+Resolved inbound links. Wikilinks inside frontmatter values (e.g. a
+`customers` list of `"[[Acme]]"` entries) are indexed as link edges too, so
+entity notes get backlinks from every note referencing them in metadata.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -163,6 +165,7 @@ Resolved inbound links.
 | `target_path` | TEXT | Parsed link target when resolvable |
 | `link_text` | TEXT | Alias/markdown text when present |
 | `source_title` | TEXT | Title of the source note |
+| `source` | TEXT | `body` or `frontmatter` |
 
 Example:
 
@@ -187,7 +190,8 @@ External and inline Markdown links are never dangling (they carry no note target
 | `raw_target` | TEXT | The referenced target as written (e.g. `Acme Corp`) |
 | `link_text` | TEXT | Alias/display text when present |
 | `kind` | TEXT | `wikilink`, `embed`, `heading_ref`, or `block_ref` |
-| `line_number` | INTEGER | 1-based line of the link in the source note |
+| `line_number` | INTEGER | 1-based line of the link in the source note; NULL for frontmatter links |
+| `source` | TEXT | `body` or `frontmatter` (unresolved frontmatter links — e.g. attendees without a People note — surface here) |
 
 Example — the most-referenced missing concepts (candidates for a new note):
 

@@ -106,7 +106,7 @@ Generic for all list fields (`customers`, `streams`, `attendees`, future ones).
 The precedent already exists in-schema: `tags` and `task_fields` are
 element-normalized; generic list fields just never got the same treatment.
 
-### P2 — Metadata-filtered `vault_search`
+### P2 — Metadata-filtered `vault_search` — **DONE 2026-07-19**
 
 Add a `filters` parameter to `vault_search` (and the HTTP API):
 
@@ -128,7 +128,7 @@ This is the primitive for customer-scoped digging ("renewal risks, customers
 contains [[Acme]]") and person-scoped recall ("pricing, attendees contains
 [[Jane Smith]]").
 
-### P3 — Frontmatter wikilinks become link edges
+### P3 — Frontmatter wikilinks become link edges — **DONE 2026-07-19**
 
 Extract wikilinks from frontmatter values into the links table with
 `source='frontmatter'` (body-link parsing unchanged). Effects:

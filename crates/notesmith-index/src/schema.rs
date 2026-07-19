@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
     // Check schema version — if mismatch, drop all tables and recreate
@@ -122,7 +122,8 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
             raw_target TEXT NOT NULL,
             link_text TEXT,
             kind TEXT NOT NULL,
-            line_number INTEGER
+            line_number INTEGER,
+            source TEXT NOT NULL DEFAULT 'body'
         );
 
         CREATE INDEX IF NOT EXISTS idx_links_source ON links(vault_name, source_path);
@@ -200,7 +201,7 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
         DROP VIEW IF EXISTS v_backlinks;
         CREATE VIEW v_backlinks AS
         SELECT l.vault_name, l.source_path, l.target_path, l.link_text,
-               n.title as source_title
+               n.title as source_title, l.source
         FROM links l
         JOIN notes n ON l.vault_name = n.vault_name AND l.source_path = n.path
         WHERE l.target_path IS NOT NULL;
@@ -208,7 +209,7 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
         DROP VIEW IF EXISTS v_dangling_links;
         CREATE VIEW v_dangling_links AS
         SELECT l.vault_name, l.source_path, n.title AS source_title,
-               l.raw_target, l.link_text, l.kind, l.line_number
+               l.raw_target, l.link_text, l.kind, l.line_number, l.source
         FROM links l
         JOIN notes n ON l.vault_name = n.vault_name AND l.source_path = n.path
         WHERE l.target_path IS NOT NULL

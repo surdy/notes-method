@@ -168,6 +168,7 @@ impl<'a> CacheIndexer<'a> {
         self.index_inline_fields(vault_name, note)?;
         self.index_tags(vault_name, note)?;
         self.index_links(vault_name, note)?;
+        self.index_frontmatter_links(vault_name, note)?;
         self.index_tasks(vault_name, note)?;
         self.index_periodic_note(vault_name, note, &note_type)?;
 
@@ -326,6 +327,37 @@ impl<'a> CacheIndexer<'a> {
         Ok(())
     }
 
+    /// Index wikilinks found inside frontmatter values (e.g. a `customers`
+    /// list of `"[[Acme]]"` entries) as link edges with `source =
+    /// 'frontmatter'`, so entity notes get real backlinks and unresolved
+    /// targets surface in `v_dangling_links`.
+    fn index_frontmatter_links(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
+        let Some(frontmatter) = note.frontmatter.as_ref() else {
+            return Ok(());
+        };
+
+        let mut targets = Vec::new();
+        for value in frontmatter.fields.values() {
+            collect_wikilink_targets(value, &mut targets);
+        }
+
+        for (target, alias) in targets {
+            self.conn.execute(
+                "INSERT INTO links (vault_name, source_path, target_path, raw_target, link_text, kind, line_number, source)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'wikilink', NULL, 'frontmatter')",
+                params![
+                    vault_name,
+                    note.path.as_str(),
+                    target.as_str(),
+                    target.as_str(),
+                    alias.as_deref(),
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
     fn index_tasks(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
         for task in &note.tasks {
             let task_id = task_id(note.path.as_str(), task);
@@ -449,6 +481,47 @@ fn looks_like_date(value: &str) -> bool {
             4 | 7 => ch == '-',
             _ => ch.is_ascii_digit(),
         })
+}
+
+/// Recursively collect `[[Target]]` / `[[Target|Alias]]` references from a
+/// frontmatter value (strings, list elements, nested mapping values). A
+/// `#heading` / `^block` suffix is stripped down to the note target, matching
+/// body-link resolution. Malformed or empty targets are skipped.
+fn collect_wikilink_targets(value: &Value, targets: &mut Vec<(String, Option<String>)>) {
+    match value {
+        Value::String(text) => {
+            for capture in frontmatter_wikilink_regex().captures_iter(text) {
+                let inner = capture[1].trim();
+                let (target_part, alias) = match inner.split_once('|') {
+                    Some((target, alias)) => (target, Some(alias.trim().to_string())),
+                    None => (inner, None),
+                };
+                let target = target_part
+                    .split_once('#')
+                    .map_or(target_part, |(base, _)| base)
+                    .trim();
+                if !target.is_empty() {
+                    targets.push((target.to_string(), alias));
+                }
+            }
+        }
+        Value::Sequence(items) => {
+            for item in items {
+                collect_wikilink_targets(item, targets);
+            }
+        }
+        Value::Mapping(mapping) => {
+            for (_key, nested) in mapping {
+                collect_wikilink_targets(nested, targets);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn frontmatter_wikilink_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| Regex::new(r"\[\[([^\]]+)\]\]").expect("valid wikilink regex"))
 }
 
 fn extract_inline_tags(body: &str) -> Vec<String> {
@@ -1006,6 +1079,78 @@ mod tests {
             )
             .unwrap();
         assert_eq!(owner_rows, 0, "paragraph-scoped inline fields must not leak onto tasks");
+    }
+
+    #[test]
+    fn frontmatter_wikilinks_index_as_link_edges() {
+        let conn = test_connection();
+        let acme = make_note("Customers/Acme/Acme.md", "acme body");
+        let mut meeting = make_note("Meetings/2026/07/sync.md", "See [[Roadmap]] in body.");
+        meeting.frontmatter = Some(make_frontmatter(
+            "kind: meeting\naudience: internal\ncustomers:\n  - \"[[Acme]]\"\nattendees:\n  - \"[[Jane Smith]]\"\nrelated: \"[[Old Note|Old]]\"\n",
+        ));
+        meeting.links = vec![make_link(LinkType::WikiLink, "Roadmap", None, 3)];
+
+        let indexer = CacheIndexer::new(&conn);
+        indexer.index_note(VAULT_NAME, &acme).unwrap();
+        indexer.index_note(VAULT_NAME, &meeting).unwrap();
+
+        // The customers wikilink is a real inbound link edge for Acme.
+        let backlink: (String, String) = conn
+            .query_row(
+                "SELECT source_path, source FROM v_backlinks WHERE vault_name = ?1 AND target_path = 'Acme'",
+                [VAULT_NAME],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            backlink,
+            (
+                "Meetings/2026/07/sync.md".to_string(),
+                "frontmatter".to_string()
+            )
+        );
+
+        // Body links keep their own provenance.
+        let body_source: String = conn
+            .query_row(
+                "SELECT source FROM links WHERE vault_name = ?1 AND raw_target = 'Roadmap'",
+                [VAULT_NAME],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(body_source, "body");
+
+        // An unresolved attendee is a dangling link — the People-note
+        // promotion signal.
+        let dangling: (String, String) = conn
+            .query_row(
+                "SELECT raw_target, source FROM v_dangling_links WHERE vault_name = ?1 AND raw_target = 'Jane Smith'",
+                [VAULT_NAME],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(dangling, ("Jane Smith".to_string(), "frontmatter".to_string()));
+
+        // Alias form parses like a body wikilink.
+        let alias: (String, Option<String>) = conn
+            .query_row(
+                "SELECT raw_target, link_text FROM links WHERE vault_name = ?1 AND raw_target = 'Old Note'",
+                [VAULT_NAME],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(alias, ("Old Note".to_string(), Some("Old".to_string())));
+
+        // Plain scalar values (audience, kind) never become links.
+        let non_link_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM links WHERE vault_name = ?1 AND raw_target IN ('internal', 'meeting')",
+                [VAULT_NAME],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(non_link_count, 0);
     }
 
     #[test]

@@ -367,7 +367,10 @@ mod tests {
 
         let vault = TempDir::new().unwrap();
         std::fs::write(vault.path().join("a.md"), "# A\n\ncontent").unwrap();
-        let vault_name = "live-vault";
+        // Unique per scheduler test: create_vault_state resolves the search
+        // index from the global cache dir by vault name, so twin tests
+        // sharing a name collide on the Tantivy writer lock.
+        let vault_name = "ingest-sched-vault";
         {
             let vs = create_vault_state(vault_name, vault.path()).unwrap();
             state
