@@ -1,5 +1,13 @@
 # Work Notes Organization Handoff
 
+> **Superseded 2026-07-19** by `plans/work-notes-simplification-design.md`,
+> which closed every open question below and shipped the search primitives.
+> The "Current Search and Indexing Behavior" sections below are now stale:
+> list fields ARE normalized (`v_field_values`), `vault_search` DOES accept
+> metadata filters, frontmatter wikilinks DO create link edges, and
+> `list_notes`/`list_tasks` take generic field filters. Kept for design
+> rationale only.
+
 ## Purpose
 
 This document captures the full design discussion about using Notesmith for work
