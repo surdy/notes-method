@@ -50,6 +50,38 @@ pub use youtube::{youtube_outcome_to_value, youtube_transcript};
 /// Result alias for vault operations.
 pub type Result<T> = anyhow::Result<T>;
 
+/// Metadata filters for [`Ops::vault_search`]. All predicates AND together;
+/// an array-valued field predicate is OR within its key. List-valued
+/// frontmatter matches by exact membership (via the normalized
+/// `field_values` index), never by substring.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SearchFilters {
+    /// Field key → exact value (string) or any-of values (array).
+    #[serde(default)]
+    pub fields: HashMap<String, FieldFilter>,
+    /// Tags the note must all carry.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Vault-relative path prefix, e.g. `Meetings/`.
+    #[serde(default)]
+    pub path_prefix: Option<String>,
+}
+
+/// One field predicate: a single exact value, or any of several.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum FieldFilter {
+    One(String),
+    Any(Vec<String>),
+}
+
+impl SearchFilters {
+    /// True when no predicate is present — equivalent to passing no filters.
+    pub fn is_empty(&self) -> bool {
+        self.fields.is_empty() && self.tags.is_empty() && self.path_prefix.is_none()
+    }
+}
+
 /// The canonical vault operation surface.
 ///
 /// Read operations never mutate the vault; write operations create, update,
@@ -71,8 +103,17 @@ pub trait Ops: Send + Sync {
     fn search_notes(&self, query: &str, limit: Option<usize>) -> Result<Value>;
     /// Hybrid lexical + semantic search: fuses Tantivy lexical ranking with
     /// vector similarity via RRF, returning path + snippet hits for grounding.
-    /// Degrades to lexical-only until embeddings are available.
-    fn vault_search(&self, query: &str, limit: Option<usize>) -> Result<Value>;
+    /// Degrades to lexical-only until embeddings are available. Optional
+    /// metadata filters resolve to an allowed-path set that scopes both
+    /// rankers: exact field values (list fields match by membership, an array
+    /// value is OR within its key), tags, and a path prefix — AND across
+    /// predicates.
+    fn vault_search(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+        filters: Option<&SearchFilters>,
+    ) -> Result<Value>;
     /// Recall active fact-memory notes matching a query, optionally scoped to
     /// `user` plus an exact companion scope such as `vault:<name>`.
     fn memory_recall(
@@ -630,6 +671,60 @@ impl LocalOps {
     /// embeddings are disabled for this vault, not yet available, or the
     /// embedder/model disagrees with the stored one — never an error, so search
     /// always works.
+    /// Resolve metadata filters to the set of note paths satisfying every
+    /// predicate. An unsatisfiable filter yields an empty set (search then
+    /// returns no hits rather than erroring).
+    fn resolve_filter_paths(&self, filters: &SearchFilters) -> Result<HashSet<String>> {
+        let mut conditions = vec!["1=1".to_string()];
+        for (key, filter) in &filters.fields {
+            let values: Vec<&String> = match filter {
+                FieldFilter::One(value) => vec![value],
+                FieldFilter::Any(values) => values.iter().collect(),
+            };
+            if values.is_empty() {
+                continue;
+            }
+            let value_list = values
+                .iter()
+                .map(|value| format!("'{}'", escape_sql_string(value)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            conditions.push(format!(
+                "EXISTS (SELECT 1 FROM field_values fv WHERE fv.vault_name = n.vault_name \
+                 AND fv.note_path = n.path AND fv.key = '{}' AND fv.value IN ({value_list}))",
+                escape_sql_string(key)
+            ));
+        }
+        for tag in &filters.tags {
+            conditions.push(format!(
+                "EXISTS (SELECT 1 FROM tags tg WHERE tg.vault_name = n.vault_name \
+                 AND tg.note_path = n.path AND tg.tag = '{}')",
+                escape_sql_string(tag)
+            ));
+        }
+        if let Some(prefix) = &filters.path_prefix {
+            let escaped = prefix
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            conditions.push(format!(
+                "n.path LIKE '{}%' ESCAPE '\\'",
+                escape_sql_string(&escaped)
+            ));
+        }
+
+        let sql = format!(
+            "SELECT n.path FROM notes n WHERE {}",
+            conditions.join(" AND ")
+        );
+        let conn = self.cache.connection();
+        let mut stmt = conn.prepare(&sql)?;
+        let paths = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<HashSet<_>, _>>()?;
+        Ok(paths)
+    }
+
     fn hybrid_search(&self) -> Option<&Arc<HybridSearch>> {
         // Per-vault gate (ADR 0018 §9.1): a disabled vault is lexical-only even
         // if a stale `embeddings.db` exists on disk or a hybrid searcher was
@@ -1392,15 +1487,27 @@ impl Ops for LocalOps {
         Ok(serde_json::to_value(results)?)
     }
 
-    fn vault_search(&self, query: &str, limit: Option<usize>) -> Result<Value> {
+    fn vault_search(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+        filters: Option<&SearchFilters>,
+    ) -> Result<Value> {
         let limit = limit.unwrap_or(20);
+        let allowed_paths = match filters {
+            Some(filters) if !filters.is_empty() => Some(self.resolve_filter_paths(filters)?),
+            _ => None,
+        };
         if let Some(hybrid) = self.hybrid_search() {
-            let hits = hybrid.search(query, limit)?;
+            let hits = hybrid.search_filtered(query, limit, allowed_paths.as_ref())?;
             return Ok(serde_json::to_value(hits)?);
         }
         // Lexical-only fallback: shape lexical results like hybrid hits so the
         // tool's response schema is stable whether or not embeddings exist.
-        let lexical = self.search_index.search(query, limit)?;
+        let lexical = match &allowed_paths {
+            Some(paths) => self.search_index.search_in_paths(query, limit, paths)?,
+            None => self.search_index.search(query, limit)?,
+        };
         let hits: Vec<HybridHit> = lexical
             .into_iter()
             .enumerate()
@@ -2513,8 +2620,13 @@ impl<O: Ops> Ops for ReadOnlyOps<O> {
         self.inner.search_notes(query, limit)
     }
 
-    fn vault_search(&self, query: &str, limit: Option<usize>) -> Result<Value> {
-        self.inner.vault_search(query, limit)
+    fn vault_search(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+        filters: Option<&SearchFilters>,
+    ) -> Result<Value> {
+        self.inner.vault_search(query, limit, filters)
     }
 
     fn memory_recall(
@@ -3258,6 +3370,14 @@ mod tests {
             },
             ..Default::default()
         }
+    }
+
+    /// Serializes the tests that mutate the process-global `XDG_DATA_HOME`
+    /// env var; running them concurrently makes `embeddings_db_path` resolve
+    /// against whichever test set the var last.
+    fn data_home_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn build_test_ops(root: &Path) -> LocalOps {
@@ -5573,6 +5693,79 @@ mod tests {
     }
 
     #[test]
+    fn vault_search_filters_scope_results_by_metadata() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "Meetings/2026/07/acme.md",
+            "---\nkind: meeting\ncustomers:\n  - \"[[Acme]]\"\ntags: [renewal]\n---\n# Acme sync\n\nRenewal risks were discussed.",
+        );
+        write_note(
+            temp_dir.path(),
+            "Meetings/2026/07/globex.md",
+            "---\nkind: meeting\ncustomers:\n  - \"[[Globex]]\"\n---\n# Globex sync\n\nRenewal timeline was discussed.",
+        );
+        write_note(
+            temp_dir.path(),
+            "Inbox/scratch.md",
+            "# Scratch\n\nLoose renewal thoughts.",
+        );
+        let ops = build_test_ops(temp_dir.path());
+
+        let paths_for = |filters: serde_json::Value| -> Vec<String> {
+            let filters: SearchFilters = serde_json::from_value(filters).unwrap();
+            let hits = ops
+                .vault_search("renewal", Some(10), Some(&filters))
+                .unwrap();
+            let mut paths = hits
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|hit| hit["path"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>();
+            paths.sort();
+            paths
+        };
+
+        // Exact list membership scopes the hybrid/lexical search.
+        assert_eq!(
+            paths_for(json!({"fields": {"customers": "[[Acme]]"}})),
+            vec!["Meetings/2026/07/acme.md"]
+        );
+
+        // An array value is OR within the key.
+        assert_eq!(
+            paths_for(json!({"fields": {"customers": ["[[Acme]]", "[[Globex]]"]}})),
+            vec!["Meetings/2026/07/acme.md", "Meetings/2026/07/globex.md"]
+        );
+
+        // Multiple filter kinds AND together.
+        assert_eq!(
+            paths_for(json!({"path_prefix": "Meetings/"})),
+            vec!["Meetings/2026/07/acme.md", "Meetings/2026/07/globex.md"]
+        );
+        assert_eq!(
+            paths_for(json!({"tags": ["renewal"]})),
+            vec!["Meetings/2026/07/acme.md"]
+        );
+        assert_eq!(
+            paths_for(json!({"fields": {"customers": "[[Globex]]"}, "path_prefix": "Meetings/"})),
+            vec!["Meetings/2026/07/globex.md"]
+        );
+
+        // A filter matching nothing yields empty results, not an error.
+        assert_eq!(
+            paths_for(json!({"fields": {"customers": "[[Nobody]]"}})),
+            Vec::<String>::new()
+        );
+
+        // Empty filters behave exactly like no filters.
+        let unfiltered = ops.vault_search("renewal", Some(10), None).unwrap();
+        assert_eq!(paths_for(json!({})).len(), unfiltered.as_array().unwrap().len());
+        assert_eq!(unfiltered.as_array().unwrap().len(), 3);
+    }
+
+    #[test]
     fn list_notes_filters_by_list_field_membership_and_kind() {
         let temp_dir = TempDir::new().unwrap();
         write_note(
@@ -5920,6 +6113,7 @@ mod tests {
     /// `embeddings.db` on disk; enabling it lets the hybrid searcher be built.
     #[test]
     fn hybrid_search_gated_by_embed_enabled_flag() {
+        let _env_guard = data_home_env_lock();
         let vault_name = "ops-embed-gate";
         let data_root = TempDir::new().unwrap();
         // SAFETY: env override for a single, self-contained test path. Other
@@ -5973,6 +6167,7 @@ mod tests {
 
     #[test]
     fn memory_recall_uses_hybrid_search_when_embeddings_are_available() {
+        let _env_guard = data_home_env_lock();
         let vault_name = "ops-memory-recall-hybrid";
         let data_root = TempDir::new().unwrap();
         unsafe {

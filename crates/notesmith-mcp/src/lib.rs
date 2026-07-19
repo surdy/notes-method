@@ -62,6 +62,13 @@ struct SearchNotesParams {
 }
 
 #[derive(Debug, Deserialize)]
+struct VaultSearchParams {
+    query: String,
+    limit: Option<usize>,
+    filters: Option<notesmith_ops::SearchFilters>,
+}
+
+#[derive(Debug, Deserialize)]
 struct MemoryRecallParams {
     query: String,
     scope: Option<String>,
@@ -327,13 +334,36 @@ impl NotesmithMcp {
                      notes. Returns note references with a path and snippet for \
                      grounding/citation. Prefer this for open-ended questions \
                      about the vault's content; it degrades to lexical-only \
-                     until embeddings are available",
+                     until embeddings are available. Optional `filters` scope \
+                     the search by metadata: exact field values (list fields \
+                     match by membership; an array value is OR within its \
+                     key), tags, and a path prefix — all AND together. E.g. \
+                     {\"fields\": {\"customers\": \"[[Acme]]\"}} restricts to \
+                     notes involving Acme",
                 ),
                 json!({
                     "type": "object",
                     "properties": {
                         "query": {"type": "string"},
-                        "limit": {"type": "integer", "minimum": 1}
+                        "limit": {"type": "integer", "minimum": 1},
+                        "filters": {
+                            "type": "object",
+                            "properties": {
+                                "fields": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "oneOf": [
+                                            {"type": "string"},
+                                            {"type": "array", "items": {"type": "string"}}
+                                        ]
+                                    },
+                                    "description": "Field key -> exact value or any-of array; list fields match by membership"
+                                },
+                                "tags": {"type": "array", "items": {"type": "string"}},
+                                "path_prefix": {"type": "string"}
+                            },
+                            "additionalProperties": false
+                        }
                     },
                     "required": ["query"],
                     "additionalProperties": false
@@ -857,8 +887,9 @@ impl ServerHandler for NotesmithMcp {
                     self.ops.search_notes(&params.query, params.limit)
                 }),
             "vault_search" => self
-                .handle_tool_call::<SearchNotesParams, _>(request.arguments, |params| {
-                    self.ops.vault_search(&params.query, params.limit)
+                .handle_tool_call::<VaultSearchParams, _>(request.arguments, |params| {
+                    self.ops
+                        .vault_search(&params.query, params.limit, params.filters.as_ref())
                 }),
             "memory_recall" => {
                 self.handle_tool_call::<MemoryRecallParams, _>(request.arguments, |params| {
@@ -1231,13 +1262,42 @@ mod tests {
         );
         let mcp = build_test_mcp(temp_dir.path());
 
-        let results = mcp.ops().vault_search("launch", Some(10)).unwrap();
+        let results = mcp.ops().vault_search("launch", Some(10), None).unwrap();
         let results = results.as_array().unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["path"], "Inbox/Launch Plan.md");
         assert!(results[0].get("snippet").is_some());
         assert_eq!(results[0]["lexical_rank"], 1);
         assert!(results[0]["semantic_rank"].is_null());
+    }
+
+    #[test]
+    fn test_vault_search_filters_parse_from_tool_arguments() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "Meetings/acme.md",
+            "---\nkind: meeting\ncustomers:\n  - \"[[Acme]]\"\n---\nDiscuss launch timeline",
+        );
+        write_note(
+            temp_dir.path(),
+            "Meetings/globex.md",
+            "---\nkind: meeting\ncustomers:\n  - \"[[Globex]]\"\n---\nAnother launch discussion",
+        );
+        let mcp = build_test_mcp(temp_dir.path());
+
+        let params: VaultSearchParams = serde_json::from_value(serde_json::json!({
+            "query": "launch",
+            "filters": {"fields": {"customers": "[[Acme]]"}}
+        }))
+        .unwrap();
+        let results = mcp
+            .ops()
+            .vault_search(&params.query, params.limit, params.filters.as_ref())
+            .unwrap();
+        let results = results.as_array().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["path"], "Meetings/acme.md");
     }
 
     #[test]

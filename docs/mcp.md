@@ -39,7 +39,7 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `append_to_note` | `path`, `content` |
 | `archive_note` | `path` |
 | `search_notes` | `query`, `limit?` |
-| `vault_search` | `query`, `limit?` |
+| `vault_search` | `query`, `limit?`, `filters?` (`fields` / `tags` / `path_prefix`) |
 | `memory_recall` | `query`, `scope?`, `limit?` |
 | `memory_list` | `scope?`, `status?`, `limit?` |
 | `memory_save` | `title`, `claim`, `scope`, `certainty`, `description?`, `subject?`, `source?`, `confirmed?`, `supersedes?`, `tags?`, `acknowledge_inference?`, `confirm_apply?`, `preview_token?` |
@@ -74,6 +74,28 @@ using Reciprocal Rank Fusion (RRF, ADR 0018 §8) and returns note references wit
 a `path` and `snippet` for grounding/citation, plus the `lexical_rank` and
 `semantic_rank` that contributed each hit. Until the embed worker has produced a
 vault's `embeddings.db`, `vault_search` transparently degrades to lexical-only.
+
+`vault_search` also accepts an optional `filters` object that scopes **both**
+rankers to the notes matching the metadata predicates (resolved to an
+allowed-path set before searching — the same mechanism `memory_recall` uses):
+
+```json
+{
+  "query": "renewal risks",
+  "filters": {
+    "fields": { "customers": "[[Acme]]", "audience": "internal" },
+    "tags": ["renewal"],
+    "path_prefix": "Meetings/"
+  }
+}
+```
+
+Semantics: predicates AND together; a field key given an **array** value is OR
+within that key (`"customers": ["[[Acme]]", "[[Globex]]"]` = either). Field
+matches are exact — list-valued frontmatter matches by membership via the
+normalized `v_field_values` index, never by substring. An unsatisfiable filter
+returns an empty result, not an error, and filtered search works identically
+in lexical-only mode.
 
 > **Cloud embeddings** (higher-quality retrieval via a hosted model) are a
 > planned config override and are tracked separately as deferred work; the
