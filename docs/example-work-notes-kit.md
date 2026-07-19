@@ -217,9 +217,9 @@ kind: meeting
 audience: {{ audience }}
 date: {{ date }}
 customers:{% if customer %}
-  - "[[{{ customer | unwikilink }}]]"{% else %} []{% endif %}
+  - "{{ customer | as_wikilink }}"{% else %} []{% endif %}
 streams:{% if stream %}
-  - "[[{{ stream | unwikilink }}]]"{% else %} []{% endif %}
+  - "{{ stream | as_wikilink }}"{% else %} []{% endif %}
 attendees: []
 ---
 
@@ -255,7 +255,7 @@ kind: stream
 status: active
 {% if priority %}priority: {{ priority }}{% endif %}
 customers:{% if customer %}
-  - "[[{{ customer | unwikilink }}]]"{% else %} []{% endif %}
+  - "{{ customer | as_wikilink }}"{% else %} []{% endif %}
 started: {{ date }}
 ---
 
