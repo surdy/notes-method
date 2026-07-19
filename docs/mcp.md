@@ -39,7 +39,7 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `append_to_note` | `path`, `content` |
 | `archive_note` | `path` |
 | `search_notes` | `query`, `limit?` |
-| `vault_search` | `query`, `limit?` |
+| `vault_search` | `query`, `limit?`, `filters?` (`fields` / `tags` / `path_prefix`) |
 | `memory_recall` | `query`, `scope?`, `limit?` |
 | `memory_list` | `scope?`, `status?`, `limit?` |
 | `memory_save` | `title`, `claim`, `scope`, `certainty`, `description?`, `subject?`, `source?`, `confirmed?`, `supersedes?`, `tags?`, `acknowledge_inference?`, `confirm_apply?`, `preview_token?` |
@@ -48,8 +48,8 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `memory_delete` | `path`, `expected_hash`, `confirm_delete` |
 | `query_sql` | `sql` |
 | `time_query` | `when`, `date_field?` (`mtime`\|`updated`\|`created`), `query?`, `limit?` |
-| `list_notes` | `type?`, `customer?`, `archived?` |
-| `list_tasks` | `status?`, `customer?` |
+| `list_notes` | `type?`, `fields?` (key → exact value; list fields match by membership), `archived?` |
+| `list_tasks` | `status?`, `fields?` (effective fields: task inline fields override the containing note's frontmatter per key) |
 | `vault_stats` | `top?` |
 | `update_task_status` | `note_path`, `task_hash`, `status` |
 | `capture` | `content`, `title?` |
@@ -74,6 +74,28 @@ using Reciprocal Rank Fusion (RRF, ADR 0018 §8) and returns note references wit
 a `path` and `snippet` for grounding/citation, plus the `lexical_rank` and
 `semantic_rank` that contributed each hit. Until the embed worker has produced a
 vault's `embeddings.db`, `vault_search` transparently degrades to lexical-only.
+
+`vault_search` also accepts an optional `filters` object that scopes **both**
+rankers to the notes matching the metadata predicates (resolved to an
+allowed-path set before searching — the same mechanism `memory_recall` uses):
+
+```json
+{
+  "query": "renewal risks",
+  "filters": {
+    "fields": { "customers": "[[Acme]]", "audience": "internal" },
+    "tags": ["renewal"],
+    "path_prefix": "Meetings/"
+  }
+}
+```
+
+Semantics: predicates AND together; a field key given an **array** value is OR
+within that key (`"customers": ["[[Acme]]", "[[Globex]]"]` = either). Field
+matches are exact — list-valued frontmatter matches by membership via the
+normalized `v_field_values` index, never by substring. An unsatisfiable filter
+returns an empty result, not an error, and filtered search works identically
+in lexical-only mode.
 
 > **Cloud embeddings** (higher-quality retrieval via a hosted model) are a
 > planned config override and are tracked separately as deferred work; the
@@ -183,6 +205,21 @@ Hard-deletes a fact note for mistakes or sensitive material only.
 - requires `confirm_delete: true`;
 - requires fresh `expected_hash`;
 - rejects example facts (`facts/examples/...` or `example`-tagged notes).
+
+### `list_notes` / `list_tasks` field filters
+
+Both tools take an optional `fields` object mapping field keys to **exact**
+values. Multiple keys AND together. A list-valued field (e.g. `customers`)
+matches when any member equals the value — backed by the normalized
+`v_field_values` index, so `{"customers": "[[Acme]]"}` finds every note
+involving Acme without substring false positives.
+
+`list_tasks` matches against **effective** task fields: a task inherits its
+containing note's frontmatter, and a task-level inline field (e.g.
+`[customers:: [[Solo]]]`) overrides the inherited value for that key. Each
+returned task carries a `fields` object of its effective values (arrays, since
+list fields can contribute several values) plus a `due` convenience column.
+The same shape is queryable in SQL via the `v_task_effective_fields` view.
 
 ### `time_query`
 

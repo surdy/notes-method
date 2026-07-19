@@ -403,7 +403,8 @@ mod tests {
         // Add a vault at runtime, exactly as add_vault_live inserts it.
         let vault = TempDir::new().unwrap();
         std::fs::write(vault.path().join("a.md"), "# A\n\ncontent").unwrap();
-        let vault_name = "live-vault";
+        // Unique per scheduler test — see ingest_scheduler.rs for why.
+        let vault_name = "embed-sched-vault";
         {
             let vs = create_vault_state(vault_name, vault.path()).unwrap();
             state

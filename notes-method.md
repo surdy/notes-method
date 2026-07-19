@@ -44,7 +44,7 @@ Only `.notesmith/` is required. Everything else is user-defined:
 <user-defined folders and notes>
 ```
 
-For an example of a complete customer-facing work workflow, see `docs/example-work-notes-kit.md`.
+The blessed customer-facing work configuration (meetings/customers/streams/people and the query recipes the search primitives are built for) is `docs/example-work-notes-kit.md`; its design record is `plans/work-notes-simplification-design.md`.
 
 ## Sidebar Views
 

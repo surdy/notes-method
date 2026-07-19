@@ -102,6 +102,10 @@ impl<'a> CacheIndexer<'a> {
             params![vault_name, path],
         )?;
         self.conn.execute(
+            "DELETE FROM field_values WHERE vault_name = ?1 AND note_path = ?2",
+            params![vault_name, path],
+        )?;
+        self.conn.execute(
             "DELETE FROM tags WHERE vault_name = ?1 AND note_path = ?2",
             params![vault_name, path],
         )?;
@@ -125,6 +129,7 @@ impl<'a> CacheIndexer<'a> {
             "task_fields",
             "tasks",
             "fields",
+            "field_values",
             "tags",
             "links",
             "periodic_notes",
@@ -163,6 +168,7 @@ impl<'a> CacheIndexer<'a> {
         self.index_inline_fields(vault_name, note)?;
         self.index_tags(vault_name, note)?;
         self.index_links(vault_name, note)?;
+        self.index_frontmatter_links(vault_name, note)?;
         self.index_tasks(vault_name, note)?;
         self.index_periodic_note(vault_name, note, &note_type)?;
 
@@ -186,8 +192,56 @@ impl<'a> CacheIndexer<'a> {
                     yaml_value_type(value),
                 ],
             )?;
+
+            // Normalized member rows: lists explode to one row per element so
+            // membership queries can use the exact (vault_name, key, value) index.
+            match value {
+                Value::Sequence(items) => {
+                    for (ordinal, item) in items.iter().enumerate() {
+                        self.insert_field_value(
+                            vault_name,
+                            note.path.as_str(),
+                            key,
+                            ordinal as i64,
+                            &yaml_value_to_string(item),
+                            yaml_value_type(item),
+                            "frontmatter",
+                        )?;
+                    }
+                }
+                other => {
+                    self.insert_field_value(
+                        vault_name,
+                        note.path.as_str(),
+                        key,
+                        0,
+                        &yaml_value_to_string(other),
+                        yaml_value_type(other),
+                        "frontmatter",
+                    )?;
+                }
+            }
         }
 
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn insert_field_value(
+        &self,
+        vault_name: &str,
+        note_path: &str,
+        key: &str,
+        ordinal: i64,
+        value: &str,
+        value_type: &str,
+        source: &str,
+    ) -> anyhow::Result<()> {
+        self.conn.execute(
+            "INSERT INTO field_values (vault_name, note_path, key, ordinal, value, value_type, source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![vault_name, note_path, key, ordinal, value, value_type, source],
+        )?;
         Ok(())
     }
 
@@ -203,6 +257,16 @@ impl<'a> CacheIndexer<'a> {
                     field.value.as_str(),
                     scalar_value_type(field.value.as_str()),
                 ],
+            )?;
+
+            self.insert_field_value(
+                vault_name,
+                note.path.as_str(),
+                field.key.as_str(),
+                0,
+                field.value.as_str(),
+                scalar_value_type(field.value.as_str()),
+                "inline",
             )?;
         }
 
@@ -256,6 +320,37 @@ impl<'a> CacheIndexer<'a> {
                     link.display_text.as_deref(),
                     kind,
                     link.position.line as i64,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Index wikilinks found inside frontmatter values (e.g. a `customers`
+    /// list of `"[[Acme]]"` entries) as link edges with `source =
+    /// 'frontmatter'`, so entity notes get real backlinks and unresolved
+    /// targets surface in `v_dangling_links`.
+    fn index_frontmatter_links(&self, vault_name: &str, note: &Note) -> anyhow::Result<()> {
+        let Some(frontmatter) = note.frontmatter.as_ref() else {
+            return Ok(());
+        };
+
+        let mut targets = Vec::new();
+        for value in frontmatter.fields.values() {
+            collect_wikilink_targets(value, &mut targets);
+        }
+
+        for (target, alias) in targets {
+            self.conn.execute(
+                "INSERT INTO links (vault_name, source_path, target_path, raw_target, link_text, kind, line_number, source)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'wikilink', NULL, 'frontmatter')",
+                params![
+                    vault_name,
+                    note.path.as_str(),
+                    target.as_str(),
+                    target.as_str(),
+                    alias.as_deref(),
                 ],
             )?;
         }
@@ -386,6 +481,47 @@ fn looks_like_date(value: &str) -> bool {
             4 | 7 => ch == '-',
             _ => ch.is_ascii_digit(),
         })
+}
+
+/// Recursively collect `[[Target]]` / `[[Target|Alias]]` references from a
+/// frontmatter value (strings, list elements, nested mapping values). A
+/// `#heading` / `^block` suffix is stripped down to the note target, matching
+/// body-link resolution. Malformed or empty targets are skipped.
+fn collect_wikilink_targets(value: &Value, targets: &mut Vec<(String, Option<String>)>) {
+    match value {
+        Value::String(text) => {
+            for capture in frontmatter_wikilink_regex().captures_iter(text) {
+                let inner = capture[1].trim();
+                let (target_part, alias) = match inner.split_once('|') {
+                    Some((target, alias)) => (target, Some(alias.trim().to_string())),
+                    None => (inner, None),
+                };
+                let target = target_part
+                    .split_once('#')
+                    .map_or(target_part, |(base, _)| base)
+                    .trim();
+                if !target.is_empty() {
+                    targets.push((target.to_string(), alias));
+                }
+            }
+        }
+        Value::Sequence(items) => {
+            for item in items {
+                collect_wikilink_targets(item, targets);
+            }
+        }
+        Value::Mapping(mapping) => {
+            for (_key, nested) in mapping {
+                collect_wikilink_targets(nested, targets);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn frontmatter_wikilink_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| Regex::new(r"\[\[([^\]]+)\]\]").expect("valid wikilink regex"))
 }
 
 fn extract_inline_tags(body: &str) -> Vec<String> {
@@ -706,6 +842,315 @@ mod tests {
         assert_eq!(nested.3, "frontmatter");
         assert!(nested.1.contains("owner: surdy"));
         assert!(nested.1.contains("priority: 3"));
+    }
+
+    #[test]
+    fn v_field_values_explodes_list_fields_one_row_per_member() {
+        let conn = test_connection();
+        let mut note = make_note("Meetings/2026/07/acme-renewal.md", "renewal body");
+        note.frontmatter = Some(make_frontmatter(
+            "kind: meeting\naudience: internal\ndate: 2026-07-17\ncustomers:\n  - \"[[Acme]]\"\n  - \"[[Globex]]\"\nstreams: []\n",
+        ));
+
+        CacheIndexer::new(&conn)
+            .index_note(VAULT_NAME, &note)
+            .unwrap();
+
+        let rows = query_field_values(&conn, note.path.as_str());
+
+        let customers: Vec<_> = rows.iter().filter(|row| row.0 == "customers").collect();
+        assert_eq!(
+            customers,
+            vec![
+                &(
+                    "customers".to_string(),
+                    0,
+                    "[[Acme]]".to_string(),
+                    "link".to_string(),
+                    "frontmatter".to_string(),
+                ),
+                &(
+                    "customers".to_string(),
+                    1,
+                    "[[Globex]]".to_string(),
+                    "link".to_string(),
+                    "frontmatter".to_string(),
+                ),
+            ]
+        );
+
+        // Scalars appear in the same view (uniform query surface), ordinal 0.
+        assert!(rows.contains(&(
+            "audience".to_string(),
+            0,
+            "internal".to_string(),
+            "string".to_string(),
+            "frontmatter".to_string(),
+        )));
+        assert!(rows.contains(&(
+            "date".to_string(),
+            0,
+            "2026-07-17".to_string(),
+            "date".to_string(),
+            "frontmatter".to_string(),
+        )));
+
+        // A zero-item list contributes no member rows.
+        assert!(rows.iter().all(|row| row.0 != "streams"));
+    }
+
+    #[test]
+    fn v_field_values_exact_membership_has_no_substring_false_positives() {
+        let conn = test_connection();
+        let mut acme = make_note("acme-meeting.md", "acme body");
+        acme.frontmatter = Some(make_frontmatter("customers:\n  - \"[[Acme]]\"\n"));
+        let mut acme_corp = make_note("acme-corp-meeting.md", "acme corp body");
+        acme_corp.frontmatter = Some(make_frontmatter("customers:\n  - \"[[AcmeCorp]]\"\n"));
+
+        let indexer = CacheIndexer::new(&conn);
+        indexer.index_note(VAULT_NAME, &acme).unwrap();
+        indexer.index_note(VAULT_NAME, &acme_corp).unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT note_path FROM v_field_values
+                 WHERE vault_name = ?1 AND key = 'customers' AND value = '[[Acme]]'
+                 ORDER BY note_path",
+            )
+            .unwrap();
+        let paths = stmt
+            .query_map([VAULT_NAME], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(paths, vec!["acme-meeting.md".to_string()]);
+    }
+
+    #[test]
+    fn v_field_values_includes_inline_fields_and_serializes_nested_elements() {
+        let conn = test_connection();
+        let mut note = make_note("mixed.md", "mixed body");
+        note.frontmatter = Some(make_frontmatter(
+            "mixed:\n  - plain\n  - owner: surdy\n  - - a\n    - b\n",
+        ));
+        note.inline_fields = vec![make_inline_field("owner", "alice", 2)];
+
+        CacheIndexer::new(&conn)
+            .index_note(VAULT_NAME, &note)
+            .unwrap();
+
+        let rows = query_field_values(&conn, note.path.as_str());
+
+        assert!(rows.contains(&(
+            "owner".to_string(),
+            0,
+            "alice".to_string(),
+            "string".to_string(),
+            "inline".to_string(),
+        )));
+
+        let mixed: Vec<_> = rows.iter().filter(|row| row.0 == "mixed").collect();
+        assert_eq!(mixed.len(), 3);
+        assert_eq!(
+            (&mixed[0].1, mixed[0].2.as_str(), mixed[0].3.as_str()),
+            (&0, "plain", "string")
+        );
+        // A nested map element is serialized without panicking.
+        assert_eq!(mixed[1].1, 1);
+        assert!(mixed[1].2.contains("owner: surdy"));
+        assert_eq!(mixed[1].3, "string");
+        // A nested list element stays a serialized list.
+        assert_eq!(
+            (&mixed[2].1, mixed[2].2.as_str(), mixed[2].3.as_str()),
+            (&2, "- a\n- b", "list")
+        );
+    }
+
+    #[test]
+    fn v_task_effective_fields_inherits_note_frontmatter_and_lets_task_override() {
+        let conn = test_connection();
+        let mut note = make_note("Meetings/2026/07/acme-sync.md", "sync body");
+        note.frontmatter = Some(make_frontmatter(
+            "kind: meeting\ndate: 2026-07-17\ncustomers:\n  - \"[[Acme]]\"\n  - \"[[Globex]]\"\n",
+        ));
+
+        let mut inherits = make_task(' ', StatusGroup::Open, "send proposal", 10);
+        inherits
+            .inline_fields
+            .insert("due".to_string(), "2026-07-24".to_string());
+        let mut overrides = make_task(' ', StatusGroup::Open, "side quest", 12);
+        overrides
+            .inline_fields
+            .insert("customers".to_string(), "[[Solo]]".to_string());
+        note.tasks = vec![inherits.clone(), overrides.clone()];
+
+        CacheIndexer::new(&conn)
+            .index_note(VAULT_NAME, &note)
+            .unwrap();
+
+        let effective = |task: &Task| -> Vec<(String, String, String)> {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT f.key, f.value, f.source
+                     FROM v_task_effective_fields f
+                     JOIN tasks t ON t.vault_name = f.vault_name AND t.id = f.task_id
+                     WHERE f.vault_name = ?1 AND t.text = ?2
+                     ORDER BY f.key, f.value",
+                )
+                .unwrap();
+            stmt.query_map(params![VAULT_NAME, task.content.as_str()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+        };
+
+        // First task inherits the note's list members and keeps its own due date.
+        // (Rows come back ordered by key, value.)
+        assert_eq!(
+            effective(&inherits),
+            vec![
+                (
+                    "customers".to_string(),
+                    "[[Acme]]".to_string(),
+                    "note".to_string()
+                ),
+                (
+                    "customers".to_string(),
+                    "[[Globex]]".to_string(),
+                    "note".to_string()
+                ),
+                (
+                    "date".to_string(),
+                    "2026-07-17".to_string(),
+                    "note".to_string()
+                ),
+                ("due".to_string(), "2026-07-24".to_string(), "task".to_string()),
+                (
+                    "kind".to_string(),
+                    "meeting".to_string(),
+                    "note".to_string()
+                ),
+            ]
+        );
+
+        // Second task's task-level customers wins: no inherited customer rows at all.
+        let rows = effective(&overrides);
+        let customers: Vec<_> = rows.iter().filter(|row| row.0 == "customers").collect();
+        assert_eq!(
+            customers,
+            vec![&(
+                "customers".to_string(),
+                "[[Solo]]".to_string(),
+                "task".to_string()
+            )]
+        );
+        // Non-overridden note fields still inherited.
+        assert!(rows.contains(&(
+            "date".to_string(),
+            "2026-07-17".to_string(),
+            "note".to_string()
+        )));
+    }
+
+    #[test]
+    fn v_task_effective_fields_does_not_inherit_note_inline_fields() {
+        let conn = test_connection();
+        let mut note = make_note("decisions.md", "decision body");
+        note.frontmatter = Some(make_frontmatter("kind: meeting\n"));
+        note.inline_fields = vec![make_inline_field("owner", "[[Alice]]", 3)];
+        note.tasks = vec![make_task(' ', StatusGroup::Open, "follow up", 5)];
+
+        CacheIndexer::new(&conn)
+            .index_note(VAULT_NAME, &note)
+            .unwrap();
+
+        let owner_rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM v_task_effective_fields WHERE vault_name = ?1 AND key = 'owner'",
+                [VAULT_NAME],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(owner_rows, 0, "paragraph-scoped inline fields must not leak onto tasks");
+    }
+
+    #[test]
+    fn frontmatter_wikilinks_index_as_link_edges() {
+        let conn = test_connection();
+        let acme = make_note("Customers/Acme/Acme.md", "acme body");
+        let mut meeting = make_note("Meetings/2026/07/sync.md", "See [[Roadmap]] in body.");
+        meeting.frontmatter = Some(make_frontmatter(
+            "kind: meeting\naudience: internal\ncustomers:\n  - \"[[Acme]]\"\nattendees:\n  - \"[[Jane Smith]]\"\nrelated: \"[[Old Note|Old]]\"\n",
+        ));
+        meeting.links = vec![make_link(LinkType::WikiLink, "Roadmap", None, 3)];
+
+        let indexer = CacheIndexer::new(&conn);
+        indexer.index_note(VAULT_NAME, &acme).unwrap();
+        indexer.index_note(VAULT_NAME, &meeting).unwrap();
+
+        // The customers wikilink is a real inbound link edge for Acme.
+        let backlink: (String, String) = conn
+            .query_row(
+                "SELECT source_path, source FROM v_backlinks WHERE vault_name = ?1 AND target_path = 'Acme'",
+                [VAULT_NAME],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            backlink,
+            (
+                "Meetings/2026/07/sync.md".to_string(),
+                "frontmatter".to_string()
+            )
+        );
+
+        // Body links keep their own provenance.
+        let body_source: String = conn
+            .query_row(
+                "SELECT source FROM links WHERE vault_name = ?1 AND raw_target = 'Roadmap'",
+                [VAULT_NAME],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(body_source, "body");
+
+        // An unresolved attendee is a dangling link — the People-note
+        // promotion signal.
+        let dangling: (String, String) = conn
+            .query_row(
+                "SELECT raw_target, source FROM v_dangling_links WHERE vault_name = ?1 AND raw_target = 'Jane Smith'",
+                [VAULT_NAME],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(dangling, ("Jane Smith".to_string(), "frontmatter".to_string()));
+
+        // Alias form parses like a body wikilink.
+        let alias: (String, Option<String>) = conn
+            .query_row(
+                "SELECT raw_target, link_text FROM links WHERE vault_name = ?1 AND raw_target = 'Old Note'",
+                [VAULT_NAME],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(alias, ("Old Note".to_string(), Some("Old".to_string())));
+
+        // Plain scalar values (audience, kind) never become links.
+        let non_link_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM links WHERE vault_name = ?1 AND raw_target IN ('internal', 'meeting')",
+                [VAULT_NAME],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(non_link_count, 0);
     }
 
     #[test]
@@ -1035,6 +1480,23 @@ mod tests {
             .unwrap();
         assert_eq!(field_rows, 1);
 
+        let field_value_rows = conn
+            .query_row(
+                "SELECT COUNT(*) FROM v_field_values WHERE vault_name = ?1 AND note_path = ?2 AND key = 'status'",
+                params![VAULT_NAME, updated.path.as_str()],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(field_value_rows, 1);
+        let field_value: String = conn
+            .query_row(
+                "SELECT value FROM v_field_values WHERE vault_name = ?1 AND note_path = ?2 AND key = 'status'",
+                params![VAULT_NAME, updated.path.as_str()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(field_value, "published");
+
         let old_link_rows = conn
             .query_row(
                 "SELECT COUNT(*) FROM links WHERE vault_name = ?1 AND source_path = ?2 AND raw_target = 'Old Target'",
@@ -1095,6 +1557,7 @@ mod tests {
         for (table, column) in [
             ("notes", "path"),
             ("fields", "note_path"),
+            ("field_values", "note_path"),
             ("tags", "note_path"),
             ("tasks", "note_path"),
         ] {
@@ -1207,6 +1670,29 @@ mod tests {
             value: value.to_string(),
             position: SourcePosition::new(line, 1, 0, key.len() + value.len()),
         }
+    }
+
+    fn query_field_values(conn: &Connection, note_path: &str) -> Vec<(String, i64, String, String, String)> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT key, ordinal, value, value_type, source
+                 FROM v_field_values
+                 WHERE vault_name = ?1 AND note_path = ?2
+                 ORDER BY key, ordinal",
+            )
+            .unwrap();
+        stmt.query_map(params![VAULT_NAME, note_path], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
     }
 
     fn query_note_paths(conn: &Connection) -> Vec<String> {

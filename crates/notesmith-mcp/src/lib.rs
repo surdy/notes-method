@@ -62,6 +62,13 @@ struct SearchNotesParams {
 }
 
 #[derive(Debug, Deserialize)]
+struct VaultSearchParams {
+    query: String,
+    limit: Option<usize>,
+    filters: Option<notesmith_ops::SearchFilters>,
+}
+
+#[derive(Debug, Deserialize)]
 struct MemoryRecallParams {
     query: String,
     scope: Option<String>,
@@ -154,14 +161,14 @@ struct TimeQueryParams {
 struct ListNotesParams {
     #[serde(rename = "type")]
     note_type: Option<String>,
-    customer: Option<String>,
+    fields: Option<HashMap<String, String>>,
     archived: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ListTasksParams {
     status: Option<String>,
-    customer: Option<String>,
+    fields: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -327,13 +334,36 @@ impl NotesmithMcp {
                      notes. Returns note references with a path and snippet for \
                      grounding/citation. Prefer this for open-ended questions \
                      about the vault's content; it degrades to lexical-only \
-                     until embeddings are available",
+                     until embeddings are available. Optional `filters` scope \
+                     the search by metadata: exact field values (list fields \
+                     match by membership; an array value is OR within its \
+                     key), tags, and a path prefix — all AND together. E.g. \
+                     {\"fields\": {\"customers\": \"[[Acme]]\"}} restricts to \
+                     notes involving Acme",
                 ),
                 json!({
                     "type": "object",
                     "properties": {
                         "query": {"type": "string"},
-                        "limit": {"type": "integer", "minimum": 1}
+                        "limit": {"type": "integer", "minimum": 1},
+                        "filters": {
+                            "type": "object",
+                            "properties": {
+                                "fields": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "oneOf": [
+                                            {"type": "string"},
+                                            {"type": "array", "items": {"type": "string"}}
+                                        ]
+                                    },
+                                    "description": "Field key -> exact value or any-of array; list fields match by membership"
+                                },
+                                "tags": {"type": "array", "items": {"type": "string"}},
+                                "path_prefix": {"type": "string"}
+                            },
+                            "additionalProperties": false
+                        }
                     },
                     "required": ["query"],
                     "additionalProperties": false
@@ -554,12 +584,23 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "list_notes",
-                scoped("List notes with optional type, customer, and archive filters"),
+                scoped(
+                    "List notes with optional type/kind, exact field, and \
+                     archive filters. `fields` maps field keys to exact \
+                     values; a list-valued field (e.g. customers) matches \
+                     when any member equals the value, so \
+                     {\"customers\": \"[[Acme]]\"} finds every note \
+                     involving Acme",
+                ),
                 json!({
                     "type": "object",
                     "properties": {
                         "type": {"type": "string"},
-                        "customer": {"type": "string"},
+                        "fields": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                            "description": "Field key -> exact value; list fields match by membership; multiple keys AND together"
+                        },
                         "archived": {"type": "boolean"}
                     },
                     "additionalProperties": false
@@ -567,12 +608,22 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "list_tasks",
-                scoped("List tasks with optional status and customer filters"),
+                scoped(
+                    "List tasks with optional status and exact field filters. \
+                     Tasks inherit their containing note's frontmatter \
+                     (task-level inline fields override per key), so \
+                     {\"customers\": \"[[Acme]]\"} finds tasks from Acme \
+                     meetings too",
+                ),
                 json!({
                     "type": "object",
                     "properties": {
                         "status": {"type": "string"},
-                        "customer": {"type": "string"}
+                        "fields": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                            "description": "Effective field key -> exact value; list fields match by membership; multiple keys AND together"
+                        }
                     },
                     "additionalProperties": false
                 }),
@@ -836,8 +887,9 @@ impl ServerHandler for NotesmithMcp {
                     self.ops.search_notes(&params.query, params.limit)
                 }),
             "vault_search" => self
-                .handle_tool_call::<SearchNotesParams, _>(request.arguments, |params| {
-                    self.ops.vault_search(&params.query, params.limit)
+                .handle_tool_call::<VaultSearchParams, _>(request.arguments, |params| {
+                    self.ops
+                        .vault_search(&params.query, params.limit, params.filters.as_ref())
                 }),
             "memory_recall" => {
                 self.handle_tool_call::<MemoryRecallParams, _>(request.arguments, |params| {
@@ -942,7 +994,7 @@ impl ServerHandler for NotesmithMcp {
                 self.handle_tool_call::<ListNotesParams, _>(request.arguments, |params| {
                     self.ops.list_notes(
                         params.note_type.as_deref(),
-                        params.customer.as_deref(),
+                        params.fields.as_ref(),
                         params.archived,
                     )
                 })
@@ -950,7 +1002,7 @@ impl ServerHandler for NotesmithMcp {
             "list_tasks" => {
                 self.handle_tool_call::<ListTasksParams, _>(request.arguments, |params| {
                     self.ops
-                        .list_tasks(params.status.as_deref(), params.customer.as_deref())
+                        .list_tasks(params.status.as_deref(), params.fields.as_ref())
                 })
             }
             "vault_stats" => self
@@ -1210,13 +1262,42 @@ mod tests {
         );
         let mcp = build_test_mcp(temp_dir.path());
 
-        let results = mcp.ops().vault_search("launch", Some(10)).unwrap();
+        let results = mcp.ops().vault_search("launch", Some(10), None).unwrap();
         let results = results.as_array().unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["path"], "Inbox/Launch Plan.md");
         assert!(results[0].get("snippet").is_some());
         assert_eq!(results[0]["lexical_rank"], 1);
         assert!(results[0]["semantic_rank"].is_null());
+    }
+
+    #[test]
+    fn test_vault_search_filters_parse_from_tool_arguments() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "Meetings/acme.md",
+            "---\nkind: meeting\ncustomers:\n  - \"[[Acme]]\"\n---\nDiscuss launch timeline",
+        );
+        write_note(
+            temp_dir.path(),
+            "Meetings/globex.md",
+            "---\nkind: meeting\ncustomers:\n  - \"[[Globex]]\"\n---\nAnother launch discussion",
+        );
+        let mcp = build_test_mcp(temp_dir.path());
+
+        let params: VaultSearchParams = serde_json::from_value(serde_json::json!({
+            "query": "launch",
+            "filters": {"fields": {"customers": "[[Acme]]"}}
+        }))
+        .unwrap();
+        let results = mcp
+            .ops()
+            .vault_search(&params.query, params.limit, params.filters.as_ref())
+            .unwrap();
+        let results = results.as_array().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["path"], "Meetings/acme.md");
     }
 
     #[test]

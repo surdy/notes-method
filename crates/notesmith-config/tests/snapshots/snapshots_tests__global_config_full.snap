@@ -1,5 +1,6 @@
 ---
 source: crates/notesmith-config/tests/snapshots_tests.rs
+assertion_line: 28
 expression: serialized
 ---
 default_vault = "work"
@@ -19,3 +20,7 @@ debug = false
 
 [mcp]
 servers = []
+
+[mcp.companion_memory]
+enabled = false
+read_only = true
