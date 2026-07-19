@@ -32,7 +32,7 @@ evolve without code changes.
 | Stream `owners` | Dropped. Everything is mine; delegation happens at task level via `[owner::]`. |
 | Account info granularity | Start with a single `Customers/<Name>/<Name>.md`. Split out extra notes (`Architecture.md`, `Commercial.md`, …) only when the main note hurts. Extra notes use `kind: account` + `customers: ["[[<Name>]]"]`. |
 | Periodic notes | Daily (log of what I did), Weekly (summary drafted from dailies, typically by agent), Quarterly (review). Monthly/yearly unconfigured. |
-| Templates vs multi-select | Template prompts stay single-value (the prompt system has no multi-select type). Meeting template prompts for zero-or-one customer; multi-customer meetings get their second customer added during enrichment (manual or agent). A multi-select prompt type is deferred until this actually hurts. |
+| Templates vs multi-select | **Resolved 2026-07-19 (second pass): multi-select prompts are moot.** External meetings have *exactly one* customer (a workflow invariant, dashboard-checked); only internal meetings may relate to several, and internal-meeting templates don't prompt for customers at all — the 0..n list is filled during enrichment (editor or agent), where lists were never a problem. The meeting template is split into `internal-meeting` (title-only prompt, `customers: []`) and `external-meeting` (title + required single customer); the audience prompt disappears because template choice *is* the audience. `customers` stays the plural list form everywhere for one uniform query shape. |
 
 ## Vault layout
 
@@ -155,9 +155,21 @@ Extract wikilinks from frontmatter values into the links table with
 
 ### P5 — Deferred
 
-- Multi-select template prompt type (only if single-customer prompting hurts).
-- `meeting_type` vocabulary.
+- ~~Multi-select template prompt type~~ — **moot** as of the external-meeting
+  one-customer invariant (see Closed questions); no prompt ever needs to
+  collect multiple values.
+- `meeting_type` vocabulary (add the week category questions like "show all
+  QBRs" become real; zero code — one fields.toml entry + template line).
 - Any dedicated People/CRM tooling beyond Person notes.
+
+### Routing semantics fix (2026-07-19, follow-on)
+
+Scaffolding verification exposed that the routing engine unconditionally
+stamped every routed note `archived: true`/`archived-at` — a holdover from
+the old inbox-archival model that would have hidden freshly-filed meetings
+from `archived: false` listings. Routing is now **filing** (`apply`, no
+stamp); archive semantics moved to `RoutingEngine::apply_archive`, which the
+`archive_note` op uses.
 
 ## Stream rollups (no new primitives needed after P1–P4)
 

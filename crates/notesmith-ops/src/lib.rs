@@ -2168,7 +2168,7 @@ impl Ops for LocalOps {
 
     fn archive_note(&self, path: &str) -> Result<Value> {
         let routing = RoutingEngine::load(&self.vault_root)?;
-        let result = routing.apply(&self.vault_root, path, self.engine.as_ref())?;
+        let result = routing.apply_archive(&self.vault_root, path, self.engine.as_ref())?;
         self.remove_from_indexes(path)?;
         self.refresh_indexes(&VaultPath::new(result.to.clone()))?;
         Ok(serde_json::to_value(result)?)

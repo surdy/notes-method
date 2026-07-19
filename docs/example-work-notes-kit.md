@@ -62,7 +62,7 @@ Notes on the layout:
 |---|---|---|
 | `kind` | all | `meeting` `stream` `customer` `account` `person` |
 | `date` | meeting | ISO date |
-| `audience` | meeting | `internal` `external` (did customers attend?) |
+| `audience` | meeting | `internal` `external` (did customers attend?). **External meetings have exactly one customer**; only internal meetings may list several. |
 | `customers` | meeting, stream, account | list of `"[[Customer]]"` wikilinks |
 | `streams` | meeting | list of `"[[Stream]]"` wikilinks |
 | `attendees` | meeting | list of `"[[Person]]"` wikilinks |
@@ -199,27 +199,22 @@ rules:
 
 ## Templates (`.notesmith/templates/`)
 
-### `meeting.md`
+### `internal-meeting.md`
 
 ```markdown
 ---
-name: meeting
-description: "New meeting note"
+name: internal-meeting
+description: "New internal meeting — fastest capture; customers/streams added during enrichment"
 output_path: "Inbox/{{ date }} - {{ title }}.md"
 prompts:
   - { name: title, type: text, required: true }
-  - { name: audience, type: field-picker, required: true }
-  - { name: customer, type: field-picker, required: false }
-  - { name: stream, type: field-picker, required: false }
 ---
 ---
 kind: meeting
-audience: {{ audience }}
+audience: internal
 date: {{ date }}
-customers:{% if customer %}
-  - "{{ customer | as_wikilink }}"{% else %} []{% endif %}
-streams:{% if stream %}
-  - "{{ stream | as_wikilink }}"{% else %} []{% endif %}
+customers: []
+streams: []
 attendees: []
 ---
 
@@ -234,9 +229,52 @@ attendees: []
 - [ ]
 ```
 
-The prompt collects at most one customer/stream (prompts are single-value);
-add further list members during enrichment — that's the normal flow for
-multi-customer meetings, which are the exception.
+Title-only on purpose: which customers an internal meeting concerns is often
+only clear after the discussion, so `customers` (zero, one, or many) is
+enrichment, not capture.
+
+### `external-meeting.md`
+
+```markdown
+---
+name: external-meeting
+description: "New customer-attended meeting — always exactly one customer"
+output_path: "Inbox/{{ date }} - {{ customer }} - {{ title }}.md"
+prompts:
+  - { name: title, type: text, required: true }
+  - { name: customer, type: field-picker, required: true }
+  - { name: stream, type: field-picker, required: false }
+---
+---
+kind: meeting
+audience: external
+date: {{ date }}
+customers:
+  - "{{ customer | as_wikilink }}"
+streams:{% if stream %}
+  - "{{ stream | as_wikilink }}"{% else %} []{% endif %}
+attendees: []
+---
+
+# {{ date }} — {{ customer }} — {{ title }}
+
+## Attendees
+
+## Notes
+
+## Decisions
+
+## Tasks
+
+- [ ]
+```
+
+An external meeting has **exactly one customer** — that's an invariant of the
+workflow, not a template limitation, so a single-select customer prompt is the
+correct interaction and multi-select prompts are unnecessary. A dashboard
+query flags violations (below). Per-customer external templates (e.g. a QBR
+template with a standing agenda) are just extra files in
+`.notesmith/templates/` — add one only when a customer earns it.
 
 ### `stream.md`
 
@@ -434,7 +472,20 @@ GROUP BY fv.value
 ORDER BY mentions DESC;
 ```
 
-Multi-customer work:
+External meetings breaking the one-customer invariant:
+
+```sql
+SELECT n.path, n.title, COUNT(c.value) AS customer_count
+FROM v_notes n
+JOIN v_field_values a ON a.vault_name = n.vault_name AND a.note_path = n.path
+ AND a.key = 'audience' AND a.value = 'external'
+LEFT JOIN v_field_values c ON c.vault_name = n.vault_name AND c.note_path = n.path
+ AND c.key = 'customers'
+GROUP BY n.vault_name, n.path, n.title
+HAVING customer_count != 1;
+```
+
+Multi-customer work (internal meetings and cross-customer streams):
 
 ```sql
 SELECT note_path, COUNT(*) AS customer_count

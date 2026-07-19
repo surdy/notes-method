@@ -2245,7 +2245,7 @@ async fn route_preview_shows_destination() {
 }
 
 #[tokio::test]
-async fn route_apply_moves_note_and_stamps_archive() {
+async fn route_apply_moves_note_without_archiving() {
     let server =
         TestServer::with_files(&[("Inbox/idea.md", "---\ntype: note\n---\n# My Idea\n")]).await;
     write_routing_config(&server.root);
@@ -2267,11 +2267,12 @@ async fn route_apply_moves_note_and_stamps_archive() {
     assert_eq!(results[0]["to"], "General/idea.md");
     assert_eq!(results[0]["rule_id"], "note-general");
 
-    // Verify file was moved and stamped
+    // Verify file was moved but NOT archived: routing is filing, and the
+    // routed note stays active (archive_note stamps archive separately).
     assert!(!server.root.join("Inbox/idea.md").exists());
     let content = fs::read_to_string(server.root.join("General/idea.md")).unwrap();
-    assert!(content.contains("archived: true"));
-    assert!(content.contains("archived-at:"));
+    assert!(!content.contains("archived: true"));
+    assert!(!content.contains("archived-at:"));
     assert!(content.contains("# My Idea"));
 
     server.server.abort();

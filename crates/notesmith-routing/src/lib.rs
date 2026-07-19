@@ -213,7 +213,7 @@ impl RoutingEngine {
 
     /// Preview where a note would be routed without moving it.
     pub fn preview(&self, note_path: &str, content: &str) -> Result<RouteMatch, RoutingError> {
-        let plan = self.plan_route(note_path, content)?;
+        let plan = self.plan_route(note_path, content, false)?;
         Ok(RouteMatch {
             rule_id: plan.rule_id,
             destination: plan.destination,
@@ -221,18 +221,40 @@ impl RoutingEngine {
     }
 
     /// Route a single note: read → match → mutate → write → move.
+    /// Routing is filing — the note stays active. Use [`Self::apply_archive`]
+    /// for archive semantics.
     pub fn apply(
         &self,
         vault_root: &Path,
         note_path: &str,
         engine: &dyn notesmith_core::VaultEngine,
     ) -> Result<RouteResult, RoutingError> {
+        self.apply_inner(vault_root, note_path, engine, false)
+    }
+
+    /// Route a single note and stamp it `archived: true` / `archived-at`.
+    pub fn apply_archive(
+        &self,
+        vault_root: &Path,
+        note_path: &str,
+        engine: &dyn notesmith_core::VaultEngine,
+    ) -> Result<RouteResult, RoutingError> {
+        self.apply_inner(vault_root, note_path, engine, true)
+    }
+
+    fn apply_inner(
+        &self,
+        vault_root: &Path,
+        note_path: &str,
+        engine: &dyn notesmith_core::VaultEngine,
+        stamp_archived: bool,
+    ) -> Result<RouteResult, RoutingError> {
         let vault_path = notesmith_core::VaultPath::new(note_path.to_string());
         let content = engine
             .read(vault_root, &vault_path)
             .map_err(|e| RoutingError::VaultError(e.to_string()))?;
 
-        let plan = self.plan_route(note_path, &content)?;
+        let plan = self.plan_route(note_path, &content, stamp_archived)?;
         let destination =
             resolve_destination(vault_root, note_path, &plan.destination, &plan.on_exists)?;
 
@@ -270,7 +292,12 @@ impl RoutingEngine {
         })
     }
 
-    fn plan_route(&self, note_path: &str, content: &str) -> Result<RoutePlan, RoutingError> {
+    fn plan_route(
+        &self,
+        note_path: &str,
+        content: &str,
+        stamp_archived: bool,
+    ) -> Result<RoutePlan, RoutingError> {
         let parsed = parse_note(note_path, content)?;
         if is_archived(&parsed.mapping) {
             return Err(RoutingError::AlreadyArchived {
@@ -282,7 +309,9 @@ impl RoutingEngine {
             if evaluate(&rule.when, &parsed.context) {
                 let mut draft_mapping = parsed.mapping.clone();
                 apply_action_mutations(&mut draft_mapping, &rule.then);
-                stamp_archived_fields(&mut draft_mapping);
+                if stamp_archived {
+                    stamp_archived_fields(&mut draft_mapping);
+                }
 
                 let draft_context = note_context_from_mapping(note_path, &draft_mapping);
                 let destination = match &rule.then.move_to {
@@ -1059,9 +1088,43 @@ tags: [meeting, inbox]
         assert!(content.contains("- meeting"));
         assert!(content.contains("- archived"));
         assert!(!content.contains("- inbox"));
+        // Routing is filing, not archiving: a routed note stays active.
+        assert!(!content.contains("archived: true"));
+        assert!(!content.contains("archived-at:"));
+        assert!(content.contains("# Meeting"));
+    }
+
+    #[test]
+    fn apply_archive_stamps_archived_fields() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("Inbox")).unwrap();
+        std::fs::write(
+            root.join("Inbox/old-note.md"),
+            "---\ntype: note\n---\n# Old\n",
+        )
+        .unwrap();
+
+        let routing = RoutingEngine::from_config(make_config(vec![RoutingRule {
+            id: "archive-note".to_string(),
+            auto: false,
+            when: Predicate::PathGlob("Inbox/**".to_string()),
+            then: RoutingAction {
+                move_to: Some("Archive/{{ filename }}".to_string()),
+                ..Default::default()
+            },
+            on_exists: None,
+        }]));
+
+        let engine = notesmith_vault::NativeVaultEngine;
+        let result = routing
+            .apply_archive(root, "Inbox/old-note.md", &engine)
+            .unwrap();
+
+        assert_eq!(result.to, "Archive/old-note.md");
+        let content = std::fs::read_to_string(root.join("Archive/old-note.md")).unwrap();
         assert!(content.contains("archived: true"));
         assert!(content.contains("archived-at:"));
-        assert!(content.contains("# Meeting"));
     }
 
     #[test]
