@@ -101,15 +101,22 @@ pub trait Ops: Send + Sync {
     ) -> Result<Value>;
     /// Run a read-only SQL query against the vault cache.
     fn query_sql(&self, sql: &str) -> Result<Value>;
-    /// List notes, optionally filtered by type/customer/archived.
+    /// List notes, optionally filtered by type/kind, exact field values
+    /// (list fields match by membership), and archived state.
     fn list_notes(
         &self,
         note_type: Option<&str>,
-        customer: Option<&str>,
+        fields: Option<&HashMap<String, String>>,
         archived: Option<bool>,
     ) -> Result<Value>;
-    /// List tasks, optionally filtered by status/customer.
-    fn list_tasks(&self, status: Option<&str>, customer: Option<&str>) -> Result<Value>;
+    /// List tasks, optionally filtered by status and exact effective field
+    /// values (task-level inline fields override the containing note's
+    /// frontmatter per key; list fields match by membership).
+    fn list_tasks(
+        &self,
+        status: Option<&str>,
+        fields: Option<&HashMap<String, String>>,
+    ) -> Result<Value>;
     /// Summarise the vault's structure from the index: totals, the most-used
     /// tags, the most-linked-to notes, and orphan notes (no resolved incoming
     /// or outgoing links). `top` caps how many rows each ranked list returns.
@@ -1684,13 +1691,56 @@ impl Ops for LocalOps {
     fn list_notes(
         &self,
         note_type: Option<&str>,
-        customer: Option<&str>,
+        fields: Option<&HashMap<String, String>>,
         archived: Option<bool>,
     ) -> Result<Value> {
+        let mut conditions = vec!["1=1".to_string()];
+        if let Some(expected) = note_type {
+            let type_match = format!(
+                "EXISTS (SELECT 1 FROM field_values fv WHERE fv.vault_name = n.vault_name \
+                 AND fv.note_path = n.path AND fv.key IN ('type', 'kind') AND fv.value = '{}')",
+                escape_sql_string(expected)
+            );
+            if expected == "note" {
+                // Untyped notes resolve to the default type "note".
+                conditions.push(format!(
+                    "({type_match} OR NOT EXISTS (SELECT 1 FROM field_values fv \
+                     WHERE fv.vault_name = n.vault_name AND fv.note_path = n.path \
+                     AND fv.key IN ('type', 'kind')))"
+                ));
+            } else {
+                conditions.push(type_match);
+            }
+        }
+        if let Some(fields) = fields {
+            for (key, value) in fields {
+                conditions.push(format!(
+                    "EXISTS (SELECT 1 FROM field_values fv WHERE fv.vault_name = n.vault_name \
+                     AND fv.note_path = n.path AND fv.key = '{}' AND fv.value = '{}')",
+                    escape_sql_string(key),
+                    escape_sql_string(value)
+                ));
+            }
+        }
+        if let Some(expected) = archived {
+            let archived_match = "EXISTS (SELECT 1 FROM field_values fv \
+                 WHERE fv.vault_name = n.vault_name AND fv.note_path = n.path \
+                 AND fv.key = 'archived' AND fv.value = 'true')";
+            conditions.push(if expected {
+                archived_match.to_string()
+            } else {
+                format!("NOT {archived_match}")
+            });
+        }
+
+        let sql = format!(
+            "SELECT n.path, n.title, n.created_at, n.updated_at, n.mtime_unix \
+             FROM notes n WHERE {} ORDER BY n.path",
+            conditions.join(" AND ")
+        );
+
         let conn = self.cache.connection();
-        let mut stmt = conn.prepare(
-            "SELECT path, title, created_at, updated_at, mtime_unix FROM notes ORDER BY path",
-        )?;
+        let mut stmt = conn.prepare(&sql)?;
         let base_rows = stmt
             .query_map([], |row| {
                 Ok((
@@ -1707,32 +1757,18 @@ impl Ops for LocalOps {
         let mut rows = Vec::new();
         for (path, title, created_at, updated_at, mtime_unix) in base_rows {
             let frontmatter = load_note_frontmatter(&conn, &self.vault_name, &path)?;
-            let resolved_type =
-                frontmatter_string(&frontmatter, "type").unwrap_or_else(|| "note".to_string());
-            let resolved_customer = frontmatter_string(&frontmatter, "customer");
-            let resolved_archived = frontmatter_bool(&frontmatter, "archived");
-            if note_type.is_some_and(|expected| expected != resolved_type) {
-                continue;
-            }
-            if customer.is_some_and(|expected| resolved_customer.as_deref() != Some(expected)) {
-                continue;
-            }
-            if archived.is_some_and(|expected| expected != resolved_archived) {
-                continue;
-            }
-
+            let resolved_type = frontmatter_string(&frontmatter, "type")
+                .or_else(|| frontmatter_string(&frontmatter, "kind"))
+                .unwrap_or_else(|| "note".to_string());
             rows.push(json!({
                 "path": path,
                 "title": title,
                 "type": resolved_type,
-                "customer": resolved_customer,
-                "stream": frontmatter_string(&frontmatter, "stream"),
-                "state": frontmatter_string(&frontmatter, "state"),
                 "status": frontmatter_string(&frontmatter, "status"),
                 "date": frontmatter_string(&frontmatter, "date"),
                 "created_at": created_at,
                 "updated_at": updated_at,
-                "archived": resolved_archived,
+                "archived": frontmatter_bool(&frontmatter, "archived"),
                 "mtime_unix": mtime_unix,
                 "frontmatter": frontmatter,
             }));
@@ -1741,7 +1777,11 @@ impl Ops for LocalOps {
         Ok(Value::Array(rows))
     }
 
-    fn list_tasks(&self, status: Option<&str>, customer: Option<&str>) -> Result<Value> {
+    fn list_tasks(
+        &self,
+        status: Option<&str>,
+        fields: Option<&HashMap<String, String>>,
+    ) -> Result<Value> {
         let mut conditions = vec!["1=1".to_string()];
         if let Some(status) = status {
             let status_char = parse_status_str(status).map_err(anyhow::Error::msg)?;
@@ -1750,48 +1790,93 @@ impl Ops for LocalOps {
                 escape_sql_string(&status_char.to_string())
             ));
         }
-        if let Some(customer) = customer {
-            conditions.push(format!(
-                "customer.value = '{}'",
-                escape_sql_string(customer)
-            ));
+        if let Some(fields) = fields {
+            for (key, value) in fields {
+                conditions.push(format!(
+                    "EXISTS (SELECT 1 FROM v_task_effective_fields ef \
+                     WHERE ef.vault_name = t.vault_name AND ef.task_id = t.id \
+                     AND ef.key = '{}' AND ef.value = '{}')",
+                    escape_sql_string(key),
+                    escape_sql_string(value)
+                ));
+            }
         }
 
         let sql = format!(
-            "SELECT t.content_hash, t.note_path, t.line_number, t.status_char, t.status_group, t.text, n.title, customer.value, stream.value, owner.value, due.value, priority.value \
+            "SELECT t.id, t.content_hash, t.note_path, t.line_number, t.status_char, t.status_group, t.text, n.title, \
+                    (SELECT MIN(ef.value) FROM v_task_effective_fields ef \
+                     WHERE ef.vault_name = t.vault_name AND ef.task_id = t.id AND ef.key = 'due') AS due \
              FROM tasks t \
              JOIN notes n ON n.vault_name = t.vault_name AND n.path = t.note_path \
-             LEFT JOIN task_fields customer ON customer.vault_name = t.vault_name AND customer.task_id = t.id AND customer.key = 'customer' \
-             LEFT JOIN task_fields stream ON stream.vault_name = t.vault_name AND stream.task_id = t.id AND stream.key = 'stream' \
-             LEFT JOIN task_fields owner ON owner.vault_name = t.vault_name AND owner.task_id = t.id AND owner.key = 'owner' \
-             LEFT JOIN task_fields due ON due.vault_name = t.vault_name AND due.task_id = t.id AND due.key = 'due' \
-             LEFT JOIN task_fields priority ON priority.vault_name = t.vault_name AND priority.task_id = t.id AND priority.key = 'priority' \
-             WHERE {} ORDER BY due.value IS NULL, due.value ASC, t.line_number ASC",
+             WHERE {} ORDER BY due IS NULL, due ASC, t.line_number ASC",
             conditions.join(" AND ")
         );
 
         let conn = self.cache.connection();
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt
+        let base_rows = stmt
             .query_map([], |row| {
-                let status_char: String = row.get(3)?;
-                Ok(json!({
-                    "task_hash": row.get::<_, Option<String>>(0)?,
-                    "note_path": row.get::<_, String>(1)?,
-                    "line_number": row.get::<_, i64>(2)?,
-                    "status": status_name_for_char(&status_char),
-                    "status_char": status_char,
-                    "status_group": row.get::<_, String>(4)?,
-                    "text": row.get::<_, String>(5)?,
-                    "note_title": row.get::<_, Option<String>>(6)?,
-                    "customer": row.get::<_, Option<String>>(7)?,
-                    "stream": row.get::<_, Option<String>>(8)?,
-                    "owner": row.get::<_, Option<String>>(9)?,
-                    "due": row.get::<_, Option<String>>(10)?,
-                    "priority": row.get::<_, Option<String>>(11)?,
-                }))
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                ))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(stmt);
+
+        let mut effective_stmt = conn.prepare(
+            "SELECT key, value FROM v_task_effective_fields \
+             WHERE vault_name = ?1 AND task_id = ?2 ORDER BY key, value",
+        )?;
+        let mut rows = Vec::new();
+        for (
+            task_id,
+            task_hash,
+            note_path,
+            line_number,
+            status_char,
+            status_group,
+            text,
+            note_title,
+            due,
+        ) in base_rows
+        {
+            let mut effective: serde_json::Map<String, Value> = serde_json::Map::new();
+            let pairs = effective_stmt
+                .query_map(params![self.vault_name.as_str(), task_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            for (key, value) in pairs {
+                match effective
+                    .entry(key)
+                    .or_insert_with(|| Value::Array(Vec::new()))
+                {
+                    Value::Array(values) => values.push(Value::String(value)),
+                    _ => unreachable!("effective field entries are always arrays"),
+                }
+            }
+
+            rows.push(json!({
+                "task_hash": task_hash,
+                "note_path": note_path,
+                "line_number": line_number,
+                "status": status_name_for_char(&status_char),
+                "status_char": status_char,
+                "status_group": status_group,
+                "text": text,
+                "note_title": note_title,
+                "due": due,
+                "fields": Value::Object(effective),
+            }));
+        }
 
         Ok(Value::Array(rows))
     }
@@ -2467,14 +2552,18 @@ impl<O: Ops> Ops for ReadOnlyOps<O> {
     fn list_notes(
         &self,
         note_type: Option<&str>,
-        customer: Option<&str>,
+        fields: Option<&HashMap<String, String>>,
         archived: Option<bool>,
     ) -> Result<Value> {
-        self.inner.list_notes(note_type, customer, archived)
+        self.inner.list_notes(note_type, fields, archived)
     }
 
-    fn list_tasks(&self, status: Option<&str>, customer: Option<&str>) -> Result<Value> {
-        self.inner.list_tasks(status, customer)
+    fn list_tasks(
+        &self,
+        status: Option<&str>,
+        fields: Option<&HashMap<String, String>>,
+    ) -> Result<Value> {
+        self.inner.list_tasks(status, fields)
     }
 
     fn vault_stats(&self, top: Option<usize>) -> Result<Value> {
@@ -5481,6 +5570,76 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let ops = build_test_ops(temp_dir.path());
         assert!(ops.related_notes("Nope.md", 10).is_err());
+    }
+
+    #[test]
+    fn list_notes_filters_by_list_field_membership_and_kind() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "Meetings/2026/07/acme-globex.md",
+            "---\nkind: meeting\ncustomers:\n  - \"[[Acme]]\"\n  - \"[[Globex]]\"\n---\n# Sync",
+        );
+        write_note(
+            temp_dir.path(),
+            "Meetings/2026/07/acmecorp.md",
+            "---\nkind: meeting\ncustomers:\n  - \"[[AcmeCorp]]\"\n---\n# Other",
+        );
+        write_note(temp_dir.path(), "Inbox/scratch.md", "---\nkind: note\n---\n# Scratch");
+        let ops = build_test_ops(temp_dir.path());
+
+        // `kind` satisfies the type filter (not just legacy `type`).
+        let meetings = ops.list_notes(Some("meeting"), None, None).unwrap();
+        assert_eq!(meetings.as_array().unwrap().len(), 2);
+
+        // Exact list membership: matches the multi-customer meeting, and
+        // "[[Acme]]" must not substring-match "[[AcmeCorp]]".
+        let mut fields = HashMap::new();
+        fields.insert("customers".to_string(), "[[Acme]]".to_string());
+        let results = ops
+            .list_notes(Some("meeting"), Some(&fields), None)
+            .unwrap();
+        let results = results.as_array().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["path"], "Meetings/2026/07/acme-globex.md");
+        assert_eq!(results[0]["type"], "meeting");
+    }
+
+    #[test]
+    fn list_tasks_filters_by_inherited_note_fields() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "Meetings/2026/07/acme-sync.md",
+            "---\nkind: meeting\ncustomers:\n  - \"[[Acme]]\"\n---\n# Sync\n\n- [ ] send proposal [due:: 2026-07-24]\n- [ ] side quest [customers:: [[Solo]]]\n",
+        );
+        write_note(
+            temp_dir.path(),
+            "Inbox/scratch.md",
+            "---\nkind: note\n---\n# Scratch\n\n- [ ] unrelated task\n",
+        );
+        let ops = build_test_ops(temp_dir.path());
+
+        let mut fields = HashMap::new();
+        fields.insert("customers".to_string(), "[[Acme]]".to_string());
+        let results = ops.list_tasks(None, Some(&fields)).unwrap();
+        let results = results.as_array().unwrap();
+
+        // The task inherits the note's customers; the sibling task's
+        // task-level customers override excludes it from Acme results.
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["text"], "send proposal");
+        assert_eq!(results[0]["due"], "2026-07-24");
+        assert_eq!(results[0]["fields"]["customers"], json!(["[[Acme]]"]));
+        assert_eq!(results[0]["fields"]["due"], json!(["2026-07-24"]));
+
+        // The override task is still findable under its own customer.
+        let mut solo = HashMap::new();
+        solo.insert("customers".to_string(), "[[Solo]]".to_string());
+        let solo_results = ops.list_tasks(None, Some(&solo)).unwrap();
+        let solo_results = solo_results.as_array().unwrap();
+        assert_eq!(solo_results.len(), 1);
+        assert_eq!(solo_results[0]["text"], "side quest");
     }
 
     #[test]

@@ -154,14 +154,14 @@ struct TimeQueryParams {
 struct ListNotesParams {
     #[serde(rename = "type")]
     note_type: Option<String>,
-    customer: Option<String>,
+    fields: Option<HashMap<String, String>>,
     archived: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ListTasksParams {
     status: Option<String>,
-    customer: Option<String>,
+    fields: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -554,12 +554,23 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "list_notes",
-                scoped("List notes with optional type, customer, and archive filters"),
+                scoped(
+                    "List notes with optional type/kind, exact field, and \
+                     archive filters. `fields` maps field keys to exact \
+                     values; a list-valued field (e.g. customers) matches \
+                     when any member equals the value, so \
+                     {\"customers\": \"[[Acme]]\"} finds every note \
+                     involving Acme",
+                ),
                 json!({
                     "type": "object",
                     "properties": {
                         "type": {"type": "string"},
-                        "customer": {"type": "string"},
+                        "fields": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                            "description": "Field key -> exact value; list fields match by membership; multiple keys AND together"
+                        },
                         "archived": {"type": "boolean"}
                     },
                     "additionalProperties": false
@@ -567,12 +578,22 @@ impl NotesmithMcp {
             ),
             tool_definition(
                 "list_tasks",
-                scoped("List tasks with optional status and customer filters"),
+                scoped(
+                    "List tasks with optional status and exact field filters. \
+                     Tasks inherit their containing note's frontmatter \
+                     (task-level inline fields override per key), so \
+                     {\"customers\": \"[[Acme]]\"} finds tasks from Acme \
+                     meetings too",
+                ),
                 json!({
                     "type": "object",
                     "properties": {
                         "status": {"type": "string"},
-                        "customer": {"type": "string"}
+                        "fields": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                            "description": "Effective field key -> exact value; list fields match by membership; multiple keys AND together"
+                        }
                     },
                     "additionalProperties": false
                 }),
@@ -942,7 +963,7 @@ impl ServerHandler for NotesmithMcp {
                 self.handle_tool_call::<ListNotesParams, _>(request.arguments, |params| {
                     self.ops.list_notes(
                         params.note_type.as_deref(),
-                        params.customer.as_deref(),
+                        params.fields.as_ref(),
                         params.archived,
                     )
                 })
@@ -950,7 +971,7 @@ impl ServerHandler for NotesmithMcp {
             "list_tasks" => {
                 self.handle_tool_call::<ListTasksParams, _>(request.arguments, |params| {
                     self.ops
-                        .list_tasks(params.status.as_deref(), params.customer.as_deref())
+                        .list_tasks(params.status.as_deref(), params.fields.as_ref())
                 })
             }
             "vault_stats" => self

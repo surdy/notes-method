@@ -27,7 +27,9 @@ SELECT path, title, updated_at FROM v_notes ORDER BY updated_at DESC LIMIT 10;
 
 ## v_fields
 
-Flattened note fields from frontmatter and inline note fields.
+Flattened note fields from frontmatter and inline note fields. A list-valued
+field is stored here as **one row** whose `value` is the serialized YAML list;
+for per-element membership queries use [`v_field_values`](#v_field_values).
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -41,6 +43,38 @@ Example:
 
 ```sql
 SELECT note_path, value FROM v_fields WHERE key = 'customer' ORDER BY note_path;
+```
+
+## v_field_values
+
+Normalized field values: one row per value. Scalar fields appear as a single
+row with `ordinal = 0`; **list fields are exploded into one row per element**
+(ordinal = position in the list). This is the preferred surface for membership
+queries — unlike `v_fields`, where a list is one serialized string, an exact
+`key`/`value` match here uses an index and cannot produce substring false
+positives.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `vault_name` | TEXT | Vault identifier |
+| `note_path` | TEXT | Note path |
+| `key` | TEXT | Field key |
+| `ordinal` | INTEGER | Position within a list value; `0` for scalars |
+| `value` | TEXT | Scalar value or one list element (nested structures serialized) |
+| `value_type` | TEXT | `string`, `date`, `number`, `link`, `list`, or `boolean` |
+| `source` | TEXT | `frontmatter` or `inline` |
+
+A zero-item list contributes no rows.
+
+Example — all meetings involving Acme, regardless of how many other customers
+are on the meeting:
+
+```sql
+SELECT n.path, n.title
+FROM v_notes n
+JOIN v_field_values c
+  ON c.vault_name = n.vault_name AND c.note_path = n.path
+WHERE c.key = 'customers' AND c.value = '[[Acme]]';
 ```
 
 ## v_tasks
@@ -83,6 +117,39 @@ SELECT t.text, due.value AS due
 FROM v_tasks t
 LEFT JOIN v_task_fields due ON due.vault_name = t.vault_name AND due.task_id = t.id AND due.key = 'due'
 WHERE t.status_group = 'open';
+```
+
+## v_task_effective_fields
+
+Effective task metadata with inheritance: each task's own inline fields
+(`source = 'task'`) plus the containing note's **frontmatter** fields
+(`source = 'note'`) for every key the task does not override. Note-level
+*inline* fields are paragraph-scoped and never inherited. List-valued note
+fields contribute one row per member (via `v_field_values`), so membership
+queries work here too.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `vault_name` | TEXT | Vault identifier |
+| `task_id` | INTEGER | Task row id |
+| `note_path` | TEXT | Containing note path |
+| `key` | TEXT | Field key |
+| `value` | TEXT | Field value (one row per list member for inherited lists) |
+| `source` | TEXT | `task` (own inline field) or `note` (inherited frontmatter) |
+
+Example — open tasks for Acme, whether annotated on the task or inherited from
+an Acme meeting note:
+
+```sql
+SELECT t.text, t.note_path, due.value AS due
+FROM v_tasks t
+JOIN v_task_effective_fields c
+  ON c.vault_name = t.vault_name AND c.task_id = t.id
+LEFT JOIN v_task_effective_fields due
+  ON due.vault_name = t.vault_name AND due.task_id = t.id AND due.key = 'due'
+WHERE t.status_group = 'open'
+  AND c.key = 'customers' AND c.value = '[[Acme]]'
+ORDER BY due.value IS NULL, due.value;
 ```
 
 ## v_backlinks

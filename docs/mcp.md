@@ -48,8 +48,8 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `memory_delete` | `path`, `expected_hash`, `confirm_delete` |
 | `query_sql` | `sql` |
 | `time_query` | `when`, `date_field?` (`mtime`\|`updated`\|`created`), `query?`, `limit?` |
-| `list_notes` | `type?`, `customer?`, `archived?` |
-| `list_tasks` | `status?`, `customer?` |
+| `list_notes` | `type?`, `fields?` (key → exact value; list fields match by membership), `archived?` |
+| `list_tasks` | `status?`, `fields?` (effective fields: task inline fields override the containing note's frontmatter per key) |
 | `vault_stats` | `top?` |
 | `update_task_status` | `note_path`, `task_hash`, `status` |
 | `capture` | `content`, `title?` |
@@ -183,6 +183,21 @@ Hard-deletes a fact note for mistakes or sensitive material only.
 - requires `confirm_delete: true`;
 - requires fresh `expected_hash`;
 - rejects example facts (`facts/examples/...` or `example`-tagged notes).
+
+### `list_notes` / `list_tasks` field filters
+
+Both tools take an optional `fields` object mapping field keys to **exact**
+values. Multiple keys AND together. A list-valued field (e.g. `customers`)
+matches when any member equals the value — backed by the normalized
+`v_field_values` index, so `{"customers": "[[Acme]]"}` finds every note
+involving Acme without substring false positives.
+
+`list_tasks` matches against **effective** task fields: a task inherits its
+containing note's frontmatter, and a task-level inline field (e.g.
+`[customers:: [[Solo]]]`) overrides the inherited value for that key. Each
+returned task carries a `fields` object of its effective values (arrays, since
+list fields can contribute several values) plus a `due` convenience column.
+The same shape is queryable in SQL via the `v_task_effective_fields` view.
 
 ### `time_query`
 

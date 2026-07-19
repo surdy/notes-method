@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
     // Check schema version — if mismatch, drop all tables and recreate
@@ -19,8 +19,10 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
             "
             DROP VIEW IF EXISTS v_notes;
             DROP VIEW IF EXISTS v_fields;
+            DROP VIEW IF EXISTS v_field_values;
             DROP VIEW IF EXISTS v_tasks;
             DROP VIEW IF EXISTS v_task_fields;
+            DROP VIEW IF EXISTS v_task_effective_fields;
             DROP VIEW IF EXISTS v_backlinks;
             DROP VIEW IF EXISTS v_dangling_links;
             DROP VIEW IF EXISTS v_periodic;
@@ -28,6 +30,7 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
             DROP VIEW IF EXISTS v_streams;
             DROP TABLE IF EXISTS notes;
             DROP TABLE IF EXISTS fields;
+            DROP TABLE IF EXISTS field_values;
             DROP TABLE IF EXISTS tags;
             DROP TABLE IF EXISTS tasks;
             DROP TABLE IF EXISTS task_fields;
@@ -65,6 +68,19 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_fields_note ON fields(vault_name, note_path);
         CREATE INDEX IF NOT EXISTS idx_fields_key ON fields(vault_name, key);
         CREATE INDEX IF NOT EXISTS idx_fields_key_value ON fields(vault_name, key, value);
+
+        CREATE TABLE IF NOT EXISTS field_values (
+            vault_name TEXT NOT NULL,
+            note_path TEXT NOT NULL,
+            key TEXT NOT NULL,
+            ordinal INTEGER NOT NULL DEFAULT 0,
+            value TEXT NOT NULL,
+            value_type TEXT NOT NULL DEFAULT 'string',
+            source TEXT NOT NULL DEFAULT 'frontmatter'
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_field_values_note ON field_values(vault_name, note_path);
+        CREATE INDEX IF NOT EXISTS idx_field_values_key_value ON field_values(vault_name, key, value);
 
         CREATE TABLE IF NOT EXISTS tags (
             vault_name TEXT NOT NULL,
@@ -145,6 +161,11 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
         SELECT vault_name, note_path, key, value, value_type
         FROM fields;
 
+        DROP VIEW IF EXISTS v_field_values;
+        CREATE VIEW v_field_values AS
+        SELECT vault_name, note_path, key, ordinal, value, value_type, source
+        FROM field_values;
+
         DROP VIEW IF EXISTS v_tasks;
         CREATE VIEW v_tasks AS
         SELECT t.vault_name, t.id, t.note_path, t.line_number, t.text,
@@ -157,6 +178,24 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
         SELECT tf.vault_name, tf.task_id, tf.key, tf.value, t.note_path
         FROM task_fields tf
         JOIN tasks t ON tf.vault_name = t.vault_name AND tf.task_id = t.id;
+
+        DROP VIEW IF EXISTS v_task_effective_fields;
+        CREATE VIEW v_task_effective_fields AS
+        SELECT tf.vault_name, tf.task_id, t.note_path, tf.key, tf.value, 'task' AS source
+        FROM task_fields tf
+        JOIN tasks t ON tf.vault_name = t.vault_name AND tf.task_id = t.id
+        UNION ALL
+        SELECT t.vault_name, t.id AS task_id, t.note_path, fv.key, fv.value, 'note' AS source
+        FROM tasks t
+        JOIN field_values fv
+          ON fv.vault_name = t.vault_name AND fv.note_path = t.note_path
+        WHERE fv.source = 'frontmatter'
+          AND NOT EXISTS (
+              SELECT 1 FROM task_fields tf2
+              WHERE tf2.vault_name = t.vault_name
+                AND tf2.task_id = t.id
+                AND tf2.key = fv.key
+          );
 
         DROP VIEW IF EXISTS v_backlinks;
         CREATE VIEW v_backlinks AS
