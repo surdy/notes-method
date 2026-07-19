@@ -67,7 +67,7 @@ impl DaemonProcess {
         cache_home: &std::path::Path,
         bind: String,
     ) -> Self {
-        let child = Command::new(notesmith_bin())
+        let mut child = Command::new(notesmith_bin())
             .env("XDG_CONFIG_HOME", config_home)
             .env("XDG_CACHE_HOME", cache_home)
             .env("HOME", config_home.parent().unwrap())
@@ -82,8 +82,10 @@ impl DaemonProcess {
             .spawn()
             .unwrap();
 
+        // Cold daemon startup (fresh index, prompt seeding, schedulers) can
+        // take several seconds on a loaded machine — probe generously.
         let client = reqwest::Client::new();
-        for _ in 0..20 {
+        for _ in 0..100 {
             if client
                 .get(format!("http://{bind}/ping"))
                 .send()
@@ -95,6 +97,9 @@ impl DaemonProcess {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
+        // Kill before collecting output: wait_with_output on a live daemon
+        // would block forever and turn this failure into a silent hang.
+        let _ = child.kill();
         let output = child.wait_with_output().unwrap();
         panic!(
             "daemon did not become ready\nstdout: {}\nstderr: {}",
