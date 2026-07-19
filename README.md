@@ -27,14 +27,6 @@ Notesmith keeps notes as plain markdown files on disk — no database of record 
 | **Field Registry** | `.notesmith/fields.toml` — advisory type/value hints for autocomplete. |
 | **User Views** | `.notesmith/views.sql` — custom SQL views in the cache database. |
 
-## Architecture
-
-- **Single binary** (`notesmith`) with subcommands for CLI usage and a `daemon start` mode
-- **HTTP daemon** on `127.0.0.1:27183` (Axum) with REST API + Server-Sent Events
-- **SvelteKit frontend** served by the daemon for browser use and embedded in Tauri for remote-desktop daemon connections
-- **SQLite cache** (rebuildable from markdown files — never the source of truth)
-- **Agent-first**: native CLI, MCP adapter, and URL scheme (`notesmith://app/...`) for external integration
-
 ## Crate Layout
 
 ```

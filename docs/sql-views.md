@@ -208,7 +208,7 @@ ORDER BY refs DESC, raw_target;
 |--------|------|-------------|
 | `vault_name` | TEXT | Vault identifier |
 | `note_path` | TEXT | Note path |
-| `period_kind` | TEXT | `daily`, `monthly`, or `yearly` |
+| `period_kind` | TEXT | `daily`, `weekly`, `monthly`, `quarterly`, or `yearly` |
 | `period_key` | TEXT | Canonical period key |
 | `period_start` | TEXT | Inclusive period start |
 | `period_end` | TEXT | Inclusive period end |
