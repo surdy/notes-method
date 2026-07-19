@@ -1,100 +1,166 @@
-# Example: Work Notes Kit
+# Work Notes Kit
 
-This document shows how to configure Notesmith for a customer-facing work workflow using the generic data model. This is **one possible configuration** — not built into the product.
+The blessed Notesmith configuration for customer-facing work: meetings,
+customers, streams, people, and tasks. This is the schema the search
+primitives (`v_field_values`, `v_task_effective_fields`, field-filtered
+`list_notes`/`list_tasks`) are designed around. The design record lives in
+`plans/work-notes-simplification-design.md`.
 
-## Overview
+## The model in one paragraph
 
-The Work Notes kit organizes notes around customers, streams of work, and meetings. It demonstrates how routing rules, templates, field definitions, and dashboards compose into a complete workflow on top of Notesmith's generic primitives.
+Three durable entities — **Customer**, **Stream** (an ongoing initiative with
+lifecycle), **Person** — and one event record, the **Meeting**. Relationships
+are many-to-many and live in frontmatter lists of wikilinks, never in folder
+paths: a meeting lists its `customers`, `streams`, and `attendees`. Folders
+exist for humans; metadata is the relationship model. Tasks are checkboxes
+anywhere; a task inherits its containing note's frontmatter and only carries
+inline fields for exceptions (`[due:: …]`, delegation via `[owner:: …]`, or a
+per-task override of `customers`/`streams`).
 
-## Folder Structure (suggested)
+## Folder structure
 
 ```text
-Inbox/
-Daily/
-Tasks/
+Inbox/                      # landing spot until enriched + routed
+Meetings/
+  2026/
+    07/
+Streams/
 Customers/
-  <Customer>/
-    <Customer>.md
-    Account Info/
-    Internal Meetings/
-    External Meetings/
-    Streams/
-General/
-  Journal/
+  Acme/
+    Acme.md                 # kind: customer (folder note)
+People/
+Daily/
+Weekly/
+Quarterly/
 Dashboards/
-  Home.md
-  Inbox Triage.md
-  Customers.md
-  Streams.md
-Assets/
-  templates/
-  scripts/
 .notesmith/
   vault.toml
   fields.toml
   routing.yaml
-  views.sql
-  sidebar.yaml
   templates/
-  prompts/
   skill.md
 ```
 
-## Field Registry (`.notesmith/fields.toml`)
+Notes on the layout:
+
+- Meetings are filed by date, never under a customer — a meeting can involve
+  zero, one, or many customers, and `customers` metadata answers "whose
+  meeting" better than any single path could.
+- `Customers/<Name>/` holds durable account context. Start with just the
+  folder note; split out `Architecture.md` / `Commercial.md`
+  (`kind: account` + `customers: ["[[<Name>]]"]`) only when the main note
+  gets unwieldy.
+- People notes are created **lazily** — link attendees as `"[[Jane Smith]]"`
+  from day one, and only create `People/Jane Smith.md` when someone recurs or
+  has durable context. Dangling links are fine; see the promotion query below.
+- Status is metadata. Done streams stay in `Streams/`; nothing moves because
+  its state changed.
+
+## Canonical fields (`.notesmith/fields.toml`)
+
+| Field | On | Values |
+|---|---|---|
+| `kind` | all | `meeting` `stream` `customer` `account` `person` |
+| `date` | meeting | ISO date |
+| `audience` | meeting | `internal` `external` (did customers attend?) |
+| `customers` | meeting, stream, account | list of `"[[Customer]]"` wikilinks |
+| `streams` | meeting | list of `"[[Stream]]"` wikilinks |
+| `attendees` | meeting | list of `"[[Person]]"` wikilinks |
+| `status` | stream | `active` `waiting` `blocked` `done` |
+| `priority` | stream | `P0` `P1` `P2` `P3` |
+| `started` / `target` | stream | ISO date |
+| `org` / `role` | person | org may be a customer wikilink; `Internal` for coworkers |
 
 ```toml
-[customer]
-type = "link"
-suggest_from = "tags includes 'customer'"
+version = 1
 
-[stream]
-type = "link"
-suggest_from = "tags includes 'stream'"
-
-[status]
+[fields.kind]
 type = "enum"
-values = ["inbox", "active", "waiting", "blocked", "done", "archived"]
+values = ["meeting", "stream", "customer", "account", "person"]
 
-[priority]
-type = "enum"
-values = ["P0", "P1", "P2", "P3"]
+[fields.date]
+type = "date"
 
-[owner]
-type = "string"
-values = ["me", "customer"]
-
-[meeting_type]
+[fields.audience]
 type = "enum"
 values = ["internal", "external"]
 
-[kind]
+[fields.customers]
+type = "list"
+multivalue = true
+suggest_from = "SELECT DISTINCT value FROM v_field_values WHERE key = 'customers' ORDER BY value"
+
+[fields.streams]
+type = "list"
+multivalue = true
+suggest_from = "SELECT DISTINCT value FROM v_field_values WHERE key = 'streams' ORDER BY value"
+
+[fields.attendees]
+type = "list"
+multivalue = true
+suggest_from = "SELECT DISTINCT value FROM v_field_values WHERE key = 'attendees' ORDER BY value"
+
+[fields.status]
 type = "enum"
-values = ["note", "meeting", "stream", "customer", "account-info"]
+values = ["active", "waiting", "blocked", "done"]
 
-[date]
+[fields.priority]
+type = "enum"
+values = ["P0", "P1", "P2", "P3"]
+
+[fields.started]
 type = "date"
 
-[started]
+[fields.target]
 type = "date"
 
-[target]
-type = "date"
+[fields.org]
+type = "string"
+
+[fields.role]
+type = "string"
 ```
 
-## Task Statuses (in `vault.toml`)
+YAML rule worth repeating: **wikilinks in frontmatter must be quoted** —
+`- "[[Acme]]"`, never `- [[Acme]]` (unquoted brackets are YAML syntax).
+
+Task inline fields (`due`, `owner`, plus `customers`/`streams` overrides) are
+just fields — no registry entry needed unless you want autocomplete.
+
+## Vault config highlights (`.notesmith/vault.toml`)
 
 ```toml
-[task_statuses]
-" " = { label = "Todo", group = "open", icon = "circle" }
-"x" = { label = "Done", group = "done", icon = "check" }
-"/" = { label = "In Progress", group = "open", icon = "half-circle" }
-"b" = { label = "Blocked", group = "open", icon = "stop" }
-"w" = { label = "Waiting", group = "open", icon = "clock" }
-"h" = { label = "On Hold", group = "open", icon = "pause" }
-"-" = { label = "Cancelled", group = "done", icon = "dash" }
+[capture]
+folder = "Inbox"
+template = "generic-note"
+
+[periodic.daily]
+folder = "Daily"
+filename = "%Y-%m-%d"
+template = "daily"
+
+[periodic.weekly]
+folder = "Weekly"
+filename = "%Y-W%W"
+template = "weekly"
+
+[periodic.quarterly]
+folder = "Quarterly"
+filename = "%Y-Q%q"
+template = "quarterly"
 ```
 
-## Routing Rules (`.notesmith/routing.yaml`)
+Task statuses: the default set (`[ ]` todo, `[x]` done, `[/]` in progress,
+`[b]` blocked, `[w]` waiting, …) is already right for this workflow — no
+custom statuses needed.
+
+## Routing (`.notesmith/routing.yaml`)
+
+Filing is mechanical and kind-based. Enrichment (adding `customers`,
+`streams`, `attendees`) happens in the Inbox — manually or by an agent — and
+then routing moves the note. Notes without a recognized `kind` stay in Inbox
+for triage. Customer and person notes are created by their templates directly
+at their destination, so only meetings and streams need rules.
 
 ```yaml
 version: 1
@@ -102,191 +168,128 @@ defaults:
   on_exists: rename
 
 rules:
-  - id: route-external-meeting
-    when:
-      all:
-        - tags_include: [meeting]
-        - field.meeting_type: "external"
-        - field.customer: "*"
-    then:
-      move_to: "Customers/{{ field.customer | unwikilink }}/External Meetings/{{ filename }}"
-      set_fields:
-        status: archived
-      remove_tags: [inbox]
-
-  - id: route-internal-meeting
-    when:
-      all:
-        - tags_include: [meeting]
-        - field.meeting_type: "internal"
-        - field.customer: "*"
-    then:
-      move_to: "Customers/{{ field.customer | unwikilink }}/Internal Meetings/{{ filename }}"
-      set_fields:
-        status: archived
-      remove_tags: [inbox]
-
-  - id: route-stream
-    when:
-      all:
-        - tags_include: [stream]
-        - field.customer: "*"
-    then:
-      move_to: "Customers/{{ field.customer | unwikilink }}/Streams/{{ filename }}"
-      remove_tags: [inbox]
-
-  - id: route-customer-note
+  - id: file-meeting
     when:
       all:
         - path: "Inbox/**"
-        - field.customer: "*"
-        - not:
-            tags_include: [meeting, stream]
+        - field.kind: "meeting"
+        - field.date: "*"
     then:
-      move_to: "Customers/{{ field.customer | unwikilink }}/{{ filename }}"
+      move_to: "Meetings/{{ field.date | year }}/{{ field.date | month }}/{{ filename }}"
       remove_tags: [inbox]
 
-  - id: route-general
+  - id: file-stream
     when:
       all:
         - path: "Inbox/**"
-        - not:
-            field_exists: customer
+        - field.kind: "stream"
     then:
-      move_to: "General/{{ filename }}"
+      move_to: "Streams/{{ filename }}"
       remove_tags: [inbox]
 
-  - id: archive-daily
+  - id: file-person
     when:
       all:
-        - path: "Daily/**"
-        - field.date: "< today - 30d"
+        - path: "Inbox/**"
+        - field.kind: "person"
     then:
-      move_to: "General/Journal/{{ field.date | strftime('%Y/%m') }}/{{ filename }}"
+      move_to: "People/{{ filename }}"
+      remove_tags: [inbox]
 ```
 
-## User-Defined Views (`.notesmith/views.sql`)
+## Templates (`.notesmith/templates/`)
 
-```sql
-CREATE VIEW user_streams AS
-SELECT
-  n.path,
-  n.title,
-  (SELECT f.value FROM fields f WHERE f.note_path = n.path AND f.key = 'customer' LIMIT 1) AS customer,
-  (SELECT f.value FROM fields f WHERE f.note_path = n.path AND f.key = 'status' LIMIT 1) AS status,
-  (SELECT f.value FROM fields f WHERE f.note_path = n.path AND f.key = 'priority' LIMIT 1) AS priority,
-  (SELECT f.value FROM fields f WHERE f.note_path = n.path AND f.key = 'owner' LIMIT 1) AS owner,
-  n.updated_at
-FROM notes n
-JOIN tags t ON t.note_path = n.path AND t.tag = 'stream'
-WHERE n.vault = :vault;
-
-CREATE VIEW user_customers AS
-SELECT
-  n.path,
-  n.title,
-  (SELECT f.value FROM fields f WHERE f.note_path = n.path AND f.key = 'state' LIMIT 1) AS state,
-  n.updated_at
-FROM notes n
-JOIN tags t ON t.note_path = n.path AND t.tag = 'customer'
-WHERE n.vault = :vault;
-
-CREATE VIEW user_meetings AS
-SELECT
-  n.path,
-  n.title,
-  (SELECT f.value FROM fields f WHERE f.note_path = n.path AND f.key = 'customer' LIMIT 1) AS customer,
-  (SELECT f.value FROM fields f WHERE f.note_path = n.path AND f.key = 'meeting_type' LIMIT 1) AS meeting_type,
-  (SELECT f.value FROM fields f WHERE f.note_path = n.path AND f.key = 'date' LIMIT 1) AS date
-FROM notes n
-JOIN tags t ON t.note_path = n.path AND t.tag = 'meeting'
-WHERE n.vault = :vault;
-```
-
-## Templates
-
-### Meeting Template (`.notesmith/templates/meeting.md`)
+### `meeting.md`
 
 ```markdown
 ---
 name: meeting
-description: "Create a new meeting note"
-output_path: "Inbox/{{ date }} - {{ customer }} - {{ meeting_type }} - {{ title }}.md"
+description: "New meeting note"
+output_path: "Inbox/{{ date }} - {{ title }}.md"
 prompts:
-  - { name: customer, type: field-picker, field: customer, required: true }
-  - { name: meeting_type, type: field-picker, field: meeting_type, required: true }
   - { name: title, type: text, required: true }
-  - { name: stream, type: field-picker, field: stream, required: false }
+  - { name: audience, type: field-picker, required: true }
+  - { name: customer, type: field-picker, required: false }
+  - { name: stream, type: field-picker, required: false }
 ---
 ---
-tags: [meeting]
-customer: "[[{{ customer }}]]"
-meeting_type: {{ meeting_type }}
+kind: meeting
+audience: {{ audience }}
 date: {{ date }}
-{% if stream %}stream: "[[{{ stream }}]]"{% endif %}
+customers:{% if customer %}
+  - "[[{{ customer | unwikilink }}]]"{% else %} []{% endif %}
+streams:{% if stream %}
+  - "[[{{ stream | unwikilink }}]]"{% else %} []{% endif %}
+attendees: []
 ---
 
-# {{ date }} — {{ customer }} — {{ title }}
+# {{ date }} — {{ title }}
 
-## Attendees
-
-## Discussion
+## Notes
 
 ## Decisions
 
 ## Tasks
 
-- [ ] 
+- [ ]
 ```
 
-### Stream Template (`.notesmith/templates/stream.md`)
+The prompt collects at most one customer/stream (prompts are single-value);
+add further list members during enrichment — that's the normal flow for
+multi-customer meetings, which are the exception.
+
+### `stream.md`
 
 ```markdown
 ---
 name: stream
-description: "Create a new stream of work"
+description: "New stream of work"
 output_path: "Inbox/{{ title }}.md"
 prompts:
-  - { name: customer, type: field-picker, field: customer, required: true }
   - { name: title, type: text, required: true }
-  - { name: priority, type: field-picker, field: priority, required: false }
+  - { name: customer, type: field-picker, required: false }
+  - { name: priority, type: field-picker, required: false }
 ---
 ---
-tags: [stream]
-customer: "[[{{ customer }}]]"
+kind: stream
 status: active
 {% if priority %}priority: {{ priority }}{% endif %}
-owner: me
+customers:{% if customer %}
+  - "[[{{ customer | unwikilink }}]]"{% else %} []{% endif %}
 started: {{ date }}
 ---
 
 # {{ title }}
 
-[customer:: [[{{ customer }}]]]
-[status:: active]
+## Objective
 
-## Goal
+## Current state
 
-## Current State
+## Decisions
+
+## Open questions
 
 ## Tasks
 
-- [ ] 
+- [ ]
 ```
 
-### Customer Template (`.notesmith/templates/customer.md`)
+Name streams to be globally unambiguous — prefix customer-specific streams
+(`Acme - Renewal 2026`), label the rest (`Internal - Support Process
+Redesign`, `Cross-customer Migration Program`).
+
+### `customer.md`
 
 ```markdown
 ---
 name: customer
-description: "Create a new customer"
+description: "New customer"
 output_path: "Customers/{{ name }}/{{ name }}.md"
 prompts:
   - { name: name, type: text, required: true }
 ---
 ---
-tags: [customer]
-state: Active
+kind: customer
 ---
 
 # {{ name }}
@@ -295,114 +298,188 @@ state: Active
 
 ## People
 
-## Active Streams
+## Streams
 
 ```notesmith sql
-SELECT title, path, status
-FROM user_streams
-WHERE customer = '[[{{ name }}]]' AND status != 'done'
-ORDER BY priority, title;
+SELECT n.title, s.value AS status, n.path
+FROM v_notes n
+JOIN v_field_values c ON c.vault_name = n.vault_name AND c.note_path = n.path
+ AND c.key = 'customers' AND c.value = '[[{{ name }}]]'
+JOIN v_field_values k ON k.vault_name = n.vault_name AND k.note_path = n.path
+ AND k.key = 'kind' AND k.value = 'stream'
+LEFT JOIN v_field_values s ON s.vault_name = n.vault_name AND s.note_path = n.path
+ AND s.key = 'status'
+ORDER BY s.value, n.title;
+```
+
+## Recent meetings
+
+```notesmith sql
+SELECT d.value AS date, n.title, n.path
+FROM v_notes n
+JOIN v_field_values c ON c.vault_name = n.vault_name AND c.note_path = n.path
+ AND c.key = 'customers' AND c.value = '[[{{ name }}]]'
+JOIN v_field_values k ON k.vault_name = n.vault_name AND k.note_path = n.path
+ AND k.key = 'kind' AND k.value = 'meeting'
+LEFT JOIN v_field_values d ON d.vault_name = n.vault_name AND d.note_path = n.path
+ AND d.key = 'date'
+ORDER BY d.value DESC LIMIT 15;
 ```
 ```
 
-## Dashboard Examples
-
-### Inbox Triage (`Dashboards/Inbox Triage.md`)
+### `person.md`
 
 ```markdown
-# Inbox Triage
+---
+name: person
+description: "New person (create lazily, when someone recurs)"
+output_path: "Inbox/{{ name }}.md"
+prompts:
+  - { name: name, type: text, required: true }
+  - { name: org, type: text, required: false }
+  - { name: role, type: text, required: false }
+---
+---
+kind: person
+{% if org %}org: "{{ org }}"{% endif %}
+{% if role %}role: "{{ role }}"{% endif %}
+---
 
-## Unprocessed Notes
+# {{ name }}
+
+## Context
+
+## Meetings
 
 ```notesmith sql
-SELECT title, path, created_at
-FROM v_notes
-WHERE path LIKE 'Inbox/%'
-ORDER BY created_at DESC;
+SELECT d.value AS date, n.title, n.path
+FROM v_notes n
+JOIN v_field_values a ON a.vault_name = n.vault_name AND a.note_path = n.path
+ AND a.key = 'attendees' AND a.value = '[[{{ name }}]]'
+LEFT JOIN v_field_values d ON d.vault_name = n.vault_name AND d.note_path = n.path
+ AND d.key = 'date'
+ORDER BY d.value DESC;
+```
 ```
 
-## Open Tasks in Inbox
+## Task conventions
 
-```notesmith sql
-SELECT t.text, t.note_path, fields_json
+- Default owner is **you** — write `[owner:: [[Jane]]]` only when a task is
+  delegated or owed by someone else.
+- `[due:: 2026-07-24]` only for real deadlines.
+- A task inside a meeting/stream note **inherits** that note's `customers`,
+  `streams`, `date`, etc. Query through `v_task_effective_fields` or
+  `list_tasks(fields=…)` — never duplicate the note's metadata onto tasks.
+- A task that genuinely belongs elsewhere overrides per key:
+  `- [ ] side quest [customers:: [[Other]]]`.
+- Manually captured tasks (from Slack, email, hallway) go in today's daily
+  note or the relevant stream note and inherit from there.
+
+## Query recipes
+
+All meetings involving Acme (however many customers attended):
+
+```sql
+SELECT n.path, n.title
+FROM v_notes n
+JOIN v_field_values c ON c.vault_name = n.vault_name AND c.note_path = n.path
+WHERE c.key = 'customers' AND c.value = '[[Acme]]';
+```
+
+Open tasks you owe Acme, soonest due first (inherited or task-level):
+
+```sql
+SELECT t.text, t.note_path, due.value AS due
 FROM v_tasks t
-WHERE t.note_path LIKE 'Inbox/%' AND t.status_group = 'open'
-ORDER BY t.note_path;
-```
+JOIN v_task_effective_fields c
+  ON c.vault_name = t.vault_name AND c.task_id = t.id
+ AND c.key = 'customers' AND c.value = '[[Acme]]'
+LEFT JOIN v_task_effective_fields due
+  ON due.vault_name = t.vault_name AND due.task_id = t.id AND due.key = 'due'
+WHERE t.status_group = 'open'
+ORDER BY due.value IS NULL, due.value;
 ```
 
-### Streams Dashboard (`Dashboards/Streams.md`)
+Stale active streams — no meeting referencing them in 30 days:
+
+```sql
+SELECT n.title, n.path
+FROM v_notes n
+JOIN v_field_values k ON k.vault_name = n.vault_name AND k.note_path = n.path
+ AND k.key = 'kind' AND k.value = 'stream'
+JOIN v_field_values s ON s.vault_name = n.vault_name AND s.note_path = n.path
+ AND s.key = 'status' AND s.value = 'active'
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM v_field_values ms
+  JOIN v_field_values md ON md.vault_name = ms.vault_name AND md.note_path = ms.note_path
+   AND md.key = 'date' AND md.value >= date('now', '-30 days')
+  WHERE ms.vault_name = n.vault_name
+    AND ms.key = 'streams' AND ms.value = '[[' || n.title || ']]'
+);
+```
+
+Attendees who deserve a People note (referenced often, note doesn't exist):
+
+```sql
+SELECT fv.value AS person, COUNT(*) AS mentions
+FROM v_field_values fv
+WHERE fv.key = 'attendees'
+  AND NOT EXISTS (
+    SELECT 1 FROM v_notes p
+    WHERE p.vault_name = fv.vault_name
+      AND p.title = replace(replace(fv.value, '[[', ''), ']]', '')
+  )
+GROUP BY fv.value
+ORDER BY mentions DESC;
+```
+
+Multi-customer work:
+
+```sql
+SELECT note_path, COUNT(*) AS customer_count
+FROM v_field_values
+WHERE key = 'customers'
+GROUP BY note_path
+HAVING customer_count > 1;
+```
+
+## Dashboards
+
+`Dashboards/Home.md` — active streams by priority, blocked/waiting streams,
+open tasks by due date, Inbox triage list, meetings missing `customers` or
+`audience`. All of these are `notesmith sql` blocks over the recipes above;
+the stale-streams and promotion queries make good weekly-review sections.
+
+## Agent guidance (`.notesmith/skill.md`)
 
 ```markdown
-# Active Streams
+# Work Notes vault
 
-```notesmith sql
-SELECT title, customer, status, priority, path
-FROM user_streams
-WHERE status NOT IN ('done', 'archived')
-ORDER BY priority, customer, title;
-```
+Entity model: meetings (dated event records, `Meetings/YYYY/MM/`), streams
+(ongoing initiatives, `Streams/`), customers (`Customers/<Name>/`), people
+(`People/`). `kind` is the canonical type field. Tags are topical only.
 
-## Blocked Streams
+Relationships are frontmatter lists of quoted wikilinks: `customers`,
+`streams`, `attendees`. Folders are for humans — never infer relationships
+from paths.
 
-```notesmith sql
-SELECT title, customer, path
-FROM user_streams
-WHERE status = 'blocked';
-```
-```
+## Retrieval
 
-## Hook Examples
+- Membership queries: `v_field_values` (one row per list member; exact value
+  match, e.g. key='customers' AND value='[[Acme]]').
+- Task queries: `v_task_effective_fields` — tasks inherit their note's
+  frontmatter; task-level inline fields override per key.
+- `list_notes` / `list_tasks` take a `fields` map with the same semantics.
+- Free-text digging: `vault_search` (hybrid). Time-based: `time_query`.
+- Cite notes by path; quote the exact line when reporting decisions.
 
-### Auto-Notify on Status Change
+## Writing
 
-```toml
-# vault.toml
-[hooks.on_field_change.status-notify]
-command = "scripts/notify-status.sh"
-watch_fields = ["status"]
-```
-
-`scripts/notify-status.sh`:
-```bash
-#!/bin/bash
-# Reads JSON from stdin, sends notification when a stream becomes blocked
-STATUS=$(echo "$1" | jq -r '.changes[] | select(.key == "status") | .new')
-if [ "$STATUS" = "blocked" ]; then
-  # Send Slack notification, create reminder, etc.
-  echo "Stream blocked: $(echo "$1" | jq -r '.note.title')"
-fi
-```
-
-## Skill File (`.notesmith/skill.md`)
-
-```markdown
-# Notesmith Vault: Work Notes
-
-This vault organizes customer-facing work using these conventions:
-
-## Note Kinds (via tags)
-- `#customer` — Customer index notes in `Customers/<Name>/<Name>.md`
-- `#stream` — Streams of work with status/priority/owner fields
-- `#meeting` — Meeting notes with meeting_type (internal/external) and customer
-
-## Key Fields
-- `customer` — wikilink to customer note
-- `stream` — wikilink to stream note
-- `status` — inbox/active/waiting/blocked/done/archived
-- `priority` — P0/P1/P2/P3
-- `owner` — me/customer
-- `meeting_type` — internal/external
-
-## Common Commands
-- `notesmith capture "text"` — quick capture to Inbox/
-- `notesmith route apply <path>` — move note to destination per routing rules
-- `notesmith periodic open daily` — open today's daily note
-- `notesmith query sql "SELECT * FROM user_streams WHERE status = 'active'"` — query streams
-
-## Workflow
-1. Capture ideas/notes quickly to Inbox/
-2. Enrich with fields (customer, tags, status)
-3. Route to permanent location
-4. Track work via dashboards and task views
+- Meeting/stream/person notes: use `create_from_template`, then enrich
+  frontmatter. New notes land in `Inbox/`; routing files them by `kind`.
+- Quote wikilinks in YAML: `- "[[Acme]]"`.
+- Tasks: plain checkboxes; only add `[due:: ]`/`[owner:: ]` for real
+  deadlines/delegation. Don't copy note metadata onto tasks.
+- Do not create People notes for one-off attendees; link them and move on.
 ```
