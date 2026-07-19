@@ -1058,6 +1058,48 @@ async fn get_note_html_with_inline_styles_returns_portable_document() {
 }
 
 #[tokio::test]
+async fn search_supports_filter_tokens_in_query() {
+    let server = TestServer::with_files(&[
+        (
+            "Meetings/acme.md",
+            "---\nkind: meeting\ncustomers:\n  - \"[[Acme]]\"\n---\n# Acme sync\n\nRenewal risks discussed.",
+        ),
+        (
+            "Meetings/globex.md",
+            "---\nkind: meeting\ncustomers:\n  - \"[[Globex]]\"\n---\n# Globex sync\n\nRenewal timeline discussed.",
+        ),
+    ])
+    .await;
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(server.url("/api/v/test-vault/search"))
+        .query(&[("q", "renewal customer:Acme")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let results = response.json::<serde_json::Value>().await.unwrap();
+    let paths: Vec<&str> = results
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|hit| hit["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(paths, vec!["Meetings/acme.md"]);
+
+    // Unsatisfiable filters return empty, not an error.
+    let response = client
+        .get(server.url("/api/v/test-vault/search"))
+        .query(&[("q", "renewal customer:Nobody")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(response.json::<serde_json::Value>().await.unwrap(), serde_json::json!([]));
+}
+
+#[tokio::test]
 async fn search_returns_matching_notes() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -1136,6 +1178,7 @@ async fn hook_fires_on_note_create() {
             vault_name: "test-vault".to_string(),
             vault_root: vault.root.clone(),
             hooks_config: vault.vault_config.load().hooks.clone(),
+            cache: vault.cache.clone(),
         }],
         notesmith_hooks::HookRunner::default(),
     );

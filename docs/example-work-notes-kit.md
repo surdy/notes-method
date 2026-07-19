@@ -413,6 +413,45 @@ ORDER BY d.value DESC;
 - Manually captured tasks (from Slack, email, hallway) go in today's daily
   note or the relevant stream note and inherit from there.
 
+## Hooks
+
+One script per event, configured flat in `vault.toml`; the payload arrives as
+**JSON on stdin** and the script runs with the vault root as its working
+directory (`.py` via python3, `.sh` via sh):
+
+```toml
+[hooks]
+on_field_change = "scripts/notify-blocked.py"
+watch_fields = ["status"]
+on_periodic_create = "scripts/daily-briefing.py"
+```
+
+Hook config is read at daemon startup — restart the daemon after changing it.
+
+### Blocked-stream notification (`scripts/notify-blocked.py`)
+
+`on_field_change` fires with a batched `changes` list diffing the note's
+frontmatter against its last-seen state (only keys in `watch_fields`):
+
+```python
+#!/usr/bin/env python3
+import json, pathlib, subprocess, sys
+
+payload = json.load(sys.stdin)
+if any(c.get("key") == "status" and c.get("new") == "blocked"
+       for c in payload.get("changes") or []):
+    title = pathlib.Path(payload["path"]).stem
+    subprocess.run(["osascript", "-e",
+        f'display notification "Stream blocked: {title}" with title "Notesmith"'])
+```
+
+### Morning briefing (`scripts/daily-briefing.py`)
+
+`on_periodic_create` (with `period_kind == "daily"`) appends an "Attention"
+section to the fresh daily note: blocked/waiting streams, stale active
+streams, tasks due soon, and the Inbox count — each a
+`notesmith --format json query sql` call over the views below.
+
 ## Query recipes
 
 All meetings involving Acme (however many customers attended):

@@ -610,6 +610,7 @@ pub async fn serve_configured_vaults(
                 vault_name: name.clone(),
                 vault_root: vault.root.clone(),
                 hooks_config: vault.vault_config.load().hooks.clone(),
+                cache: vault.cache.clone(),
             })
             .collect()
     };

@@ -82,6 +82,166 @@ impl SearchFilters {
     }
 }
 
+/// Split a search-box query into free text plus [`SearchFilters`] parsed from
+/// `key:value` tokens, so `renewal customer:Acme audience:internal` works in
+/// any plain text box.
+///
+/// Token rules (values may be double-quoted to include spaces):
+/// - `tag:foo` -> tags
+/// - `path:Meetings/` -> path prefix (last one wins)
+/// - `customer:` / `stream:` / `attendee:` (and their plural forms) -> the
+///   corresponding wikilink list field, with the value wrapped as `[[...]]`
+///   unless already wrapped
+/// - any other `key:value` -> exact match on that field
+///
+/// Repeating the same field key ORs the values (matching filter semantics).
+/// Everything else is returned as the free-text query.
+pub fn parse_search_query(query: &str) -> (String, SearchFilters) {
+    let mut text_terms: Vec<String> = Vec::new();
+    let mut filters = SearchFilters::default();
+
+    for token in tokenize_query(query) {
+        let Some((key, raw_value)) = token.split_once(':') else {
+            text_terms.push(token);
+            continue;
+        };
+        let value = raw_value.trim_matches('"').to_string();
+        let key_is_fieldlike = !key.is_empty()
+            && key.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+        // Times (12:30) and URLs (https://…) are text, not filters.
+        if !key_is_fieldlike || value.is_empty() || token.contains("://") {
+            text_terms.push(token);
+            continue;
+        }
+
+        let (field_key, value) = match key {
+            "tag" | "tags" => {
+                filters.tags.push(value);
+                continue;
+            }
+            "path" => {
+                filters.path_prefix = Some(value);
+                continue;
+            }
+            "customer" | "customers" => ("customers", ensure_wikilink(value)),
+            "stream" | "streams" => ("streams", ensure_wikilink(value)),
+            "attendee" | "attendees" => ("attendees", ensure_wikilink(value)),
+            other => (other, value),
+        };
+
+        match filters.fields.entry(field_key.to_string()) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(FieldFilter::One(value));
+            }
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                let merged = match entry.get() {
+                    FieldFilter::One(existing) => vec![existing.clone(), value],
+                    FieldFilter::Any(existing) => {
+                        let mut merged = existing.clone();
+                        merged.push(value);
+                        merged
+                    }
+                };
+                entry.insert(FieldFilter::Any(merged));
+            }
+        }
+    }
+
+    (text_terms.join(" "), filters)
+}
+
+fn ensure_wikilink(value: String) -> String {
+    if value.starts_with("[[") && value.ends_with("]]") {
+        value
+    } else {
+        format!("[[{value}]]")
+    }
+}
+
+/// Whitespace tokenizer that keeps double-quoted spans (including in
+/// `key:"quoted value"` form) inside one token.
+fn tokenize_query(query: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    for ch in query.chars() {
+        match ch {
+            '"' => {
+                in_quotes = !in_quotes;
+                current.push(ch);
+            }
+            c if c.is_whitespace() && !in_quotes => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            c => current.push(c),
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+/// Resolve metadata filters to the set of note paths satisfying every
+/// predicate. An unsatisfiable filter yields an empty set (search then
+/// returns no hits rather than erroring).
+pub fn resolve_filter_paths(
+    cache: &VaultCache,
+    filters: &SearchFilters,
+) -> Result<HashSet<String>> {
+    let mut conditions = vec!["1=1".to_string()];
+    for (key, filter) in &filters.fields {
+        let values: Vec<&String> = match filter {
+            FieldFilter::One(value) => vec![value],
+            FieldFilter::Any(values) => values.iter().collect(),
+        };
+        if values.is_empty() {
+            continue;
+        }
+        let value_list = values
+            .iter()
+            .map(|value| format!("'{}'", escape_sql_string(value)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        conditions.push(format!(
+            "EXISTS (SELECT 1 FROM field_values fv WHERE fv.vault_name = n.vault_name \
+             AND fv.note_path = n.path AND fv.key = '{}' AND fv.value IN ({value_list}))",
+            escape_sql_string(key)
+        ));
+    }
+    for tag in &filters.tags {
+        conditions.push(format!(
+            "EXISTS (SELECT 1 FROM tags tg WHERE tg.vault_name = n.vault_name \
+             AND tg.note_path = n.path AND tg.tag = '{}')",
+            escape_sql_string(tag)
+        ));
+    }
+    if let Some(prefix) = &filters.path_prefix {
+        let escaped = prefix
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        conditions.push(format!(
+            "n.path LIKE '{}%' ESCAPE '\\'",
+            escape_sql_string(&escaped)
+        ));
+    }
+
+    let sql = format!(
+        "SELECT n.path FROM notes n WHERE {}",
+        conditions.join(" AND ")
+    );
+    let conn = cache.connection();
+    let mut stmt = conn.prepare(&sql)?;
+    let paths = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<std::result::Result<HashSet<_>, _>>()?;
+    Ok(paths)
+}
+
 /// The canonical vault operation surface.
 ///
 /// Read operations never mutate the vault; write operations create, update,
@@ -671,58 +831,8 @@ impl LocalOps {
     /// embeddings are disabled for this vault, not yet available, or the
     /// embedder/model disagrees with the stored one — never an error, so search
     /// always works.
-    /// Resolve metadata filters to the set of note paths satisfying every
-    /// predicate. An unsatisfiable filter yields an empty set (search then
-    /// returns no hits rather than erroring).
     fn resolve_filter_paths(&self, filters: &SearchFilters) -> Result<HashSet<String>> {
-        let mut conditions = vec!["1=1".to_string()];
-        for (key, filter) in &filters.fields {
-            let values: Vec<&String> = match filter {
-                FieldFilter::One(value) => vec![value],
-                FieldFilter::Any(values) => values.iter().collect(),
-            };
-            if values.is_empty() {
-                continue;
-            }
-            let value_list = values
-                .iter()
-                .map(|value| format!("'{}'", escape_sql_string(value)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            conditions.push(format!(
-                "EXISTS (SELECT 1 FROM field_values fv WHERE fv.vault_name = n.vault_name \
-                 AND fv.note_path = n.path AND fv.key = '{}' AND fv.value IN ({value_list}))",
-                escape_sql_string(key)
-            ));
-        }
-        for tag in &filters.tags {
-            conditions.push(format!(
-                "EXISTS (SELECT 1 FROM tags tg WHERE tg.vault_name = n.vault_name \
-                 AND tg.note_path = n.path AND tg.tag = '{}')",
-                escape_sql_string(tag)
-            ));
-        }
-        if let Some(prefix) = &filters.path_prefix {
-            let escaped = prefix
-                .replace('\\', "\\\\")
-                .replace('%', "\\%")
-                .replace('_', "\\_");
-            conditions.push(format!(
-                "n.path LIKE '{}%' ESCAPE '\\'",
-                escape_sql_string(&escaped)
-            ));
-        }
-
-        let sql = format!(
-            "SELECT n.path FROM notes n WHERE {}",
-            conditions.join(" AND ")
-        );
-        let conn = self.cache.connection();
-        let mut stmt = conn.prepare(&sql)?;
-        let paths = stmt
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<std::result::Result<HashSet<_>, _>>()?;
-        Ok(paths)
+        resolve_filter_paths(&self.cache, filters)
     }
 
     fn hybrid_search(&self) -> Option<&Arc<HybridSearch>> {
@@ -5690,6 +5800,36 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let ops = build_test_ops(temp_dir.path());
         assert!(ops.related_notes("Nope.md", 10).is_err());
+    }
+
+    #[test]
+    fn parse_search_query_extracts_filter_tokens() {
+        let (text, filters) = parse_search_query(
+            "renewal risks customer:Acme audience:internal tag:renewal path:Meetings/",
+        );
+        assert_eq!(text, "renewal risks");
+        assert!(
+            matches!(filters.fields.get("customers"), Some(FieldFilter::One(v)) if v == "[[Acme]]")
+        );
+        assert!(
+            matches!(filters.fields.get("audience"), Some(FieldFilter::One(v)) if v == "internal")
+        );
+        assert_eq!(filters.tags, vec!["renewal".to_string()]);
+        assert_eq!(filters.path_prefix.as_deref(), Some("Meetings/"));
+
+        // Quoted values keep spaces; repeated keys OR together.
+        let (text, filters) =
+            parse_search_query(r#"pricing customer:"Acme Corp" customer:Globex"#);
+        assert_eq!(text, "pricing");
+        assert!(matches!(
+            filters.fields.get("customers"),
+            Some(FieldFilter::Any(v)) if v == &vec!["[[Acme Corp]]".to_string(), "[[Globex]]".to_string()]
+        ));
+
+        // Times and URLs stay text; token-free queries parse to empty filters.
+        let (text, filters) = parse_search_query("standup at 12:30 https://example.com/x");
+        assert_eq!(text, "standup at 12:30 https://example.com/x");
+        assert!(filters.is_empty());
     }
 
     #[test]

@@ -701,16 +701,30 @@ queued. No note is written by this request.
 
 Full-text search across note titles and body content using Tantivy.
 
+The query may embed **metadata filter tokens** — `key:value` words that scope
+the search instead of matching text (quote values with spaces:
+`customer:"Acme Corp"`):
+
+- `tag:renewal` — note must carry the tag;
+- `path:Meetings/` — vault-relative path prefix;
+- `customer:Acme` / `stream:X` / `attendee:X` — membership in the
+  corresponding wikilink list field (value auto-wrapped as `[[...]]`);
+- any other `key:value` — exact frontmatter field match (e.g.
+  `audience:internal`, `kind:meeting`, `status:blocked`).
+
+Predicates AND together; repeating a key ORs its values. A token-only query
+lists the filter matches. Time-like (`12:30`) and URL tokens stay text.
+
 **Query parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `q` | string | yes | — | Search query |
+| `q` | string | yes | — | Search query, optionally with filter tokens |
 | `limit` | integer | no | 20 | Maximum results |
 
 **Example:**
 ```bash
-curl "http://127.0.0.1:27183/api/v/work/search?q=Acme+onboarding&limit=5"
+curl "http://127.0.0.1:27183/api/v/work/search?q=renewal+customer:Acme&limit=5"
 ```
 
 **Response:** `200 OK`

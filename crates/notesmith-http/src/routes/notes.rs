@@ -386,9 +386,58 @@ pub async fn search_notes(
         )
     })?;
 
+    // `key:value` tokens in the query (tag:x, path:x, customer:x, any
+    // field:value) become metadata filters; the rest is the text query.
+    let (text, filters) = notesmith_ops::parse_search_query(&params.q);
+    if filters.is_empty() {
+        return vault
+            .search_index
+            .search(&params.q, params.limit)
+            .map(Json)
+            .map_err(internal_error);
+    }
+
+    let allowed = notesmith_ops::resolve_filter_paths(&vault.cache, &filters)
+        .map_err(internal_error)?;
+    if allowed.is_empty() {
+        return Ok(Json(Vec::new()));
+    }
+    // A token-only query (no text) lists the filter matches directly.
+    if text.trim().is_empty() {
+        let mut results: Vec<SearchResult> = Vec::new();
+        let conn = vault.cache.connection();
+        let mut stmt = conn
+            .prepare(
+                "SELECT vault_name, path, title FROM notes WHERE path IN (SELECT value FROM json_each(?1)) ORDER BY path",
+            )
+            .map_err(internal_error)?;
+        let paths_json = serde_json::to_string(&allowed.iter().collect::<Vec<_>>())
+            .map_err(internal_error)?;
+        let rows = stmt
+            .query_map([paths_json], |row| {
+                Ok(SearchResult {
+                    vault_name: row.get(0)?,
+                    path: row.get(1)?,
+                    title: row.get(2)?,
+                    note_type: String::new(),
+                    score: 0.0,
+                    snippet: String::new(),
+                })
+            })
+            .map_err(internal_error)?;
+        for row in rows {
+            let row = row.map_err(internal_error)?;
+            results.push(row);
+            if results.len() >= params.limit {
+                break;
+            }
+        }
+        return Ok(Json(results));
+    }
+
     vault
         .search_index
-        .search(&params.q, params.limit)
+        .search_in_paths(&text, params.limit, &allowed)
         .map(Json)
         .map_err(internal_error)
 }

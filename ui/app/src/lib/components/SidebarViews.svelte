@@ -2,7 +2,7 @@
 import type { CustomItem, SidebarSection, SidebarView } from '$lib/api';
 import { classifyError } from '$lib/api/error-classify';
 import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-import { executeSql, getSidebarConfig, reindexVault, createNote } from '$lib/api';
+import { executeSql, getSidebarConfig, reindexVault, createNote, searchNotes } from '$lib/api';
 import { createOrOpenFolderNote, folderNotePath } from '$lib/folder-notes';
 import { inputPalette } from '$lib/input-palette.svelte';
 import FileTree from './FileTree.svelte';
@@ -41,6 +41,35 @@ let refreshingVault = $state(false);
 const trimmedFilter = $derived(fileFilter.trim());
 const filteredTree = $derived(trimmedFilter ? filterTree(vaultStore.tree, trimmedFilter) : vaultStore.tree);
 const filterHasMatches = $derived(treeNoteCount(filteredTree) > 0);
+
+type ContentHit = { path: string; title: string; snippet?: string };
+let contentResults = $state<ContentHit[]>([]);
+let contentSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function stripMarkup(text: string): string {
+	return text.replace(/<[^>]+>/g, '');
+}
+
+// Full-text content search behind the same box: debounced call to the
+// /search endpoint, which also understands `key:value` filter tokens
+// (tag:x, path:x, customer:x, any field:value).
+$effect(() => {
+	const query = trimmedFilter;
+	const vault = vaultStore.currentVault;
+	if (contentSearchTimer) clearTimeout(contentSearchTimer);
+	if (query.length < 2 || !vault) {
+		contentResults = [];
+		return;
+	}
+	contentSearchTimer = setTimeout(async () => {
+		try {
+			const hits = (await searchNotes(vault, query)) as unknown as ContentHit[];
+			if (trimmedFilter === query) contentResults = hits;
+		} catch {
+			contentResults = [];
+		}
+	}, 250);
+});
 
 $effect(() => {
 	const nonce = sidebarSearchStore.focusNonce;
@@ -539,6 +568,20 @@ onkeydown={handleTreeKeydown}
 <FileTree node={filteredTree ?? vaultStore.tree} forceExpand={!!trimmedFilter} />
 </div>
 {/if}
+{#if trimmedFilter && contentResults.length}
+<div class="content-matches">
+<div class="content-matches-header">Content matches</div>
+{#each contentResults as hit (hit.path)}
+<button class="content-match" type="button" onclick={() => tabStore.selectNote(hit.path)}>
+<span class="content-match-title">{hit.title}</span>
+<span class="content-match-path">{hit.path}</span>
+{#if hit.snippet}
+<span class="content-match-snippet">{stripMarkup(hit.snippet)}</span>
+{/if}
+</button>
+{/each}
+</div>
+{/if}
 {/if}
 {:else}
 {@const activeView = views.find((view) => view.id === activeViewId)}
@@ -843,4 +886,56 @@ transform: rotate(360deg);
 }
 }
 
+
+.content-matches {
+	border-top: 1px solid var(--border-muted);
+	margin-top: 0.5rem;
+	padding: 0.5rem 0.25rem 0.25rem;
+}
+
+.content-matches-header {
+	color: var(--text-muted);
+	font-size: 0.7rem;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	padding: 0 0.5rem 0.25rem;
+	text-transform: uppercase;
+}
+
+.content-match {
+	background: none;
+	border: none;
+	border-radius: 4px;
+	color: var(--text-default);
+	cursor: pointer;
+	display: flex;
+	flex-direction: column;
+	gap: 0.1rem;
+	padding: 0.3rem 0.5rem;
+	text-align: left;
+	width: 100%;
+}
+
+.content-match:hover {
+	background: var(--bg-hover, rgba(128, 128, 128, 0.12));
+}
+
+.content-match-title {
+	font-size: 0.82rem;
+}
+
+.content-match-path {
+	color: var(--text-muted);
+	font-size: 0.7rem;
+}
+
+.content-match-snippet {
+	color: var(--text-muted);
+	display: -webkit-box;
+	font-size: 0.72rem;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
 </style>
