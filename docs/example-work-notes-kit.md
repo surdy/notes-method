@@ -63,6 +63,7 @@ Notes on the layout:
 | `kind` | all | `meeting` `stream` `customer` `account` `person` |
 | `date` | meeting | ISO date |
 | `audience` | meeting | `internal` `external` (did customers attend?). **External meetings have exactly one customer**; only internal meetings may list several. |
+| `meeting_type` | meeting (optional) | The meeting's **format**: `qbr` `discovery` `status` `planning` `retrospective` `1:1`. Single-valued, set during enrichment (never prompted). Themes that came up (`#escalation`) stay tags. |
 | `customers` | meeting, stream, account | list of `"[[Customer]]"` wikilinks |
 | `streams` | meeting | list of `"[[Stream]]"` wikilinks |
 | `attendees` | meeting | list of `"[[Person]]"` wikilinks |
@@ -84,6 +85,10 @@ type = "date"
 [fields.audience]
 type = "enum"
 values = ["internal", "external"]
+
+[fields.meeting_type]
+type = "enum"
+values = ["qbr", "discovery", "status", "planning", "retrospective", "1:1"]
 
 [fields.customers]
 type = "list"

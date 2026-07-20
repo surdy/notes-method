@@ -28,7 +28,7 @@ evolve without code changes.
 | Stream statuses | `active` / `waiting` / `blocked` / `done`. No `inbox` (that's the Inbox folder's job), no `archived` (done is done; files don't move). Priority stays `P0`–`P3`. |
 | Routing | Deterministic kind-based rules. Enrichment is manual or agentic; **filing is mechanical**. |
 | Note kind | `kind` is the canonical type field. Tags are purely topical (`renewal`, `escalation`, …), never kinds. |
-| `meeting_type` | Dropped for now. Business purpose of a meeting is a tag if needed. |
+| `meeting_type` | ~~Dropped for now~~ → **adopted 2026-07-19** as an optional single-valued field: the meeting's *format* (`qbr` `discovery` `status` `planning` `retrospective` `1:1`), set during enrichment, never prompted. Themes stay tags (`escalation` is deliberately not a type). |
 | Stream `owners` | Dropped. Everything is mine; delegation happens at task level via `[owner::]`. |
 | Account info granularity | Start with a single `Customers/<Name>/<Name>.md`. Split out extra notes (`Architecture.md`, `Commercial.md`, …) only when the main note hurts. Extra notes use `kind: account` + `customers: ["[[<Name>]]"]`. |
 | Periodic notes | Daily (log of what I did), Weekly (summary drafted from dailies, typically by agent), Quarterly (review). Monthly/yearly unconfigured. |
@@ -58,6 +58,7 @@ raw/ ingested/ transcribed/ # ingestion pipeline dirs (existing config)
 | `kind` | all | enum | `meeting` `stream` `customer` `account` `person` |
 | `date` | meeting | date | |
 | `audience` | meeting | enum | `internal` `external` |
+| `meeting_type` | meeting (optional) | enum | `qbr` `discovery` `status` `planning` `retrospective` `1:1` |
 | `customers` | meeting, stream, account | list of wikilinks | quoted `"[[Acme]]"` |
 | `streams` | meeting | list of wikilinks | |
 | `attendees` | meeting | list of wikilinks | |
@@ -69,7 +70,7 @@ raw/ ingested/ transcribed/ # ingestion pipeline dirs (existing config)
 Task inline fields: `due`, `owner` (exceptions only), plus `stream`/`customer`
 overrides when a task genuinely differs from its containing note.
 
-Dropped from the old kit: singular `customer`, `meeting_type`, stream `owner`,
+Dropped from the old kit: singular `customer`, stream `owner`,
 customer `state`, tags-as-kinds, per-customer meeting/stream folders, inline
 `[customer::]` duplication on notes, `inbox`/`archived` statuses.
 
@@ -158,8 +159,12 @@ Extract wikilinks from frontmatter values into the links table with
 - ~~Multi-select template prompt type~~ — **moot** as of the external-meeting
   one-customer invariant (see Closed questions); no prompt ever needs to
   collect multiple values.
-- `meeting_type` vocabulary (add the week category questions like "show all
-  QBRs" become real; zero code — one fields.toml entry + template line).
+- ~~`meeting_type` vocabulary~~ — **adopted 2026-07-19** as a field:
+  single-valued meeting **format** (`qbr` `discovery` `status` `planning`
+  `retrospective` `1:1`), set during enrichment (never prompted; a recurring
+  ceremony earns its own template hardcoding the type). Themes stay tags —
+  `escalation` is deliberately not a type. Advisory vocabulary; nothing in
+  code. Backfill-by-agent if older meetings need typing.
 - Any dedicated People/CRM tooling beyond Person notes.
 
 ### Routing semantics fix (2026-07-19, follow-on)
