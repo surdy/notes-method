@@ -1,0 +1,18 @@
+# Pins the toolchain for local development *and* CI so lint results are
+# reproducible. Without this, `dtolnay/rust-toolchain@stable` tracked whatever
+# stable had become while a developer's rustup lagged behind, and a new clippy
+# release turned `main` red on code nobody had touched (`manual_contains` on
+# 1.96, `question_mark` on 1.97).
+#
+# `.github/workflows/ci.yml` reads `channel` from this file, so this is the
+# single source of truth — bump it here and CI follows.
+#
+# Not the MSRV: `Cargo.toml`'s `rust-version = "1.85.0"` is the minimum
+# supported version this crate compiles against, and is unaffected by this pin.
+#
+# Not the container build either: `Containerfile` copies only `Cargo.*` and
+# `crates/`, so its `rust:1-bookworm` compiler is independent of this file.
+[toolchain]
+channel = "1.97.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

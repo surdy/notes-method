@@ -8,7 +8,7 @@
 
 ## Build, Test & Validation
 
-- **Rust workspace gates** (run after every change): `cargo fmt --all`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace`.
+- **Rust workspace gates** (run after every change): `cargo fmt --all`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace`. These are exactly the CI steps, and `rust-toolchain.toml` pins the toolchain CI uses — so a clean local run means a clean CI run. Do **not** work around a new lint by loosening the gate; fix it, or bump `channel` deliberately.
 - **`notesmith-tauri` is excluded from the workspace** (`Cargo.toml`: `exclude = ["crates/notesmith-tauri", ...]`). The `--workspace` gates **do not** cover it. When you touch `notesmith-tauri` (or `notesmith-agent`, which it depends on), validate it separately: `cd crates/notesmith-tauri && cargo clippy -- -D warnings && cargo test && cargo fmt --all`.
 - **Run a single test** with `cargo test -p <crate> <test_name>` (e.g. `cargo test -p notesmith-agent select_mcp`). Per-crate suites: `cargo test -p notesmith-vault`, `-p notesmith-index`, `-p notesmith-query`, `-p notesmith-config`.
 - **Frontend (`ui/app`)**: `npm run check` (svelte-check), `npx vitest run` (unit), `npm run build` (adapter-static). Theme tokens: `bash scripts/check-theme-tokens.sh`.

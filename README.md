@@ -90,8 +90,12 @@ ui/extension/            # Manifest V3 web-clipper browser extension
 
 ### Prerequisites
 
-- Rust 1.85+ (edition 2024)
+- Rust — `rust-toolchain.toml` pins the exact toolchain (currently 1.97.1) with `clippy` and `rustfmt`; rustup installs and selects it automatically, and CI reads the same file, so `cargo clippy` locally reports what CI reports. MSRV is 1.85.0 (edition 2024).
 - Node.js 22+ and pnpm 10+
+
+To move to a newer compiler, bump `channel` in `rust-toolchain.toml` and fix any
+new lints in that commit — a floating `stable` used to turn `main` red on
+untouched code whenever clippy shipped a new lint.
 
 ### Build
 
