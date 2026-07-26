@@ -108,7 +108,9 @@ pub fn parse_search_query(query: &str) -> (String, SearchFilters) {
         let value = raw_value.trim_matches('"').to_string();
         let key_is_fieldlike = !key.is_empty()
             && key.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
-            && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+            && key
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
         // Times (12:30) and URLs (https://…) are text, not filters.
         if !key_is_fieldlike || value.is_empty() || token.contains("://") {
             text_terms.push(token);
@@ -5818,8 +5820,7 @@ mod tests {
         assert_eq!(filters.path_prefix.as_deref(), Some("Meetings/"));
 
         // Quoted values keep spaces; repeated keys OR together.
-        let (text, filters) =
-            parse_search_query(r#"pricing customer:"Acme Corp" customer:Globex"#);
+        let (text, filters) = parse_search_query(r#"pricing customer:"Acme Corp" customer:Globex"#);
         assert_eq!(text, "pricing");
         assert!(matches!(
             filters.fields.get("customers"),
@@ -5901,7 +5902,10 @@ mod tests {
 
         // Empty filters behave exactly like no filters.
         let unfiltered = ops.vault_search("renewal", Some(10), None).unwrap();
-        assert_eq!(paths_for(json!({})).len(), unfiltered.as_array().unwrap().len());
+        assert_eq!(
+            paths_for(json!({})).len(),
+            unfiltered.as_array().unwrap().len()
+        );
         assert_eq!(unfiltered.as_array().unwrap().len(), 3);
     }
 
@@ -5918,7 +5922,11 @@ mod tests {
             "Meetings/2026/07/acmecorp.md",
             "---\nkind: meeting\ncustomers:\n  - \"[[AcmeCorp]]\"\n---\n# Other",
         );
-        write_note(temp_dir.path(), "Inbox/scratch.md", "---\nkind: note\n---\n# Scratch");
+        write_note(
+            temp_dir.path(),
+            "Inbox/scratch.md",
+            "---\nkind: note\n---\n# Scratch",
+        );
         let ops = build_test_ops(temp_dir.path());
 
         // `kind` satisfies the type filter (not just legacy `type`).

@@ -430,13 +430,17 @@ Behavior:
 - `field.<key>: "*"` means the field exists and is non-empty.
 - `field_exists` matches even when the field value is empty.
 - `move_to` is rendered with Minijinja using `field.*`, `filename`, `tags`, and legacy top-level field names.
-- Routing applies configured mutations, stamps `archived` / `archived-at`, then moves the note.
+- Routing applies configured mutations, then moves the note. Archive semantics (`archived` / `archived-at`) belong to `archive_note`, not to filing.
 
 Available Minijinja filters:
 - `unwikilink` — strips `[[` / `]]`
 - `slug` — makes a filename-friendly slug
-- `year` — extracts the year from a date
-- `month` — extracts the month from a date
+- `year` — extracts the year from an ISO `YYYY-MM-DD` date
+- `month` — extracts the month from an ISO `YYYY-MM-DD` date
+
+`year` / `month` reject any value that is not an ISO date, which fails the rule
+rather than producing a malformed destination. A note whose `date` is missing or
+unparseable therefore stays put for triage.
 
 ---
 ## Templates

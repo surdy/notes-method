@@ -1031,7 +1031,11 @@ mod tests {
                     "2026-07-17".to_string(),
                     "note".to_string()
                 ),
-                ("due".to_string(), "2026-07-24".to_string(), "task".to_string()),
+                (
+                    "due".to_string(),
+                    "2026-07-24".to_string(),
+                    "task".to_string()
+                ),
                 (
                     "kind".to_string(),
                     "meeting".to_string(),
@@ -1078,7 +1082,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(owner_rows, 0, "paragraph-scoped inline fields must not leak onto tasks");
+        assert_eq!(
+            owner_rows, 0,
+            "paragraph-scoped inline fields must not leak onto tasks"
+        );
     }
 
     #[test]
@@ -1130,7 +1137,10 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
-        assert_eq!(dangling, ("Jane Smith".to_string(), "frontmatter".to_string()));
+        assert_eq!(
+            dangling,
+            ("Jane Smith".to_string(), "frontmatter".to_string())
+        );
 
         // Alias form parses like a body wikilink.
         let alias: (String, Option<String>) = conn
@@ -1672,7 +1682,10 @@ mod tests {
         }
     }
 
-    fn query_field_values(conn: &Connection, note_path: &str) -> Vec<(String, i64, String, String, String)> {
+    fn query_field_values(
+        conn: &Connection,
+        note_path: &str,
+    ) -> Vec<(String, i64, String, String, String)> {
         let mut stmt = conn
             .prepare(
                 "SELECT key, ordinal, value, value_type, source

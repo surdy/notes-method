@@ -197,6 +197,40 @@ filter), "active streams for Acme" (P1), "open tasks from external Acme
 meetings" (P4), "stale active streams" (P1 + date join), "summarize Acme
 activity this quarter" (P2 + `time_query`), "multi-customer work" (P1 count>1).
 
+### Golden-vault migration (2026-07-26, closes the plan)
+
+`golden-vault/` — the canonical fixture — was still entirely the pre-v2 schema
+(`type`/`meeting-kind`, singular `customer`, per-customer folders, legacy
+`Assets/templates/`), so nothing exercised the new primitives on realistic
+data. It now *is* the kit: `Meetings/YYYY/MM/`, flat `Streams/`, `People/`,
+`Customers/<Name>/`, `Daily|Weekly|Quarterly/`, the kit's `fields.toml` /
+`routing.yaml` / `skill.md` / nine templates, and dashboards built from the
+query recipes. Coverage the old fixture could not provide: a multi-customer /
+multi-stream internal meeting, a zero-item `customers` list, deliberately
+dangling attendee links, and task delegation via `[owner::]`.
+
+Three things this surfaced, fixed in the same pass:
+
+- **`filename` is a Jinja template, not strftime.** This doc's kit prescribed
+  `"%Y-%m-%d"` / `"%Y-W%W"` / `"%Y-Q%q"`, but `extract_key_from_filename_template`
+  finds a note's period key by splitting the filename *around* its period token
+  (`{{ date }}`, `{{ week }}`, `{{ quarter }}`); a strftime pattern silently
+  stops matching periodic notes. Corrected in the kit doc.
+- **`type: field-picker` prompts don't exist.** `PromptSpec::prompt_type` is a
+  free-form string that only reaches the templates HTTP payload; the app renders
+  every prompt as free text. The kit now declares `text` and says so.
+- **Routing invented paths from malformed dates.** The `year`/`month` filters
+  sliced the raw string, so `date: not-a-date` routed to `Meetings/not-/-d/…`
+  and a `date:` holding a list produced an empty path segment. They now reject
+  non-ISO values, so routing declines instead (ADR 0009); regression fixture in
+  `test-fixtures/malformed-vault/malformed-date-field.md`.
+
+Two test gaps closed: the SQL-fence walker recursed into `.notesmith/`, which
+would have tried to execute Jinja-templated SQL in templates as SQL, and no test
+ever executed the SQL held in `sidebar.yaml` / `sidebar-views.yaml` /
+`prompts/*.md` — where three queries had already rotted against the schema
+(`v_notes.type`, `v_notes.archived`, `v_tasks.status`/`due`/`customer`).
+
 ## Doc/kit updates once implemented
 
 - Rewrite `docs/example-work-notes-kit.md` as **the** Work Notes kit (this

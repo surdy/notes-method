@@ -141,19 +141,26 @@ template = "generic-note"
 
 [periodic.daily]
 folder = "Daily"
-filename = "%Y-%m-%d"
+filename = "{{ date }}"
 template = "daily"
 
 [periodic.weekly]
 folder = "Weekly"
-filename = "%Y-W%W"
+filename = "Week {{ week }}"
 template = "weekly"
 
 [periodic.quarterly]
 folder = "Quarterly"
-filename = "%Y-Q%q"
+filename = "{{ quarter }}"
 template = "quarterly"
 ```
+
+`filename` is a **template, not a strftime pattern** — use the period token for
+its kind (`{{ date }}` daily, `{{ week }}` weekly, `{{ month }}`, `{{ quarter }}`,
+`{{ year }}`), which renders as `2026-07-24` / `2026-W30` / `2026-07` /
+`2026-Q3` / `2026`. The indexer locates a note's period key by splitting the
+filename around that token, so a pattern without it (`"%Y-%m-%d"`) silently
+stops matching periodic notes for that kind.
 
 Task statuses: the default set (`[ ]` todo, `[x]` done, `[/]` in progress,
 `[b]` blocked, `[w]` waiting, …) is already right for this workflow — no
@@ -247,8 +254,8 @@ description: "New customer-attended meeting — always exactly one customer"
 output_path: "Inbox/{{ date }} - {{ customer }} - {{ title }}.md"
 prompts:
   - { name: title, type: text, required: true }
-  - { name: customer, type: field-picker, required: true }
-  - { name: stream, type: field-picker, required: false }
+  - { name: customer, type: text, required: true }
+  - { name: stream, type: text, required: false }
 ---
 ---
 kind: meeting
@@ -275,11 +282,16 @@ attendees: []
 ```
 
 An external meeting has **exactly one customer** — that's an invariant of the
-workflow, not a template limitation, so a single-select customer prompt is the
+workflow, not a template limitation, so a single-valued customer prompt is the
 correct interaction and multi-select prompts are unnecessary. A dashboard
 query flags violations (below). Per-customer external templates (e.g. a QBR
 template with a standing agenda) are just extra files in
 `.notesmith/templates/` — add one only when a customer earns it.
+
+Prompt types: `text` is the only one implemented — the app renders every prompt
+as a free-text input regardless of the declared `type`, and `as_wikilink` turns
+the typed name into a link. A picker backed by `fields.toml`'s `suggest_from`
+queries would be a UI feature, not a config change.
 
 ### `stream.md`
 
@@ -290,8 +302,8 @@ description: "New stream of work"
 output_path: "Inbox/{{ title }}.md"
 prompts:
   - { name: title, type: text, required: true }
-  - { name: customer, type: field-picker, required: false }
-  - { name: priority, type: field-picker, required: false }
+  - { name: customer, type: text, required: false }
+  - { name: priority, type: text, required: false }
 ---
 ---
 kind: stream

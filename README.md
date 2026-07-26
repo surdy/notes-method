@@ -84,7 +84,7 @@ ui/extension/            # Manifest V3 web-clipper browser extension
 
 ## Golden Vault
 
-`golden-vault/` contains representative markdown notes used as the canonical test fixture across all integration and snapshot tests.
+`golden-vault/` contains representative markdown notes used as the canonical test fixture across all integration and snapshot tests. It is configured as the **Work Notes kit** ([docs/example-work-notes-kit.md](docs/example-work-notes-kit.md)): `kind` is the canonical type field, relationships live in frontmatter wikilink lists (`customers`, `streams`, `attendees`), and meetings are filed under `Meetings/YYYY/MM/` rather than per-customer folders. Its `.notesmith/` config, templates, and dashboard queries are the kit made real — tests execute every `notesmith sql` fence in the vault and every SQL string in its config, so the documented query recipes cannot rot. `General/` holds schema-free parser-coverage notes (callouts, footnotes, block refs, task metadata) that deliberately carry no `kind`.
 
 ## Development
 

@@ -886,11 +886,12 @@ impl ServerHandler for NotesmithMcp {
                 .handle_tool_call::<SearchNotesParams, _>(request.arguments, |params| {
                     self.ops.search_notes(&params.query, params.limit)
                 }),
-            "vault_search" => self
-                .handle_tool_call::<VaultSearchParams, _>(request.arguments, |params| {
+            "vault_search" => {
+                self.handle_tool_call::<VaultSearchParams, _>(request.arguments, |params| {
                     self.ops
                         .vault_search(&params.query, params.limit, params.filters.as_ref())
-                }),
+                })
+            }
             "memory_recall" => {
                 self.handle_tool_call::<MemoryRecallParams, _>(request.arguments, |params| {
                     self.ops

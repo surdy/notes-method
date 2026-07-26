@@ -397,8 +397,8 @@ pub async fn search_notes(
             .map_err(internal_error);
     }
 
-    let allowed = notesmith_ops::resolve_filter_paths(&vault.cache, &filters)
-        .map_err(internal_error)?;
+    let allowed =
+        notesmith_ops::resolve_filter_paths(&vault.cache, &filters).map_err(internal_error)?;
     if allowed.is_empty() {
         return Ok(Json(Vec::new()));
     }
@@ -411,8 +411,8 @@ pub async fn search_notes(
                 "SELECT vault_name, path, title FROM notes WHERE path IN (SELECT value FROM json_each(?1)) ORDER BY path",
             )
             .map_err(internal_error)?;
-        let paths_json = serde_json::to_string(&allowed.iter().collect::<Vec<_>>())
-            .map_err(internal_error)?;
+        let paths_json =
+            serde_json::to_string(&allowed.iter().collect::<Vec<_>>()).map_err(internal_error)?;
         let rows = stmt
             .query_map([paths_json], |row| {
                 Ok(SearchResult {

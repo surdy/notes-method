@@ -27,7 +27,7 @@ fn search_by_title() {
     assert!(
         results
             .iter()
-            .any(|result| result.path == "Customers/Acme/Acme Corp.md")
+            .any(|result| result.path == "Customers/Acme Corp/Acme Corp.md")
     );
     assert!(results.iter().any(|result| result.title == "Acme Corp"));
 }
@@ -39,7 +39,7 @@ fn search_by_body_content() {
     let results = index.search("zero-downtime", 10).unwrap();
 
     assert!(results.iter().any(|result| {
-        result.path == "Customers/Acme/External Meetings/2025-01-14 Customer Check-in.md"
+        result.path == "Meetings/2025/01/2025-01-14 - Acme Corp - Customer Check-in.md"
     }));
 }
 
@@ -51,7 +51,7 @@ fn search_returns_snippets() {
     let result = results
         .into_iter()
         .find(|result| {
-            result.path == "Customers/Acme/External Meetings/2025-01-14 Customer Check-in.md"
+            result.path == "Meetings/2025/01/2025-01-14 - Acme Corp - Customer Check-in.md"
         })
         .unwrap();
 
@@ -84,7 +84,7 @@ fn incremental_update() {
 
     let mut updated = notes
         .iter()
-        .find(|note| note.path.as_str() == "Customers/Acme/Acme Corp.md")
+        .find(|note| note.path.as_str() == "Customers/Acme Corp/Acme Corp.md")
         .unwrap()
         .clone();
     updated

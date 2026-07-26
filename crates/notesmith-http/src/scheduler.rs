@@ -327,8 +327,8 @@ mod tests {
         let root = temp_dir.path().join("vault");
         std::fs::create_dir_all(&root).unwrap();
 
-        let templates_src = golden_vault().join("Assets").join("templates");
-        let templates_dst = root.join("Assets").join("templates");
+        let templates_src = golden_vault().join(".notesmith").join("templates");
+        let templates_dst = root.join(".notesmith").join("templates");
         std::fs::create_dir_all(&templates_dst).unwrap();
         for entry in std::fs::read_dir(&templates_src).unwrap() {
             let entry = entry.unwrap();
@@ -345,19 +345,12 @@ mod tests {
         let template_engine = notesmith_templates::TemplateEngine::new(root.clone(), None);
         let date = NaiveDate::from_ymd_opt(2025, 6, 15).unwrap();
 
-        let result = ensure_daily_note(
-            &root,
-            "Inbox/Daily",
-            "daily-note",
-            date,
-            &template_engine,
-            &engine,
-        )
-        .unwrap();
+        let result =
+            ensure_daily_note(&root, "Daily", "daily", date, &template_engine, &engine).unwrap();
 
-        assert_eq!(result, Some("Inbox/Daily/2025-06-15.md".to_string()));
+        assert_eq!(result, Some("Daily/2025-06-15.md".to_string()));
 
-        let content = std::fs::read_to_string(root.join("Inbox/Daily/2025-06-15.md")).unwrap();
+        let content = std::fs::read_to_string(root.join("Daily/2025-06-15.md")).unwrap();
         assert!(content.contains("# 2025-06-15"));
         assert!(content.contains("date: 2025-06-15"));
     }
@@ -369,26 +362,12 @@ mod tests {
         let template_engine = notesmith_templates::TemplateEngine::new(root.clone(), None);
         let date = NaiveDate::from_ymd_opt(2025, 6, 15).unwrap();
 
-        let first = ensure_daily_note(
-            &root,
-            "Inbox/Daily",
-            "daily-note",
-            date,
-            &template_engine,
-            &engine,
-        )
-        .unwrap();
+        let first =
+            ensure_daily_note(&root, "Daily", "daily", date, &template_engine, &engine).unwrap();
         assert!(first.is_some());
 
-        let second = ensure_daily_note(
-            &root,
-            "Inbox/Daily",
-            "daily-note",
-            date,
-            &template_engine,
-            &engine,
-        )
-        .unwrap();
+        let second =
+            ensure_daily_note(&root, "Daily", "daily", date, &template_engine, &engine).unwrap();
         assert_eq!(second, None);
     }
 
@@ -399,17 +378,9 @@ mod tests {
         let template_engine = notesmith_templates::TemplateEngine::new(root.clone(), None);
         let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
 
-        ensure_daily_note(
-            &root,
-            "Inbox/Daily",
-            "daily-note",
-            date,
-            &template_engine,
-            &engine,
-        )
-        .unwrap();
+        ensure_daily_note(&root, "Daily", "daily", date, &template_engine, &engine).unwrap();
 
-        let content = std::fs::read_to_string(root.join("Inbox/Daily/2024-01-01.md")).unwrap();
+        let content = std::fs::read_to_string(root.join("Daily/2024-01-01.md")).unwrap();
         assert!(
             content.contains("# 2024-01-01"),
             "expected template to use overridden date, got:\n{content}"
@@ -423,7 +394,7 @@ mod tests {
         let engine = NativeVaultEngine;
         let template_engine = notesmith_templates::TemplateEngine::new(root.clone(), None);
         std::fs::write(
-            root.join("Assets/templates/weekly.md.j2"),
+            root.join(".notesmith/templates/weekly.md"),
             r#"---
 notesmith:
   name: weekly
@@ -473,20 +444,14 @@ notesmith:
         let engine = NativeVaultEngine;
         let template_engine = notesmith_templates::TemplateEngine::new(root.clone(), None);
 
-        let created = catch_up_daily_notes(
-            &root,
-            "Inbox/Daily",
-            "daily-note",
-            &template_engine,
-            &engine,
-        )
-        .unwrap();
+        let created =
+            catch_up_daily_notes(&root, "Daily", "daily", &template_engine, &engine).unwrap();
 
         // Should have created today + up to 29 days back
         assert!(!created.is_empty());
         // Today's note should exist
         let today = Local::now().format("%Y-%m-%d").to_string();
-        let today_path = root.join(format!("Inbox/Daily/{today}.md"));
+        let today_path = root.join(format!("Daily/{today}.md"));
         assert!(today_path.exists());
     }
 

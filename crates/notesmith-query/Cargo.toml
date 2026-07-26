@@ -17,3 +17,4 @@ thiserror = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 notesmith-vault = { workspace = true }
+serde_yaml = { workspace = true }

@@ -535,6 +535,25 @@ fn rebuild_content(mapping: &Mapping, body: &str) -> String {
     }
 }
 
+/// Slice a component out of an ISO `YYYY-MM-DD` date, rejecting anything else.
+fn iso_date_component(
+    value: &str,
+    range: impl std::slice::SliceIndex<str, Output = str>,
+) -> Result<String, minijinja::Error> {
+    let is_iso_date = value.len() >= 10
+        && value.is_char_boundary(10)
+        && chrono::NaiveDate::parse_from_str(&value[..10], "%Y-%m-%d").is_ok();
+
+    if !is_iso_date {
+        return Err(minijinja::Error::new(
+            minijinja::ErrorKind::InvalidOperation,
+            format!("`{value}` is not an ISO date (YYYY-MM-DD)"),
+        ));
+    }
+
+    Ok(value[..10].get(range).unwrap_or_default().to_string())
+}
+
 fn render_destination(
     template: &str,
     ctx: &NoteContext,
@@ -546,11 +565,14 @@ fn render_destination(
             .trim_end_matches("]]")
             .to_string()
     });
-    env.add_filter("year", |val: String| -> String {
-        val.get(..4).unwrap_or("").to_string()
+    // Date components are only meaningful for an ISO `YYYY-MM-DD` value. A
+    // malformed date must fail the render rather than slice out a nonsense path
+    // segment (`Meetings/not-/-d/…`) or an empty one (ADR 0009).
+    env.add_filter("year", |val: String| -> Result<String, minijinja::Error> {
+        iso_date_component(&val, ..4)
     });
-    env.add_filter("month", |val: String| -> String {
-        val.get(5..7).unwrap_or("").to_string()
+    env.add_filter("month", |val: String| -> Result<String, minijinja::Error> {
+        iso_date_component(&val, 5..7)
     });
     env.add_filter("slug", slug);
 

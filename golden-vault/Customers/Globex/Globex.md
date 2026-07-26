@@ -1,9 +1,6 @@
 ---
-type: customer
-customer: "[[Globex]]"
-state: Active
+kind: customer
 tags:
-  - customer
   - mid-market
 created: 2024-09-01 10:00
 updated: 2025-01-10 11:00
@@ -19,16 +16,16 @@ Globex is a mid-market customer on a growth plan. See [[Globex#Engagement Histor
 
 Onboarded in Q3 2024. Primary contact is [[Alex Rivera|Alex]].
 
-## Active Streams
-
-- [[Platform Rollout]] — In Progress
-
-## Key Contacts
+## People
 
 | Name | Role |
 |------|------|
 | Alex Rivera | Director of Engineering |
 | Pat Chen | VP Product |
+
+## Streams
+
+- [[Platform Rollout]] — waiting on procurement
 
 [account-tier:: Growth]
 [renewal-date:: 2026-03-01]

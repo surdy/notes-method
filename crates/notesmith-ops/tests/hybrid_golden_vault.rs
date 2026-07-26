@@ -71,7 +71,8 @@ fn hybrid_search_over_golden_vault_returns_grounded_hits() {
 
     // The Acme customer note should surface for an "Acme" query.
     assert!(
-        hits.iter().any(|h| h.path == "Customers/Acme/Acme Corp.md"),
+        hits.iter()
+            .any(|h| h.path == "Customers/Acme Corp/Acme Corp.md"),
         "expected Acme Corp note in hybrid results, got: {:?}",
         hits.iter().map(|h| &h.path).collect::<Vec<_>>()
     );

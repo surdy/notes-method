@@ -71,7 +71,7 @@ fn fields_include_inline_fields() {
         .connection()
         .query_row(
             "SELECT COUNT(*) FROM fields WHERE note_path = ?1 AND key = 'owner' AND source = 'inline'",
-            ["Inbox/Daily/2025-01-15.md"],
+            ["Daily/2025-01-15.md"],
             |row| row.get(0),
         )
         .unwrap();
@@ -88,7 +88,7 @@ fn tags_include_frontmatter_and_inline_hashtags() {
         .connection()
         .query_row(
             "SELECT COUNT(*) FROM tags WHERE note_path = ?1 AND tag = 'daily'",
-            ["Inbox/Daily/2025-01-15.md"],
+            ["Daily/2025-01-15.md"],
             |row| row.get(0),
         )
         .unwrap();
@@ -96,7 +96,7 @@ fn tags_include_frontmatter_and_inline_hashtags() {
         .connection()
         .query_row(
             "SELECT COUNT(*) FROM tags WHERE note_path = ?1 AND tag = 'acme'",
-            ["Customers/Acme/Acme Corp.md"],
+            ["Customers/Acme Corp/Acme Corp.md"],
             |row| row.get(0),
         )
         .unwrap();
@@ -168,11 +168,58 @@ fn periodic_notes_are_detected() {
         .connection()
         .query_row(
             "SELECT COUNT(*) FROM v_periodic WHERE period_kind = 'daily' AND note_path = ?1",
-            ["Inbox/Daily/2025-01-15.md"],
+            ["Daily/2025-01-15.md"],
             |row| row.get(0),
         )
         .unwrap();
     assert_eq!(count, 1);
+}
+
+/// The fixture's own `vault.toml` must actually match the fixture's own
+/// filenames. A `filename` template that has drifted from the files on disk
+/// (e.g. a strftime pattern instead of a period token) silently indexes nothing.
+#[test]
+fn fixture_periodic_config_matches_fixture_filenames() {
+    let engine = NativeVaultEngine;
+    let notes = engine.scan(&golden_vault()).unwrap();
+    let config = notesmith_config::VaultConfig::load_from_vault(&golden_vault()).unwrap();
+    let cache = VaultCache::open_in_memory().unwrap();
+    cache
+        .reindex_with_periodic("test", &notes, &config.periodic)
+        .unwrap();
+
+    let rows: Vec<(String, String, String)> = {
+        let conn = cache.connection();
+        let mut stmt = conn
+            .prepare("SELECT period_kind, period_key, note_path FROM v_periodic ORDER BY note_path")
+            .unwrap();
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+
+    assert_eq!(
+        rows,
+        vec![
+            (
+                "daily".to_string(),
+                "2025-01-15".to_string(),
+                "Daily/2025-01-15.md".to_string()
+            ),
+            (
+                "quarterly".to_string(),
+                "2025-Q1".to_string(),
+                "Quarterly/2025-Q1.md".to_string()
+            ),
+            (
+                "weekly".to_string(),
+                "2025-W03".to_string(),
+                "Weekly/Week 2025-W03.md".to_string()
+            ),
+        ],
+        "every configured period kind should resolve one fixture note"
+    );
 }
 
 #[test]
@@ -252,7 +299,7 @@ fn right_rail_queries_match_schema() {
         .unwrap();
     let outgoing: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM (SELECT DISTINCT target_path, COALESCE(n.title, target_path) AS target FROM v_backlinks b LEFT JOIN v_notes n ON n.path = b.target_path WHERE b.source_path = 'Customers/Acme/Acme Corp.md' ORDER BY target)",
+            "SELECT COUNT(*) FROM (SELECT DISTINCT target_path, COALESCE(n.title, target_path) AS target FROM v_backlinks b LEFT JOIN v_notes n ON n.path = b.target_path WHERE b.source_path = 'Customers/Acme Corp/Acme Corp.md' ORDER BY target)",
             [],
             |row| row.get(0),
         )
