@@ -68,10 +68,9 @@ pub fn drop_user_views(conn: &Connection, view_names: &[String]) {
 /// Extract the view name from a CREATE VIEW statement.
 fn extract_view_name(stmt: &str) -> Option<String> {
     let upper = stmt.to_uppercase();
-    let after_view = if let Some(index) = upper.find("VIEW") {
+    let after_view = {
+        let index = upper.find("VIEW")?;
         &stmt[index + 4..]
-    } else {
-        return None;
     };
 
     let trimmed = after_view.trim_start();
