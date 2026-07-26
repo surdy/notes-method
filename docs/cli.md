@@ -191,6 +191,60 @@ Output: `Reindexed 42 notes for work into ~/.cache/notesmith/work/cache.sqlite`
 
 ---
 
+## kit
+
+Install a blessed vault configuration — `.notesmith/` config, templates,
+dashboards, and the folder skeleton. Runs entirely on the local filesystem, so
+it works before a daemon exists.
+
+### `kit list`
+
+```bash
+notesmith kit list
+```
+
+### `kit show`
+
+List the folders and files a kit installs, without writing anything.
+
+```bash
+notesmith kit show work-notes
+```
+
+### `kit apply`
+
+```bash
+notesmith kit apply work-notes                      # into the detected vault
+notesmith kit apply work-notes --path ~/vaults/work # into a specific directory
+notesmith kit apply work-notes --dry-run            # preview only
+notesmith kit apply work-notes --force              # overwrite existing files
+```
+
+| Flag | Description |
+|------|-------------|
+| `--path <DIR>` | Target directory (created if missing). Defaults to the detected vault. |
+| `--name <NAME>` | Vault name written into `vault.toml`. Defaults to the detected vault name, else the directory name. |
+| `--dry-run` | Report what would change; write nothing. |
+| `--force` | Overwrite files that already exist. |
+
+**Existing files are never overwritten** without `--force` — they are reported
+as skipped — so applying a kit to a populated vault is safe, and re-applying is
+a no-op. Output marks each path `+` (written) or `=` (left alone):
+
+```text
+Applied kit 'work-notes' to /Users/me/vaults/work (vault name: work)
+  + Inbox/
+  + Meetings/
+  + .notesmith/vault.toml
+  = .notesmith/routing.yaml (exists, left alone)
+```
+
+The `work-notes` kit is the schema documented in
+[the Work Notes kit](example-work-notes-kit.md); its files are byte-identical to
+the `golden-vault/` fixture, so what you install is what the test suite covers.
+
+---
+
 ## reindex
 
 ### `reindex`

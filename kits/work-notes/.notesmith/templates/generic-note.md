@@ -1,0 +1,9 @@
+---
+name: generic-note
+description: A generic blank note
+output_path: "{{ folder | default('Inbox') }}/{{ title | slug }}.md"
+prompts:
+  - { name: title, type: text, required: true }
+  - { name: folder, type: text, required: false }
+---
+# {{ title }}

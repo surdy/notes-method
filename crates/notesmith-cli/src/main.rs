@@ -8,6 +8,7 @@ use notesmith_cli::commands::{
     daily::DailyCommand,
     embed::EmbedCommand,
     ingest::IngestCommand,
+    kit::KitCommand,
     mcp::McpCommand,
     note::NoteCommand,
     periodic::PeriodicCommand,
@@ -130,6 +131,11 @@ enum Command {
         #[command(subcommand)]
         command: PeriodicCommand,
     },
+    /// Vault kit commands — install a blessed vault configuration
+    Kit {
+        #[command(subcommand)]
+        command: KitCommand,
+    },
     /// Vault skill file commands
     Skill {
         #[command(subcommand)]
@@ -240,6 +246,11 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
         }
         Command::Periodic { command } => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
+                .await?;
+        }
+        Command::Kit { command } => {
             command
                 .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;
