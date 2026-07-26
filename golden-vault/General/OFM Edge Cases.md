@@ -1,5 +1,4 @@
 ---
-type: note
 tags:
   - test
   - edge-cases
