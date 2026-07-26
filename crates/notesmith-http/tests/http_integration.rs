@@ -138,7 +138,7 @@ impl TestServer {
 
     async fn with_files(files: &[(&str, &str)]) -> Self {
         Self::with_config_and_files(
-            "name = \"test-vault\"\n\n[capture]\nfolder = \"Inbox\"\n\n[daily]\nfolder = \"Inbox/Daily\"\n",
+            "name = \"test-vault\"\n\n[capture]\nfolder = \"Inbox\"\n\n[daily]\nfolder = \"Daily\"\ntemplate = \"daily\"\n",
             files,
         )
         .await
@@ -540,7 +540,7 @@ async fn list_notes_returns_cached_notes_for_vault() {
     assert!(body.iter().any(|note| {
         note.get("path")
             == Some(&serde_json::Value::String(
-                "Customers/Acme/Acme Corp.md".into(),
+                "Customers/Acme Corp/Acme Corp.md".into(),
             ))
     }));
 
@@ -940,7 +940,7 @@ async fn get_note_returns_full_note_metadata() {
     });
 
     let response = reqwest::get(format!(
-        "http://{address}/api/v/test-vault/notes/Customers/Acme/Streams/Migration%20to%20v2.md"
+        "http://{address}/api/v/test-vault/notes/Streams/Migration%20to%20v2.md"
     ))
     .await
     .unwrap();
@@ -950,7 +950,7 @@ async fn get_note_returns_full_note_metadata() {
     let body = response.json::<serde_json::Value>().await.unwrap();
     assert_eq!(
         body["path"],
-        serde_json::json!("Customers/Acme/Streams/Migration to v2.md")
+        serde_json::json!("Streams/Migration to v2.md")
     );
     assert!(
         body["body"]
@@ -1096,7 +1096,10 @@ async fn search_supports_filter_tokens_in_query() {
         .await
         .unwrap();
     assert_eq!(response.status(), reqwest::StatusCode::OK);
-    assert_eq!(response.json::<serde_json::Value>().await.unwrap(), serde_json::json!([]));
+    assert_eq!(
+        response.json::<serde_json::Value>().await.unwrap(),
+        serde_json::json!([])
+    );
 }
 
 #[tokio::test]
@@ -1121,7 +1124,7 @@ async fn search_returns_matching_notes() {
     assert!(body.iter().any(|note| {
         note.get("path")
             == Some(&serde_json::Value::String(
-                "Customers/Acme/Acme Corp.md".into(),
+                "Customers/Acme Corp/Acme Corp.md".into(),
             ))
     }));
 
@@ -2063,7 +2066,7 @@ async fn get_templates_lists_all() {
     assert_eq!(body.len(), 9, "expected 9 templates, got {}", body.len());
     let names: Vec<&str> = body.iter().filter_map(|t| t["name"].as_str()).collect();
     assert!(names.contains(&"generic-note"));
-    assert!(names.contains(&"daily-note"));
+    assert!(names.contains(&"daily"));
     assert!(names.contains(&"stream"));
     for template in &body {
         assert!(template["prompts"].as_array().is_some());
@@ -2171,8 +2174,8 @@ async fn post_render_unknown_template_returns_404() {
 #[tokio::test]
 async fn post_instantiate_creates_note() {
     let server = TestServer::empty().await;
-    let templates_src = golden_vault().join("Assets").join("templates");
-    let templates_dst = server.root.join("Assets").join("templates");
+    let templates_src = golden_vault().join(".notesmith").join("templates");
+    let templates_dst = server.root.join(".notesmith").join("templates");
     fs::create_dir_all(&templates_dst).unwrap();
     for entry in fs::read_dir(&templates_src).unwrap() {
         let entry = entry.unwrap();
@@ -2204,8 +2207,8 @@ async fn post_instantiate_creates_note() {
 #[tokio::test]
 async fn post_instantiate_missing_prompt_returns_422() {
     let server = TestServer::empty().await;
-    let templates_src = golden_vault().join("Assets").join("templates");
-    let templates_dst = server.root.join("Assets").join("templates");
+    let templates_src = golden_vault().join(".notesmith").join("templates");
+    let templates_dst = server.root.join(".notesmith").join("templates");
     fs::create_dir_all(&templates_dst).unwrap();
     for entry in fs::read_dir(&templates_src).unwrap() {
         let entry = entry.unwrap();
@@ -2346,8 +2349,8 @@ async fn route_preview_returns_conflict_for_archived_note() {
 // ── Daily integration tests ──────────────────────────────────────────────────
 
 fn copy_templates(server: &TestServer) {
-    let templates_src = golden_vault().join("Assets").join("templates");
-    let templates_dst = server.root.join("Assets").join("templates");
+    let templates_src = golden_vault().join(".notesmith").join("templates");
+    let templates_dst = server.root.join(".notesmith").join("templates");
     fs::create_dir_all(&templates_dst).unwrap();
     for entry in fs::read_dir(&templates_src).unwrap() {
         let entry = entry.unwrap();
@@ -2369,11 +2372,11 @@ async fn post_daily_creates_note() {
 
     assert_eq!(response.status(), reqwest::StatusCode::CREATED);
     let body = response.json::<serde_json::Value>().await.unwrap();
-    assert_eq!(body["path"], serde_json::json!("Inbox/Daily/2025-01-15.md"));
+    assert_eq!(body["path"], serde_json::json!("Daily/2025-01-15.md"));
     assert_eq!(body["created"], serde_json::json!(true));
-    assert!(server.root.join("Inbox/Daily/2025-01-15.md").exists());
+    assert!(server.root.join("Daily/2025-01-15.md").exists());
 
-    let content = fs::read_to_string(server.root.join("Inbox/Daily/2025-01-15.md")).unwrap();
+    let content = fs::read_to_string(server.root.join("Daily/2025-01-15.md")).unwrap();
     assert!(content.contains("# 2025-01-15"));
     assert!(content.contains("date: 2025-01-15"));
 
@@ -2426,7 +2429,7 @@ async fn get_daily_returns_content() {
 
     assert_eq!(response.status(), reqwest::StatusCode::OK);
     let body = response.json::<serde_json::Value>().await.unwrap();
-    assert_eq!(body["path"], serde_json::json!("Inbox/Daily/2025-02-10.md"));
+    assert_eq!(body["path"], serde_json::json!("Daily/2025-02-10.md"));
     assert!(body["content"].as_str().unwrap().contains("# 2025-02-10"));
 
     server.server.abort();
@@ -2531,10 +2534,10 @@ async fn agent_create_daily_write_mode() {
 
     assert_eq!(response.status(), reqwest::StatusCode::CREATED);
     let body = response.json::<serde_json::Value>().await.unwrap();
-    assert_eq!(body["path"], serde_json::json!("Inbox/Daily/2026-05-10.md"));
+    assert_eq!(body["path"], serde_json::json!("Daily/2026-05-10.md"));
     assert_eq!(body["created"], serde_json::json!(true));
     assert_eq!(
-        fs::read_to_string(server.root.join("Inbox/Daily/2026-05-10.md")).unwrap(),
+        fs::read_to_string(server.root.join("Daily/2026-05-10.md")).unwrap(),
         content
     );
 

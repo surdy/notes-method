@@ -1,22 +1,62 @@
 version = 1
 
-[fields.type]
+[fields.kind]
 type = "enum"
-description = "High-level note type"
-values = ["customer", "meeting", "daily", "note", "dashboard", "tasks"]
+description = "Canonical note type"
+values = ["meeting", "stream", "customer", "account", "person"]
+
+[fields.date]
+type = "date"
+description = "Meeting date"
+
+[fields.audience]
+type = "enum"
+description = "Did customers attend?"
+values = ["internal", "external"]
+
+[fields.meeting_type]
+type = "enum"
+description = "Meeting format"
+values = ["qbr", "discovery", "status", "planning", "retrospective", "1:1"]
+
+[fields.customers]
+type = "list"
+description = "Customers this note relates to"
+multivalue = true
+suggest_from = "SELECT DISTINCT value FROM v_field_values WHERE key = 'customers' ORDER BY value"
+
+[fields.streams]
+type = "list"
+description = "Streams this note relates to"
+multivalue = true
+suggest_from = "SELECT DISTINCT value FROM v_field_values WHERE key = 'streams' ORDER BY value"
+
+[fields.attendees]
+type = "list"
+description = "People who attended"
+multivalue = true
+suggest_from = "SELECT DISTINCT value FROM v_field_values WHERE key = 'attendees' ORDER BY value"
 
 [fields.status]
 type = "enum"
-description = "Lifecycle status"
-values = ["Active", "Blocked", "Complete", "Proposed"]
+description = "Stream lifecycle status"
+values = ["active", "waiting", "blocked", "done"]
 
 [fields.priority]
 type = "enum"
 values = ["P0", "P1", "P2", "P3"]
 
-[fields.customer]
+[fields.started]
+type = "date"
+
+[fields.target]
+type = "date"
+
+[fields.org]
 type = "string"
-suggest_from = "SELECT DISTINCT value FROM v_fields WHERE key = 'customer' ORDER BY value"
+
+[fields.role]
+type = "string"
 
 [fields.tags]
 type = "list"

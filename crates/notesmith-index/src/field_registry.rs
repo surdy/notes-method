@@ -233,19 +233,36 @@ type = "number"
         let registry = FieldRegistry::load(&golden_vault());
 
         assert_eq!(registry.version, 1);
-        assert_eq!(registry.get("type").unwrap().field_type, FieldType::Enum);
-        assert_eq!(
-            registry.get("customer").unwrap().field_type,
-            FieldType::String
-        );
+
+        let kind = registry.get("kind").unwrap();
+        assert_eq!(kind.field_type, FieldType::Enum);
         assert!(
-            registry
-                .get("customer")
+            kind.values
+                .as_ref()
                 .unwrap()
+                .contains(&"meeting".to_string())
+        );
+
+        // Wikilink relationships are multivalue lists, suggested from the
+        // element-normalized view.
+        let customers = registry.get("customers").unwrap();
+        assert_eq!(customers.field_type, FieldType::List);
+        assert_eq!(customers.multivalue, Some(true));
+        assert!(
+            customers
                 .suggest_from
                 .as_deref()
                 .unwrap()
-                .contains("SELECT DISTINCT value")
+                .contains("FROM v_field_values WHERE key = 'customers'")
+        );
+
+        assert!(
+            registry.get("type").is_none(),
+            "`type` is replaced by `kind`"
+        );
+        assert!(
+            registry.get("customer").is_none(),
+            "singular `customer` is replaced by `customers`"
         );
     }
 }

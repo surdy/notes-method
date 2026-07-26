@@ -22,9 +22,9 @@ fn parse(relative_path: &str) -> Note {
 
 #[test]
 fn daily_note_frontmatter() {
-    let parsed = parse("Inbox/Daily/2025-01-15.md");
+    let parsed = parse("Daily/2025-01-15.md");
     assert_eq!(parsed.vault.as_str(), "test");
-    assert_eq!(parsed.path.as_str(), "Inbox/Daily/2025-01-15.md");
+    assert_eq!(parsed.path.as_str(), "Daily/2025-01-15.md");
     assert!(!parsed.hash.is_empty());
     assert!(parsed.frontmatter.is_some());
     assert!(parsed.raw_frontmatter.is_some());
@@ -33,13 +33,13 @@ fn daily_note_frontmatter() {
 
 #[test]
 fn note_without_frontmatter() {
-    let parsed = parse("Customers/Acme/Acme Corp.md");
+    let parsed = parse("Customers/Acme Corp/Acme Corp.md");
     assert!(parsed.frontmatter.is_some());
 }
 
 #[test]
 fn wikilinks_in_customer_note() {
-    let parsed = parse("Customers/Acme/Acme Corp.md");
+    let parsed = parse("Customers/Acme Corp/Acme Corp.md");
     let wikilinks: Vec<_> = parsed
         .links
         .iter()
@@ -53,7 +53,7 @@ fn wikilinks_in_customer_note() {
 
 #[test]
 fn wikilink_with_alias() {
-    let parsed = parse("Inbox/Daily/2025-01-15.md");
+    let parsed = parse("Daily/2025-01-15.md");
     let aliased: Vec<_> = parsed
         .links
         .iter()
@@ -78,7 +78,7 @@ fn wikilinks_inside_code_blocks_are_ignored() {
 
 #[test]
 fn embed_in_note() {
-    let parsed = parse("Inbox/Daily/2025-01-15.md");
+    let parsed = parse("Daily/2025-01-15.md");
     let embeds: Vec<_> = parsed
         .links
         .iter()
@@ -89,7 +89,7 @@ fn embed_in_note() {
 
 #[test]
 fn inline_fields_in_daily_note() {
-    let parsed = parse("Inbox/Daily/2025-01-15.md");
+    let parsed = parse("Daily/2025-01-15.md");
     assert!(
         !parsed.inline_fields.is_empty(),
         "Daily note should have inline fields on tasks"
@@ -98,7 +98,7 @@ fn inline_fields_in_daily_note() {
 
 #[test]
 fn inline_field_key_value() {
-    let parsed = parse("Inbox/Daily/2025-01-15.md");
+    let parsed = parse("Daily/2025-01-15.md");
     let customer_fields: Vec<_> = parsed
         .inline_fields
         .iter()
@@ -112,7 +112,7 @@ fn inline_field_key_value() {
 
 #[test]
 fn all_seven_task_statuses_parsed() {
-    let parsed = parse("Inbox/Daily/2025-01-15.md");
+    let parsed = parse("Daily/2025-01-15.md");
     let statuses: std::collections::HashSet<_> =
         parsed.tasks.iter().map(|t| t.status_char).collect();
     assert!(statuses.contains(&' '), "Missing Todo");
@@ -126,7 +126,7 @@ fn all_seven_task_statuses_parsed() {
 
 #[test]
 fn task_status_groups_resolve_from_default_map() {
-    let parsed = parse("Inbox/Daily/2025-01-15.md");
+    let parsed = parse("Daily/2025-01-15.md");
     assert!(
         parsed
             .tasks
@@ -143,7 +143,7 @@ fn task_status_groups_resolve_from_default_map() {
 
 #[test]
 fn task_content_keeps_unparsed_inline_metadata() {
-    let parsed = parse("Inbox/Daily/2025-01-15.md");
+    let parsed = parse("Daily/2025-01-15.md");
     assert!(
         parsed
             .tasks
@@ -155,7 +155,7 @@ fn task_content_keeps_unparsed_inline_metadata() {
 
 #[test]
 fn task_content_hash() {
-    let parsed = parse("Inbox/Daily/2025-01-15.md");
+    let parsed = parse("Daily/2025-01-15.md");
     for task in &parsed.tasks {
         assert!(
             task.content_hash.is_some(),

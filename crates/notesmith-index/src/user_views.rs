@@ -217,22 +217,41 @@ CREATE VIEW broken_view AS SELECT FROM source;
         create_schema(&conn).unwrap();
         conn.execute_batch(
             "INSERT INTO notes (vault_name, path, title, created_at, updated_at, word_count, mtime_unix, content_hash, body_excerpt)
-             VALUES ('test', 'Customers/Acme.md', 'Acme', NULL, NULL, 0, 0, 'hash', '');
-             INSERT INTO fields (vault_name, note_path, key, value, value_type, source)
-             VALUES ('test', 'Customers/Acme.md', 'type', 'customer', 'string', 'frontmatter'),
-                    ('test', 'Customers/Acme.md', 'customer', 'Acme', 'string', 'frontmatter'),
-                    ('test', 'Customers/Acme.md', 'status', 'Active', 'string', 'frontmatter');",
+             VALUES ('test', 'Customers/Acme Corp/Acme Corp.md', 'Acme Corp', NULL, NULL, 0, 0, 'hash', ''),
+                    ('test', 'Streams/Migration to v2.md', 'Migration to v2', NULL, NULL, 0, 0, 'hash', '');
+             INSERT INTO field_values (vault_name, note_path, key, ordinal, value, value_type, source)
+             VALUES ('test', 'Customers/Acme Corp/Acme Corp.md', 'kind', 0, 'customer', 'string', 'frontmatter'),
+                    ('test', 'Streams/Migration to v2.md', 'kind', 0, 'stream', 'string', 'frontmatter'),
+                    ('test', 'Streams/Migration to v2.md', 'status', 0, 'active', 'string', 'frontmatter'),
+                    ('test', 'Streams/Migration to v2.md', 'priority', 0, 'P1', 'string', 'frontmatter'),
+                    ('test', 'Streams/Migration to v2.md', 'customers', 0, '[[Acme Corp]]', 'string', 'frontmatter');",
         )
         .unwrap();
 
         let loaded = load_user_views(&conn, &golden_vault());
 
         assert!(loaded.contains(&"customer_notes".to_string()));
-        let row: (String, String) = conn
-            .query_row("SELECT title, customer FROM customer_notes", [], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })
+        let customer: String = conn
+            .query_row("SELECT title FROM customer_notes", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(row, ("Acme".to_string(), "Acme".to_string()));
+        assert_eq!(customer, "Acme Corp");
+
+        assert!(loaded.contains(&"stream_rollup".to_string()));
+        let stream: (String, String, String, String) = conn
+            .query_row(
+                "SELECT title, status, priority, customer FROM stream_rollup",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            stream,
+            (
+                "Migration to v2".to_string(),
+                "active".to_string(),
+                "P1".to_string(),
+                "[[Acme Corp]]".to_string()
+            )
+        );
     }
 }

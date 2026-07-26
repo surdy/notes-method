@@ -36,8 +36,23 @@ views:
                   note_path, line_number
               title_column: "title"
               badge_columns: ["subtitle"]
+          - name: "Active streams"
+            icon: "🌊"
+            source:
+              query: >
+                SELECT n.title AS title, s.value AS subtitle, n.path AS path
+                FROM v_notes n
+                JOIN v_field_values k ON k.vault_name = n.vault_name AND k.note_path = n.path
+                 AND k.key = 'kind' AND k.value = 'stream'
+                JOIN v_field_values s ON s.vault_name = n.vault_name AND s.note_path = n.path
+                 AND s.key = 'status' AND s.value <> 'done'
+                ORDER BY s.value, n.title
+              title_column: "title"
+              badge_columns: ["subtitle"]
       - type: custom-folders
-        label: "Customers"
+        label: "Work"
         folders:
-          - "Customers/Acme"
-          - "Customers/Globex"
+          - "Meetings"
+          - "Streams"
+          - "Customers"
+          - "People"

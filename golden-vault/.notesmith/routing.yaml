@@ -1,79 +1,32 @@
 version: 1
 defaults:
-  on_exists: skip
+  on_exists: rename
 
 rules:
-  - id: external-meeting
+  - id: file-meeting
     when:
       all:
-        - field.type: meeting
-        - field.meeting-kind: external
+        - path: "Inbox/**"
+        - field.kind: "meeting"
+        - field.date: "*"
     then:
-      move_to: "Customers/{{ field.customer | unwikilink }}/External Meetings/{{ filename }}"
+      move_to: "Meetings/{{ field.date | year }}/{{ field.date | month }}/{{ filename }}"
+      remove_tags: [inbox]
 
-  - id: internal-meeting
+  - id: file-stream
     when:
       all:
-        - field.type: meeting
-        - field.meeting-kind: internal
+        - path: "Inbox/**"
+        - field.kind: "stream"
     then:
-      move_to: "Customers/{{ field.customer | unwikilink }}/Internal Meetings/{{ filename }}"
+      move_to: "Streams/{{ filename }}"
+      remove_tags: [inbox]
 
-  - id: stream
-    when:
-      field.type: stream
-    then:
-      move_to: "Customers/{{ field.customer | unwikilink }}/Streams/{{ filename }}"
-
-  - id: account-info
-    when:
-      field.type: account-info
-    then:
-      move_to: "Customers/{{ field.customer | unwikilink }}/Account Info/{{ filename }}"
-
-  - id: glossary
-    when:
-      field.type: glossary
-    then:
-      move_to: "Customers/{{ field.customer | unwikilink }}/Account Info/{{ filename }}"
-
-  - id: milestones
-    when:
-      field.type: milestones
-    then:
-      move_to: "Customers/{{ field.customer | unwikilink }}/Account Info/{{ filename }}"
-
-  - id: customer-index
-    when:
-      field.type: customer
-    then:
-      move_to: "Customers/{{ field.customer | unwikilink }}/{{ filename }}"
-
-  - id: daily
-    when:
-      field.type: daily
-    then:
-      move_to: "General/Journal/{{ field.date | year }}/{{ field.date | month }}/{{ filename }}"
-
-  - id: note-customer-stream
+  - id: file-person
     when:
       all:
-        - field.type: note
-        - field.customer: "*"
-        - field.stream: "*"
+        - path: "Inbox/**"
+        - field.kind: "person"
     then:
-      move_to: "Customers/{{ field.customer | unwikilink }}/Streams/{{ filename }}"
-
-  - id: note-customer
-    when:
-      all:
-        - field.type: note
-        - field.customer: "*"
-    then:
-      move_to: "Customers/{{ field.customer | unwikilink }}/{{ filename }}"
-
-  - id: note-general
-    when:
-      field.type: note
-    then:
-      move_to: "General/{{ filename }}"
+      move_to: "People/{{ filename }}"
+      remove_tags: [inbox]

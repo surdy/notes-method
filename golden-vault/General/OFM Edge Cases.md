@@ -32,8 +32,8 @@ Plain text with a hash that isn't a tag: issue #42, C# language, channel #genera
 
 ## Markdown Links to Notes
 
-- Relative link: [Migration Notes](../Customers/Acme/Streams/Migration%20to%20v2.md)
-- Link with heading: [Acme Overview](../Customers/Acme/Acme%20Corp.md#Overview)
+- Relative link: [Migration Notes](../Streams/Migration%20to%20v2.md)
+- Link with heading: [Acme Overview](../Customers/Acme%20Corp/Acme%20Corp.md#Overview)
 
 ## Foldable Callouts
 
@@ -138,10 +138,10 @@ fn main() {
 ```
 
 ```notesmith sql
-SELECT n.path, n.title, note_type.value AS type
+SELECT n.path, n.title, kind.value AS kind
 FROM v_notes n
-JOIN v_fields note_type ON note_type.vault_name = n.vault_name AND note_type.note_path = n.path AND note_type.key = 'type'
-WHERE note_type.value = 'stream'
+JOIN v_fields kind ON kind.vault_name = n.vault_name AND kind.note_path = n.path AND kind.key = 'kind'
+WHERE kind.value = 'stream'
 ORDER BY n.updated_at DESC
 ```
 

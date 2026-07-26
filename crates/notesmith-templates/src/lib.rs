@@ -793,20 +793,25 @@ mod tests {
     }
 
     #[test]
-    fn list_templates_returns_all_nine() {
+    fn list_templates_returns_the_work_notes_kit() {
         let engine = engine();
         let templates = engine.list_templates().unwrap();
-        assert_eq!(templates.len(), 9);
         let names: Vec<&str> = templates.iter().map(|t| t.spec.name.as_str()).collect();
-        assert!(names.contains(&"generic-note"));
-        assert!(names.contains(&"daily-note"));
-        assert!(names.contains(&"external-meeting"));
-        assert!(names.contains(&"internal-meeting"));
-        assert!(names.contains(&"account-info"));
-        assert!(names.contains(&"customer-index"));
-        assert!(names.contains(&"glossary"));
-        assert!(names.contains(&"milestones"));
-        assert!(names.contains(&"stream"));
+
+        for expected in [
+            "generic-note",
+            "daily",
+            "weekly",
+            "quarterly",
+            "internal-meeting",
+            "external-meeting",
+            "stream",
+            "customer",
+            "person",
+        ] {
+            assert!(names.contains(&expected), "missing template {expected}");
+        }
+        assert_eq!(templates.len(), 9, "unexpected templates: {names:?}");
     }
 
     #[test]
@@ -898,39 +903,192 @@ mod tests {
     fn render_daily_note_uses_today() {
         let engine = engine();
         let prompts = HashMap::new();
-        let rendered = engine.render("daily-note", &prompts).unwrap();
+        let rendered = engine.render("daily", &prompts).unwrap();
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        assert_eq!(rendered.path, format!("Inbox/Daily/{today}.md"));
+        assert_eq!(rendered.path, format!("Daily/{today}.md"));
         assert!(rendered.content.contains(&format!("# {today}")));
         assert!(rendered.content.contains(&format!("date: {today}")));
     }
 
+    /// Parse the note frontmatter a template emits — the wikilink lists in the
+    /// Work Notes kit are only useful if they are valid YAML sequences.
+    fn rendered_frontmatter(content: &str) -> serde_yaml::Mapping {
+        let (frontmatter, _) = notesmith_vault::extract_frontmatter(content);
+        let frontmatter = frontmatter.expect("rendered note should carry frontmatter");
+        serde_yaml::from_str(&frontmatter)
+            .unwrap_or_else(|error| panic!("rendered frontmatter is not valid YAML: {error}"))
+    }
+
+    fn sequence(frontmatter: &serde_yaml::Mapping, key: &str) -> Vec<String> {
+        match frontmatter.get(serde_yaml::Value::from(key)) {
+            Some(serde_yaml::Value::Sequence(items)) => items
+                .iter()
+                .map(|item| item.as_str().unwrap_or_default().to_string())
+                .collect(),
+            other => panic!("expected `{key}` to be a sequence, got {other:?}"),
+        }
+    }
+
     #[test]
-    fn render_external_meeting() {
+    fn render_external_meeting_lands_in_inbox_with_one_customer() {
         let engine = engine();
         let prompts = HashMap::from([
-            ("customer".to_string(), "Acme".to_string()),
+            ("customer".to_string(), "Acme Corp".to_string()),
             ("title".to_string(), "Check-in".to_string()),
         ]);
         let rendered = engine.render("external-meeting", &prompts).unwrap();
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
         assert_eq!(
             rendered.path,
-            format!("Customers/Acme/External Meetings/{today} Check-in.md")
+            format!("Inbox/{today} - Acme Corp - Check-in.md")
         );
-        assert!(rendered.content.contains("**Customer:** Acme"));
+
+        let frontmatter = rendered_frontmatter(&rendered.content);
+        assert_eq!(
+            frontmatter.get(serde_yaml::Value::from("kind")),
+            Some(&serde_yaml::Value::from("meeting"))
+        );
+        assert_eq!(
+            frontmatter.get(serde_yaml::Value::from("audience")),
+            Some(&serde_yaml::Value::from("external"))
+        );
+        assert_eq!(sequence(&frontmatter, "customers"), vec!["[[Acme Corp]]"]);
+        assert!(
+            sequence(&frontmatter, "streams").is_empty(),
+            "an unanswered optional stream prompt yields an empty list"
+        );
+        assert!(sequence(&frontmatter, "attendees").is_empty());
     }
 
     #[test]
-    fn render_stream_uses_title_case() {
+    fn render_external_meeting_wikilinks_the_optional_stream() {
         let engine = engine();
         let prompts = HashMap::from([
-            ("customer".to_string(), "Acme".to_string()),
-            ("title".to_string(), "migration to v2".to_string()),
+            ("customer".to_string(), "Acme Corp".to_string()),
+            ("title".to_string(), "Check-in".to_string()),
+            ("stream".to_string(), "Migration to v2".to_string()),
+        ]);
+        let rendered = engine.render("external-meeting", &prompts).unwrap();
+
+        let frontmatter = rendered_frontmatter(&rendered.content);
+        assert_eq!(
+            sequence(&frontmatter, "streams"),
+            vec!["[[Migration to v2]]"]
+        );
+    }
+
+    #[test]
+    fn render_stream_lands_in_inbox_for_routing() {
+        let engine = engine();
+        let prompts = HashMap::from([
+            ("customer".to_string(), "Acme Corp".to_string()),
+            ("title".to_string(), "Acme Corp - Renewal 2026".to_string()),
+            ("priority".to_string(), "P1".to_string()),
         ]);
         let rendered = engine.render("stream", &prompts).unwrap();
-        assert_eq!(rendered.path, "Customers/Acme/Streams/Migration To V2.md");
-        assert!(rendered.content.contains("# Migration To V2"));
+
+        assert_eq!(rendered.path, "Inbox/Acme Corp - Renewal 2026.md");
+        assert!(rendered.content.contains("# Acme Corp - Renewal 2026"));
+
+        let frontmatter = rendered_frontmatter(&rendered.content);
+        assert_eq!(
+            frontmatter.get(serde_yaml::Value::from("kind")),
+            Some(&serde_yaml::Value::from("stream"))
+        );
+        assert_eq!(
+            frontmatter.get(serde_yaml::Value::from("status")),
+            Some(&serde_yaml::Value::from("active"))
+        );
+        assert_eq!(
+            frontmatter.get(serde_yaml::Value::from("priority")),
+            Some(&serde_yaml::Value::from("P1"))
+        );
+        assert_eq!(sequence(&frontmatter, "customers"), vec!["[[Acme Corp]]"]);
+    }
+
+    #[test]
+    fn render_internal_stream_emits_an_empty_customers_list() {
+        let engine = engine();
+        let prompts = HashMap::from([(
+            "title".to_string(),
+            "Internal - Support Process Redesign".to_string(),
+        )]);
+        let rendered = engine.render("stream", &prompts).unwrap();
+
+        let frontmatter = rendered_frontmatter(&rendered.content);
+        assert!(sequence(&frontmatter, "customers").is_empty());
+        assert!(
+            !frontmatter.contains_key(serde_yaml::Value::from("priority")),
+            "an unanswered optional priority prompt emits no key at all"
+        );
+    }
+
+    #[test]
+    fn render_internal_meeting_prompts_for_title_only() {
+        let engine = engine();
+        let meta = engine
+            .list_templates()
+            .unwrap()
+            .into_iter()
+            .find(|template| template.spec.name == "internal-meeting")
+            .unwrap();
+        let prompt_names: Vec<&str> = meta
+            .spec
+            .prompts
+            .iter()
+            .map(|prompt| prompt.name.as_str())
+            .collect();
+        assert_eq!(prompt_names, vec!["title"]);
+
+        let prompts = HashMap::from([("title".to_string(), "Weekly Sync".to_string())]);
+        let rendered = engine.render("internal-meeting", &prompts).unwrap();
+
+        let frontmatter = rendered_frontmatter(&rendered.content);
+        assert_eq!(
+            frontmatter.get(serde_yaml::Value::from("audience")),
+            Some(&serde_yaml::Value::from("internal"))
+        );
+        for key in ["customers", "streams", "attendees"] {
+            assert!(
+                sequence(&frontmatter, key).is_empty(),
+                "`{key}` is filled in during enrichment, not capture"
+            );
+        }
+    }
+
+    #[test]
+    fn render_person_omits_unanswered_optional_fields() {
+        let engine = engine();
+        let prompts = HashMap::from([
+            ("name".to_string(), "Jane Doe".to_string()),
+            ("org".to_string(), "Acme Corp".to_string()),
+        ]);
+        let rendered = engine.render("person", &prompts).unwrap();
+
+        assert_eq!(rendered.path, "Inbox/Jane Doe.md");
+        let frontmatter = rendered_frontmatter(&rendered.content);
+        assert_eq!(
+            frontmatter.get(serde_yaml::Value::from("kind")),
+            Some(&serde_yaml::Value::from("person"))
+        );
+        assert_eq!(
+            frontmatter.get(serde_yaml::Value::from("org")),
+            Some(&serde_yaml::Value::from("Acme Corp"))
+        );
+        assert!(!frontmatter.contains_key(serde_yaml::Value::from("role")));
+    }
+
+    #[test]
+    fn render_customer_writes_straight_to_its_folder_note() {
+        let engine = engine();
+        let prompts = HashMap::from([("name".to_string(), "Acme Corp".to_string())]);
+        let rendered = engine.render("customer", &prompts).unwrap();
+
+        assert_eq!(rendered.path, "Customers/Acme Corp/Acme Corp.md");
+        assert!(rendered.content.contains("kind: customer"));
+        // The embedded query recipes resolve the customer name at render time.
+        assert!(rendered.content.contains("c.value = '[[Acme Corp]]'"));
     }
 
     #[test]

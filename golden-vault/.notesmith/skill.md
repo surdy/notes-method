@@ -1,6 +1,47 @@
-# Notesmith Vault Skill
+# Work Notes vault
 
-Use this file as the vault-specific operating manual. Prefer Notesmith commands over ad hoc file edits so the daemon, cache, routing, and events stay consistent.
+Entity model: meetings (dated event records, `Meetings/YYYY/MM/`), streams
+(ongoing initiatives, `Streams/`), customers (`Customers/<Name>/`), people
+(`People/`). `kind` is the canonical type field — `meeting`, `stream`,
+`customer`, `account`, `person`. Tags are topical only, never kinds.
+
+Relationships are frontmatter lists of quoted wikilinks: `customers`, `streams`,
+`attendees`. Folders are for humans — never infer relationships from paths. A
+meeting can relate to zero, one, or many customers; external meetings have
+exactly one.
+
+## Folder structure
+
+```text
+Inbox/              — capture lands here until enriched + routed
+Meetings/YYYY/MM/   — dated meeting records
+Streams/            — ongoing initiatives (status is metadata; done streams stay)
+Customers/<Name>/   — <Name>.md folder note + optional kind:account notes
+People/             — created lazily, when someone recurs
+Daily/ Weekly/ Quarterly/
+Dashboards/
+General/            — notes with no kind; routing leaves them alone
+```
+
+## Retrieval
+
+- Membership queries: `v_field_values` (one row per list member; exact value
+  match, e.g. `key='customers' AND value='[[Acme Corp]]'`).
+- Task queries: `v_task_effective_fields` — tasks inherit their note's
+  frontmatter; task-level inline fields override per key.
+- `list_notes` / `list_tasks` take a `fields` map with the same semantics.
+- Free-text digging: `vault_search` (hybrid), with `filters` for
+  `fields` / `tags` / `path_prefix`. Time-based: `time_query`.
+- Cite notes by path; quote the exact line when reporting decisions.
+
+## Writing
+
+- Meeting/stream/person notes: use `create_from_template`, then enrich
+  frontmatter. New notes land in `Inbox/`; routing files them by `kind`.
+- Quote wikilinks in YAML: `- "[[Acme Corp]]"`.
+- Tasks: plain checkboxes; only add `[due:: ]` / `[owner:: ]` for real
+  deadlines or delegation. Don't copy note metadata onto tasks.
+- Do not create People notes for one-off attendees; link them and move on.
 
 ## Command cheat sheet
 
@@ -28,65 +69,5 @@ notesmith route preview <path>    # Preview routing destination
 notesmith route apply --inbox     # Route all inbox notes
 notesmith daily ensure            # Create today's daily note
 notesmith daily open              # Open today's daily note
-notesmith daily agent-create      # Agent workflow (see below)
 notesmith skill print             # Output this skill file
 ```
-
-## Vault folder structure
-
-```text
-Inbox/              — New/unprocessed notes land here
-Inbox/Daily/        — Daily notes
-Customers/          — Per-customer folders
-  <Customer>/
-    Account Info/   — Account info, glossary, milestones
-    Meetings/       — Meeting notes (internal + external)
-    Streams/        — Work streams
-General/            — Non-customer notes
-Assets/
-  templates/        — Note templates (.md.j2)
-  scripts/          — Hook scripts
-  data/             — Data files
-.notesmith/
-  vault.toml        — Vault configuration
-  routing.yaml      — Routing rules
-  skill.md          — This file
-  prompts/          — Saved prompt templates
-```
-
-## Note type schemas
-
-- `daily`: `type`, `date`, `weather`, `energy`
-- `meeting` (external): `type`, `customer`, `meeting-kind: external`, `date`, `attendees`, `stream`
-- `meeting` (internal): `type`, `customer`, `meeting-kind: internal`, `date`, `attendees`
-- `customer`: `type`, `customer`, `state` (`Active` / `Churned` / `Prospect`)
-- `stream`: `type`, `customer`, `stream`, `status` (`active` / `paused` / `completed`)
-- `account-info`: `type`, `customer`
-- `glossary`: `type`, `customer`
-- `milestones`: `type`, `customer`
-- `note`: `type`, optional `customer`, optional `stream`
-
-## SQL view contract
-
-- `v_notes`: `vault_name`, `path`, `title`, `created_at`, `updated_at`, `word_count`
-- `v_fields`: `vault_name`, `note_path`, `key`, `value`, `value_type`
-- `v_tasks`: `vault_name`, `id`, `note_path`, `line_number`, `text`, `status_char`, `status_group`, `note_title`
-- `v_task_fields`: `vault_name`, `task_id`, `key`, `value`, `note_path`
-- `v_backlinks`: `vault_name`, `source_path`, `target_path`, `link_text`, `source_title`
-- `v_periodic`: `vault_name`, `note_path`, `period_kind`, `period_key`, `period_start`, `period_end`, `title`
-
-## Common workflow recipes
-
-1. Process inbox: `notesmith inbox list` → review → `notesmith route apply --inbox`
-2. Create meeting note: `notesmith template instantiate external-meeting --prompt customer=Acme --prompt date=2026-05-10`
-3. Weekly review:
-   - `notesmith query sql "SELECT t.text, due.value AS due, customer.value AS customer, t.note_path FROM v_tasks t LEFT JOIN v_task_fields due ON due.vault_name = t.vault_name AND due.task_id = t.id AND due.key = 'due' LEFT JOIN v_task_fields customer ON customer.vault_name = t.vault_name AND customer.task_id = t.id AND customer.key = 'customer' WHERE t.status_group = 'open' ORDER BY due.value IS NULL, due.value ASC"`
-   - `notesmith query sql "SELECT t.text, due.value AS due, t.note_path FROM v_tasks t LEFT JOIN v_task_fields due ON due.vault_name = t.vault_name AND due.task_id = t.id AND due.key = 'due' WHERE due.value < date('now') AND t.status_group = 'open' ORDER BY due.value"`
-   - `notesmith query sql "SELECT COUNT(*) as count FROM notes WHERE path LIKE 'Inbox/%'"`
-4. Daily workflow:
-   - `notesmith daily agent-create` for agent-driven prompt assembly or write mode
-   - `notesmith daily ensure` for scheduler fallback when no agent is involved
-
-## Routing rules summary
-
-Routing uses `.notesmith/routing.yaml`, an expressive YAML DSL with `all` / `any` / `not`, field predicates, tag predicates, and path globs. The first matching rule wins. Use `notesmith route preview <path>` before moving, and use `notesmith route apply` to apply configured mutations, stamp `archived: true` plus `archived-at`, and move the note.

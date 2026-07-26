@@ -1,15 +1,15 @@
 actions:
   - name: standup
-    description: Create today's standup note from template
+    description: Create today's daily note from template
     steps:
       - type: api
         method: POST
-        path: /api/v/main/templates/daily-note/instantiate
+        path: /api/v/main/templates/daily/instantiate
         body:
-          folder: "Inbox/Daily"
+          folder: "Daily"
       - type: open
         vault: main
-        path: "Inbox/Daily/{date}.md"
+        path: "Daily/{date}.md"
   - name: weekly-review
     description: Open the weekly review dashboard
     steps:
