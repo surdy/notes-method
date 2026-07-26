@@ -216,7 +216,7 @@ fn load_fields(
     for row in rows.flatten() {
         let (note_path, key, value) = row;
         if let Some(watch) = watch {
-            if !watch.iter().any(|w| *w == key) {
+            if !watch.contains(&key) {
                 continue;
             }
         }
