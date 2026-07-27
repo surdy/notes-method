@@ -10,6 +10,7 @@ pub mod events;
 pub mod fields;
 pub mod git;
 pub mod helpers;
+pub mod kits;
 pub mod notes;
 pub mod periodic;
 pub mod permissions;

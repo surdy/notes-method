@@ -147,6 +147,7 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
         .route("/admin/shutdown", post(crate::routes::admin::shutdown))
         .route("/admin/restart", post(crate::routes::admin::restart))
         .route("/api/capabilities", get(get_capabilities))
+        .route("/api/app/kits", get(crate::routes::kits::list_kits))
         .route("/api/app/vaults", get(list_vaults).post(add_vault))
         .route(
             "/api/app/vaults/{name}",

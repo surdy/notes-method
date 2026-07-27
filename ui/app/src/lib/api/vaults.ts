@@ -12,15 +12,34 @@ export async function listVaults(): Promise<VaultInfo[]> {
 	return res.json();
 }
 
+export interface KitInfo {
+	id: string;
+	description: string;
+	files: number;
+	folders: string[];
+}
+
+/** Kits ship with the binary, so this is answerable before any vault exists. */
+export async function listKits(): Promise<KitInfo[]> {
+	const res = await apiFetch(`${API_BASE}/api/app/kits`);
+	if (!res.ok) throw new Error(`Failed to list kits: ${res.status}`);
+	return res.json();
+}
+
 export async function addVault(
 	name: string,
 	path: string,
-	options: { create?: boolean } = {}
+	options: { create?: boolean; kit?: string } = {}
 ): Promise<void> {
 	const res = await apiFetch(`${API_BASE}/api/app/vaults`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ name, path, create: options.create ?? false })
+		body: JSON.stringify({
+			name,
+			path,
+			create: options.create ?? false,
+			...(options.kit ? { kit: options.kit } : {})
+		})
 	});
 	if (res.status === 409) {
 		const data = await res.json();
