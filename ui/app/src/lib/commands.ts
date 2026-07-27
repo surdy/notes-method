@@ -5,8 +5,10 @@ import {
 	getNoteHtmlInline,
 	instantiateTemplate,
 	listTemplates,
-	routeApply
+	routeApply,
+	suggestFieldValues
 } from './api';
+import { buildPromptSteps } from './template-prompts';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
 import { createOrOpenFolderNote, listFolderPickerItems } from './folder-notes';
@@ -341,13 +343,12 @@ const template = templates.find((candidate) => candidate.name === selectedName);
 if (!template) return;
 
 if (template.prompts.length > 0) {
+	const steps = await buildPromptSteps(template.prompts, (field) =>
+		suggestFieldValues(currentVault, field)
+	);
+
 	inputPalette.open({
-		steps: template.prompts.map((prompt) => ({
-			mode: 'text' as const,
-			label: `${prompt.name}${prompt.required ? '' : ' (optional)'}`,
-			placeholder: `Enter ${prompt.name}...`,
-			required: prompt.required
-		})),
+		steps,
 		onComplete: async (promptValues) => {
 			const values: Record<string, string> = {};
 			template.prompts.forEach((prompt, index) => {

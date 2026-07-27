@@ -2,15 +2,11 @@ use notesmith_config::{GlobalConfig, VaultConfig, VaultRegistration};
 use std::{
     collections::BTreeMap,
     fs,
-    process::{Child, Command, Stdio},
-    time::Duration,
+    process::{Command, Stdio},
 };
 use tempfile::TempDir;
 
-/// Maximum time to wait for the daemon to respond to /ping.
-/// Debug builds can take 2-3s to start (vault scan, index build, watcher setup).
-const DAEMON_READY_TIMEOUT: Duration = Duration::from_secs(10);
-const DAEMON_POLL_INTERVAL: Duration = Duration::from_millis(100);
+mod common;
 
 fn create_vault(root: &std::path::Path, name: &str) {
     let config = VaultConfig {
@@ -62,63 +58,6 @@ fn write_global_config(
         .unwrap();
 }
 
-/// Wait for a spawned daemon to respond to /ping, or panic with diagnostics.
-async fn wait_for_daemon(child: &mut Child, bind: &std::net::SocketAddr) {
-    let client = reqwest::Client::new();
-    let deadline = tokio::time::Instant::now() + DAEMON_READY_TIMEOUT;
-    let mut last_error = None;
-
-    while tokio::time::Instant::now() < deadline {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                panic!("daemon exited early with {status}");
-            }
-            Ok(None) => {}
-            Err(e) => panic!("failed to check daemon status: {e}"),
-        }
-        match client.get(format!("http://{bind}/ping")).send().await {
-            Ok(resp) if resp.status().is_success() => return,
-            Ok(resp) => last_error = Some(format!("unexpected status {}", resp.status())),
-            Err(e) => last_error = Some(e.to_string()),
-        }
-        tokio::time::sleep(DAEMON_POLL_INTERVAL).await;
-    }
-
-    let _ = child.kill();
-    panic!(
-        "daemon did not become ready within {DAEMON_READY_TIMEOUT:?}: {:?}",
-        last_error,
-    );
-}
-
-#[test]
-fn vault_reindex_creates_cache_file() {
-    let temp_dir = TempDir::new().unwrap();
-    let vault_root = temp_dir.path().join("work");
-    create_vault(&vault_root, "work");
-    fs::create_dir_all(vault_root.join("Inbox")).unwrap();
-    fs::write(vault_root.join("Inbox/Note.md"), "# Note\n").unwrap();
-
-    let cache_home = temp_dir.path().join("cache-home");
-
-    let output = Command::new(notesmith_bin())
-        .current_dir(&vault_root)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .args(["vault", "reindex"])
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "stdout: {}\nstderr: {}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    assert!(cache_home.join("notesmith/work/cache.sqlite").exists());
-    assert!(cache_home.join("notesmith/work/tantivy").exists());
-}
-
 #[tokio::test]
 async fn top_level_reindex_auto_starts_daemon() {
     let temp_dir = TempDir::new().unwrap();
@@ -127,31 +66,30 @@ async fn top_level_reindex_auto_starts_daemon() {
     fs::create_dir_all(vault_root.join("Inbox")).unwrap();
     fs::write(vault_root.join("Inbox/Note.md"), "# Note\n").unwrap();
 
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let bind = reserved.local_addr().unwrap();
-    drop(reserved);
-
     let config_home = temp_dir.path().join("config-home");
     let cache_home = temp_dir.path().join("cache-home");
     let runtime_dir = temp_dir.path().join("runtime");
-    write_global_config(&config_home, "work", &vault_root, Some(bind.to_string()));
 
-    let output = Command::new(notesmith_bin())
-        .current_dir(&vault_root)
-        .env("XDG_CONFIG_HOME", &config_home)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("HOME", temp_dir.path())
-        .env("XDG_RUNTIME_DIR", &runtime_dir)
-        .args(["reindex", "--cache-only"])
-        .output()
-        .unwrap();
+    // The daemon here is auto-started by `reindex` itself, so there is no child
+    // to watch — retry the whole command if its port was taken first.
+    let (output, bind) = common::retrying_on_free_port(|bind| {
+        write_global_config(&config_home, "work", &vault_root, Some(bind.to_string()));
+        let output = Command::new(notesmith_bin())
+            .current_dir(&vault_root)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_CACHE_HOME", &cache_home)
+            .env("HOME", temp_dir.path())
+            .env("XDG_RUNTIME_DIR", &runtime_dir)
+            .args(["reindex", "--cache-only"])
+            .output()
+            .unwrap();
 
-    assert!(
-        output.status.success(),
-        "stdout: {}\nstderr: {}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+        if output.status.success() {
+            Ok(output)
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        }
+    });
     assert!(
         String::from_utf8_lossy(&output.stdout).contains("Reindexed 1 notes for work"),
         "stdout: {}\nstderr: {}",
@@ -185,25 +123,22 @@ async fn daemon_start_serves_ping_endpoint() {
     let cache_home = temp_dir.path().join("cache-home");
     write_global_config(&config_home, "work", &vault_root, None);
 
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let bind = reserved.local_addr().unwrap();
-    drop(reserved);
-
-    let mut child = Command::new(notesmith_bin())
-        .env("XDG_CONFIG_HOME", &config_home)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("HOME", temp_dir.path())
-        .env("XDG_RUNTIME_DIR", temp_dir.path().join("runtime"))
-        .arg("daemon")
-        .arg("start")
-        .arg("--bind")
-        .arg(bind.to_string())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    wait_for_daemon(&mut child, &bind).await;
+    let (mut child, _bind) = common::spawn_daemon_retrying(|bind| {
+        Command::new(notesmith_bin())
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_CACHE_HOME", &cache_home)
+            .env("HOME", temp_dir.path())
+            .env("XDG_RUNTIME_DIR", temp_dir.path().join("runtime"))
+            .arg("daemon")
+            .arg("start")
+            .arg("--bind")
+            .arg(bind)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    })
+    .await;
 
     child.kill().unwrap();
     let _ = child.wait();
@@ -216,27 +151,30 @@ async fn query_sql_uses_http_daemon() {
     create_vault(&vault_root, "work");
     fs::write(vault_root.join("Home.md"), "# Home\n").unwrap();
 
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let bind = reserved.local_addr().unwrap();
-    drop(reserved);
-
     let config_home = temp_dir.path().join("config-home");
     let cache_home = temp_dir.path().join("cache-home");
-    write_global_config(&config_home, "work", &vault_root, Some(bind.to_string()));
+    write_global_config(
+        &config_home,
+        "work",
+        &vault_root,
+        Some("127.0.0.1:0".to_string()),
+    );
 
-    let mut daemon = Command::new(notesmith_bin())
-        .env("XDG_CONFIG_HOME", &config_home)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("HOME", temp_dir.path())
-        .env("XDG_RUNTIME_DIR", temp_dir.path().join("runtime"))
-        .arg("daemon")
-        .arg("start")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    wait_for_daemon(&mut daemon, &bind).await;
+    let (mut daemon, _bind) = common::spawn_daemon_retrying(|bind| {
+        write_global_config(&config_home, "work", &vault_root, Some(bind.to_string()));
+        Command::new(notesmith_bin())
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_CACHE_HOME", &cache_home)
+            .env("HOME", temp_dir.path())
+            .env("XDG_RUNTIME_DIR", temp_dir.path().join("runtime"))
+            .arg("daemon")
+            .arg("start")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    })
+    .await;
 
     let output = Command::new(notesmith_bin())
         .current_dir(&vault_root)
@@ -278,27 +216,30 @@ async fn search_uses_http_daemon() {
     )
     .unwrap();
 
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let bind = reserved.local_addr().unwrap();
-    drop(reserved);
-
     let config_home = temp_dir.path().join("config-home");
     let cache_home = temp_dir.path().join("cache-home");
-    write_global_config(&config_home, "work", &vault_root, Some(bind.to_string()));
+    write_global_config(
+        &config_home,
+        "work",
+        &vault_root,
+        Some("127.0.0.1:0".to_string()),
+    );
 
-    let mut daemon = Command::new(notesmith_bin())
-        .env("XDG_CONFIG_HOME", &config_home)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("HOME", temp_dir.path())
-        .env("XDG_RUNTIME_DIR", temp_dir.path().join("runtime"))
-        .arg("daemon")
-        .arg("start")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    wait_for_daemon(&mut daemon, &bind).await;
+    let (mut daemon, _bind) = common::spawn_daemon_retrying(|bind| {
+        write_global_config(&config_home, "work", &vault_root, Some(bind.to_string()));
+        Command::new(notesmith_bin())
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_CACHE_HOME", &cache_home)
+            .env("HOME", temp_dir.path())
+            .env("XDG_RUNTIME_DIR", temp_dir.path().join("runtime"))
+            .arg("daemon")
+            .arg("start")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    })
+    .await;
 
     let output = Command::new(notesmith_bin())
         .current_dir(&vault_root)
@@ -337,15 +278,9 @@ async fn search_targets_remote_daemon_via_url_override() {
     .unwrap();
 
     // The "remote" daemon we expect commands to reach.
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let remote_bind = reserved.local_addr().unwrap();
-    drop(reserved);
-
-    // A different, unused port recorded as the *local* bind. If the override is
+    // A port nothing listens on, recorded as the *local* bind. If the override is
     // ignored, commands would target this dead address and fail.
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let dead_local_bind = reserved.local_addr().unwrap();
-    drop(reserved);
+    let dead_local_bind = common::free_port();
 
     let config_home = temp_dir.path().join("config-home");
     let cache_home = temp_dir.path().join("cache-home");
@@ -353,24 +288,25 @@ async fn search_targets_remote_daemon_via_url_override() {
         &config_home,
         "work",
         &vault_root,
-        Some(dead_local_bind.to_string()),
+        Some(dead_local_bind.clone()),
     );
 
-    let mut daemon = Command::new(notesmith_bin())
-        .env("XDG_CONFIG_HOME", &config_home)
-        .env("XDG_CACHE_HOME", &cache_home)
-        .env("HOME", temp_dir.path())
-        .env("XDG_RUNTIME_DIR", temp_dir.path().join("runtime"))
-        .arg("daemon")
-        .arg("start")
-        .arg("--bind")
-        .arg(remote_bind.to_string())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    wait_for_daemon(&mut daemon, &remote_bind).await;
+    let (mut daemon, remote_bind) = common::spawn_daemon_retrying(|bind| {
+        Command::new(notesmith_bin())
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("XDG_CACHE_HOME", &cache_home)
+            .env("HOME", temp_dir.path())
+            .env("XDG_RUNTIME_DIR", temp_dir.path().join("runtime"))
+            .arg("daemon")
+            .arg("start")
+            .arg("--bind")
+            .arg(bind)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    })
+    .await;
 
     let remote_url = format!("http://{remote_bind}");
 

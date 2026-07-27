@@ -25,10 +25,23 @@ FROM rust:1-bookworm AS rust-builder
 # (ONNX Runtime), hf-hub, and tokenizers (ADR 0018 §9.2).
 ARG CARGO_FEATURES=""
 
-# Install cross-compilation target for linux/amd64 (no-op when already on amd64)
-RUN rustup target add x86_64-unknown-linux-gnu
-
 WORKDIR /src
+
+# Build with the same compiler CI and local dev use (rust-toolchain.toml is the
+# single source of truth). Copied before any cargo/rustup step so the toolchain
+# install is its own cached layer.
+#
+# Order matters: rustup overrides are *directory-scoped*, so the cross-target
+# must be added after this file is in place and with the pinned toolchain named
+# explicitly — otherwise it lands on the base image's default toolchain and the
+# build below fails to find it. The channel is parsed rather than hardcoded so
+# there is still only one place to bump.
+COPY rust-toolchain.toml ./
+RUN channel=$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' rust-toolchain.toml) \
+    && test -n "$channel" \
+    && rustup toolchain install "$channel" --profile minimal \
+    && rustup target add --toolchain "$channel" x86_64-unknown-linux-gnu
+
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 # notesmith-kit embeds these with include_str!, so they must be in the build

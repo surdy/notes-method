@@ -1107,12 +1107,18 @@ List all available templates.
     "description": "A generic blank note",
     "output_path": "{% if folder %}{{ folder }}/{% endif %}{{ title | slug }}.md",
     "prompts": [
-      { "name": "title", "type": "text", "required": true },
-      { "name": "folder", "type": "text", "required": false }
+      { "name": "title", "type": "text", "field": "title", "required": true },
+      { "name": "folder", "type": "text", "field": "folder", "required": false }
     ]
   }
 ]
 ```
+
+`type` is `text` or `field-picker`. `field` is the `fields.toml` key a
+`field-picker` suggests from — always present, defaulting to the prompt name, so
+clients can fetch [`/fields/{key}/suggest`](#get-apivvaultfieldskeysuggestqpartial)
+without inferring it. It matters when the two differ: a singular `customer`
+prompt suggesting from the plural `customers` list field.
 
 ### `POST /api/v/{vault}/templates/{name}/render`
 

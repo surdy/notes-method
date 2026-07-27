@@ -3,9 +3,10 @@ use std::{
     collections::BTreeMap,
     fs,
     process::{Child, Command, Stdio},
-    time::Duration,
 };
 use tempfile::TempDir;
+
+mod common;
 
 fn create_vault(root: &std::path::Path, name: &str) {
     let config = VaultConfig {
@@ -58,51 +59,43 @@ struct DaemonProcess {
 }
 
 impl DaemonProcess {
-    async fn start(
-        config_home: &std::path::Path,
-        cache_home: &std::path::Path,
-        bind: String,
-    ) -> Self {
-        let mut child = Command::new(notesmith_bin())
-            .env("XDG_CONFIG_HOME", config_home)
-            .env("XDG_CACHE_HOME", cache_home)
-            .env("HOME", config_home.parent().unwrap())
-            .env(
-                "XDG_RUNTIME_DIR",
-                config_home.parent().unwrap().join("runtime"),
-            )
-            .arg("daemon")
-            .arg("start")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+    /// Spawn a daemon on a free port and wait until it is serving. Retries on a
+    /// different port if the daemon loses the bind race (see `common`).
+    /// Returns the process handle and the bind address it is serving on.
+    async fn start(config_home: &std::path::Path, cache_home: &std::path::Path) -> (Self, String) {
+        let home = config_home.parent().unwrap().to_path_buf();
+        let runtime_dir = home.join("runtime");
 
-        // Cold daemon startup (fresh index, prompt seeding, schedulers) can
-        // take several seconds on a loaded machine — probe generously.
-        let client = reqwest::Client::new();
-        for _ in 0..100 {
-            if client
-                .get(format!("http://{bind}/ping"))
-                .send()
-                .await
-                .is_ok()
-            {
-                return Self { child };
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
+        let (child, bind) = common::spawn_daemon_retrying(|bind| {
+            // Rewritten per attempt so the CLI calls that follow reach the port
+            // the daemon actually got.
+            rewrite_daemon_bind(config_home, bind);
+            Command::new(notesmith_bin())
+                .env("XDG_CONFIG_HOME", config_home)
+                .env("XDG_CACHE_HOME", cache_home)
+                .env("HOME", &home)
+                .env("XDG_RUNTIME_DIR", &runtime_dir)
+                .arg("daemon")
+                .arg("start")
+                .arg("--bind")
+                .arg(bind)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap()
+        })
+        .await;
 
-        // Kill before collecting output: wait_with_output on a live daemon
-        // would block forever and turn this failure into a silent hang.
-        let _ = child.kill();
-        let output = child.wait_with_output().unwrap();
-        panic!(
-            "daemon did not become ready\nstdout: {}\nstderr: {}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
+        (Self { child }, bind)
     }
+}
+
+/// Point the global config at `bind`, preserving everything else.
+fn rewrite_daemon_bind(config_home: &std::path::Path, bind: &str) {
+    let path = config_home.join("notesmith").join("config.toml");
+    let mut config = GlobalConfig::load_from(&path).unwrap();
+    config.daemon.bind = bind.to_string();
+    config.save_to(&path).unwrap();
 }
 
 impl Drop for DaemonProcess {
@@ -110,13 +103,6 @@ impl Drop for DaemonProcess {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
-}
-
-fn bind_address() -> String {
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let bind = reserved.local_addr().unwrap();
-    drop(reserved);
-    bind.to_string()
 }
 
 #[tokio::test]
@@ -127,10 +113,9 @@ async fn capture_creates_note_via_daemon() {
 
     let config_home = temp_dir.path().join("config-home");
     let cache_home = temp_dir.path().join("cache-home");
-    let bind = bind_address();
-    write_global_config(&config_home, "work", &vault_root, bind.clone());
+    write_global_config(&config_home, "work", &vault_root, "127.0.0.1:0".to_string());
 
-    let _daemon = DaemonProcess::start(&config_home, &cache_home, bind).await;
+    let (_daemon, _bind) = DaemonProcess::start(&config_home, &cache_home).await;
 
     let output = Command::new(notesmith_bin())
         .current_dir(&vault_root)

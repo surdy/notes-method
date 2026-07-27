@@ -38,6 +38,7 @@ pub async fn list_templates(
                 "prompts": m.spec.prompts.iter().map(|p| json!({
                     "name": p.name,
                     "type": p.prompt_type,
+                    "field": p.suggestion_field(),
                     "required": p.required,
                 })).collect::<Vec<_>>(),
             })

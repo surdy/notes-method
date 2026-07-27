@@ -82,6 +82,7 @@ export type {
 	SidebarView
 } from './sidebar.ts';
 
+export { suggestFieldValues } from './fields.ts';
 export { instantiateTemplate, listTemplates } from './templates.ts';
 export type { TemplatePrompt, TemplateSummary } from './templates.ts';
 

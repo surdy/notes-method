@@ -46,8 +46,15 @@
 		try {
 			if (step.mode === 'list') {
 				const selected = filteredItems[selectedIndex];
-				if (!selected) return;
-				await inputPalette.submitStep(selected.id);
+				if (selected) {
+					await inputPalette.submitStep(selected.id);
+					return;
+				}
+				// No match: a field picker still accepts what was typed (a customer
+				// the vault has not seen yet); a plain list does not.
+				if (step.allowCustom && query.trim()) {
+					await inputPalette.submitStep(query);
+				}
 				return;
 			}
 

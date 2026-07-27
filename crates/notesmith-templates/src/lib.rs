@@ -26,6 +26,18 @@ pub struct PromptSpec {
     pub required: bool,
     #[serde(default)]
     pub default: Option<String>,
+    /// For `type: field-picker`, the registry field whose values to suggest.
+    /// Defaults to the prompt name — set it when they differ, e.g. a `customer`
+    /// prompt that picks from the plural `customers` list field.
+    #[serde(default)]
+    pub field: Option<String>,
+}
+
+impl PromptSpec {
+    /// The `fields.toml` key backing this prompt's suggestions.
+    pub fn suggestion_field(&self) -> &str {
+        self.field.as_deref().unwrap_or(&self.name)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1022,6 +1034,37 @@ mod tests {
             !frontmatter.contains_key(serde_yaml::Value::from("priority")),
             "an unanswered optional priority prompt emits no key at all"
         );
+    }
+
+    #[test]
+    fn field_picker_prompts_name_the_registry_field_they_suggest_from() {
+        let engine = engine();
+        let templates = engine.list_templates().unwrap();
+        let meeting = templates
+            .iter()
+            .find(|template| template.spec.name == "external-meeting")
+            .unwrap();
+
+        let customer = meeting
+            .spec
+            .prompts
+            .iter()
+            .find(|prompt| prompt.name == "customer")
+            .unwrap();
+
+        // The prompt is singular but the field is the plural list — suggestions
+        // must follow the field, not the prompt name.
+        assert_eq!(customer.prompt_type, "field-picker");
+        assert_eq!(customer.suggestion_field(), "customers");
+
+        // A prompt that omits `field` suggests from its own name.
+        let title = meeting
+            .spec
+            .prompts
+            .iter()
+            .find(|prompt| prompt.name == "title")
+            .unwrap();
+        assert_eq!(title.suggestion_field(), "title");
     }
 
     #[test]

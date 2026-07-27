@@ -481,9 +481,12 @@ Template metadata fields:
 - `output_path` — Minijinja expression for the output file path
 - `prompts` — list of user inputs required to render the template
 - `prompts[].name` — prompt identifier
-- `prompts[].type` — `text` (more types may be added)
+- `prompts[].type` — `text` (free input) or `field-picker` (searchable list of the field's existing values; a value not in the list is still accepted, so a new customer can be named on first use)
+- `prompts[].field` — for `field-picker`, the `fields.toml` key to suggest from; defaults to the prompt name. Set it when they differ — e.g. a singular `customer` prompt suggesting from the plural `customers` list field
 - `prompts[].required` — whether the prompt is required
 - `prompts[].default` — optional default value used when the prompt is omitted
+
+Suggestions come from the field's `values` or `suggest_from` query (see [Field Registry](#field-registry)). If neither yields anything — a fresh vault, or an unregistered field — the prompt degrades to a text input rather than blocking.
 - `context_queries` — map of template variable names to read-only SQL queries; each result becomes an array of row objects
 - `pre_render_hook` — optional script path, relative to the vault root; it receives the current context as JSON on stdin and returns extra context JSON on stdout
 

@@ -4,8 +4,8 @@ description: "New stream of work"
 output_path: "Inbox/{{ title }}.md"
 prompts:
   - { name: title, type: text, required: true }
-  - { name: customer, type: text, required: false }
-  - { name: priority, type: text, required: false }
+  - { name: customer, type: field-picker, field: customers, required: false }
+  - { name: priority, type: field-picker, field: priority, required: false }
 ---
 ---
 kind: stream

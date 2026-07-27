@@ -11,6 +11,12 @@ export type InputStep =
 			label: string;
 			items: { id: string; label: string; description?: string }[];
 			placeholder?: string;
+			/**
+			 * Accept a typed value that matches no item. Needed for field pickers:
+			 * suggestions come from values already in the vault, but the first
+			 * meeting with a new customer has to be able to name one.
+			 */
+			allowCustom?: boolean;
 	  };
 
 export type InputRequest = {

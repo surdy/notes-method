@@ -1,0 +1,55 @@
+name: Clippy Canary
+
+# Early warning for the pinned toolchain (rust-toolchain.toml).
+#
+# CI builds with a pinned compiler so lint results are reproducible, which means
+# the repo no longer notices new clippy lints until someone bumps the channel.
+# This job runs the same gates against *floating* stable on a schedule: red here
+# means "the next toolchain bump will need these fixes", not "main is broken".
+#
+# It deliberately does not run on push or pull_request, and is not a required
+# check — nothing here should ever block a merge.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays, 06:00 UTC
+  workflow_dispatch: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  clippy-on-stable:
+    name: Lints on floating stable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Deliberately ignores rust-toolchain.toml: the point is to look ahead of
+      # the pin. `rustup override` beats the file for every later cargo call.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Use stable regardless of the pin
+        run: |
+          rustup override set stable
+          echo "Pinned channel:  $(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' rust-toolchain.toml)"
+          echo "Canary channel:  $(rustc --version)"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: What to do if this failed
+        if: failure()
+        run: |
+          echo "::notice::A newer stable toolchain reports problems the pinned one does not."
+          echo "::notice::main is fine. When bumping 'channel' in rust-toolchain.toml, fix these in the same commit."
