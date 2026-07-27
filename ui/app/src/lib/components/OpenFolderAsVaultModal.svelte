@@ -1,15 +1,19 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { addVault, listVaults } from '$lib/api';
+	import { addVault, listKits, listVaults } from '$lib/api';
 	import { API_BASE } from '$lib/api/core';
 	import { createConnectionClient } from '$lib/connection/connection-client';
 	import {
 		defaultNameFromPath,
+		kitChoices,
+		kitForRequest,
+		NO_KIT,
 		resolveTauri,
 		shouldUseNativeVaultRegistration,
 		validateVaultName,
 		vaultRegistrationMode,
 		vaultTargetCopy,
+		type KitChoice,
 		type TauriBridge
 	} from '$lib/open-folder-as-vault';
 
@@ -32,6 +36,10 @@
 	// The target server's display name, for remote registration copy (ADR 0017 D).
 	let serverName = $state<string | null>(null);
 	let copy = $derived(vaultTargetCopy(isRemoteDaemon ? 'remote' : 'local', serverName));
+	// "Start from" — empty vault, or one of the kits the daemon ships.
+	let choices = $state<KitChoice[]>(kitChoices([]));
+	let kit = $state(NO_KIT);
+	let selectedChoice = $derived(choices.find((choice) => choice.id === kit) ?? choices[0]);
 
 	onMount(() => {
 		void start();
@@ -53,6 +61,13 @@
 			existing = (await listVaults()).map((v) => v.name);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load existing vaults';
+		}
+		try {
+			choices = kitChoices(await listKits());
+		} catch {
+			// A daemon that cannot list kits still registers vaults — fall back to
+			// the empty-vault choice rather than blocking the flow.
+			choices = kitChoices([]);
 		}
 		if (isRemoteDaemon) {
 			phase = 'naming';
@@ -97,14 +112,16 @@
 		error = null;
 		try {
 			const nativeBridge = bridge;
+			const selectedKit = kitForRequest(kit);
 			if (shouldUseNativeVaultRegistration(API_BASE, nativeBridge) && nativeBridge) {
 				await nativeBridge.invoke('open_folder_as_vault', {
 					path,
 					displayName: result.value,
-					create: false
+					create: false,
+					kit: selectedKit
 				});
 			} else if (isRemoteDaemon) {
-				await addVault(result.value, path, { create: false });
+				await addVault(result.value, path, { create: false, kit: selectedKit });
 			} else {
 				if (!nativeBridge) {
 					error = 'Cannot register vaults outside the Notesmith desktop app.';
@@ -113,7 +130,8 @@
 				}
 				await nativeBridge.invoke('open_folder_as_vault', {
 					path,
-					displayName: result.value
+					displayName: result.value,
+					kit: selectedKit
 				});
 			}
 			onClose();
@@ -196,6 +214,17 @@
 					aria-describedby={error ? 'open-folder-error' : undefined}
 				/>
 			</label>
+			{#if choices.length > 1}
+				<label class="field">
+					<span class="field-label">Start from</span>
+					<select bind:value={kit} class="name-input" disabled={phase === 'submitting'}>
+						{#each choices as choice (choice.id)}
+							<option value={choice.id}>{choice.label}</option>
+						{/each}
+					</select>
+				</label>
+				<p class="field-hint">{selectedChoice?.description}</p>
+			{/if}
 			{#if error}
 				<div id="open-folder-error" class="inline-error" role="alert">{error}</div>
 			{/if}
@@ -281,6 +310,12 @@
 	.name-input:focus {
 		outline: none;
 		border-color: var(--accent);
+	}
+
+	.field-hint {
+		margin: -4px 0 8px;
+		font-size: 11.5px;
+		color: var(--text-muted);
 	}
 
 	.inline-error {

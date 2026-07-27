@@ -1885,6 +1885,29 @@ Lists all registered vaults with default indicator.
 ]
 ```
 
+### `GET /api/app/kits`
+
+List the vault kits built into the daemon. Not vault-scoped — kits ship with the
+binary, so this is answerable before any vault exists. Clients use it to offer a
+"Start from" choice when registering a vault.
+
+**Response:** `200 OK`
+```json
+[
+  {
+    "id": "work-notes",
+    "description": "Meetings, customers, streams, people and tasks. …",
+    "files": 16,
+    "folders": ["Inbox", "Meetings", "Streams", "Customers", "People", "Daily", "Weekly", "Quarterly", "Dashboards"]
+  }
+]
+```
+
+Apply one by passing its `id` as `kit` to `POST /api/app/vaults` below, or from
+the CLI with [`notesmith kit apply`](cli.md#kit-apply).
+
+---
+
 ### `POST /api/app/vaults`
 
 Registers a new vault.

@@ -113,3 +113,54 @@ export function resolveTauri(): TauriBridge | null {
   const inv = t.core.invoke;
   return { invoke: (cmd, args) => inv(cmd, args ?? {}) };
 }
+
+/** The "Start from" choice, as offered in the new-vault modal. */
+export interface KitChoice {
+  id: string;
+  label: string;
+  description: string;
+}
+
+/** Sentinel for "no kit" — an empty vault, which is the default. */
+export const NO_KIT = '';
+
+/**
+ * Build the "Start from" options: an empty vault first, then whatever kits the
+ * daemon ships.
+ *
+ * Empty leads deliberately. Applying a kit later is safe and idempotent
+ * (`notesmith kit apply`), whereas scaffolding a folder the user only meant to
+ * register leaves files they have to clean up — so the reversible choice is the
+ * default.
+ */
+export function kitChoices(
+  kits: readonly { id: string; description: string }[]
+): KitChoice[] {
+  return [
+    {
+      id: NO_KIT,
+      label: 'Empty vault',
+      description: 'Register the folder as-is.'
+    },
+    ...kits.map((kit) => ({
+      id: kit.id,
+      label: kitLabel(kit.id),
+      description: kit.description
+    }))
+  ];
+}
+
+/** `work-notes` → `Work Notes`, so ids stay machine-facing. */
+export function kitLabel(id: string): string {
+  return id
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+/** The value to send as `kit`, or undefined for an empty vault. */
+export function kitForRequest(selected: string): string | undefined {
+  const trimmed = selected.trim();
+  return trimmed === NO_KIT ? undefined : trimmed;
+}

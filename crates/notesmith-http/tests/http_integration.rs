@@ -2918,6 +2918,34 @@ async fn sse_filters_events_by_vault() {
     server.server.abort();
 }
 
+// ── Kits API tests ────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn get_kits_lists_installable_kits() {
+    let server = TestServer::empty().await;
+
+    let response = reqwest::get(server.url("/api/app/kits")).await.unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let body = response.json::<Vec<serde_json::Value>>().await.unwrap();
+    let work_notes = body
+        .iter()
+        .find(|kit| kit["id"] == "work-notes")
+        .expect("work-notes kit should be listed");
+
+    // The new-vault modal renders these three directly.
+    assert!(work_notes["description"].as_str().unwrap().len() > 20);
+    assert!(work_notes["files"].as_u64().unwrap() >= 15);
+    assert!(
+        work_notes["folders"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("Meetings"))
+    );
+
+    server.server.abort();
+}
+
 // ── Capabilities API tests ─────────────────────────────────────────────────────
 
 #[tokio::test]

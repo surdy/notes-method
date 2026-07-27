@@ -6,6 +6,10 @@ import {
   shouldUseNativeVaultRegistration,
   messageFromUnknownError,
   vaultTargetCopy,
+  kitChoices,
+  kitLabel,
+  kitForRequest,
+  NO_KIT,
   type TauriBridge
 } from './open-folder-as-vault';
 
@@ -140,5 +144,59 @@ describe('vaultTargetCopy', () => {
       title: 'Add Remote Vault',
       hint: 'Enter the folder path as seen by the remote Notesmith server.'
     });
+  });
+});
+
+describe('kitChoices', () => {
+  const kits = [
+    { id: 'work-notes', description: 'Meetings, customers, streams, people and tasks.' }
+  ];
+
+  it('offers an empty vault first', () => {
+    const choices = kitChoices(kits);
+
+    // The reversible option leads: a kit can be applied later, but files
+    // scaffolded into a folder someone only meant to register must be cleaned up.
+    expect(choices[0]).toEqual({
+      id: NO_KIT,
+      label: 'Empty vault',
+      description: 'Register the folder as-is.'
+    });
+  });
+
+  it('lists every kit the daemon ships', () => {
+    const choices = kitChoices(kits);
+
+    expect(choices).toHaveLength(2);
+    expect(choices[1]).toEqual({
+      id: 'work-notes',
+      label: 'Work Notes',
+      description: 'Meetings, customers, streams, people and tasks.'
+    });
+  });
+
+  it('still offers the empty option when no kits are available', () => {
+    expect(kitChoices([])).toEqual([
+      { id: NO_KIT, label: 'Empty vault', description: 'Register the folder as-is.' }
+    ]);
+  });
+});
+
+describe('kitLabel', () => {
+  it('humanises kit ids', () => {
+    expect(kitLabel('work-notes')).toBe('Work Notes');
+    expect(kitLabel('research_log')).toBe('Research Log');
+    expect(kitLabel('journal')).toBe('Journal');
+  });
+});
+
+describe('kitForRequest', () => {
+  it('omits the kit for an empty vault', () => {
+    expect(kitForRequest(NO_KIT)).toBeUndefined();
+    expect(kitForRequest('   ')).toBeUndefined();
+  });
+
+  it('sends the selected kit id', () => {
+    expect(kitForRequest('work-notes')).toBe('work-notes');
   });
 });

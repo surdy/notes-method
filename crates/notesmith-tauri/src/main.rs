@@ -2927,6 +2927,9 @@ async fn open_folder_as_vault(
     path: String,
     display_name: String,
     create: Option<bool>,
+    // Optional kit id to scaffold into the new vault (e.g. `work-notes`),
+    // forwarded verbatim — the daemon owns validation.
+    kit: Option<String>,
 ) -> Result<(), String> {
     // Resolve the *calling window's* daemon + bearer token (not the global
     // active connection). A vault window targets its own server; the Settings
@@ -2946,8 +2949,11 @@ async fn open_folder_as_vault(
     let validated = validate_vault_display_name(&display_name, existing.iter())?;
 
     let url = format!("{}/api/app/vaults", target.url.trim_end_matches('/'));
-    let body =
+    let mut body =
         serde_json::json!({ "name": validated, "path": path, "create": create.unwrap_or(false) });
+    if let Some(kit) = kit.as_deref().filter(|kit| !kit.is_empty()) {
+        body["kit"] = serde_json::Value::String(kit.to_string());
+    }
 
     let client = reqwest::Client::new();
     let response = with_bearer(client.post(&url), target.token.as_deref())

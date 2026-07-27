@@ -57,8 +57,16 @@ export {
 } from './git.ts';
 export type { GitCommitResult, GitStatus } from './git.ts';
 
-export { addVault, listVaults, reindexVault, removeVault, setDefaultVault, updateVault } from './vaults.ts';
-export type { VaultInfo } from './vaults.ts';
+export {
+	addVault,
+	listKits,
+	listVaults,
+	reindexVault,
+	removeVault,
+	setDefaultVault,
+	updateVault
+} from './vaults.ts';
+export type { KitInfo, VaultInfo } from './vaults.ts';
 
 export { fetchDaemonStatus, fetchLogTail, restartDaemon } from './status.ts';
 export type { DaemonStatus, ResourceStatus, VaultStatus } from './status.ts';
