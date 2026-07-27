@@ -68,7 +68,7 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 
 ## Kits
 
-- **Kit** — An installable vault configuration: `.notesmith/` config, templates, dashboards, and a folder skeleton, embedded in the binary and written into a vault by `notesmith kit apply` or by passing `kit` to `POST /api/app/vaults`. (`notesmith-kit::Kit`)
+- **Kit** — An installable vault configuration: `.notesmith/` config, templates, dashboards, and a folder skeleton, embedded in the binary and written into a vault by `notesmith kit apply` or by passing `kit` to `POST /api/app/vaults` (ADR 0024). A kit *configures* a vault; it never ships notes. (`notesmith-kit::Kit`)
 - **Work Notes kit** — The blessed kit (`kits/work-notes/`, documented in `docs/example-work-notes-kit.md`): meetings, customers, streams, people and tasks, with `kind` as the canonical type field and relationships in frontmatter wikilink lists. Its files are **byte-identical to `golden-vault/.notesmith/`** (enforced by test), so the fixture's suite — routing destinations, template rendering, periodic matching, dashboard SQL — covers what users install.
 - **Apply** — Writing a kit into a vault. Non-destructive: an existing file is reported as skipped, never overwritten without `--force`, so applying to a populated vault is safe and re-applying is a no-op. `{{ vault_name }}` in kit files is substituted at write time.
 
