@@ -62,9 +62,15 @@ This file defines the domain vocabulary used throughout the Notesmith codebase. 
 ## Templates
 
 - **Template** — A Minijinja-backed markdown file in `.notesmith/templates/` (legacy `Assets/templates/` is still supported) with metadata (name, description, output path pattern), prompt specs, optional context_queries (SQL), and optional pre_render_hook (script). (`notesmith-templates::TemplateEngine`)
-- **PromptSpec** — A named parameter a template requires at instantiation time (e.g. "customer name", "meeting date"). Types: text, field-picker, date.
+- **PromptSpec** — A named parameter a template requires at instantiation time (e.g. "customer name", "meeting date"). Types: `text` (free input) and `field-picker` (existing values of a registered field, from its `values` or `suggest_from` query, while still accepting a new one). A picker's `field` names the `fields.toml` key to suggest from, defaulting to the prompt name — set it when they differ, e.g. a singular `customer` prompt suggesting from the plural `customers` list field.
 - **RenderedTemplate** — The output of template instantiation: a resolved path and rendered content.
 - **Context Layers** — Three layers of template context: (1) static variables (date, vault, filename), (2) SQL context_queries against the cache, (3) pre_render_hook script enrichment.
+
+## Kits
+
+- **Kit** — An installable vault configuration: `.notesmith/` config, templates, dashboards, and a folder skeleton, embedded in the binary and written into a vault by `notesmith kit apply` or by passing `kit` to `POST /api/app/vaults`. (`notesmith-kit::Kit`)
+- **Work Notes kit** — The blessed kit (`kits/work-notes/`, documented in `docs/example-work-notes-kit.md`): meetings, customers, streams, people and tasks, with `kind` as the canonical type field and relationships in frontmatter wikilink lists. Its files are **byte-identical to `golden-vault/.notesmith/`** (enforced by test), so the fixture's suite — routing destinations, template rendering, periodic matching, dashboard SQL — covers what users install.
+- **Apply** — Writing a kit into a vault. Non-destructive: an existing file is reported as skipped, never overwritten without `--force`, so applying to a populated vault is safe and re-applying is a no-op. `{{ vault_name }}` in kit files is substituted at write time.
 
 ## Periodic Notes
 

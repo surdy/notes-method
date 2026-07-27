@@ -253,6 +253,7 @@ notesmith/
 │   ├── notesmith-html/        # comrak-based HTML rendering and clipboard helpers
 │   ├── notesmith-clip/        # server-side web clipping (SSRF-guarded fetch, readability, HTML→Markdown)
 │   ├── notesmith-config/      # global/per-vault config loading and validation
+│   ├── notesmith-kit/         # installable vault kits (blessed config + templates)
 │   ├── notesmith-http/        # Axum daemon, REST endpoints, SSE, static app serving
 │   ├── notesmith-mcp/         # MCP adapter on top of VaultOps
 │   ├── notesmith-cli/         # clap command tree; produces the `notesmith` binary
@@ -283,6 +284,7 @@ notesmith/
 | `notesmith-routing` | Evaluates YAML predicates over generic fields/tags/path and applies note mutations |
 | `notesmith-tasks` | Resolves configurable status characters into stable groups (`open`, `done`) |
 | `notesmith-config` | Loads `.notesmith/vault.toml`, `.notesmith/fields.toml`, `.notesmith/views.sql`, `.notesmith/routing.yaml` |
+| `notesmith-kit` | Ships the blessed vault configurations and applies them non-destructively into a vault |
 
 ## 5. Data Model
 
