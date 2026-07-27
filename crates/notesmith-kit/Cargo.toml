@@ -1,0 +1,19 @@
+[package]
+name = "notesmith-kit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+notesmith-config = { workspace = true }
+notesmith-routing = { workspace = true }
+notesmith-templates = { workspace = true }
+notesmith-index = { workspace = true }
+notesmith-query = { workspace = true }
+notesmith-vault = { workspace = true }
+notesmith-core = { workspace = true }

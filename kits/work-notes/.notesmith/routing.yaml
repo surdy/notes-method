@@ -1,0 +1,32 @@
+version: 1
+defaults:
+  on_exists: rename
+
+rules:
+  - id: file-meeting
+    when:
+      all:
+        - path: "Inbox/**"
+        - field.kind: "meeting"
+        - field.date: "*"
+    then:
+      move_to: "Meetings/{{ field.date | year }}/{{ field.date | month }}/{{ filename }}"
+      remove_tags: [inbox]
+
+  - id: file-stream
+    when:
+      all:
+        - path: "Inbox/**"
+        - field.kind: "stream"
+    then:
+      move_to: "Streams/{{ filename }}"
+      remove_tags: [inbox]
+
+  - id: file-person
+    when:
+      all:
+        - path: "Inbox/**"
+        - field.kind: "person"
+    then:
+      move_to: "People/{{ filename }}"
+      remove_tags: [inbox]

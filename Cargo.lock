@@ -3312,6 +3312,7 @@ dependencies = [
  "notesmith-http",
  "notesmith-index",
  "notesmith-ingest",
+ "notesmith-kit",
  "notesmith-mcp",
  "notesmith-query",
  "notesmith-transcribe",
@@ -3492,6 +3493,7 @@ dependencies = [
  "notesmith-hooks",
  "notesmith-html",
  "notesmith-index",
+ "notesmith-kit",
  "notesmith-mcp",
  "notesmith-ops",
  "notesmith-permission",
@@ -3564,6 +3566,21 @@ dependencies = [
  "tracing",
  "walkdir",
  "zip 2.4.2",
+]
+
+[[package]]
+name = "notesmith-kit"
+version = "0.1.0"
+dependencies = [
+ "notesmith-config",
+ "notesmith-core",
+ "notesmith-index",
+ "notesmith-query",
+ "notesmith-routing",
+ "notesmith-templates",
+ "notesmith-vault",
+ "tempfile",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

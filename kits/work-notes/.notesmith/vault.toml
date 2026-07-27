@@ -1,5 +1,5 @@
 schema_version = 1
-name = "golden-vault"
+name = "{{ vault_name }}"
 
 [capture]
 folder = "Inbox"

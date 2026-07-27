@@ -1893,11 +1893,32 @@ Registers a new vault.
 | `name` | string | yes | Unique vault name. |
 | `path` | string | yes | Absolute path **on the daemon host**. |
 | `create` | bool | no (default `false`) | When `true` and `path` does not exist, the daemon creates the directory (recursively) before registering. When `false`, a missing path is rejected with `422 path_not_found`. |
+| `kit` | string | no | Kit id to scaffold into the vault (e.g. `work-notes`) — `.notesmith/` config, templates, dashboards, and the folder skeleton. Omit for a bare vault. |
 
 **Response:** `201 Created`
 ```json
 { "name": "personal", "status": "registered" }
 ```
+
+With `"kit": "work-notes"`, the response also reports what the scaffold did.
+Existing files are **never overwritten** — they come back under `skipped`:
+
+```json
+{
+  "name": "personal",
+  "status": "registered",
+  "kit": {
+    "id": "work-notes",
+    "written": [".notesmith/vault.toml", ".notesmith/routing.yaml", "..."],
+    "skipped": [],
+    "created_dirs": ["Inbox", "Meetings", "Streams", "..."]
+  }
+}
+```
+
+Scaffolding happens **before** the vault goes live, so the first index pass
+already sees its templates and dashboards. The same kits are installable from
+the CLI — see [`notesmith kit apply`](cli.md#kit-apply).
 
 > **Available immediately.** Registration writes the global config **and** loads
 > the new vault into the daemon's live engine map (starting its filesystem
@@ -1910,6 +1931,8 @@ Registers a new vault.
 - `422 path_not_found` — path does not exist and `create` was not `true`
 - `422 path_create_failed` — `create:true` but the daemon could not create the
   directory (e.g. the parent is not writable by the daemon's user)
+- `422 unknown_kit` — `kit` is not a known kit id; the response lists the
+  `available` ids and the vault is **not** registered
 - `422 path_not_directory` — path exists but is not a directory
 
 ### `PUT /api/app/vaults/{name}`

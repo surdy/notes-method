@@ -25,6 +25,11 @@ pub struct AddVaultRequest {
     /// missing path returns 422.
     #[serde(default)]
     pub create: bool,
+    /// Optional kit id (e.g. `work-notes`) to scaffold into the vault: config,
+    /// templates, dashboards and the folder skeleton. Existing files are never
+    /// overwritten. Omit for today's bare vault.
+    #[serde(default)]
+    pub kit: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -127,6 +132,39 @@ pub async fn add_vault(
     let notesmith_dir = vault_path.join(".notesmith");
     fs::create_dir_all(&notesmith_dir).map_err(internal_error)?;
 
+    // Optionally scaffold a kit before the vault goes live, so the first index
+    // pass already sees its templates and dashboards. Non-destructive: an
+    // existing file is reported, never overwritten.
+    let kit_report = match body.kit.as_deref() {
+        Some(kit_id) => {
+            let kit = notesmith_kit::Kit::builtin(kit_id).ok_or_else(|| {
+                let available: Vec<&str> =
+                    notesmith_kit::Kit::all().iter().map(|k| k.id()).collect();
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(json!({
+                        "error": "unknown_kit",
+                        "message": format!("Unknown kit '{kit_id}'"),
+                        "available": available,
+                    })),
+                )
+            })?;
+            let report = kit
+                .apply(
+                    &vault_path,
+                    &notesmith_kit::ApplyOptions::for_vault(&body.name),
+                )
+                .map_err(internal_error)?;
+            Some(json!({
+                "id": kit.id(),
+                "written": report.written,
+                "skipped": report.skipped,
+                "created_dirs": report.created_dirs,
+            }))
+        }
+        None => None,
+    };
+
     config.vaults.insert(
         body.name.clone(),
         notesmith_config::VaultRegistration {
@@ -152,10 +190,11 @@ pub async fn add_vault(
 
     emit_vaults_changed(&state, &body.name).await;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(json!({ "name": body.name, "status": "registered" })),
-    ))
+    let mut response = json!({ "name": body.name, "status": "registered" });
+    if let Some(kit) = kit_report {
+        response["kit"] = kit;
+    }
+    Ok((StatusCode::CREATED, Json(response)))
 }
 
 pub async fn update_vault(
@@ -442,6 +481,7 @@ mod tests {
                 name: "fresh".to_string(),
                 path: new_root.to_string_lossy().into_owned(),
                 create: true,
+                kit: None,
             }),
         )
         .await
@@ -457,6 +497,116 @@ mod tests {
         assert!(
             state.vaults.contains_key("fresh"),
             "new vault should be loaded into the live engine map by add_vault"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_vault_scaffolds_the_requested_kit() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+        GlobalConfig::default().save_to(&config_path).unwrap();
+        let state = minimal_state(config_path.clone());
+
+        let new_root = temp_dir.path().join("vaults").join("kitted");
+
+        let (status, body) = add_vault(
+            State(state.clone()),
+            WriteGuard,
+            Json(AddVaultRequest {
+                name: "kitted".to_string(),
+                path: new_root.to_string_lossy().into_owned(),
+                create: true,
+                kit: Some("work-notes".to_string()),
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(body.0["kit"]["id"], "work-notes");
+        assert!(
+            body.0["kit"]["written"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|path| path == ".notesmith/routing.yaml")
+        );
+
+        assert!(new_root.join(".notesmith/routing.yaml").is_file());
+        assert!(
+            new_root
+                .join(".notesmith/templates/external-meeting.md")
+                .is_file()
+        );
+        assert!(new_root.join("Meetings").is_dir());
+
+        // The vault name reaches the scaffolded config, not the placeholder.
+        let config = notesmith_config::VaultConfig::load_from_vault(&new_root).unwrap();
+        assert_eq!(config.name, "kitted");
+    }
+
+    #[tokio::test]
+    async fn add_vault_without_a_kit_stays_bare() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+        GlobalConfig::default().save_to(&config_path).unwrap();
+        let state = minimal_state(config_path.clone());
+
+        let new_root = temp_dir.path().join("vaults").join("bare");
+
+        let (_status, body) = add_vault(
+            State(state.clone()),
+            WriteGuard,
+            Json(AddVaultRequest {
+                name: "bare".to_string(),
+                path: new_root.to_string_lossy().into_owned(),
+                create: true,
+                kit: None,
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert!(body.0.get("kit").is_none());
+        assert!(new_root.join(".notesmith").is_dir());
+        assert!(!new_root.join(".notesmith/routing.yaml").exists());
+    }
+
+    #[tokio::test]
+    async fn add_vault_rejects_an_unknown_kit_without_registering() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+        GlobalConfig::default().save_to(&config_path).unwrap();
+        let state = minimal_state(config_path.clone());
+
+        let new_root = temp_dir.path().join("vaults").join("nope");
+
+        let (status, body) = add_vault(
+            State(state.clone()),
+            WriteGuard,
+            Json(AddVaultRequest {
+                name: "nope".to_string(),
+                path: new_root.to_string_lossy().into_owned(),
+                create: true,
+                kit: Some("does-not-exist".to_string()),
+            }),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body.0["error"], "unknown_kit");
+        assert!(
+            body.0["available"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("work-notes"))
+        );
+
+        let config = GlobalConfig::load_from(&config_path).unwrap();
+        assert!(
+            !config.vaults.contains_key("nope"),
+            "a bad kit id must not leave a half-registered vault behind"
         );
     }
 

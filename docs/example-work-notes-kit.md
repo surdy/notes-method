@@ -6,6 +6,20 @@ primitives (`v_field_values`, `v_task_effective_fields`, field-filtered
 `list_notes`/`list_tasks`) are designed around. The design record lives in
 `plans/work-notes-simplification-design.md`.
 
+**Installing it:** everything below ships as an installable kit — you do not
+need to copy these files by hand.
+
+```bash
+notesmith kit apply work-notes --path ~/vaults/work
+```
+
+Existing files are never overwritten (see [`notesmith kit apply`](cli.md#kit-apply)),
+so it is safe to run against a vault you already have, and
+`POST /api/app/vaults` accepts a `"kit"` field to scaffold a vault as it is
+created. The kit's source lives in `kits/work-notes/` and is byte-identical to
+the `golden-vault/` fixture, so the config and templates you install are the
+ones the test suite exercises.
+
 ## The model in one paragraph
 
 Three durable entities — **Customer**, **Stream** (an ongoing initiative with

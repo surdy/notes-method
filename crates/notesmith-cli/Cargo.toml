@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 notesmith-core = { workspace = true }
 notesmith-config = { workspace = true }
+notesmith-kit = { workspace = true }
 notesmith-vault = { workspace = true }
 notesmith-index = { workspace = true }
 notesmith-embed = { workspace = true }
