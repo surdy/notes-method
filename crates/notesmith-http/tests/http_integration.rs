@@ -1203,17 +1203,28 @@ async fn hook_fires_on_note_create() {
 
     assert_eq!(response.status(), reqwest::StatusCode::CREATED);
 
+    // The hook is `cat > hook-fired.json`: the shell creates the file the moment
+    // it opens the redirect, so `exists()` goes true while it is still empty.
+    // Wait for content that actually parses, not merely for the path to appear.
     let marker = root.join("hook-fired.json");
-    for _ in 0..20 {
-        if marker.exists() {
-            break;
+    let mut payload = None;
+    for _ in 0..40 {
+        if let Ok(contents) = fs::read_to_string(&marker) {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&contents) {
+                payload = Some(parsed);
+                break;
+            }
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
-    assert!(marker.exists());
-    let payload: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(marker).unwrap()).unwrap();
+    let payload = payload.unwrap_or_else(|| {
+        panic!(
+            "hook never wrote a complete payload to {} (exists: {})",
+            marker.display(),
+            marker.exists()
+        )
+    });
     assert_eq!(payload["event"], serde_json::json!("on_note_create"));
     assert_eq!(payload["vault"], serde_json::json!("test-vault"));
     assert_eq!(payload["path"], serde_json::json!("Inbox/Hook Test.md"));
