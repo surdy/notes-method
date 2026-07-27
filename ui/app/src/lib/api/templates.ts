@@ -4,6 +4,11 @@ export interface TemplatePrompt {
 	name: string;
 	type: string;
 	required: boolean;
+	/**
+	 * For `type: field-picker`, the `fields.toml` key whose values to suggest.
+	 * The daemon defaults it to the prompt name, so it is always present.
+	 */
+	field?: string;
 }
 
 export interface TemplateSummary {

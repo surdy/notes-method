@@ -268,8 +268,8 @@ description: "New customer-attended meeting — always exactly one customer"
 output_path: "Inbox/{{ date }} - {{ customer }} - {{ title }}.md"
 prompts:
   - { name: title, type: text, required: true }
-  - { name: customer, type: text, required: true }
-  - { name: stream, type: text, required: false }
+  - { name: customer, type: field-picker, field: customers, required: true }
+  - { name: stream, type: field-picker, field: streams, required: false }
 ---
 ---
 kind: meeting
@@ -302,10 +302,13 @@ query flags violations (below). Per-customer external templates (e.g. a QBR
 template with a standing agenda) are just extra files in
 `.notesmith/templates/` — add one only when a customer earns it.
 
-Prompt types: `text` is the only one implemented — the app renders every prompt
-as a free-text input regardless of the declared `type`, and `as_wikilink` turns
-the typed name into a link. A picker backed by `fields.toml`'s `suggest_from`
-queries would be a UI feature, not a config change.
+Prompt types: `text` is a free-text input; `field-picker` offers the values
+already in the vault for a registered field, searchable, while still accepting a
+name the vault has not seen yet (otherwise a new customer could never be
+captured). `field:` names the `fields.toml` key to suggest from — needed here
+because the prompt is singular (`customer`) but the field is the plural list
+(`customers`). Suggestions come from that field's `values` or `suggest_from`
+query; if neither yields anything, the prompt quietly degrades to text.
 
 ### `stream.md`
 
@@ -316,8 +319,8 @@ description: "New stream of work"
 output_path: "Inbox/{{ title }}.md"
 prompts:
   - { name: title, type: text, required: true }
-  - { name: customer, type: text, required: false }
-  - { name: priority, type: text, required: false }
+  - { name: customer, type: field-picker, field: customers, required: false }
+  - { name: priority, type: field-picker, field: priority, required: false }
 ---
 ---
 kind: stream

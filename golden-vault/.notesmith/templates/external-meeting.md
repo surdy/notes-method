@@ -4,8 +4,8 @@ description: "New customer-attended meeting — always exactly one customer"
 output_path: "Inbox/{{ date }} - {{ customer }} - {{ title }}.md"
 prompts:
   - { name: title, type: text, required: true }
-  - { name: customer, type: text, required: true }
-  - { name: stream, type: text, required: false }
+  - { name: customer, type: field-picker, field: customers, required: true }
+  - { name: stream, type: field-picker, field: streams, required: false }
 ---
 ---
 kind: meeting
