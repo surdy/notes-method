@@ -31,6 +31,9 @@ RUN rustup target add x86_64-unknown-linux-gnu
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
+# notesmith-kit embeds these with include_str!, so they must be in the build
+# context or the CLI fails to compile.
+COPY kits/ kits/
 
 # Build only the CLI crate (notesmith-tauri is excluded from workspace members).
 # `${CARGO_FEATURES:+--features ${CARGO_FEATURES}}` expands to nothing when the
