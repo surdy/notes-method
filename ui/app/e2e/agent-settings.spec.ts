@@ -37,6 +37,11 @@ async function installFakeBridge(page: Page): Promise<void> {
 					s.calls.agent_config_set += 1;
 					s.lastSetConfig = args.config;
 					return null;
+				// AgentSettings loads the runtime diagnostics log on mount and again
+				// after a run. Without this case the `default: null` below lands in
+				// `diagLog`, and the `diagLog.length` read tears down the render.
+				case 'agent_diagnostics_log':
+					return [];
 				case 'agent_diagnostics':
 					s.calls.agent_diagnostics += 1;
 					return {

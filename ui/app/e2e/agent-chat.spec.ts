@@ -151,8 +151,10 @@ test('streams an agent turn through a write-permission grant to completion', asy
 
 	await page.goto('/app/agent-harness');
 
-	// Panel mounts and the agent picker is populated from agent_list.
-	const agentPicker = page.getByLabel('Agent');
+	// Panel mounts and the agent picker is populated from agent_list. The
+	// control is labelled "Provider" — "Agent" names the Ask/Agent mode
+	// dropdown in the composer, which is a different control.
+	const agentPicker = page.getByLabel('Provider');
 	await expect(agentPicker).toBeVisible();
 	await expect(agentPicker).toHaveValue('copilot');
 

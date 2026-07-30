@@ -51,7 +51,11 @@ test('keeps the selected agent visible when all agents are unavailable', async (
 
 	await page.goto('/app/agent-harness');
 
-	const picker = page.getByLabel('Agent');
+	// The control is labelled "Provider" — "Agent" names the Ask/Agent mode
+	// dropdown in the composer, which is a different control. This assertion
+	// is what keeps the `toHaveCount(0)` check in the next test honest: rename
+	// the label again and this fails loudly rather than going quietly vacuous.
+	const picker = page.getByLabel('Provider');
 	await expect(picker).toBeVisible();
 	// Defaults to the first agent even though it's unavailable…
 	await expect(picker).toHaveValue('copilot');
@@ -69,8 +73,10 @@ test('shows an inline empty-state with a Settings link when no agents are found'
 
 	await page.goto('/app/agent-harness');
 
-	// No picker is rendered…
-	await expect(page.getByLabel('Agent')).toHaveCount(0);
+	// No picker is rendered — asserted structurally as well as by label, since
+	// a label-only check silently passes if the control is ever renamed.
+	await expect(page.getByLabel('Provider')).toHaveCount(0);
+	await expect(page.locator('select')).toHaveCount(0);
 	// …instead an explanatory empty-state with a Settings link.
 	await expect(page.getByText('No agent CLI found')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Open AI Agent settings' })).toBeVisible();
