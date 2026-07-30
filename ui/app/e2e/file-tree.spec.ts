@@ -51,23 +51,53 @@ test('folder disclosure matches the subtle Quill Rail mockup scale', async ({ pa
 	expect(borders).toEqual({ left: '5px', top: '4px', bottom: '4px' });
 });
 
-test('deep rows use Branch Spine hairline connectors without folder icons', async ({ page }) => {
+test('rows hang outliner markers off the indent spine without folder icons', async ({ page }) => {
 	await page.goto('/app/file-tree-harness');
 
 	const projects = page.locator('.folder').filter({ hasText: 'Projects' }).first();
 	const research = page.locator('.folder').filter({ hasText: 'Research' }).first();
 
-	await expect(projects.locator('.branch-connector')).toHaveCount(0);
-	await expect(research.locator('.branch-connector')).toHaveCount(1);
-	await page.getByRole('button', { name: 'Research' }).click();
-	const structure = page.getByRole('button', { name: 'Structure' });
-	await expect(structure.locator('.branch-connector')).toHaveCount(1);
-	await expect(
-		page.getByRole('button', { name: '🔬 Custom Icon' }).locator('.branch-connector')
-	).toHaveCount(0);
+	// Connector stubs are gone. Folders stay unmarked — the chevron alone
+	// distinguishes them, so nothing sits in front of the folder name.
+	await expect(page.locator('.branch-connector')).toHaveCount(0);
+	await expect(page.locator('.folder-marker')).toHaveCount(0);
+	await expect(projects.locator('.tree-marker')).toHaveCount(0);
+	await expect(research.locator('.tree-marker')).toHaveCount(0);
 	await expect(page.locator('.folder-icon')).toHaveCount(0);
 
-	const connector = research.locator('.branch-connector');
-	await expect(connector).toHaveCSS('height', '1px');
-	await expect(connector).toHaveCSS('width', '13px');
+	// Notes get a filled dot, unless an explicit icon already marks the row.
+	const quillRail = page.getByRole('button', { name: 'Quill Rail' });
+	await expect(quillRail.locator('.note-marker')).toHaveCount(1);
+	await expect(
+		page.getByRole('button', { name: '🔬 Custom Icon' }).locator('.note-marker')
+	).toHaveCount(0);
+
+	await page.getByRole('button', { name: 'Research' }).click();
+	await expect(page.getByRole('button', { name: 'Structure' }).locator('.note-marker')).toHaveCount(
+		1
+	);
+
+	// The dot sits on the innermost indent guide of its own row, so notes
+	// hang off the spine their parent folder draws.
+	const dot = await quillRail.locator('.note-marker').boundingBox();
+	const guide = await quillRail.locator('.indent-guide').last().boundingBox();
+	expect(dot).not.toBeNull();
+	expect(guide).not.toBeNull();
+	expect(dot!.x + dot!.width / 2).toBeCloseTo(guide!.x + guide!.width / 2, 1);
+
+	await expect(quillRail.locator('.note-marker')).toHaveCSS('width', '5px');
+});
+
+test('the open note takes the accent on its marker', async ({ page }) => {
+	await page.goto('/app/file-tree-harness');
+
+	const quillRail = page.getByRole('button', { name: 'Quill Rail' });
+	const marker = quillRail.locator('.note-marker');
+	const resting = await marker.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+	await quillRail.click();
+	await expect(quillRail).toHaveClass(/selected/);
+	const selected = await marker.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+	expect(selected).not.toBe(resting);
 });

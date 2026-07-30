@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>File tree - folder demarcation options</title>
+<style>
+  :root {
+    color-scheme: light;
+    /* Notesmith light theme tokens (ui/app/src/styles/themes/light.css) */
+    --bg-default: #ffffff;
+    --bg-secondary: #f7f8fa;
+    --bg-panel: #f4f5f7;
+    --bg-elevated: #f4f5f7;
+    --bg-hover: #f1f3f5;
+    --bg-active: #e8ebef;
+    --bg-selected: #d0e5fa;
+    --border-default: #d9dde3;
+    --border-strong: #c7ccd3;
+    --border-subtle: #e8eaee;
+    --text-default: #31353a;
+    --text-secondary: #43464c;
+    --text-muted: #7c7f83;
+    --text-faint: #919397;
+    --accent: #578ae0;
+    --accent-text: #467ddb;
+    --hue-folder: #a97524;
+    --hue-cyan: #387f8d;
+    --hue-violet: #7b62b5;
+    --tint: 0, 0, 0;
+    --tint-a: 0.032;
+    --shadow-card: 0 1px 2px rgba(16, 20, 26, 0.06), 0 8px 24px rgba(16, 20, 26, 0.05);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg-default: #111316;
+      --bg-secondary: #15171a;
+      --bg-panel: #17191d;
+      --bg-elevated: #1b1e23;
+      --bg-hover: #1b1e23;
+      --bg-active: #22262c;
+      --bg-selected: #1e2a41;
+      --border-default: #2b2f35;
+      --border-strong: #363b43;
+      --border-subtle: #22262b;
+      --text-default: #d9dbdd;
+      --text-secondary: #c2c4c6;
+      --text-muted: #818386;
+      --text-faint: #6c6e71;
+      --accent: #6389d1;
+      --accent-text: #6e98e8;
+      --hue-folder: #c9a15f;
+      --hue-cyan: #66b7bb;
+      --hue-violet: #a88bd4;
+      --tint: 255, 255, 255;
+      --tint-a: 0.028;
+      --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.22);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg-default: #111316;
+    --bg-secondary: #15171a;
+    --bg-panel: #17191d;
+    --bg-elevated: #1b1e23;
+    --bg-hover: #1b1e23;
+    --bg-active: #22262c;
+    --bg-selected: #1e2a41;
+    --border-default: #2b2f35;
+    --border-strong: #363b43;
+    --border-subtle: #22262b;
+    --text-default: #d9dbdd;
+    --text-secondary: #c2c4c6;
+    --text-muted: #818386;
+    --text-faint: #6c6e71;
+    --accent: #6389d1;
+    --accent-text: #6e98e8;
+    --hue-folder: #c9a15f;
+    --hue-cyan: #66b7bb;
+    --hue-violet: #a88bd4;
+    --tint: 255, 255, 255;
+    --tint-a: 0.028;
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.22);
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg-default: #ffffff;
+    --bg-secondary: #f7f8fa;
+    --bg-panel: #f4f5f7;
+    --bg-elevated: #f4f5f7;
+    --bg-hover: #f1f3f5;
+    --bg-active: #e8ebef;
+    --bg-selected: #d0e5fa;
+    --border-default: #d9dde3;
+    --border-strong: #c7ccd3;
+    --border-subtle: #e8eaee;
+    --text-default: #31353a;
+    --text-secondary: #43464c;
+    --text-muted: #7c7f83;
+    --text-faint: #919397;
+    --accent: #578ae0;
+    --accent-text: #467ddb;
+    --hue-folder: #a97524;
+    --hue-cyan: #387f8d;
+    --hue-violet: #7b62b5;
+    --tint: 0, 0, 0;
+    --tint-a: 0.032;
+    --shadow-card: 0 1px 2px rgba(16, 20, 26, 0.06), 0 8px 24px rgba(16, 20, 26, 0.05);
+  }
+
+  :root {
+    --ui: ui-sans-serif, -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg-default);
+    color: var(--text-default);
+    font-family: var(--ui);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 40px 24px 96px;
+  }
+
+  /* ---------- page header ---------- */
+
+  .masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border-default);
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(26px, 3.4vw, 36px);
+    font-weight: 620;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+
+  .lede {
+    max-width: 62ch;
+    margin: 0;
+    color: var(--text-secondary);
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border: 1px solid var(--border-default);
+    border-radius: 999px;
+    background: var(--bg-secondary);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .tag.drop-in { border-color: color-mix(in srgb, var(--accent) 38%, var(--border-default)); color: var(--accent-text); }
+  .tag.refactor { border-color: color-mix(in srgb, var(--hue-folder) 42%, var(--border-default)); color: var(--hue-folder); }
+  .tag::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.75;
+  }
+  .tag.neutral::before { display: none; }
+
+  /* ---------- grid of options ---------- */
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+    gap: 18px;
+    margin-top: 28px;
+  }
+
+  .card {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+  }
+
+  .card.baseline { border-style: dashed; box-shadow: none; background: transparent; }
+
+  .card-head {
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    gap: 4px 12px;
+    padding: 16px 18px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .key {
+    grid-row: span 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: var(--bg-active);
+    color: var(--text-secondary);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .card-head h2 {
+    margin: 0;
+    align-self: center;
+    font-size: 15px;
+    font-weight: 620;
+    letter-spacing: -0.01em;
+  }
+
+  .card-head p {
+    margin: 0;
+    grid-column: 2;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  .preview {
+    padding: 12px 12px 14px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .card-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 18px 14px;
+  }
+
+  .card-foot .why {
+    flex: 1 1 180px;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--text-faint);
+    line-height: 1.45;
+  }
+
+  /* ================================================================
+     TREE - shared skeleton. Metrics match FileTree.svelte:
+     13px type, 16px indent step, 5px/8px row padding.
+     ================================================================ */
+
+  .tree {
+    font-size: 13px;
+    line-height: 1;
+    user-select: none;
+  }
+
+  .kids {
+    position: relative;
+    padding-left: 16px;
+  }
+
+  .row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 5px 8px;
+    border-radius: 8px;
+    cursor: default;
+    color: var(--text-default);
+  }
+
+  .row:hover { background: var(--bg-hover); }
+
+  .row.folder {
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+
+  .row.selected {
+    background: var(--bg-selected);
+    font-weight: 600;
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+
+  /* CSS-drawn disclosure triangle, same as the component */
+  .tw {
+    flex: 0 0 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 16px;
+  }
+
+  .tw::before {
+    content: "";
+    width: 0;
+    height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    border-left: 5px solid var(--text-muted);
+    transform: rotate(90deg);
+  }
+
+  .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .row.note .ico {
+    flex: 0 0 16px;
+    margin-left: -16px;
+    margin-right: 8px;
+    text-align: center;
+    font-size: 11px;
+  }
+
+  /* Notes with no icon still occupy the twisty gutter so titles line up
+     with sibling folder names. */
+  .row.note { padding-left: 24px; }
+  .row.note.has-ico { padding-left: 24px; }
+
+  /* ================================================================
+     A - Current
+     ================================================================ */
+
+  .t-a .kids::before {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border-subtle);
+  }
+
+  .t-a .kids .kids > .row::before {
+    content: "";
+    position: absolute;
+    left: -9px;
+    top: 50%;
+    width: 9px;
+    height: 1px;
+    background: var(--border-subtle);
+  }
+
+  /* ================================================================
+     B - Live branch: guides stay faint until the branch is in play
+     ================================================================ */
+
+  .t-b .kids::before {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border-subtle);
+    transition: background 0.12s ease, width 0.12s ease;
+  }
+
+  .t-b .kids:hover::before { background: var(--text-faint); }
+
+  .t-b .kids:has(> .row.selected)::before,
+  .t-b .kids:has(.group .row.selected)::before {
+    background: var(--accent);
+    width: 2px;
+    left: 6px;
+  }
+
+  /* ================================================================
+     C - Nested surface: each open folder's contents sit on a tint
+     ================================================================ */
+
+  .t-c .kids {
+    margin: 2px 0 4px 6px;
+    padding: 3px 0 3px 10px;
+    border-radius: 8px;
+    background: rgba(var(--tint), var(--tint-a));
+  }
+
+  .t-c .row.folder { color: var(--text-default); }
+
+  /* ================================================================
+     D - Section headers: no rules at all, hierarchy from type
+     ================================================================ */
+
+  .t-d .kids { padding-left: 12px; }
+  .t-d > .group + .group { margin-top: 12px; }
+
+  .t-d .row.folder {
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .t-d .kids .row.folder {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--hue-folder);
+    margin-top: 6px;
+  }
+
+  .t-d .tw::before { border-left-color: var(--text-faint); }
+  .t-d .row.note { color: var(--text-default); }
+
+  /* ================================================================
+     E - Depth-coded rails
+     ================================================================ */
+
+  .t-e .kids::before {
+    content: "";
+    position: absolute;
+    left: 6px;
+    top: 2px;
+    bottom: 2px;
+    width: 2px;
+    border-radius: 1px;
+    background: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+
+  .t-e .kids .kids::before { background: color-mix(in srgb, var(--hue-folder) 60%, transparent); }
+  .t-e .kids .kids .kids::before { background: color-mix(in srgb, var(--hue-cyan) 60%, transparent); }
+
+  /* ================================================================
+     F - Bracket: a real drawn tree with rounded elbows
+     ================================================================ */
+
+  .t-f .kids::before {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border-strong);
+  }
+
+  .t-f .kids > .row::after,
+  .t-f .kids > .group > .row::after {
+    content: "";
+    position: absolute;
+    left: -9px;
+    top: 0;
+    height: calc(50% - 6px);
+    width: 8px;
+    border-left: 1px solid var(--border-strong);
+    border-bottom: 1px solid var(--border-strong);
+    border-bottom-left-radius: 6px;
+  }
+
+  /* Last child terminates the spine instead of letting it run past. */
+  .t-f .kids > :last-child.row::before,
+  .t-f .kids > :last-child.group > .row::before {
+    content: "";
+    position: absolute;
+    left: -10px;
+    top: 50%;
+    bottom: -40px;
+    width: 3px;
+    background: var(--bg-panel);
+  }
+
+  .t-f .kids > :last-child.group > .row::before { display: none; }
+
+  /* ================================================================
+     G - Banded groups: alternating tint, no rules
+     ================================================================ */
+
+  .t-g > .group {
+    padding: 3px 0 5px;
+    border-radius: 8px;
+  }
+
+  .t-g > .group:nth-child(odd) { background: rgba(var(--tint), var(--tint-a)); }
+  .t-g > .group + .group { margin-top: 3px; }
+  .t-g .kids { padding-left: 14px; }
+  .t-g .row.folder { color: var(--text-default); font-weight: 600; }
+
+  /* ================================================================
+     H - Outliner bullets
+     ================================================================ */
+
+  .t-h .kids::before {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border-subtle);
+  }
+
+  .t-h .kids > .row.note::before {
+    content: "";
+    position: absolute;
+    left: -11px;
+    top: 50%;
+    width: 5px;
+    height: 5px;
+    margin-top: -2.5px;
+    border-radius: 50%;
+    background: var(--text-faint);
+  }
+
+  .t-h .kids > .row.note.selected::before { background: var(--accent); }
+
+  .t-h .kids > .group > .row.folder::before {
+    content: "";
+    position: absolute;
+    left: -12px;
+    top: 50%;
+    width: 5px;
+    height: 5px;
+    margin-top: -3.5px;
+    border: 1px solid var(--text-muted);
+    border-radius: 50%;
+    background: var(--bg-panel);
+  }
+
+  /* ---------- responsive ---------- */
+
+  @media (max-width: 560px) {
+    .wrap { padding: 28px 16px 72px; }
+    .grid { grid-template-columns: 1fr; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead">
+    <span class="eyebrow">Notesmith &middot; sidebar &middot; FileTree.svelte</span>
+    <h1>Telling notes apart from the folder they live in</h1>
+    <p class="lede">
+      Eight treatments of the same tree, drawn at the component's real metrics &mdash; 13&nbsp;px type,
+      16&nbsp;px indent step, 5&nbsp;px&nbsp;/&nbsp;8&nbsp;px row padding &mdash; so what you see here is
+      what lands in the sidebar. <strong>A</strong> is today's tree, for reference. Selected row is
+      <em>Dates and Milestones</em>; hover any row to check the states.
+    </p>
+    <div class="legend">
+      <span class="tag drop-in">Drop-in &mdash; CSS only</span>
+      <span class="tag refactor">Needs nested rows in the DOM</span>
+      <span class="tag neutral">Theme follows your system / the toggle above</span>
+    </div>
+  </header>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+  const TREE = [
+    {
+      folder: "Customers",
+      children: [
+        {
+          folder: "Acme Corp",
+          children: [
+            { note: "Account Info" },
+            { note: "Dates and Milestones", selected: true },
+            { note: "Glossary" },
+            { note: "Widget API" }
+          ]
+        },
+        { folder: "Globex", children: [{ note: "Account Info" }] }
+      ]
+    },
+    {
+      folder: "Streams",
+      children: [
+        { note: "API Integration" },
+        { note: "Migration to v2" },
+        { note: "Platform Rollout" }
+      ]
+    },
+    {
+      folder: "Inbox",
+      children: [
+        { note: "2025-01-20 \u2014 Renewal Kickoff", icon: "\u{1F4E5}" },
+        { note: "Quick Note" }
+      ]
+    }
+  ];
+
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+
+  function renderNodes(nodes) {
+    return nodes
+      .map((n) => {
+        if (n.folder) {
+          return (
+            '<div class="group">' +
+            '<div class="row folder"><span class="tw"></span><span class="label">' +
+            esc(n.folder) +
+            "</span></div>" +
+            '<div class="kids">' +
+            renderNodes(n.children) +
+            "</div></div>"
+          );
+        }
+        const cls = "row note" + (n.icon ? " has-ico" : "") + (n.selected ? " selected" : "");
+        const ico = n.icon ? '<span class="ico">' + n.icon + "</span>" : "";
+        return '<div class="' + cls + '">' + ico + '<span class="label">' + esc(n.note) + "</span></div>";
+      })
+      .join("");
+  }
+
+  const OPTIONS = [
+    {
+      key: "A",
+      id: "a",
+      name: "Current",
+      desc: "Hairline indent guides in --border-subtle with a short connector stub into each nested row.",
+      why: "The guides sit at the same value as panel dividers, so at 13 px they read as texture rather than structure.",
+      cost: null,
+      baseline: true
+    },
+    {
+      key: "B",
+      id: "b",
+      name: "Live branch",
+      desc: "Guides stay quiet until a branch matters \u2014 the rail thickens to 2 px accent for the folder holding the open note, and lifts to --text-faint on hover.",
+      why: "Smallest possible change: same lines, they just earn contrast when they're carrying meaning. Uses :has().",
+      cost: "drop-in"
+    },
+    {
+      key: "C",
+      id: "c",
+      name: "Nested surface",
+      desc: "A folder's contents sit on a rounded tint block. Nesting compounds, so depth reads as a stack of plates rather than a count of lines.",
+      why: "Strongest grouping of the eight and no lines at all, but the tint stacks \u2014 three deep starts to glow against the panel.",
+      cost: "refactor"
+    },
+    {
+      key: "D",
+      id: "d",
+      name: "Section headers",
+      desc: "Drop the rules entirely. Top-level folders become uppercase eyebrows, nested folders take the folder hue, notes get full contrast and tighter rows.",
+      why: "Reads like an outline instead of a filesystem. Costs you the ability to see depth past level two.",
+      cost: "drop-in"
+    },
+    {
+      key: "E",
+      id: "e",
+      name: "Depth-coded rails",
+      desc: "One 2 px rail per open folder, hued by depth \u2014 accent, then folder gold, then cyan \u2014 pulled from the existing ramps.",
+      why: "You can tell which level you're in from the corner of your eye. Also the loudest: three hues in a 260 px column.",
+      cost: "drop-in"
+    },
+    {
+      key: "F",
+      id: "f",
+      name: "Bracket",
+      desc: "An actual drawn tree: brighter spine in --border-strong, rounded elbow into every child, spine terminating at the last one.",
+      why: "The familiar file-explorer shape done properly. The terminated spine is what current stubs are missing.",
+      cost: "refactor"
+    },
+    {
+      key: "G",
+      id: "g",
+      name: "Banded groups",
+      desc: "Alternating tint across whole top-level groups \u2014 folder row and its notes share one band, the next group sits on bare panel.",
+      why: "Separates siblings at a glance without any vertical rules. Bands fight the selected-row background a little.",
+      cost: "refactor"
+    },
+    {
+      key: "H",
+      id: "h",
+      name: "Outliner bullets",
+      desc: "Faint spine, plus a filled dot on each note and a hollow ring on each folder \u2014 the marker sits on the rail like a Logseq bullet.",
+      why: "Notes and folders become different objects, not just different indents. Dots pick up the accent when selected.",
+      cost: "drop-in"
+    }
+  ];
+
+  const COST_LABEL = { "drop-in": "Drop-in", refactor: "Needs nested DOM" };
+
+  document.getElementById("grid").innerHTML = OPTIONS.map((o) => {
+    const tag = o.cost
+      ? '<span class="tag ' + o.cost + '">' + COST_LABEL[o.cost] + "</span>"
+      : '<span class="tag neutral">Shipping today</span>';
+    return (
+      '<article class="card' + (o.baseline ? " baseline" : "") + '" id="opt-' + o.id + '">' +
+      '<div class="card-head">' +
+      '<span class="key">' + o.key + "</span>" +
+      "<h2>" + o.name + "</h2>" +
+      "<p>" + o.desc + "</p>" +
+      "</div>" +
+      '<div class="preview"><div class="tree t-' + o.id + '">' + renderNodes(TREE) + "</div></div>" +
+      '<div class="card-foot"><span class="why">' + o.why + "</span>" + tag + "</div>" +
+      "</article>"
+    );
+  }).join("");
+</script>
+</body>
+</html>

@@ -43,6 +43,8 @@
 		width: 300px;
 		min-height: 100vh;
 		padding: var(--space-3);
-		background: var(--bg-panel);
+		/* Matches the real sidebar surface, so guide and marker contrast in
+		   the harness reads the same as it does in the app. */
+		background: var(--bg-secondary);
 	}
 </style>
