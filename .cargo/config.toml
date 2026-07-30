@@ -1,0 +1,5 @@
+# Keeps target/ from ballooning. Full (non-incremental) builds produce far fewer
+# stale artifacts — the main cause of this repo's target/ growing to 148 GB.
+# Trade-off: slightly slower incremental edit-rebuild cycles, much smaller target/.
+[build]
+incremental = false
