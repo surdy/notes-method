@@ -131,12 +131,6 @@
 		{#each Array(depth) as _, i}
 			<span class="indent-guide" style={`left: ${i * INDENT + 11}px`}></span>
 		{/each}
-		{#if depth > 1}
-			<span
-				class="branch-connector"
-				style={`left: ${(depth - 1) * INDENT + 11}px`}
-			></span>
-		{/if}
 		{#if node.folderNote}
 			<button
 				class="folder-disclosure-button"
@@ -203,10 +197,10 @@
 			{#each Array(depth + 1) as _, i}
 				<span class="indent-guide" style={`left: ${i * INDENT + 11}px`}></span>
 			{/each}
-			{#if depth >= 1 && !icon}
+			{#if !icon}
 				<span
-					class="branch-connector"
-					style={`left: ${depth * INDENT + 11}px`}
+					class="tree-marker note-marker"
+					style={`left: ${depth * INDENT + 9}px`}
 				></span>
 			{/if}
 			{#if icon}
@@ -319,13 +313,31 @@
 		pointer-events: none;
 	}
 
-	.branch-connector {
+	/* A note carries a dot centred on the indent guide it hangs from, so the
+	   spine reads as a list of items rather than bare texture. Folders get no
+	   marker — their chevron already sets them apart, and a second glyph in
+	   front of it crowds the row. */
+	.tree-marker {
 		position: absolute;
 		top: 50%;
-		width: 13px;
-		height: 1px;
-		background: var(--border-subtle);
+		box-sizing: border-box;
+		border-radius: 50%;
 		pointer-events: none;
+	}
+
+	.note-marker {
+		width: 5px;
+		height: 5px;
+		margin-top: -2.5px;
+		background: var(--text-faint);
+	}
+
+	.note-item:hover .note-marker {
+		background: var(--text-muted);
+	}
+
+	.note-item.selected .note-marker {
+		background: var(--accent);
 	}
 
 	.note-item {
