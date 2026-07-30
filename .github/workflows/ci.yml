@@ -73,3 +73,46 @@ jobs:
       - name: Build
         working-directory: ui/app
         run: pnpm build
+
+  e2e:
+    name: Playwright e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/app/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: ui/app
+        run: pnpm install --frozen-lockfile
+
+      # playwright.config.ts declares a single chromium project, so the other
+      # engines and their system deps are not worth downloading.
+      - name: Install Playwright browser
+        working-directory: ui/app
+        run: pnpm exec playwright install --with-deps chromium
+
+      # The config's `webServer` block starts `vite dev` on :5173 and, because
+      # CI is set, will not reuse a pre-existing server.
+      - name: Run e2e tests
+        working-directory: ui/app
+        run: pnpm test:e2e
+
+      # `trace: 'on-first-retry'` writes traces here; keep them when the suite
+      # fails so a red run can be debugged without reproducing locally.
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: ui/app/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
