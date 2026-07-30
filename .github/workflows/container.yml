@@ -7,10 +7,15 @@ on:
       # Rebuild whenever source or the image definition changes
       - 'Cargo.toml'
       - 'Cargo.lock'
+      # The Containerfile parses the pinned channel out of this file to install
+      # the toolchain, so a bump here changes the compiler the image is built
+      # with and must trigger a rebuild.
+      - 'rust-toolchain.toml'
       - 'crates/**'
       - 'kits/**'
       - 'ui/app/**'
       - 'Containerfile'
+      - '.dockerignore'
       - 'deploy/healthcheck.sh'
   workflow_dispatch: {}   # allow manual builds from the Actions UI
 
