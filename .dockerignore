@@ -1,0 +1,44 @@
+# Build context excludes.
+#
+# The image build needs only:
+#   Cargo.toml  Cargo.lock  rust-toolchain.toml
+#   crates/  kits/  ui/app/  deploy/healthcheck.sh
+#
+# Without this file the context is the whole repo, which today carries ~36 GB
+# of build artifacts (target/ alone is 32 GB). All of it is sent to the daemon
+# on every `docker build .` and invalidates the layer cache on every edit. CI
+# never noticed because its checkout is clean — this only bites local builds.
+
+# ── Derived build output ─────────────────────────────────────────────────
+target
+crates/notesmith-tauri/target
+# Prebuilt desktop sidecar binaries (206 MB). The image compiles its own CLI.
+crates/notesmith-tauri/binaries
+# Both forms on purpose: `**/` reliably catches the nested ui/app copy, and the
+# bare entry covers the context root without depending on whether `**` is read
+# as matching zero path segments.
+node_modules
+**/node_modules
+**/.svelte-kit
+ui/app/build
+**/test-results
+**/playwright-report
+
+# ── VCS, CI, and OS state ────────────────────────────────────────────────
+.git
+.gitignore
+.github
+.cargo
+**/.DS_Store
+
+# ── Content and docs that are not compiled into the image ────────────────
+# kits/ is deliberately NOT listed here: notesmith-kit include_str!s it at
+# compile time, and omitting it broke the build once already (fix(container):
+# copy kits/ into the image build context).
+docs
+plans
+spikes
+mockups
+golden-vault
+test-fixtures
+tools
