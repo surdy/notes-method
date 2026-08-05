@@ -23,7 +23,9 @@
 
 use std::path::PathBuf;
 
-use agent_client_protocol::schema::{EnvVariable, McpServer, McpServerHttp, McpServerStdio};
+use agent_client_protocol::schema::{
+    EnvVariable, HttpHeader, McpServer, McpServerHttp, McpServerStdio,
+};
 
 /// Server name surfaced to the agent for the vault's MCP server.
 pub const MCP_SERVER_NAME: &str = "notesmith";
@@ -102,20 +104,43 @@ pub enum McpBinding {
         name: String,
         /// Streamable HTTP MCP endpoint URL (already scope-resolved).
         url: String,
+        /// HTTP headers the agent sends with every request to the endpoint
+        /// (e.g. an `Authorization` bearer credential for an auth-protected
+        /// remote MCP server). Empty for the built-in daemon endpoints;
+        /// populated for external servers. Values must already be fully
+        /// resolved (any `$VAR` expansion happens before the binding is built).
+        headers: Vec<(String, String)>,
         /// Whether the endpoint targets the read-only scope.
         read_only: bool,
     },
 }
 
 impl McpBinding {
-    /// Build an HTTP(S) binding for `name` at `url`. The read-only scope
-    /// is derived from the endpoint path: `/mcp-ro/` denotes read-only.
+    /// Build an HTTP(S) binding for `name` at `url` with no request headers.
+    /// The read-only scope is derived from the endpoint path: `/mcp-ro/`
+    /// denotes read-only. Use
+    /// [`http_with_headers`](Self::http_with_headers) for an external server
+    /// that needs auth (or other) headers on every request.
     pub fn http(name: impl Into<String>, url: impl Into<String>) -> Self {
+        Self::http_with_headers(name, url, Vec::new())
+    }
+
+    /// Build an HTTP(S) binding with explicit request headers, for an external
+    /// MCP server that requires credentials (e.g. an `Authorization` bearer
+    /// token for an Entra-protected remote server). Header values must already
+    /// be fully resolved — `$VAR` expansion happens at binding-build time,
+    /// before this constructor is called.
+    pub fn http_with_headers(
+        name: impl Into<String>,
+        url: impl Into<String>,
+        headers: Vec<(String, String)>,
+    ) -> Self {
         let url = url.into();
         let read_only = url.contains("/mcp-ro/");
         Self::Http {
             name: name.into(),
             url,
+            headers,
             read_only,
         }
     }
@@ -202,8 +227,14 @@ impl McpBinding {
                         .env(env_vars),
                 )
             }
-            Self::Http { name, url, .. } => {
-                McpServer::Http(McpServerHttp::new(name.clone(), url.clone()))
+            Self::Http {
+                name, url, headers, ..
+            } => {
+                let http_headers: Vec<HttpHeader> = headers
+                    .iter()
+                    .map(|(header_name, value)| HttpHeader::new(header_name.clone(), value.clone()))
+                    .collect();
+                McpServer::Http(McpServerHttp::new(name.clone(), url.clone()).headers(http_headers))
             }
         }
     }
@@ -298,6 +329,35 @@ mod tests {
             server_name_for_namespaced_vault("other", " / "),
             "notesmith-other"
         );
+    }
+
+    #[test]
+    fn http_binding_serializes_with_no_headers_by_default() {
+        let server = McpBinding::http("notesmith", "https://h/mcp/work").to_mcp_server();
+        let value = serde_json::to_value(server).unwrap();
+        assert_eq!(value["headers"], json!([]));
+    }
+
+    #[test]
+    fn http_with_headers_serializes_http_headers() {
+        let binding = McpBinding::http_with_headers(
+            "workiq",
+            "https://workiq.example.com/mcp",
+            vec![
+                ("Authorization".to_string(), "Bearer tok".to_string()),
+                ("X-Client".to_string(), "notesmith".to_string()),
+            ],
+        );
+        assert!(!binding.read_only());
+        let value = serde_json::to_value(binding.to_mcp_server()).unwrap();
+        assert_eq!(value["type"], json!("http"));
+        assert_eq!(value["url"], json!("https://workiq.example.com/mcp"));
+        let headers = value["headers"].as_array().unwrap();
+        assert_eq!(headers.len(), 2);
+        assert_eq!(headers[0]["name"], json!("Authorization"));
+        assert_eq!(headers[0]["value"], json!("Bearer tok"));
+        assert_eq!(headers[1]["name"], json!("X-Client"));
+        assert_eq!(headers[1]["value"], json!("notesmith"));
     }
 
     #[test]
