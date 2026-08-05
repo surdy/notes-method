@@ -12,11 +12,46 @@
 //! an invalid schedule still round-trips through the config API and can be
 //! surfaced/fixed by the user.
 //!
-//! Only `command`-kind jobs are executed today. The `agent` and `after` fields
-//! are reserved for #282 (agent-kind jobs, same-day ordering): they parse and
-//! round-trip so a future daemon can pick them up, but the runner ignores them.
+//! A job is either `command`-kind (connector subprocess) or `agent`-kind
+//! (headless `notesmith ai prompt` run with a named prompt, issue #282);
+//! exactly one of `command`/`agent` must be set, which the runner's validator
+//! enforces. `after` names other jobs that must have succeeded today before
+//! this one runs (same-day ordering, also #282).
 
 use serde::{Deserialize, Deserializer, Serialize};
+
+/// Agent-kind job settings: `agent = { prompt = "daily-note", allow_writes = true }`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobAgentConfig {
+    /// Prompt name; the runner renders `.notesmith/prompts/<prompt>.md` (with
+    /// its `context_queries`) and drives the headless agent with the result.
+    pub prompt: String,
+    /// Allow the headless agent to write to the vault. Defaults to false
+    /// (read-only run) — mirroring `notesmith ai --allow-writes`.
+    #[serde(default)]
+    pub allow_writes: bool,
+}
+
+/// The `agent` field of a `[[jobs]]` entry, parsed leniently: a well-formed
+/// table becomes [`JobAgentConfig`]; any other shape is preserved raw so the
+/// entry still round-trips through the config API and the validator can
+/// surface a `config_error` instead of silently dropping the job (ADR 0009).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum JobAgentField {
+    Valid(JobAgentConfig),
+    Malformed(serde_json::Value),
+}
+
+impl JobAgentField {
+    /// The typed agent settings, when the field parsed cleanly.
+    pub fn config(&self) -> Option<&JobAgentConfig> {
+        match self {
+            JobAgentField::Valid(config) => Some(config),
+            JobAgentField::Malformed(_) => None,
+        }
+    }
+}
 
 /// One `[[jobs]]` entry in `vault.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -50,12 +85,12 @@ pub struct JobConfig {
     /// expiry. Defaults to 120s in the runner.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<String>,
-    /// Reserved for #282: agent-kind jobs (`agent = { prompt = "…" }`).
-    /// Parsed and round-tripped but not executed.
+    /// Agent-kind job settings (mutually exclusive with `command`). Parsed
+    /// leniently — see [`JobAgentField`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<serde_json::Value>,
-    /// Reserved for #282: same-day ordering. Parsed and round-tripped but not
-    /// honored.
+    pub agent: Option<JobAgentField>,
+    /// Same-day ordering: names of jobs that must have a successful run today
+    /// before this one fires. Manual triggers bypass this gate.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub after: Vec<String>,
 }
@@ -134,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn reserved_agent_and_after_fields_round_trip() {
+    fn agent_and_after_fields_parse_typed_and_round_trip() {
         let job: JobConfig = serde_json::from_value(json!({
             "name": "daily-briefing",
             "at": "07:30",
@@ -144,12 +179,51 @@ mod tests {
         .unwrap();
 
         assert_eq!(job.after, vec!["calendar-sync".to_string()]);
-        let agent = job.agent.as_ref().unwrap();
-        assert_eq!(agent["prompt"], json!("daily-note"));
+        let agent = job.agent.as_ref().unwrap().config().unwrap();
+        assert_eq!(agent.prompt, "daily-note");
+        assert!(agent.allow_writes);
 
         let back = serde_json::to_value(&job).unwrap();
         assert_eq!(back["agent"]["allow_writes"], json!(true));
         assert_eq!(back["after"], json!(["calendar-sync"]));
+    }
+
+    #[test]
+    fn agent_allow_writes_defaults_to_false() {
+        let job: JobConfig = serde_json::from_value(json!({
+            "name": "daily-briefing",
+            "agent": { "prompt": "daily-note" }
+        }))
+        .unwrap();
+        let agent = job.agent.as_ref().unwrap().config().unwrap();
+        assert_eq!(agent.prompt, "daily-note");
+        assert!(!agent.allow_writes);
+    }
+
+    #[test]
+    fn malformed_agent_field_is_preserved_not_dropped() {
+        // Wrong shape (a bare string, a table missing `prompt`, a mistyped
+        // flag): the entry must survive with the raw value preserved so the
+        // validator can report it — never drop the whole job or crash.
+        for bad in [
+            json!("daily-note"),
+            json!({ "allow_writes": true }),
+            json!({ "prompt": 42 }),
+            json!({ "prompt": "x", "allow_writes": "yes" }),
+        ] {
+            let job: JobConfig = serde_json::from_value(json!({
+                "name": "daily-briefing",
+                "agent": bad.clone()
+            }))
+            .unwrap_or_else(|e| panic!("agent shape {bad} must not fail the entry: {e}"));
+            let agent = job.agent.as_ref().unwrap();
+            assert_eq!(agent.config(), None, "shape {bad} must be Malformed");
+            assert_eq!(agent, &JobAgentField::Malformed(bad.clone()));
+
+            // Round-trips verbatim.
+            let back = serde_json::to_value(&job).unwrap();
+            assert_eq!(back["agent"], bad);
+        }
     }
 
     #[test]

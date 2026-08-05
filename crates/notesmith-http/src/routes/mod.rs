@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod agent_prompts;
 pub mod capabilities;
 pub mod capture;
 pub mod clip;

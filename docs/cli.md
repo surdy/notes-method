@@ -469,9 +469,10 @@ never aborts the pass (resilience policy, ADR 0009).
 ## job
 
 Scheduled jobs (ADR 0025) are declared per vault as `[[jobs]]` entries in
-`.notesmith/vault.toml` and executed by the daemon's generic job runner.
-Currently `command`-kind jobs only (an executable relative to the vault root);
-agent-kind jobs and `after` ordering are planned (#282).
+`.notesmith/vault.toml` and executed by the daemon's generic job runner. A job
+is either `command`-kind (an executable relative to the vault root) or
+`agent`-kind (a headless `notesmith ai prompt` run with a named prompt from
+`.notesmith/prompts/`, #282) — exactly one of `command`/`agent` per entry.
 
 ```toml
 [[jobs]]
@@ -487,6 +488,13 @@ at = "07:30"                   # time-of-day schedule, catch-up on wake
 weekdays_only = true
 timezone = "America/Vancouver" # optional IANA name; default local time
 command = ".notesmith/connectors/email-digest.py"
+
+[[jobs]]
+name = "daily-briefing"
+at = "07:30"
+weekdays_only = true
+after = ["calendar-sync"]      # same-day ordering (see below)
+agent = { prompt = "daily-note", allow_writes = true }
 ```
 
 `every` and `at` are mutually exclusive; an entry with both, neither, or any
@@ -495,6 +503,26 @@ other invalid setting is skipped with a daemon WARN (visible in `job list` as
 `NOTESMITH_API_BASE` (daemon base URL), `NOTESMITH_VAULT` (vault name), and
 `NOTESMITH_STATE_DIR` (a per-job connector-state dir outside the vault,
 created if missing). Toggling `enabled` takes effect without a daemon restart.
+
+**Agent jobs.** `agent = { prompt = "<name>", allow_writes = <bool> }` makes
+the daemon shell out to the colocated CLI — the equivalent of
+`notesmith ai prompt <name> [--allow-writes]` — under the same env/timeout
+contract (no LLM ever runs inside the daemon process). `allow_writes`
+defaults to `false` (a read-only agent run; see the [`ai`](#ai) section's
+safety note). Agent jobs default to a 600s `timeout` instead of 120s.
+
+**Same-day ordering (`after`).** `after = ["job-a", "job-b"]` holds a job
+back until every named job has a SUCCESSFUL run *today* (in the job's
+timezone; daemon-local without one). The runner re-checks on every tick, so
+the job fires as soon as its prerequisites are met that day. If the day ends
+without them, the run is **missed**: it is never made up on a later day; the
+daemon WARNs once and records a `missed` last-run visible in `job list` and
+`GET /jobs` (a held-back job shows `waiting on <names>`). `after` names must
+exist and must not form cycles (both are config errors — a dependency cycle
+would simply never fire, so it is rejected up front). `every`-jobs with
+`after` are never missed; each interval just stays blocked until the
+prerequisites succeed today. **Manual triggers (`job run`) bypass `after`
+entirely** — a human asking for the run is the decision.
 
 ### `job list`
 
@@ -507,13 +535,15 @@ notesmith job list [--vault NAME] [--format json]
 ```
 calendar-sync  [every 15m]  enabled  last: succeeded 2026-08-05T07:30:02+00:00
 email-digest  [at 07:30 weekdays (America/Vancouver)]  enabled  last: never
+daily-briefing  [at 07:30 weekdays]  (agent: daily-note)  waiting on calendar-sync  last: missed 2026-08-04T23:59:41+00:00
 ```
 
 ### `job run <name>`
 
-Manually trigger a job, bypassing its schedule — the connector-development
-workflow. Works even when the entry has no (or an invalid) schedule, as long
-as it has a runnable `command`.
+Manually trigger a job, bypassing its schedule **and its `after` gating** —
+the connector/prompt development workflow. Works even when the entry has no
+(or an invalid) schedule, as long as its `command`/`agent` action is
+runnable.
 
 ```bash
 notesmith job run calendar-sync [--vault NAME]
@@ -521,8 +551,8 @@ notesmith job run calendar-sync [--vault NAME]
 
 The run continues in the daemon; watch `notesmith job list` or the `job.*`
 SSE events for the outcome. Errors: already running (the daemon refuses
-concurrent runs of one job), unknown job, or a job with no runnable command
-(including agent-kind entries, #282).
+concurrent runs of one job), unknown job, or a job with no runnable action
+(no `command`/`agent`, both at once, or a malformed `agent` table).
 
 ---
 
@@ -1037,6 +1067,22 @@ Produce a digest of the current week's notes (Monday–Sunday of the week contai
 ```bash
 notesmith ai weekly-digest
 notesmith --format json ai weekly-digest > digest.json
+```
+
+### `ai prompt <name>`
+
+Run a named vault prompt headlessly. `<name>` is a file stem under the vault's `.notesmith/prompts/` (e.g. `daily-note` for `.notesmith/prompts/daily-note.md`). The daemon renders the template first — executing its `context_queries` frontmatter against the vault index and substituting `{{ query_name }}` result tables and `{{ today }}` — and the agent is driven with the rendered prompt. This is exactly what an agent-kind `[[jobs]]` entry executes on schedule (see [`job`](#job)); running it by hand is the prompt-development workflow.
+
+The agent's final output is printed to stdout (`{ "output": "..." }` with `--format json`). The command exits nonzero when the prompt is missing, a context query fails, or the agent errors — so a scheduled job records a failed run.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--date <YYYY-MM-DD>` | Date substituted for `{{ today }}` in the template | today |
+
+```bash
+notesmith ai prompt daily-note
+notesmith ai prompt daily-note --allow-writes --agent claude
+notesmith ai prompt weekly-review --date 2026-08-03
 ```
 
 ---

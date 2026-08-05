@@ -1,9 +1,11 @@
-//! Generic per-vault job runner (ADR 0025 Decision 2, issue #280).
+//! Generic per-vault job runner (ADR 0025 Decision 2, issues #280/#282).
 //!
 //! `[[jobs]]` entries in `vault.toml` declare scheduled work; the daemon runs
-//! one supervised runner task per vault that executes `command`-kind jobs on
-//! `every`/`at` schedules with catch-up-on-wake, emitting `job.*` events.
-//! Agent-kind jobs and same-day `after` ordering are reserved for #282.
+//! one supervised runner task per vault that executes `command`-kind jobs
+//! (connector subprocesses) and `agent`-kind jobs (headless `notesmith ai
+//! prompt` runs via the colocated CLI — never an in-daemon ACP session) on
+//! `every`/`at` schedules with catch-up-on-wake, honoring same-day `after`
+//! ordering (see `gate`), emitting `job.*` events.
 //!
 //! Follows the `ingest_scheduler` supervisor pattern: a single reconciliation
 //! task keeps one runner per live vault (vaults added/removed at runtime gain/
@@ -13,6 +15,7 @@
 //! within one tick, no restart needed. A failing, timing-out, or unlaunchable
 //! job logs WARN, emits `job.failed`, and never wedges the loop (ADR 0009).
 
+pub mod gate;
 pub mod run;
 pub mod schedule;
 pub mod state;
@@ -28,8 +31,9 @@ use tokio::task::JoinHandle;
 
 use crate::events::{EventType, VaultEvent};
 use crate::server::SharedAppState;
-use run::{JobEnv, run_command_job};
-use schedule::{is_due, validate_command, validate_job};
+use gate::{GateDecision, evaluate_gate};
+use run::{JobEnv, run_agent_job, run_command_job};
+use schedule::{JobAction, is_due, validate_action, validate_job};
 use state::{JobRunRecord, JobRunStatus, JobStateStore};
 
 /// Default seconds between runner passes. Bounds how late a job fires after
@@ -147,6 +151,10 @@ struct RunnerCtx {
     /// Root under which each job gets its `NOTESMITH_STATE_DIR`
     /// (`<connector_root>/<job>`), created before the run.
     connector_root: PathBuf,
+    /// The colocated `notesmith` CLI binary agent-kind jobs shell out to —
+    /// the daemon's own executable in production (the daemon IS the CLI's
+    /// `daemon start`), a stub in tests.
+    notesmith_bin: PathBuf,
 }
 
 impl RunnerCtx {
@@ -156,12 +164,23 @@ impl RunnerCtx {
             vault_name: vault_name.to_string(),
             store: JobStateStore::at_path(data_dir.join("jobs-state.json")),
             connector_root: data_dir.join("connector-state"),
+            notesmith_bin: notesmith_bin(),
         })
     }
 
     fn state_dir_for(&self, job: &str) -> PathBuf {
         self.connector_root.join(sanitize_component(job))
     }
+}
+
+/// The `notesmith` binary agent-kind jobs invoke. `NOTESMITH_JOBS_AGENT_BIN`
+/// overrides for tests (where `current_exe` is the test harness, which must
+/// never be re-invoked as a CLI).
+fn notesmith_bin() -> PathBuf {
+    if let Some(bin) = std::env::var_os("NOTESMITH_JOBS_AGENT_BIN") {
+        return PathBuf::from(bin);
+    }
+    std::env::current_exe().unwrap_or_else(|_| PathBuf::from("notesmith"))
 }
 
 fn sanitize_component(name: &str) -> String {
@@ -193,7 +212,7 @@ async fn runner_pass(
     };
 
     let mut seen = HashSet::new();
-    for job in jobs {
+    for job in &jobs {
         if !seen.insert(job.name.clone()) {
             warn_once(
                 warned,
@@ -206,7 +225,7 @@ async fn runner_pass(
         if !job.enabled {
             continue;
         }
-        let validated = match validate_job(&job) {
+        let validated = match validate_job(job, &jobs) {
             Ok(validated) => validated,
             Err(reason) => {
                 warn_once(warned, &ctx.vault_name, &job.name, &reason);
@@ -216,6 +235,33 @@ async fn runner_pass(
         let last_run = ctx.store.get(&validated.name).map(|record| record.last_run);
         if !is_due(&validated.schedule, Utc::now(), last_run, runner_started) {
             continue;
+        }
+        // Same-day `after` ordering (#282): a due job with unmet
+        // prerequisites waits (re-checked every tick); a fire whose day
+        // ended without them is forfeited — recorded as `missed`, never run
+        // late on a following day. Manual triggers bypass this gate.
+        if !validated.after.is_empty() {
+            match evaluate_gate(
+                &validated.after,
+                &validated.schedule,
+                &ctx.store.all(),
+                Utc::now(),
+            ) {
+                GateDecision::Ready => {}
+                GateDecision::Blocked { waiting_on } => {
+                    tracing::debug!(
+                        vault = %ctx.vault_name,
+                        job = %validated.name,
+                        waiting_on = ?waiting_on,
+                        "job due but blocked on `after` prerequisites"
+                    );
+                    continue;
+                }
+                GateDecision::Missed => {
+                    record_missed_run(ctx, &validated.name, &validated.after);
+                    continue;
+                }
+            }
         }
         if !try_begin_run(&ctx.vault_name, &validated.name) {
             continue; // a manual run is in flight
@@ -228,10 +274,39 @@ async fn runner_pass(
             state,
             ctx,
             &validated.name,
-            &validated.command,
+            &validated.action,
             validated.timeout,
         )
         .await;
+    }
+}
+
+/// Persist a `missed` run for a fire whose day ended with unmet `after`
+/// prerequisites, and WARN (once per fire — recording advances `last_run`, so
+/// the same fire is never re-evaluated). Never runs anything.
+fn record_missed_run(ctx: &RunnerCtx, job_name: &str, after: &[String]) {
+    tracing::warn!(
+        vault = %ctx.vault_name,
+        job = %job_name,
+        after = ?after,
+        "missed scheduled run: `after` prerequisites were not met before the day ended"
+    );
+    if let Err(error) = ctx.store.record(
+        job_name,
+        JobRunRecord {
+            last_run: Utc::now(),
+            status: JobRunStatus::Missed,
+            exit_code: None,
+            duration_ms: None,
+            last_success: None, // derived by the store
+        },
+    ) {
+        tracing::warn!(
+            vault = %ctx.vault_name,
+            job = %job_name,
+            reason = %error,
+            "could not persist missed-run state"
+        );
     }
 }
 
@@ -252,7 +327,7 @@ async fn execute_job(
     state: &SharedAppState,
     ctx: &RunnerCtx,
     job_name: &str,
-    command: &str,
+    action: &JobAction,
     timeout: Duration,
 ) {
     let (root, event_tx, event_buffer) = {
@@ -289,36 +364,40 @@ async fn execute_job(
         state_dir,
     };
 
-    let (status, exit_code, duration, failure) =
-        match run_command_job(&root, command, timeout, &env).await {
-            Ok(outcome) => {
-                let status = if outcome.timed_out {
-                    JobRunStatus::TimedOut
-                } else if outcome.succeeded() {
-                    JobRunStatus::Succeeded
-                } else {
-                    JobRunStatus::Failed
-                };
-                let failure = match status {
-                    JobRunStatus::Succeeded => None,
-                    JobRunStatus::TimedOut => {
-                        Some(format!("timed out after {}s", timeout.as_secs()))
-                    }
-                    JobRunStatus::Failed => Some(format!(
-                        "exited with {:?}: {}",
-                        outcome.exit_code,
-                        tail(&outcome.stderr, LOG_STDERR_TAIL)
-                    )),
-                };
-                (status, outcome.exit_code, outcome.duration, failure)
-            }
-            Err(error) => (
-                JobRunStatus::Failed,
-                None,
-                Duration::ZERO,
-                Some(error.to_string()),
-            ),
-        };
+    let run_result = match action {
+        JobAction::Command(command) => run_command_job(&root, command, timeout, &env).await,
+        JobAction::Agent(agent) => {
+            run_agent_job(&ctx.notesmith_bin, &root, agent, timeout, &env).await
+        }
+    };
+    let (status, exit_code, duration, failure) = match run_result {
+        Ok(outcome) => {
+            let status = if outcome.timed_out {
+                JobRunStatus::TimedOut
+            } else if outcome.succeeded() {
+                JobRunStatus::Succeeded
+            } else {
+                JobRunStatus::Failed
+            };
+            let failure = match status {
+                JobRunStatus::Succeeded => None,
+                JobRunStatus::TimedOut => Some(format!("timed out after {}s", timeout.as_secs())),
+                // Missed is recorded by the gating path, never by a run.
+                JobRunStatus::Failed | JobRunStatus::Missed => Some(format!(
+                    "exited with {:?}: {}",
+                    outcome.exit_code,
+                    tail(&outcome.stderr, LOG_STDERR_TAIL)
+                )),
+            };
+            (status, outcome.exit_code, outcome.duration, failure)
+        }
+        Err(error) => (
+            JobRunStatus::Failed,
+            None,
+            Duration::ZERO,
+            Some(error.to_string()),
+        ),
+    };
 
     if let Err(error) = ctx.store.record(
         job_name,
@@ -327,6 +406,7 @@ async fn execute_job(
             status,
             exit_code,
             duration_ms: Some(duration.as_millis().min(u64::MAX as u128) as u64),
+            last_success: None, // derived by the store
         },
     ) {
         tracing::warn!(
@@ -391,13 +471,16 @@ pub enum TriggerOutcome {
     AlreadyRunning,
     UnknownVault,
     UnknownJob,
-    /// The job cannot be executed (no `command`, or agent-kind — #282).
+    /// The job cannot be executed (neither a runnable `command` nor a valid
+    /// `agent` config).
     NotRunnable(String),
 }
 
-/// Manually trigger one job by name, bypassing its schedule. Deliberately
-/// works for jobs with a missing or invalid *schedule* (as long as they have
-/// a runnable `command`), which is the workflow for developing connectors.
+/// Manually trigger one job by name, bypassing its schedule AND its `after`
+/// gating — a human asking for a run is the decision. Deliberately works for
+/// jobs with a missing or invalid *schedule* (as long as their
+/// `command`/`agent` action is runnable), which is the workflow for
+/// developing connectors and prompts.
 pub async fn trigger_job(
     state: SharedAppState,
     vault_name: &str,
@@ -420,15 +503,18 @@ pub async fn trigger_job(
         return TriggerOutcome::UnknownJob;
     };
 
-    let command = match validate_command(&job) {
-        Ok(command) => command,
+    let action = match validate_action(&job) {
+        Ok(action) => action,
         Err(reason) => return TriggerOutcome::NotRunnable(reason),
     };
     let timeout = job
         .timeout
         .as_deref()
         .and_then(notesmith_git::timers::parse_duration)
-        .unwrap_or(schedule::DEFAULT_JOB_TIMEOUT);
+        .unwrap_or(match action {
+            JobAction::Command(_) => schedule::DEFAULT_JOB_TIMEOUT,
+            JobAction::Agent(_) => schedule::DEFAULT_AGENT_JOB_TIMEOUT,
+        });
 
     let ctx = match RunnerCtx::for_vault(vault_name) {
         Ok(ctx) => ctx,
@@ -447,7 +533,7 @@ pub async fn trigger_job(
     let job_name = job_name.to_string();
     tokio::spawn(async move {
         let _guard = guard; // released when the run finishes
-        execute_job(&state, &ctx, &job_name, &command, timeout).await;
+        execute_job(&state, &ctx, &job_name, &action, timeout).await;
     });
 
     TriggerOutcome::Started
@@ -582,6 +668,9 @@ mod tests {
             vault_name: vault_name.to_string(),
             store: JobStateStore::at_path(dir.path().join("jobs-state.json")),
             connector_root: dir.path().join("connector-state"),
+            // Tests that exercise agent jobs point this at a stub script;
+            // it must never be the test harness itself.
+            notesmith_bin: dir.path().join("notesmith-stub"),
         }
     }
 
@@ -809,6 +898,7 @@ command = "job.sh"
                     status: JobRunStatus::Succeeded,
                     exit_code: Some(0),
                     duration_ms: Some(1),
+                    last_success: None,
                 },
             )
             .unwrap();
@@ -821,6 +911,208 @@ command = "job.sh"
         std::fs::remove_file(vault.path().join("caught-up")).unwrap();
         runner_pass(&state, &ctx, Utc::now(), &mut warned).await;
         assert!(!vault.path().join("caught-up").exists());
+    }
+
+    #[tokio::test]
+    async fn agent_job_runs_through_the_stub_cli_and_records_state() {
+        let vault = TempDir::new().unwrap();
+        let scratch = TempDir::new().unwrap();
+        write_vault_config(
+            vault.path(),
+            r#"
+name = "jobs-agent-vault"
+
+[[jobs]]
+name = "daily-briefing"
+every = "1s"
+agent = { prompt = "daily-note", allow_writes = true }
+"#,
+        );
+
+        let vault_name = "jobs-agent-vault";
+        let state = state_with_vault(vault_name, vault.path()).await;
+        let mut event_rx = state.read().await.event_tx.subscribe();
+        let ctx = test_ctx(vault_name, &scratch);
+        // The stub stands in for the notesmith CLI: no LLM runs in tests.
+        write_executable(
+            &ctx.notesmith_bin.clone(),
+            "#!/bin/sh\necho \"$@\" > agent-invocation\n",
+        );
+
+        runner_pass(&state, &ctx, Utc::now(), &mut HashSet::new()).await;
+
+        let invocation = std::fs::read_to_string(vault.path().join("agent-invocation")).unwrap();
+        assert_eq!(
+            invocation.trim(),
+            "--vault jobs-agent-vault ai prompt daily-note --allow-writes"
+        );
+        assert_eq!(
+            ctx.store.get("daily-briefing").unwrap().status,
+            JobRunStatus::Succeeded
+        );
+        assert_eq!(
+            event_rx.recv().await.unwrap().event_type,
+            EventType::JobStarted
+        );
+        assert_eq!(
+            event_rx.recv().await.unwrap().event_type,
+            EventType::JobSucceeded
+        );
+    }
+
+    #[tokio::test]
+    async fn failing_agent_job_records_a_failed_run() {
+        let vault = TempDir::new().unwrap();
+        let scratch = TempDir::new().unwrap();
+        write_vault_config(
+            vault.path(),
+            "name = \"jobs-agent-fail-vault\"\n\n[[jobs]]\nname = \"briefing\"\nevery = \"1s\"\nagent = { prompt = \"daily-note\" }\n",
+        );
+
+        let vault_name = "jobs-agent-fail-vault";
+        let state = state_with_vault(vault_name, vault.path()).await;
+        let ctx = test_ctx(vault_name, &scratch);
+        write_executable(&ctx.notesmith_bin.clone(), "#!/bin/sh\nexit 9\n");
+
+        runner_pass(&state, &ctx, Utc::now(), &mut HashSet::new()).await;
+
+        let record = ctx.store.get("briefing").unwrap();
+        assert_eq!(record.status, JobRunStatus::Failed);
+        assert_eq!(record.exit_code, Some(9));
+    }
+
+    #[tokio::test]
+    async fn after_gating_blocks_until_the_prereq_succeeds_today() {
+        let vault = TempDir::new().unwrap();
+        let scratch = TempDir::new().unwrap();
+        write_executable(
+            &vault.path().join("gated.sh"),
+            "#!/bin/sh\ntouch gated-ran\n",
+        );
+        write_vault_config(
+            vault.path(),
+            r#"
+name = "jobs-gating-vault"
+
+[[jobs]]
+name = "calendar-sync"
+enabled = false
+every = "1h"
+command = "gated.sh"
+
+[[jobs]]
+name = "briefing"
+every = "1s"
+command = "gated.sh"
+after = ["calendar-sync"]
+"#,
+        );
+
+        let vault_name = "jobs-gating-vault";
+        let state = state_with_vault(vault_name, vault.path()).await;
+        let ctx = test_ctx(vault_name, &scratch);
+        let mut warned = HashSet::new();
+
+        // Prereq has never succeeded: due but blocked, nothing recorded.
+        runner_pass(&state, &ctx, Utc::now(), &mut warned).await;
+        assert!(!vault.path().join("gated-ran").exists());
+        assert!(ctx.store.get("briefing").is_none(), "blocked, not missed");
+
+        // Prereq succeeded yesterday: still blocked (same-DAY ordering).
+        ctx.store
+            .record(
+                "calendar-sync",
+                JobRunRecord {
+                    last_run: Utc::now() - chrono::Duration::days(1),
+                    status: JobRunStatus::Succeeded,
+                    exit_code: Some(0),
+                    duration_ms: Some(1),
+                    last_success: None,
+                },
+            )
+            .unwrap();
+        runner_pass(&state, &ctx, Utc::now(), &mut warned).await;
+        assert!(!vault.path().join("gated-ran").exists());
+
+        // Prereq succeeds today: the gate opens on the next tick.
+        ctx.store
+            .record(
+                "calendar-sync",
+                JobRunRecord {
+                    last_run: Utc::now(),
+                    status: JobRunStatus::Succeeded,
+                    exit_code: Some(0),
+                    duration_ms: Some(1),
+                    last_success: None,
+                },
+            )
+            .unwrap();
+        runner_pass(&state, &ctx, Utc::now(), &mut warned).await;
+        assert!(vault.path().join("gated-ran").exists());
+        assert_eq!(
+            ctx.store.get("briefing").unwrap().status,
+            JobRunStatus::Succeeded
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_after_reference_invalidates_the_job() {
+        let vault = TempDir::new().unwrap();
+        let scratch = TempDir::new().unwrap();
+        write_executable(&vault.path().join("job.sh"), "#!/bin/sh\ntouch oops\n");
+        write_vault_config(
+            vault.path(),
+            "name = \"jobs-bad-after-vault\"\n\n[[jobs]]\nname = \"briefing\"\nevery = \"1s\"\ncommand = \"job.sh\"\nafter = [\"no-such-job\"]\n",
+        );
+
+        let vault_name = "jobs-bad-after-vault";
+        let state = state_with_vault(vault_name, vault.path()).await;
+        let ctx = test_ctx(vault_name, &scratch);
+
+        runner_pass(&state, &ctx, Utc::now(), &mut HashSet::new()).await;
+        assert!(!vault.path().join("oops").exists());
+        assert!(ctx.store.get("briefing").is_none());
+    }
+
+    #[tokio::test]
+    async fn manual_trigger_bypasses_after_gating() {
+        let vault = TempDir::new().unwrap();
+        write_executable(
+            &vault.path().join("gated.sh"),
+            "#!/bin/sh\ntouch manual-bypass\n",
+        );
+        write_vault_config(
+            vault.path(),
+            r#"
+name = "jobs-manual-bypass-vault"
+
+[[jobs]]
+name = "calendar-sync"
+enabled = false
+every = "1h"
+command = "gated.sh"
+
+[[jobs]]
+name = "briefing"
+at = "07:30"
+command = "gated.sh"
+after = ["calendar-sync"]
+"#,
+        );
+
+        let vault_name = "jobs-manual-bypass-vault";
+        let state = state_with_vault(vault_name, vault.path()).await;
+
+        // The prereq has never succeeded, yet a manual trigger runs anyway.
+        let outcome = trigger_job(state.clone(), vault_name, "briefing").await;
+        assert_eq!(outcome, TriggerOutcome::Started);
+        for _ in 0..100 {
+            if vault.path().join("manual-bypass").exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(vault.path().join("manual-bypass").exists());
     }
 
     #[tokio::test]

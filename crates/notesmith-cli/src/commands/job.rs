@@ -123,6 +123,9 @@ fn format_job_line(job: &Value) -> String {
         format!("invalid: {reason}")
     } else if job["running"].as_bool().unwrap_or(false) {
         "running".to_string()
+    } else if let Some(waiting) = non_empty_names(&job["waiting_on"]) {
+        // Same-day `after` gate not yet open (issue #282).
+        format!("waiting on {}", waiting.join(", "))
     } else {
         "enabled".to_string()
     };
@@ -139,7 +142,18 @@ fn format_job_line(job: &Value) -> String {
         None => "last: never".to_string(),
     };
 
-    format!("{name}  [{schedule}]  {state}  {last}")
+    let kind = job["agent"]["prompt"]
+        .as_str()
+        .map(|prompt| format!("  (agent: {prompt})"))
+        .unwrap_or_default();
+
+    format!("{name}  [{schedule}]{kind}  {state}  {last}")
+}
+
+/// The strings of a JSON array, when it is a non-empty array of strings.
+fn non_empty_names(value: &Value) -> Option<Vec<&str>> {
+    let names: Vec<&str> = value.as_array()?.iter().filter_map(Value::as_str).collect();
+    if names.is_empty() { None } else { Some(names) }
 }
 
 async fn run_job(
@@ -234,5 +248,44 @@ mod tests {
             "name": "x", "enabled": true, "every": "5m", "running": true
         }));
         assert!(running.contains("running"));
+    }
+
+    #[test]
+    fn format_job_line_shows_agent_kind_waiting_and_missed() {
+        let waiting = format_job_line(&json!({
+            "name": "daily-briefing",
+            "enabled": true,
+            "at": "07:30",
+            "weekdays_only": true,
+            "agent": { "prompt": "daily-note", "allow_writes": true },
+            "after": ["calendar-sync", "email-sync"],
+            "waiting_on": ["calendar-sync"],
+            "valid": true,
+            "running": false
+        }));
+        assert_eq!(
+            waiting,
+            "daily-briefing  [at 07:30 weekdays]  (agent: daily-note)  waiting on calendar-sync  last: never"
+        );
+
+        let missed = format_job_line(&json!({
+            "name": "daily-briefing",
+            "enabled": true,
+            "at": "07:30",
+            "agent": { "prompt": "daily-note" },
+            "after": ["calendar-sync"],
+            "valid": true,
+            "running": false,
+            "last_run": { "status": "missed", "at": "2026-08-05T00:00:10+00:00" }
+        }));
+        assert!(missed.contains("last: missed 2026-08-05T00:00:10+00:00"));
+
+        // A running gated job shows running, not waiting.
+        let running = format_job_line(&json!({
+            "name": "x", "enabled": true, "every": "5m", "running": true,
+            "waiting_on": ["y"]
+        }));
+        assert!(running.contains("running"));
+        assert!(!running.contains("waiting"));
     }
 }

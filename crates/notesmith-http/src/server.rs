@@ -231,6 +231,10 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
             post(agent_create_daily),
         )
         .route(
+            "/api/v/{vault}/agent-prompts/{name}",
+            get(crate::routes::agent_prompts::render_agent_prompt),
+        )
+        .route(
             "/api/v/{vault}/periodic/{kind}/current",
             get(get_current_periodic_note),
         )
