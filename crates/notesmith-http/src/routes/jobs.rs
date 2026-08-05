@@ -13,10 +13,11 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use chrono::Utc;
 use serde::Serialize;
 use serde_json::json;
 
-use crate::jobs::{TriggerOutcome, is_running, schedule, state::JobStateStore, trigger_job};
+use crate::jobs::{TriggerOutcome, gate, is_running, schedule, state::JobStateStore, trigger_job};
 use crate::server::SharedAppState;
 
 #[derive(Debug, Serialize)]
@@ -42,6 +43,18 @@ pub struct JobListEntry {
     pub timezone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
+    /// Agent-kind settings, echoed as configured (`{ prompt, allow_writes }`;
+    /// a malformed table is echoed raw and flagged via `config_error`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<serde_json::Value>,
+    /// Same-day ordering prerequisites, as configured.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub after: Vec<String>,
+    /// Prerequisites in `after` without a successful run today (in the job's
+    /// timezone). Non-empty means the scheduler is holding this job back;
+    /// present only for valid, enabled jobs with `after`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub waiting_on: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<String>,
     /// Whether the scheduler will run this entry as configured.
@@ -77,7 +90,14 @@ pub async fn list_jobs(
     let entries: Vec<JobListEntry> = jobs
         .iter()
         .map(|job| {
-            let config_error = schedule::validate_job(job, &jobs).err();
+            let (config_error, waiting_on) = match schedule::validate_job(job, &jobs) {
+                Ok(validated) if job.enabled => (
+                    None,
+                    gate::waiting_on(&validated.after, &validated.schedule, &records, Utc::now()),
+                ),
+                Ok(_) => (None, Vec::new()),
+                Err(reason) => (Some(reason), Vec::new()),
+            };
             let last_run = records.get(&job.name).map(|record| JobLastRun {
                 at: record.last_run.to_rfc3339(),
                 status: record.status.as_str().to_string(),
@@ -92,6 +112,12 @@ pub async fn list_jobs(
                 weekdays_only: job.weekdays_only,
                 timezone: job.timezone.clone(),
                 command: job.command.clone(),
+                agent: job
+                    .agent
+                    .as_ref()
+                    .and_then(|agent| serde_json::to_value(agent).ok()),
+                after: job.after.clone(),
+                waiting_on,
                 timeout: job.timeout.clone(),
                 valid: config_error.is_none(),
                 config_error,
@@ -282,6 +308,58 @@ agent = "daily-note"
 
         let (status, _) = request(&router, "GET", "/api/v/no-such-vault/jobs").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn list_jobs_surfaces_after_waiting_on_and_agent_config() {
+        let vault = setup_vault(
+            r#"
+name = "jobs-routes-gated"
+
+[[jobs]]
+name = "calendar-sync"
+every = "15m"
+command = "sync.sh"
+
+[[jobs]]
+name = "daily-briefing"
+at = "07:30"
+weekdays_only = true
+after = ["calendar-sync"]
+agent = { prompt = "daily-note", allow_writes = true }
+
+[[jobs]]
+name = "bad-after"
+at = "08:00"
+command = "sync.sh"
+after = ["no-such-job"]
+"#,
+            &[("sync.sh", "#!/bin/sh\nexit 0\n")],
+        );
+        let router = router_for("jobs-routes-gated", vault.path());
+
+        let (status, body) = request(&router, "GET", "/api/v/jobs-routes-gated/jobs").await;
+        assert_eq!(status, StatusCode::OK);
+        let jobs = body["jobs"].as_array().unwrap();
+
+        let briefing = &jobs[1];
+        assert_eq!(briefing["name"], "daily-briefing");
+        assert_eq!(briefing["valid"], true);
+        assert_eq!(briefing["agent"]["prompt"], "daily-note");
+        assert_eq!(briefing["agent"]["allow_writes"], true);
+        assert_eq!(briefing["after"], serde_json::json!(["calendar-sync"]));
+        // calendar-sync has never succeeded today: the gate is visibly closed.
+        assert_eq!(briefing["waiting_on"], serde_json::json!(["calendar-sync"]));
+
+        let bad = &jobs[2];
+        assert_eq!(bad["valid"], false);
+        assert!(
+            bad["config_error"]
+                .as_str()
+                .unwrap()
+                .contains("unknown job"),
+        );
+        assert!(bad.get("waiting_on").is_none(), "invalid jobs have no gate");
     }
 
     #[tokio::test]

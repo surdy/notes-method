@@ -79,6 +79,21 @@ pub fn unmet_prereqs(
         .collect()
 }
 
+/// The prerequisites currently unmet for a job, in its schedule's timezone —
+/// the `waiting_on` surfaced by `GET /jobs` and `notesmith job list`
+/// regardless of whether the job is due right now.
+pub fn waiting_on(
+    after: &[String],
+    schedule: &JobSchedule,
+    records: &BTreeMap<String, JobRunRecord>,
+    now: DateTime<Utc>,
+) -> Vec<String> {
+    if after.is_empty() {
+        return Vec::new();
+    }
+    unmet_prereqs(after, records, gate_timezone(schedule), now)
+}
+
 /// Evaluate the `after` gate for a job the scheduler already considers due.
 pub fn evaluate_gate(
     after: &[String],
