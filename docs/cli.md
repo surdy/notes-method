@@ -466,6 +466,66 @@ never aborts the pass (resilience policy, ADR 0009).
 
 ---
 
+## job
+
+Scheduled jobs (ADR 0025) are declared per vault as `[[jobs]]` entries in
+`.notesmith/vault.toml` and executed by the daemon's generic job runner.
+Currently `command`-kind jobs only (an executable relative to the vault root);
+agent-kind jobs and `after` ordering are planned (#282).
+
+```toml
+[[jobs]]
+name = "calendar-sync"
+enabled = true
+every = "15m"                  # interval schedule
+command = ".notesmith/connectors/calendar-sync.py"
+timeout = "120s"               # default 120s; process killed on expiry
+
+[[jobs]]
+name = "email-digest"
+at = "07:30"                   # time-of-day schedule, catch-up on wake
+weekdays_only = true
+timezone = "America/Vancouver" # optional IANA name; default local time
+command = ".notesmith/connectors/email-digest.py"
+```
+
+`every` and `at` are mutually exclusive; an entry with both, neither, or any
+other invalid setting is skipped with a daemon WARN (visible in `job list` as
+`invalid:`), never a crash. Commands run with cwd = vault root and env
+`NOTESMITH_API_BASE` (daemon base URL), `NOTESMITH_VAULT` (vault name), and
+`NOTESMITH_STATE_DIR` (a per-job connector-state dir outside the vault,
+created if missing). Toggling `enabled` takes effect without a daemon restart.
+
+### `job list`
+
+List the vault's configured jobs with schedule, state, and last-run status.
+
+```bash
+notesmith job list [--vault NAME] [--format json]
+```
+
+```
+calendar-sync  [every 15m]  enabled  last: succeeded 2026-08-05T07:30:02+00:00
+email-digest  [at 07:30 weekdays (America/Vancouver)]  enabled  last: never
+```
+
+### `job run <name>`
+
+Manually trigger a job, bypassing its schedule — the connector-development
+workflow. Works even when the entry has no (or an invalid) schedule, as long
+as it has a runnable `command`.
+
+```bash
+notesmith job run calendar-sync [--vault NAME]
+```
+
+The run continues in the daemon; watch `notesmith job list` or the `job.*`
+SSE events for the outcome. Errors: already running (the daemon refuses
+concurrent runs of one job), unknown job, or a job with no runnable command
+(including agent-kind entries, #282).
+
+---
+
 ## note
 
 ### `note create`
