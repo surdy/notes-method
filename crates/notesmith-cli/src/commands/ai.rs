@@ -209,6 +209,12 @@ async fn drive_agent_turn(
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "notesmith".to_string());
     let binding = McpBinding::local_bridge(notesmith_bin, &detected.name, read_only);
+    // Enabled external `[[mcp.servers]]` from the global config ride alongside
+    // the vault bridge, as in the desktop app (#283). The vault read-only flag
+    // is deliberately not applied to them: it governs vault writes, while an
+    // external server is a third-party endpoint whose own credentials/scopes
+    // decide what the agent may do there. Companion memory stays desktop-only.
+    let extra = notesmith_agent::extra_mcp_bindings(&global_config.mcp);
     let decider: Arc<dyn PermissionDecider> = Arc::new(HeadlessDecider {
         allow_writes: opts.allow_writes,
     });
@@ -217,6 +223,7 @@ async fn drive_agent_turn(
         .session(opts.agent_bin.as_deref())
         .in_dir(Some(detected.root.clone()))
         .with_mcp(binding)
+        .with_extra_mcp(extra)
         .read_only(read_only)
         .with_permission_decider(decider);
 
