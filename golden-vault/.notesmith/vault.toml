@@ -35,3 +35,17 @@ enabled = false
 # (morning briefing) scripts; hook config is read at daemon startup, so restart
 # the daemon after enabling one.
 [hooks]
+
+# Morning daily briefing (issue #288, ADR 0025 Decision 5): renders
+# .notesmith/prompts/daily-note.md and drives a headless agent that fills the
+# daily note's managed sections (docs/managed-sections.md). Disabled here
+# because it needs an external agent CLI on the machine that runs it; set
+# enabled = true on that machine (takes effect without a daemon restart).
+# Once a calendar-sync connector job exists, add after = ["calendar-sync"]
+# so the briefing sees today's freshly synced event notes.
+[[jobs]]
+name = "daily-briefing"
+enabled = false
+at = "07:30"
+weekdays_only = true
+agent = { prompt = "daily-note", allow_writes = true }

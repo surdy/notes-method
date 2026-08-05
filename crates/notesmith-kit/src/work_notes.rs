@@ -25,6 +25,7 @@ pub(crate) const FILES: &[KitFile] = &[
     kit_file!(".notesmith/fields.toml"),
     kit_file!(".notesmith/routing.yaml"),
     kit_file!(".notesmith/skill.md"),
+    kit_file!(".notesmith/prompts/daily-note.md"),
     kit_file!(".notesmith/templates/internal-meeting.md"),
     kit_file!(".notesmith/templates/external-meeting.md"),
     kit_file!(".notesmith/templates/stream.md"),

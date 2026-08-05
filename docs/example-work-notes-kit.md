@@ -486,6 +486,14 @@ section to the fresh daily note: blocked/waiting streams, stale active
 streams, tasks due soon, and the Inbox count — each a
 `notesmith --format json query sql` call over the views below.
 
+This hook is the deterministic, LLM-free variant. The kit now also ships the
+full morning briefing as a `daily-briefing` agent job (issue #288, disabled by
+default in `vault.toml`): the `daily-note` prompt fills the daily template's
+managed `briefing/*` sections — meetings, email summary, tasks, attention —
+replacing them in place on re-runs. See `docs/managed-sections.md`. Prefer the
+agent job when an external agent CLI is available; keep this hook where it
+isn't.
+
 ## Query recipes
 
 All meetings involving Acme (however many customers attended):

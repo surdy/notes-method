@@ -509,7 +509,11 @@ the daemon shell out to the colocated CLI — the equivalent of
 `notesmith ai prompt <name> [--allow-writes]` — under the same env/timeout
 contract (no LLM ever runs inside the daemon process). `allow_writes`
 defaults to `false` (a read-only agent run; see the [`ai`](#ai) section's
-safety note). Agent jobs default to a 600s `timeout` instead of 120s.
+safety note). Agent jobs default to a 600s `timeout` instead of 120s. An
+agent job that rewrites parts of existing notes (like the daily briefing)
+should confine itself to managed sections — see `docs/managed-sections.md`
+for the marker convention that keeps re-runs idempotent and human content
+untouched.
 
 **Same-day ordering (`after`).** `after = ["job-a", "job-b"]` holds a job
 back until every named job has a SUCCESSFUL run *today* (in the job's
