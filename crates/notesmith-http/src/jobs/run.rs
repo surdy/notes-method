@@ -1,12 +1,20 @@
-//! Command-job subprocess execution (issue #280).
+//! Job subprocess execution (issues #280, #282).
 //!
 //! Mirrors the `notesmith-hooks` subprocess conventions (interpreter dispatch
 //! by extension, own process group, kill-on-timeout) with the job-specific
 //! contract: cwd = vault root, no JSON on stdin, and the connector env
 //! (`NOTESMITH_API_BASE`, `NOTESMITH_VAULT`, `NOTESMITH_STATE_DIR`). Output
 //! is captured bounded for logging.
+//!
+//! Two entry points share one subprocess core: [`run_command_job`] executes a
+//! vault-relative connector script, and [`run_agent_job`] shells out to the
+//! colocated `notesmith` CLI (`notesmith ai prompt <name>`) — per the ADR
+//! 0019/0022/0023 precedent, heavy agent work runs OUTSIDE the daemon
+//! process, so the daemon never hosts an in-process ACP session.
 
 use std::path::Path;
+
+use notesmith_config::JobAgentConfig;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
@@ -67,8 +75,42 @@ pub async fn run_command_job(
         });
     }
 
+    run_prepared(build_command(&command_path, vault_root, env), timeout).await
+}
+
+/// Run an agent-kind job (issue #282): shell out to the colocated `notesmith`
+/// CLI's headless `ai prompt` subcommand with the job's prompt name, under
+/// the same cwd/env/timeout contract as command jobs. `notesmith_bin` is the
+/// daemon's own binary in production and a stub in tests — no LLM runs here.
+pub async fn run_agent_job(
+    notesmith_bin: &Path,
+    vault_root: &Path,
+    agent: &JobAgentConfig,
+    timeout: Duration,
+    env: &JobEnv,
+) -> Result<JobRunOutcome, JobRunError> {
+    let mut command = Command::new(notesmith_bin);
+    command
+        .arg("--vault")
+        .arg(&env.vault_name)
+        .arg("ai")
+        .arg("prompt")
+        .arg(&agent.prompt);
+    if agent.allow_writes {
+        command.arg("--allow-writes");
+    }
+    apply_job_contract(&mut command, vault_root, env);
+    run_prepared(command, timeout).await
+}
+
+/// Spawn a fully-built job command and see it through: bounded output
+/// capture, wall-clock timeout with process-group kill, duration accounting.
+async fn run_prepared(
+    mut command: Command,
+    timeout: Duration,
+) -> Result<JobRunOutcome, JobRunError> {
     let started = Instant::now();
-    let mut child = build_command(&command_path, vault_root, env)
+    let mut child = command
         .spawn()
         .map_err(|source| JobRunError::ExecutionFailed { source })?;
 
@@ -167,6 +209,15 @@ fn build_command(command_path: &Path, vault_root: &Path, env: &JobEnv) -> Comman
         _ => Command::new(command_path),
     };
 
+    apply_job_contract(&mut command, vault_root, env);
+    command
+}
+
+/// The execution contract shared by every job kind: own process group,
+/// cwd = vault root, the connector env, stdin closed (jobs receive no JSON
+/// payload — their inputs are env + the vault), stdout/stderr piped for
+/// bounded capture.
+fn apply_job_contract(command: &mut Command, vault_root: &Path, env: &JobEnv) {
     #[cfg(unix)]
     command.process_group(0);
 
@@ -181,7 +232,6 @@ fn build_command(command_path: &Path, vault_root: &Path, env: &JobEnv) -> Comman
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    command
 }
 
 #[cfg(test)]
@@ -273,6 +323,88 @@ mod tests {
         assert!(outcome.timed_out);
         assert!(!outcome.succeeded());
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn agent_job_invokes_the_cli_with_prompt_and_write_flag() {
+        let vault = TempDir::new().unwrap();
+        let bin_dir = TempDir::new().unwrap();
+        let stub = bin_dir.path().join("notesmith-stub");
+        write_executable(
+            &stub,
+            "#!/bin/sh\necho \"$@\"\necho \"$NOTESMITH_VAULT\"\npwd\n",
+        );
+
+        let env = env_for(&vault);
+        let agent = JobAgentConfig {
+            prompt: "daily-note".to_string(),
+            allow_writes: true,
+        };
+        let outcome = run_agent_job(&stub, vault.path(), &agent, Duration::from_secs(10), &env)
+            .await
+            .unwrap();
+
+        assert!(outcome.succeeded(), "stderr: {}", outcome.stderr);
+        let mut lines = outcome.stdout.lines();
+        assert_eq!(
+            lines.next().unwrap(),
+            "--vault work ai prompt daily-note --allow-writes"
+        );
+        assert_eq!(lines.next().unwrap(), "work");
+        let cwd = std::path::PathBuf::from(lines.next().unwrap());
+        assert_eq!(
+            cwd.canonicalize().unwrap(),
+            vault.path().canonicalize().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_job_defaults_to_read_only_and_reports_failure() {
+        let vault = TempDir::new().unwrap();
+        let bin_dir = TempDir::new().unwrap();
+        let stub = bin_dir.path().join("notesmith-stub");
+        write_executable(
+            &stub,
+            "#!/bin/sh\necho \"$@\"\necho agent boom >&2\nexit 5\n",
+        );
+
+        let agent = JobAgentConfig {
+            prompt: "daily-note".to_string(),
+            allow_writes: false,
+        };
+        let outcome = run_agent_job(
+            &stub,
+            vault.path(),
+            &agent,
+            Duration::from_secs(10),
+            &env_for(&vault),
+        )
+        .await
+        .unwrap();
+
+        assert!(!outcome.succeeded());
+        assert_eq!(outcome.exit_code, Some(5));
+        assert!(!outcome.stdout.contains("--allow-writes"));
+        assert!(outcome.stderr.contains("agent boom"));
+    }
+
+    #[tokio::test]
+    async fn agent_job_with_missing_binary_is_a_clear_error() {
+        let vault = TempDir::new().unwrap();
+        let agent = JobAgentConfig {
+            prompt: "daily-note".to_string(),
+            allow_writes: false,
+        };
+        let error = run_agent_job(
+            Path::new("/nonexistent/notesmith"),
+            vault.path(),
+            &agent,
+            Duration::from_secs(1),
+            &env_for(&vault),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(error, JobRunError::ExecutionFailed { .. }));
     }
 
     #[tokio::test]
