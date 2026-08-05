@@ -50,7 +50,11 @@ A stdio server is a local process Notesmith spawns on demand. Set **Transport** 
 
 ### HTTP(S) server
 
-An HTTP server is a remote or local process reachable over the network. Set **Transport** to **URL (HTTP)** and enter the full endpoint URL (e.g. `https://tools.example.com/mcp`). Notesmith connects to it using the Streamable HTTP MCP protocol.
+An HTTP server is a remote or local process reachable over the network. Set **Transport** to **URL (HTTP)** and enter the full endpoint URL (e.g. `https://tools.example.com/mcp`).
+
+The **agent process — not Notesmith — opens the connection**: the entry is handed to the spawned agent in its ACP session setup, and the agent then talks to the URL using the Streamable HTTP MCP protocol. Authentication is therefore enforced by the remote server against the agent's requests.
+
+For an auth-protected server, add **request headers** to the entry (see [Managing existing servers](#managing-existing-servers)). Each header is a name/value pair the agent sends with every request — typically `Authorization` with a bearer credential. Header values support `$VAR` / `${VAR}` expansion when the session starts, so the value can be `Bearer $MY_TOKEN` and the secret stays in your environment instead of on disk.
 
 ---
 
@@ -61,6 +65,7 @@ Each saved server is shown as a card with its display name (or id) and a transpo
 - **Enabled checkbox** — uncheck to disable the server without removing it. Disabled servers are skipped when sessions start.
 - **Command / Args / URL / Display name** — edit any field directly in the card and click **Save**.
 - **Environment** (stdio servers only) — click **Add variable** to add a `KEY` / `value` row; click **Remove** next to a row to delete it. Environment values support the same `~` / `$VAR` expansion as **Command** and **Args**.
+- **Headers** (HTTP servers only) — click **Add header** to add a header / value row sent with every request the agent makes to the server; click **Remove** next to a row to delete the header. Values support `$VAR` / `${VAR}` expansion. **Stored values are never displayed**: a saved header shows a blank value field with a "value stored" hint, and saving with the value left blank keeps the stored value — only typing a new value replaces it.
 - **Remove** — deletes the entry from the list and from `config.toml`.
 
 ---
@@ -81,6 +86,9 @@ enabled = true
 id = "remote-tools"
 url = "https://tools.example.com/mcp"
 enabled = true
+
+[mcp.servers.headers]                  # optional request headers (HTTP only)
+Authorization = "Bearer $REMOTE_TOOLS_TOKEN"
 ```
 
 You can also edit this file by hand; changes are picked up the next time a session starts. See the [`[mcp]` section in Vault Configuration](vault-configuration.md#external-mcp-servers-mcp) for the full field reference. The server list is **global** — it applies to every vault.
@@ -139,7 +147,34 @@ display_name = "Web Tools"
 enabled = true
 ```
 
-Notesmith connects to the URL using the Streamable HTTP MCP protocol at the start of each agent session.
+At the start of each agent session the entry is handed to the agent, which connects to the URL using the Streamable HTTP MCP protocol.
+
+### 3. Add an auth-protected remote server (e.g. Microsoft Work IQ)
+
+A remote MCP server behind bearer authentication — such as Microsoft Work IQ's Entra-protected endpoint — needs an `Authorization` header on every request. Keep the token itself out of `config.toml` by referencing an environment variable:
+
+1. Add the server with **Transport**: **URL (HTTP)** and the endpoint URL.
+2. In the server card, click **Add header** and fill in:
+   - **Header**: `Authorization`
+   - **Value**: `Bearer $WORKIQ_TOKEN`
+3. Click **Save**, and export `WORKIQ_TOKEN` in the environment Notesmith (or `notesmith ai`) runs in.
+
+The resulting `config.toml` entry:
+
+```toml
+[[mcp.servers]]
+id = "workiq"
+url = "https://workiq.example.com/mcp"
+display_name = "Work IQ"
+enabled = true
+
+[mcp.servers.headers]
+Authorization = "Bearer $WORKIQ_TOKEN"
+```
+
+`$WORKIQ_TOKEN` is expanded from the environment when the session starts, and the agent sends the resolved header with every request. Headers are fixed for the lifetime of a session — if the token expires (Entra access tokens last about an hour), start a new session after refreshing it.
+
+> **Headless runs too:** external servers configured here are attached to `notesmith ai` sessions as well as desktop chat, so scheduled jobs can reach the same auth-protected servers.
 
 ---
 
