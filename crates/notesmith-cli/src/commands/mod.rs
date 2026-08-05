@@ -8,6 +8,7 @@ pub mod daemon;
 pub mod daily;
 pub mod embed;
 pub mod ingest;
+pub mod job;
 pub mod kit;
 pub mod mcp;
 pub mod note;
