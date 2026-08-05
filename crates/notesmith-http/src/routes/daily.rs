@@ -4,32 +4,19 @@ use axum::{
     http::StatusCode,
 };
 use notesmith_core::{NotesmithError, PeriodKind, VaultEngine, VaultName, VaultPath, WriteResult};
-use notesmith_query::{execute_sql, format_query_as_markdown_table};
-use notesmith_vault::{extract_frontmatter, parse_note};
+use notesmith_vault::parse_note;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::events::{self, EventType, VaultEvent};
 use crate::server::SharedAppState;
 
-use super::helpers::{internal_error, note_error, query_error};
+use super::helpers::{internal_error, note_error, render_prompt_error};
 
 #[derive(Debug, Deserialize)]
 pub struct AgentCreateRequest {
     pub date: Option<String>,
     pub content: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-struct ContextQuery {
-    name: String,
-    sql: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct PromptTemplateFrontmatter {
-    #[serde(default)]
-    context_queries: Vec<ContextQuery>,
 }
 
 pub async fn get_daily_note(
@@ -196,36 +183,10 @@ pub async fn agent_create_daily(
             )),
         }
     } else {
-        let prompt_path = vault
-            .root
-            .join(".notesmith")
-            .join("prompts")
-            .join("daily-note.md");
-        let template = std::fs::read_to_string(&prompt_path).map_err(|error| {
-            let status = if error.kind() == std::io::ErrorKind::NotFound {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            };
-            (
-                status,
-                Json(json!({
-                    "error": format!("failed to read prompt template {}: {error}", prompt_path.display())
-                })),
-            )
-        })?;
-        let (queries, body_template) = parse_prompt_template(&template).map_err(internal_error)?;
-        let mut prompt = body_template;
-        for query in queries {
-            let result = execute_sql(&vault.cache, &query.sql).map_err(query_error)?;
-            let table = format_query_as_markdown_table(&result);
-            prompt = prompt
-                .replace(&format!("{{{{ {} }}}}", query.name), &table)
-                .replace(&format!("{{{{{}}}}}", query.name), &table);
-        }
-        prompt = prompt
-            .replace("{{ today }}", &date_str)
-            .replace("{{today}}", &date_str);
+        // Shared with `GET /api/v/{vault}/agent-prompts/{name}` (issue #282):
+        // the daily agent prompt is just the `daily-note` template.
+        let prompt = crate::prompt_render::render_prompt(vault, "daily-note", &date_str)
+            .map_err(render_prompt_error)?;
 
         Ok((
             StatusCode::OK,
@@ -270,56 +231,4 @@ fn refresh_daily_indexes(
         .update_note_with_periodic(vault_name, &note, &config.periodic)?;
     vault.search_index.update_note(vault_name, &note)?;
     Ok(())
-}
-
-fn parse_prompt_template(content: &str) -> anyhow::Result<(Vec<ContextQuery>, String)> {
-    let (raw_frontmatter, body) = extract_frontmatter(content);
-    let frontmatter = match raw_frontmatter {
-        Some(raw) => serde_yaml::from_str::<PromptTemplateFrontmatter>(&raw)?,
-        None => PromptTemplateFrontmatter::default(),
-    };
-
-    Ok((
-        frontmatter.context_queries,
-        body.trim_start_matches(['\r', '\n']).to_string(),
-    ))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_prompt_template_extracts_queries() {
-        let template = r#"---
-context_queries:
-  - name: open_tasks
-    sql: "SELECT text FROM v_tasks"
-  - name: inbox_count
-    sql: "SELECT COUNT(*) as count FROM v_notes"
----
-
-# Daily Note Prompt
-
-{{ open_tasks }}
-"#;
-
-        let (queries, body) = parse_prompt_template(template).unwrap();
-
-        assert_eq!(
-            queries,
-            vec![
-                ContextQuery {
-                    name: "open_tasks".to_string(),
-                    sql: "SELECT text FROM v_tasks".to_string(),
-                },
-                ContextQuery {
-                    name: "inbox_count".to_string(),
-                    sql: "SELECT COUNT(*) as count FROM v_notes".to_string(),
-                },
-            ]
-        );
-        assert!(body.contains("# Daily Note Prompt"));
-        assert!(body.contains("{{ open_tasks }}"));
-    }
 }

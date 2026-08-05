@@ -9,6 +9,7 @@ pub mod ingest_scheduler;
 pub mod jobs;
 pub mod logging;
 pub mod parse_warnings;
+pub mod prompt_render;
 pub mod routes;
 pub mod scheduler;
 pub mod server;
