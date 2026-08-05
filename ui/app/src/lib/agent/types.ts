@@ -199,8 +199,24 @@ export interface McpServerData {
 	args: string[];
 	env: [string, string][];
 	url: string | null;
+	/** HTTP request headers of an HTTP server; values are redacted (#283). */
+	headers: McpHeaderData[];
 	displayName: string | null;
 	enabled: boolean;
+}
+
+/**
+ * One HTTP header row of an HTTP MCP server. Mirrors the Rust `McpHeaderDto`
+ * (#283). Values may carry bearer credentials, so the backend redacts them:
+ * `mcp_servers_get` always sends `value: null` with `hasValue` flagging that a
+ * value is stored. On save, a non-empty `value` overwrites the stored one,
+ * while `null`/empty keeps it (merge-preserve); removing the row removes the
+ * header.
+ */
+export interface McpHeaderData {
+	name: string;
+	value: string | null;
+	hasValue: boolean;
 }
 
 /** The `[mcp]` config section. Mirrors the Rust `McpConfigDto` (#211). */
