@@ -21,6 +21,9 @@ pub enum JobRunStatus {
     Succeeded,
     Failed,
     TimedOut,
+    /// The scheduled fire was skipped because its `after` prerequisites were
+    /// never met that day (issue #282). No subprocess ran.
+    Missed,
 }
 
 impl JobRunStatus {
@@ -29,6 +32,7 @@ impl JobRunStatus {
             JobRunStatus::Succeeded => "succeeded",
             JobRunStatus::Failed => "failed",
             JobRunStatus::TimedOut => "timed_out",
+            JobRunStatus::Missed => "missed",
         }
     }
 }
@@ -44,6 +48,13 @@ pub struct JobRunRecord {
     pub exit_code: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
+    /// When this job last SUCCEEDED (start time of that run), kept separately
+    /// from `last_run` so a later failure does not erase it — same-day `after`
+    /// gating (issue #282) needs "has this job succeeded today". Maintained by
+    /// [`JobStateStore::record`]; callers never set it. Absent in pre-#282
+    /// state files (defaults to `None`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_success: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -89,8 +100,17 @@ impl JobStateStore {
 
     /// Persist the outcome of a run. Errors are returned for the caller to
     /// log; a failed write must not stop the runner.
-    pub fn record(&self, job: &str, record: JobRunRecord) -> anyhow::Result<()> {
+    ///
+    /// `last_success` is derived here, not by callers: a succeeded run stamps
+    /// its own `last_run`; any other outcome carries the previous value
+    /// forward so the last success survives failures.
+    pub fn record(&self, job: &str, mut record: JobRunRecord) -> anyhow::Result<()> {
         let mut state = self.load();
+        record.last_success = if record.status == JobRunStatus::Succeeded {
+            Some(record.last_run)
+        } else {
+            state.jobs.get(job).and_then(|prior| prior.last_success)
+        };
         state.jobs.insert(job.to_string(), record);
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -138,11 +158,16 @@ mod tests {
     }
 
     fn record(status: JobRunStatus) -> JobRunRecord {
+        record_at(status, "2026-08-05T07:30:00Z")
+    }
+
+    fn record_at(status: JobRunStatus, at: &str) -> JobRunRecord {
         JobRunRecord {
-            last_run: "2026-08-05T07:30:00Z".parse().expect("valid timestamp"),
+            last_run: at.parse().expect("valid timestamp"),
             status,
             exit_code: Some(0),
             duration_ms: Some(1234),
+            last_success: None,
         }
     }
 
@@ -203,5 +228,71 @@ mod tests {
         let json = serde_json::to_value(JobRunStatus::TimedOut).unwrap();
         assert_eq!(json, serde_json::json!("timed_out"));
         assert_eq!(JobRunStatus::TimedOut.as_str(), "timed_out");
+        assert_eq!(
+            serde_json::to_value(JobRunStatus::Missed).unwrap(),
+            serde_json::json!("missed")
+        );
+    }
+
+    #[test]
+    fn last_success_is_stamped_on_success_and_survives_failures() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = store_in(&dir);
+
+        // A success stamps its own start time.
+        store
+            .record(
+                "sync",
+                record_at(JobRunStatus::Succeeded, "2026-08-05T07:00:00Z"),
+            )
+            .unwrap();
+        let success_at: DateTime<Utc> = "2026-08-05T07:00:00Z".parse().unwrap();
+        assert_eq!(store.get("sync").unwrap().last_success, Some(success_at));
+
+        // A later failure keeps the earlier success timestamp.
+        store
+            .record(
+                "sync",
+                record_at(JobRunStatus::Failed, "2026-08-05T08:00:00Z"),
+            )
+            .unwrap();
+        let after_failure = store.get("sync").unwrap();
+        assert_eq!(after_failure.status, JobRunStatus::Failed);
+        assert_eq!(after_failure.last_success, Some(success_at));
+
+        // Missed and timed-out runs also carry it forward.
+        store
+            .record(
+                "sync",
+                record_at(JobRunStatus::Missed, "2026-08-06T00:00:00Z"),
+            )
+            .unwrap();
+        assert_eq!(store.get("sync").unwrap().last_success, Some(success_at));
+
+        // Callers cannot smuggle in their own last_success on a failure.
+        let mut forged = record_at(JobRunStatus::Failed, "2026-08-06T09:00:00Z");
+        forged.last_success = Some("2030-01-01T00:00:00Z".parse().unwrap());
+        store.record("fresh", forged).unwrap();
+        assert_eq!(store.get("fresh").unwrap().last_success, None);
+    }
+
+    #[test]
+    fn pre_282_state_files_without_last_success_load() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = store_in(&dir);
+        std::fs::create_dir_all(store.path().parent().unwrap()).unwrap();
+        std::fs::write(
+            store.path(),
+            r#"{ "jobs": { "sync": {
+                "last_run": "2026-08-05T07:30:00Z",
+                "status": "succeeded",
+                "exit_code": 0
+            } } }"#,
+        )
+        .unwrap();
+
+        let loaded = store.get("sync").unwrap();
+        assert_eq!(loaded.status, JobRunStatus::Succeeded);
+        assert_eq!(loaded.last_success, None);
     }
 }

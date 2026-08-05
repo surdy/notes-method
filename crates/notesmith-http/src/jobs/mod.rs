@@ -304,7 +304,8 @@ async fn execute_job(
                     JobRunStatus::TimedOut => {
                         Some(format!("timed out after {}s", timeout.as_secs()))
                     }
-                    JobRunStatus::Failed => Some(format!(
+                    // Missed is recorded by the gating path, never by a run.
+                    JobRunStatus::Failed | JobRunStatus::Missed => Some(format!(
                         "exited with {:?}: {}",
                         outcome.exit_code,
                         tail(&outcome.stderr, LOG_STDERR_TAIL)
@@ -327,6 +328,7 @@ async fn execute_job(
             status,
             exit_code,
             duration_ms: Some(duration.as_millis().min(u64::MAX as u128) as u64),
+            last_success: None, // derived by the store
         },
     ) {
         tracing::warn!(
@@ -809,6 +811,7 @@ command = "job.sh"
                     status: JobRunStatus::Succeeded,
                     exit_code: Some(0),
                     duration_ms: Some(1),
+                    last_success: None,
                 },
             )
             .unwrap();
