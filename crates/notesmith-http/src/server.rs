@@ -850,6 +850,13 @@ pub fn data_dir() -> anyhow::Result<PathBuf> {
     Ok(data_root.join("notesmith"))
 }
 
+/// Durable per-vault data dir under [`data_dir`] (alongside `embeddings.db`),
+/// used for job-run state and connector state (issue #280, ADR 0025). Created
+/// on demand by callers.
+pub fn vault_data_dir(vault_name: &str) -> anyhow::Result<PathBuf> {
+    Ok(data_dir()?.join(sanitize_vault_name(vault_name)))
+}
+
 /// Path to the single daemon-owned transcript database. Per ADR 0012 Decision
 /// 13 this lives in the durable data dir — not inside any vault and not in the
 /// `cache.sqlite` index DB, which is dropped on schema bumps/reindex.

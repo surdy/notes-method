@@ -6,3 +6,4 @@
 //! Agent-kind jobs and same-day `after` ordering are reserved for #282.
 
 pub mod schedule;
+pub mod state;
