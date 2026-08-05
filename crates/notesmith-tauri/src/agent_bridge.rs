@@ -36,7 +36,7 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 use notesmith_agent::{
     AcpSession, AgentDescriptor, AgentDiagnosticsLog, AgentEvent, AgentSession, DiagEntry,
     DiffPreview, EditorContext, McpBinding, ModelPicker, PermissionDecider, PermissionDecision,
-    PermissionRequest,
+    PermissionRequest, extra_mcp_bindings, load_mcp_config,
 };
 use notesmith_config::{
     AgentEntry, AgentsConfig, CompanionMemoryConfig, McpConfig, McpServerEntry, expand_path_vars,
@@ -252,6 +252,7 @@ fn dto_to_mcp_config(dto: McpConfigDto) -> McpConfig {
             args: server.args,
             env,
             url: server.url,
+            headers: BTreeMap::new(),
             display_name: server.display_name,
             enabled: server.enabled,
         });
@@ -260,52 +261,6 @@ fn dto_to_mcp_config(dto: McpConfigDto) -> McpConfig {
         servers,
         companion_memory: dto_to_companion_memory(companion_memory),
     }
-}
-
-/// Convert the enabled external MCP servers into [`McpBinding`]s for an agent
-/// session (ADR 0016 / #211). A server with a non-empty `command` becomes a
-/// stdio binding (env + tilde/`$VAR` expansion applied); otherwise a non-empty
-/// `url` becomes an HTTP binding. Disabled servers and servers with neither a
-/// command nor a url are skipped (ADR 0009: malformed config never panics).
-fn extra_mcp_bindings(cfg: &McpConfig) -> Vec<McpBinding> {
-    let mut bindings = Vec::new();
-    for server in &cfg.servers {
-        if !server.enabled {
-            continue;
-        }
-        let name = server.id.clone();
-        match server.command.as_deref().filter(|c| !c.trim().is_empty()) {
-            Some(command) => {
-                let args = server.args.iter().map(|a| expand_path_vars(a)).collect();
-                let env = server
-                    .env
-                    .iter()
-                    .map(|(key, value)| (key.clone(), expand_path_vars(value)))
-                    .collect();
-                bindings.push(McpBinding::stdio_with_env(
-                    name,
-                    expand_path_vars(command),
-                    args,
-                    env,
-                    false,
-                ));
-            }
-            None => {
-                if let Some(url) = server.url.as_deref().filter(|u| !u.trim().is_empty()) {
-                    bindings.push(McpBinding::http(name, url.to_string()));
-                }
-            }
-        }
-    }
-    bindings
-}
-
-/// Read the `[mcp]` section of the global config, degrading to the default
-/// (empty) config when the file is absent or unreadable (ADR 0009).
-fn load_mcp_config() -> McpConfig {
-    notesmith_config::GlobalConfig::load()
-        .map(|config| config.mcp)
-        .unwrap_or_default()
 }
 
 fn companion_http_binding(
@@ -1739,18 +1694,14 @@ mod tests {
                     command: Some("npx".to_string()),
                     args: vec!["-y".to_string(), "server-fs".to_string()],
                     env: BTreeMap::from([("TOKEN".to_string(), "secret".to_string())]),
-                    url: None,
                     display_name: Some("Files".to_string()),
-                    enabled: true,
+                    ..Default::default()
                 },
                 McpServerEntry {
                     id: "remote".to_string(),
-                    command: None,
-                    args: vec![],
-                    env: BTreeMap::new(),
                     url: Some("https://tools.example.com/mcp".to_string()),
-                    display_name: None,
                     enabled: false,
+                    ..Default::default()
                 },
             ],
             companion_memory: CompanionMemoryConfig::default(),
@@ -1798,89 +1749,6 @@ mod tests {
         let cfg = dto_to_mcp_config(dto);
         assert_eq!(cfg.servers.len(), 1);
         assert_eq!(cfg.servers[0].id, "keep");
-    }
-
-    #[test]
-    fn extra_mcp_bindings_maps_command_to_stdio_and_url_to_http() {
-        let cfg = McpConfig {
-            servers: vec![
-                McpServerEntry {
-                    id: "fs".to_string(),
-                    command: Some("npx".to_string()),
-                    args: vec!["-y".to_string()],
-                    env: BTreeMap::from([("K".to_string(), "v".to_string())]),
-                    url: None,
-                    display_name: None,
-                    enabled: true,
-                },
-                McpServerEntry {
-                    id: "remote".to_string(),
-                    command: None,
-                    args: vec![],
-                    env: BTreeMap::new(),
-                    url: Some("https://tools.example.com/mcp".to_string()),
-                    display_name: None,
-                    enabled: true,
-                },
-            ],
-            companion_memory: CompanionMemoryConfig::default(),
-        };
-
-        let bindings = extra_mcp_bindings(&cfg);
-        assert_eq!(bindings.len(), 2);
-        match &bindings[0] {
-            McpBinding::Stdio {
-                name,
-                command,
-                args,
-                env,
-                ..
-            } => {
-                assert_eq!(name, "fs");
-                assert_eq!(command, "npx");
-                assert_eq!(args, &["-y".to_string()]);
-                assert_eq!(env, &[("K".to_string(), "v".to_string())]);
-            }
-            other => panic!("expected stdio, got {other:?}"),
-        }
-        match &bindings[1] {
-            McpBinding::Http { name, url, .. } => {
-                assert_eq!(name, "remote");
-                assert_eq!(url, "https://tools.example.com/mcp");
-            }
-            other => panic!("expected http, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn extra_mcp_bindings_skips_disabled_and_transportless_servers() {
-        let cfg = McpConfig {
-            servers: vec![
-                McpServerEntry {
-                    id: "disabled".to_string(),
-                    command: Some("npx".to_string()),
-                    enabled: false,
-                    ..Default::default()
-                },
-                McpServerEntry {
-                    id: "no-transport".to_string(),
-                    command: None,
-                    url: None,
-                    enabled: true,
-                    ..Default::default()
-                },
-                McpServerEntry {
-                    id: "blank-url".to_string(),
-                    command: Some("  ".to_string()),
-                    url: Some("   ".to_string()),
-                    enabled: true,
-                    ..Default::default()
-                },
-            ],
-            companion_memory: CompanionMemoryConfig::default(),
-        };
-
-        assert!(extra_mcp_bindings(&cfg).is_empty());
     }
 
     #[test]
