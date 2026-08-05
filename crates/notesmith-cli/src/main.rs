@@ -8,6 +8,7 @@ use notesmith_cli::commands::{
     daily::DailyCommand,
     embed::EmbedCommand,
     ingest::IngestCommand,
+    job::JobCommand,
     kit::KitCommand,
     mcp::McpCommand,
     note::NoteCommand,
@@ -102,6 +103,11 @@ enum Command {
     Ingest(IngestCommand),
     /// Transcribe a local audio file into a timestamped Markdown note
     Transcribe(TranscribeCommand),
+    /// Scheduled job commands (list, manual run) against the daemon
+    Job {
+        #[command(subcommand)]
+        command: JobCommand,
+    },
     /// Task management commands
     Task {
         #[command(subcommand)]
@@ -213,6 +219,11 @@ async fn main() -> anyhow::Result<()> {
         Command::Transcribe(command) => {
             command
                 .run(&global_config, cli.vault.as_deref(), format)
+                .await?;
+        }
+        Command::Job { command } => {
+            command
+                .run(&global_config, cli.vault.as_deref(), &cwd, format)
                 .await?;
         }
         Command::Task { command } => {

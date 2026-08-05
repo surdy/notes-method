@@ -1488,6 +1488,85 @@ Agent daily workflow endpoint. In prompt mode, the daemon loads `.notesmith/prom
 
 ---
 
+## Jobs
+
+Scheduled jobs (ADR 0025, issue #280) are declared per vault as `[[jobs]]`
+entries in `.notesmith/vault.toml` and executed by the daemon's generic job
+runner (`command` kind only today; agent-kind jobs and `after` ordering are
+planned, #282). These endpoints expose the runner for debuggability and
+manual triggers.
+
+### `GET /api/v/{vault}/jobs`
+
+List the vault's configured jobs with schedule, validity, live running flag,
+and persisted last-run status.
+
+**Response:**
+```json
+{
+  "vault": "work",
+  "jobs": [
+    {
+      "name": "calendar-sync",
+      "enabled": true,
+      "every": "15m",
+      "weekdays_only": false,
+      "command": ".notesmith/connectors/calendar-sync.py",
+      "timeout": "120s",
+      "valid": true,
+      "running": false,
+      "last_run": {
+        "at": "2026-08-05T07:30:02+00:00",
+        "status": "succeeded",
+        "exit_code": 0,
+        "duration_ms": 1874
+      }
+    },
+    {
+      "name": "broken",
+      "enabled": true,
+      "every": "5m",
+      "at": "07:30",
+      "weekdays_only": false,
+      "command": "sync.py",
+      "valid": false,
+      "config_error": "`every` and `at` are mutually exclusive; set exactly one",
+      "running": false
+    }
+  ]
+}
+```
+
+`valid: false` entries are skipped by the scheduler (with a daemon WARN);
+`config_error` carries the reason. `last_run.status` is one of `succeeded`,
+`failed`, `timed_out`; it is omitted for jobs that have never run.
+
+**Errors:**
+- `404` — vault not found
+
+### `POST /api/v/{vault}/jobs/{name}/run`
+
+Manually trigger a job by name, bypassing its schedule. Deliberately works
+for entries with a missing or invalid *schedule* as long as they have a
+runnable `command` — the connector-development workflow.
+
+**Response:** `202 Accepted`
+```json
+{ "vault": "work", "job": "calendar-sync", "status": "started" }
+```
+
+The run continues in the background; observe the outcome via the `job.*`
+SSE events or the jobs list. Concurrency: the daemon never runs the same job
+twice at once — while a run (scheduled or manual) is in flight, this endpoint
+returns `409` (the trigger is rejected, not queued).
+
+**Errors:**
+- `404` — vault or job not found
+- `409` — a run of this job is already in flight
+- `400` — the job has no runnable `command` (including agent-kind entries, #282)
+
+---
+
 ## Event Stream
 
 ### `GET /api/v/{vault}/events`
@@ -1520,6 +1599,9 @@ The daemon keeps a ring buffer of the most recent 100 SSE events. Clients may al
 | `config.error` | Config file has a parse error |
 | `vaults.changed` | Global vault registrations changed; refetch `/api/app/vaults` |
 | `shutting_down` | Daemon is draining and preparing to exit |
+| `job.started` | A job run began (`path` carries the job name) |
+| `job.succeeded` | A job run exited 0 |
+| `job.failed` | A job run exited non-zero, timed out, or could not be launched |
 
 **Payload (JSON in `data:` field):**
 ```json

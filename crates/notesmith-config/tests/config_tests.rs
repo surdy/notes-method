@@ -339,6 +339,7 @@ fn vault_config_roundtrip() {
         clip: ClipConfig::default(),
         ingest: IngestConfig::default(),
         transcribe: TranscribeConfig::default(),
+        jobs: Vec::new(),
     };
 
     config.save_to(&path).unwrap();

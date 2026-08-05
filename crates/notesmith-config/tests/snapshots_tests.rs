@@ -74,6 +74,7 @@ fn snapshot_vault_config_full() {
         clip: ClipConfig::default(),
         ingest: IngestConfig::default(),
         transcribe: TranscribeConfig::default(),
+        jobs: Vec::new(),
     };
     let temp_dir = tempfile::tempdir().unwrap();
     let path = temp_dir.path().join("vault.toml");

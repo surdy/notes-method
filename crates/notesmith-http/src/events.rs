@@ -117,6 +117,15 @@ pub enum EventType {
     VaultsChanged,
     #[serde(rename = "shutting_down")]
     ShuttingDown,
+    /// A job run began (`path` carries the job name; issue #280).
+    #[serde(rename = "job.started")]
+    JobStarted,
+    /// A job run exited 0.
+    #[serde(rename = "job.succeeded")]
+    JobSucceeded,
+    /// A job run exited non-zero, timed out, or could not be launched.
+    #[serde(rename = "job.failed")]
+    JobFailed,
 }
 
 impl EventType {
@@ -138,6 +147,9 @@ impl EventType {
             EventType::ConfigError => "config.error",
             EventType::VaultsChanged => "vaults.changed",
             EventType::ShuttingDown => "shutting_down",
+            EventType::JobStarted => "job.started",
+            EventType::JobSucceeded => "job.succeeded",
+            EventType::JobFailed => "job.failed",
         }
     }
 }
@@ -418,6 +430,21 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("\"shutting_down\""));
         assert_eq!(EventType::ShuttingDown.as_str(), "shutting_down");
+    }
+
+    #[test]
+    fn job_events_serialize_with_named_types() {
+        for (event_type, expected) in [
+            (EventType::JobStarted, "job.started"),
+            (EventType::JobSucceeded, "job.succeeded"),
+            (EventType::JobFailed, "job.failed"),
+        ] {
+            let event = VaultEvent::new("work", event_type.clone(), "calendar-sync");
+            let json: serde_json::Value = serde_json::to_value(&event).unwrap();
+            assert_eq!(json["type"], expected);
+            assert_eq!(json["path"], "calendar-sync");
+            assert_eq!(event.event_type.as_str(), expected);
+        }
     }
 
     #[test]
