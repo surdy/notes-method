@@ -560,3 +560,37 @@ fn detect_unknown_vault_name_returns_error() {
     let err = detect_vault(Path::new("/tmp"), Some("nonexistent"), &global).unwrap_err();
     assert!(matches!(err, ConfigError::VaultNotFound { .. }));
 }
+
+#[test]
+fn effective_daily_periodic_prefers_periodic_daily() {
+    let mut config = VaultConfig::default();
+    config.periodic.daily = Some(PeriodKindConfig {
+        folder: "Journal".to_string(),
+        template: Some("daily".to_string()),
+        filename: "Journal {{ date }}".to_string(),
+        generate_at: None,
+        timezone: None,
+        catch_up: false,
+    });
+    config.daily.folder = "Legacy".to_string();
+
+    let effective = config.effective_daily_periodic();
+    let daily = effective.daily.expect("daily present");
+    assert_eq!(daily.folder, "Journal");
+    assert_eq!(daily.filename, "Journal {{ date }}");
+}
+
+#[test]
+fn effective_daily_periodic_falls_back_to_legacy_daily() {
+    let mut config = VaultConfig::default();
+    config.periodic.daily = None;
+    config.daily.folder = "Daily".to_string();
+    config.daily.template = "daily".to_string();
+    config.daily.filename = "Log {{ date }}".to_string();
+
+    let effective = config.effective_daily_periodic();
+    let daily = effective.daily.expect("daily present");
+    assert_eq!(daily.folder, "Daily");
+    assert_eq!(daily.template.as_deref(), Some("daily"));
+    assert_eq!(daily.filename, "Log {{ date }}");
+}

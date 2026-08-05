@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use chrono::{Local, NaiveDate, NaiveDateTime};
-use notesmith_config::{PeriodKindConfig, PeriodicConfig, VaultConfig};
+use notesmith_config::{PeriodicConfig, VaultConfig};
 use notesmith_core::{
     Note, NotesmithError, PeriodKind, VaultEngine, VaultName, VaultPath, WriteResult,
 };
@@ -636,20 +636,10 @@ impl LocalOps {
         }
     }
 
-    /// The periodic config governing daily notes: `[periodic.daily]` when
-    /// present, otherwise a compat view of the legacy `[daily]` table — the
-    /// same fallback rule the config loader applies (issue #279).
+    /// The periodic config governing daily notes (issue #279): delegates to
+    /// the shared fallback rule on `VaultConfig`.
     fn daily_periodic_config(&self) -> PeriodicConfig {
-        if self.vault_config.periodic.daily.is_some() {
-            self.vault_config.periodic.clone()
-        } else {
-            PeriodicConfig {
-                daily: Some(PeriodKindConfig::from_daily_compat(
-                    &self.vault_config.daily,
-                )),
-                ..Default::default()
-            }
-        }
+        self.vault_config.effective_daily_periodic()
     }
 
     /// Rank notes related to `path` by blending embedding similarity with

@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use chrono::{Local, NaiveDate, NaiveTime};
-use notesmith_config::{PeriodKindConfig, PeriodicConfig};
+use notesmith_config::VaultConfig;
 use notesmith_core::{PeriodKind, VaultEngine};
 use tokio::task::JoinHandle;
 
@@ -20,30 +20,20 @@ pub struct DailyScheduler {
     _tasks: Vec<JoinHandle<()>>,
 }
 
-/// Ensure a daily note exists for the given date.
-/// Returns `Ok(Some(path))` if created, `Ok(None)` if already exists.
+/// Ensure a daily note exists for the given date, using the vault's effective
+/// `[periodic.daily]` config (folder, template, and filename pattern — issue
+/// #279: the scheduler must resolve the same path as ops/MCP and the REST
+/// route). Returns `Ok(Some(path))` if created, `Ok(None)` if already exists.
 pub fn ensure_daily_note(
     vault_root: &Path,
-    daily_folder: &str,
-    daily_template: &str,
+    vault_config: &VaultConfig,
     date: NaiveDate,
     template_engine: &notesmith_templates::TemplateEngine,
     engine: &dyn VaultEngine,
 ) -> anyhow::Result<Option<String>> {
-    let config = PeriodicConfig {
-        daily: Some(PeriodKindConfig {
-            folder: daily_folder.to_string(),
-            template: Some(daily_template.to_string()),
-            filename: "{{ date }}".to_string(),
-            generate_at: None,
-            timezone: None,
-            catch_up: false,
-        }),
-        ..Default::default()
-    };
     Ok(ensure_periodic_note(
         vault_root,
-        &config,
+        &vault_config.effective_daily_periodic(),
         PeriodKind::Daily,
         date,
         template_engine,
@@ -55,8 +45,7 @@ pub fn ensure_daily_note(
 /// Run catch-up: create daily notes for any missing days in the last 30 days.
 pub fn catch_up_daily_notes(
     vault_root: &Path,
-    daily_folder: &str,
-    daily_template: &str,
+    vault_config: &VaultConfig,
     template_engine: &notesmith_templates::TemplateEngine,
     engine: &dyn VaultEngine,
 ) -> anyhow::Result<Vec<String>> {
@@ -65,14 +54,9 @@ pub fn catch_up_daily_notes(
 
     for days_ago in (0..30).rev() {
         let date = today - chrono::Duration::days(days_ago);
-        if let Some(path) = ensure_daily_note(
-            vault_root,
-            daily_folder,
-            daily_template,
-            date,
-            template_engine,
-            engine,
-        )? {
+        if let Some(path) =
+            ensure_daily_note(vault_root, vault_config, date, template_engine, engine)?
+        {
             created.push(path);
         }
     }
@@ -116,11 +100,10 @@ pub async fn start_daily_schedulers(state: SharedAppState) -> Vec<DailyScheduler
                 let today = Local::now().date_naive();
                 let state = state_clone.read().await;
                 if let Some(vault) = state.vaults.get(&vault_name_clone) {
-                    let daily_config = vault.vault_config.load();
+                    let vault_config = vault.vault_config.load();
                     if let Ok(Some(path)) = ensure_daily_note(
                         &vault.root,
-                        &daily_config.daily.folder,
-                        &daily_config.daily.template,
+                        &vault_config,
                         today,
                         &vault.template_engine,
                         &vault.engine,
@@ -153,13 +136,7 @@ async fn run_catch_up(state: &SharedAppState, vault_name: &str) {
     let state = state.read().await;
     if let Some(vault) = state.vaults.get(vault_name) {
         let config = vault.vault_config.load();
-        match catch_up_daily_notes(
-            &vault.root,
-            &config.daily.folder,
-            &config.daily.template,
-            &vault.template_engine,
-            &vault.engine,
-        ) {
+        match catch_up_daily_notes(&vault.root, &config, &vault.template_engine, &vault.engine) {
             Ok(created) => {
                 if !created.is_empty() {
                     tracing::info!(
@@ -219,15 +196,30 @@ mod tests {
         (temp_dir, root)
     }
 
+    /// A vault config whose effective daily settings are the given folder,
+    /// template, and filename pattern.
+    fn daily_vault_config(folder: &str, template: &str, filename: &str) -> VaultConfig {
+        let mut config = VaultConfig::default();
+        config.periodic.daily = Some(notesmith_config::PeriodKindConfig {
+            folder: folder.to_string(),
+            template: Some(template.to_string()),
+            filename: filename.to_string(),
+            generate_at: None,
+            timezone: None,
+            catch_up: false,
+        });
+        config
+    }
+
     #[test]
     fn ensure_daily_note_creates_when_missing() {
         let (_tmp, root) = setup_temp_vault();
         let engine = NativeVaultEngine;
         let template_engine = notesmith_templates::TemplateEngine::new(root.clone(), None);
         let date = NaiveDate::from_ymd_opt(2025, 6, 15).unwrap();
+        let config = daily_vault_config("Daily", "daily", "{{ date }}");
 
-        let result =
-            ensure_daily_note(&root, "Daily", "daily", date, &template_engine, &engine).unwrap();
+        let result = ensure_daily_note(&root, &config, date, &template_engine, &engine).unwrap();
 
         assert_eq!(result, Some("Daily/2025-06-15.md".to_string()));
 
@@ -242,14 +234,46 @@ mod tests {
         let engine = NativeVaultEngine;
         let template_engine = notesmith_templates::TemplateEngine::new(root.clone(), None);
         let date = NaiveDate::from_ymd_opt(2025, 6, 15).unwrap();
+        let config = daily_vault_config("Daily", "daily", "{{ date }}");
 
-        let first =
-            ensure_daily_note(&root, "Daily", "daily", date, &template_engine, &engine).unwrap();
+        let first = ensure_daily_note(&root, &config, date, &template_engine, &engine).unwrap();
         assert!(first.is_some());
 
-        let second =
-            ensure_daily_note(&root, "Daily", "daily", date, &template_engine, &engine).unwrap();
+        let second = ensure_daily_note(&root, &config, date, &template_engine, &engine).unwrap();
         assert_eq!(second, None);
+    }
+
+    #[test]
+    fn ensure_daily_note_honors_custom_periodic_filename() {
+        // Issue #279 follow-up: the scheduler path must resolve the same
+        // custom `[periodic.daily] filename` as ops/MCP and the REST route.
+        let (_tmp, root) = setup_temp_vault();
+        let engine = NativeVaultEngine;
+        let template_engine = notesmith_templates::TemplateEngine::new(root.clone(), None);
+        let date = NaiveDate::from_ymd_opt(2026, 3, 5).unwrap();
+        let config = daily_vault_config("Daily", "daily", "Journal {{ date }}");
+
+        let result = ensure_daily_note(&root, &config, date, &template_engine, &engine).unwrap();
+
+        assert_eq!(result, Some("Daily/Journal 2026-03-05.md".to_string()));
+        assert!(root.join("Daily/Journal 2026-03-05.md").exists());
+    }
+
+    #[test]
+    fn ensure_daily_note_falls_back_to_legacy_daily_config() {
+        let (_tmp, root) = setup_temp_vault();
+        let engine = NativeVaultEngine;
+        let template_engine = notesmith_templates::TemplateEngine::new(root.clone(), None);
+        let date = NaiveDate::from_ymd_opt(2026, 3, 6).unwrap();
+        let mut config = VaultConfig::default();
+        config.periodic.daily = None;
+        config.daily.folder = "Daily".to_string();
+        config.daily.template = "daily".to_string();
+        config.daily.filename = "Log {{ date }}".to_string();
+
+        let result = ensure_daily_note(&root, &config, date, &template_engine, &engine).unwrap();
+
+        assert_eq!(result, Some("Daily/Log 2026-03-06.md".to_string()));
     }
 
     #[test]
@@ -258,8 +282,9 @@ mod tests {
         let engine = NativeVaultEngine;
         let template_engine = notesmith_templates::TemplateEngine::new(root.clone(), None);
         let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+        let config = daily_vault_config("Daily", "daily", "{{ date }}");
 
-        ensure_daily_note(&root, "Daily", "daily", date, &template_engine, &engine).unwrap();
+        ensure_daily_note(&root, &config, date, &template_engine, &engine).unwrap();
 
         let content = std::fs::read_to_string(root.join("Daily/2024-01-01.md")).unwrap();
         assert!(
@@ -325,8 +350,8 @@ notesmith:
         let engine = NativeVaultEngine;
         let template_engine = notesmith_templates::TemplateEngine::new(root.clone(), None);
 
-        let created =
-            catch_up_daily_notes(&root, "Daily", "daily", &template_engine, &engine).unwrap();
+        let config = daily_vault_config("Daily", "daily", "{{ date }}");
+        let created = catch_up_daily_notes(&root, &config, &template_engine, &engine).unwrap();
 
         // Should have created today + up to 29 days back
         assert!(!created.is_empty());

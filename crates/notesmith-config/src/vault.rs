@@ -733,6 +733,21 @@ impl<'de> Deserialize<'de> for VaultConfig {
 }
 
 impl VaultConfig {
+    /// The periodic config governing daily notes: `[periodic.daily]` when
+    /// present, otherwise a compat view of the legacy `[daily]` table — the
+    /// same fallback rule the config loader applies. Single home for the
+    /// rule, shared by ops and the daily scheduler (issue #279).
+    pub fn effective_daily_periodic(&self) -> PeriodicConfig {
+        if self.periodic.daily.is_some() {
+            self.periodic.clone()
+        } else {
+            PeriodicConfig {
+                daily: Some(PeriodKindConfig::from_daily_compat(&self.daily)),
+                ..Default::default()
+            }
+        }
+    }
+
     pub fn load_from(path: &Path) -> Result<Self, ConfigError> {
         let content = std::fs::read_to_string(path).map_err(|source| ConfigError::ReadError {
             path: path.to_path_buf(),
