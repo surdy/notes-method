@@ -1,4 +1,5 @@
 use crate::error::ConfigError;
+use crate::jobs::JobConfig;
 use notesmith_core::PeriodKind;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -22,6 +23,9 @@ pub struct VaultConfig {
     pub clip: ClipConfig,
     pub ingest: IngestConfig,
     pub transcribe: TranscribeConfig,
+    /// Scheduled jobs run by the daemon's generic job runner (ADR 0025).
+    /// Serialized as `[[jobs]]` array-of-tables entries.
+    pub jobs: Vec<JobConfig>,
 }
 
 fn default_schema_version() -> u32 {
@@ -50,6 +54,7 @@ impl Default for VaultConfig {
             clip: Default::default(),
             ingest: Default::default(),
             transcribe: Default::default(),
+            jobs: Vec::new(),
         }
     }
 }
@@ -607,6 +612,10 @@ struct RawVaultConfig {
     ingest: IngestConfig,
     #[serde(default)]
     transcribe: TranscribeConfig,
+    /// Lenient per-entry parsing: a malformed `[[jobs]]` table is skipped with
+    /// a WARN instead of failing the whole vault config (ADR 0009).
+    #[serde(default, deserialize_with = "crate::jobs::deserialize_jobs_lenient")]
+    jobs: Vec<JobConfig>,
 }
 
 #[derive(Serialize)]
@@ -630,6 +639,8 @@ struct PersistedVaultConfig<'a> {
     ingest: &'a IngestConfig,
     #[serde(skip_serializing_if = "transcribe_config_is_default")]
     transcribe: &'a TranscribeConfig,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    jobs: &'a Vec<JobConfig>,
 }
 
 fn embed_config_is_default(config: &EmbedConfig) -> bool {
@@ -716,11 +727,27 @@ impl<'de> Deserialize<'de> for VaultConfig {
             clip: raw.clip,
             ingest: raw.ingest,
             transcribe: raw.transcribe,
+            jobs: raw.jobs,
         })
     }
 }
 
 impl VaultConfig {
+    /// The periodic config governing daily notes: `[periodic.daily]` when
+    /// present, otherwise a compat view of the legacy `[daily]` table — the
+    /// same fallback rule the config loader applies. Single home for the
+    /// rule, shared by ops and the daily scheduler (issue #279).
+    pub fn effective_daily_periodic(&self) -> PeriodicConfig {
+        if self.periodic.daily.is_some() {
+            self.periodic.clone()
+        } else {
+            PeriodicConfig {
+                daily: Some(PeriodKindConfig::from_daily_compat(&self.daily)),
+                ..Default::default()
+            }
+        }
+    }
+
     pub fn load_from(path: &Path) -> Result<Self, ConfigError> {
         let content = std::fs::read_to_string(path).map_err(|source| ConfigError::ReadError {
             path: path.to_path_buf(),
@@ -764,6 +791,7 @@ impl VaultConfig {
             clip: &self.clip,
             ingest: &self.ingest,
             transcribe: &self.transcribe,
+            jobs: &self.jobs,
         })
         .map_err(|error| ConfigError::SerializeError {
             message: error.to_string(),
@@ -979,6 +1007,7 @@ on_note_create = "hooks/create.py"
             clip: ClipConfig::default(),
             ingest: IngestConfig::default(),
             transcribe: TranscribeConfig::default(),
+            jobs: Vec::new(),
         }
     }
 
@@ -1348,6 +1377,132 @@ filename = ""
         let loaded = VaultConfig::load_from(&path).unwrap();
         assert!(loaded.transcribe.enabled);
         assert_eq!(loaded.transcribe.notes_dir, "transcribed");
+    }
+
+    #[test]
+    fn jobs_default_to_empty_when_absent() {
+        let config: VaultConfig = toml::from_str(r#"name = "no-jobs""#).unwrap();
+        assert!(config.jobs.is_empty());
+    }
+
+    #[test]
+    fn jobs_parse_from_array_of_tables() {
+        let toml = r#"
+            name = "with-jobs"
+
+            [[jobs]]
+            name = "calendar-sync"
+            enabled = true
+            every = "15m"
+            command = ".notesmith/connectors/calendar-sync.py"
+            timeout = "120s"
+
+            [[jobs]]
+            name = "email-digest"
+            at = "07:30"
+            weekdays_only = true
+            timezone = "America/Vancouver"
+            command = ".notesmith/connectors/email-digest.py"
+        "#;
+        let config: VaultConfig = toml::from_str(toml).unwrap();
+
+        assert_eq!(config.jobs.len(), 2);
+        let sync = &config.jobs[0];
+        assert_eq!(sync.name, "calendar-sync");
+        assert!(sync.enabled);
+        assert_eq!(sync.every.as_deref(), Some("15m"));
+        assert_eq!(sync.timeout.as_deref(), Some("120s"));
+        assert_eq!(
+            sync.command.as_deref(),
+            Some(".notesmith/connectors/calendar-sync.py")
+        );
+
+        let digest = &config.jobs[1];
+        assert_eq!(digest.at.as_deref(), Some("07:30"));
+        assert!(digest.weekdays_only);
+        assert_eq!(digest.timezone.as_deref(), Some("America/Vancouver"));
+    }
+
+    #[test]
+    fn malformed_jobs_entry_is_skipped_without_failing_the_config() {
+        let toml = r#"
+            name = "resilient"
+
+            [capture]
+            folder = "Inbox"
+
+            [[jobs]]
+            name = "good"
+            every = "5m"
+            command = "sync.py"
+
+            [[jobs]]
+            name = "bad"
+            enabled = "definitely"
+        "#;
+        let config: VaultConfig = toml::from_str(toml).unwrap();
+
+        // The malformed entry is dropped; the rest of the config still loads.
+        assert_eq!(config.name, "resilient");
+        assert_eq!(config.capture.folder, "Inbox");
+        assert_eq!(config.jobs.len(), 1);
+        assert_eq!(config.jobs[0].name, "good");
+    }
+
+    #[test]
+    fn jobs_with_reserved_agent_fields_parse_and_round_trip() {
+        let toml = r#"
+            name = "future"
+
+            [[jobs]]
+            name = "daily-briefing"
+            at = "07:30"
+            weekdays_only = true
+            after = ["calendar-sync"]
+            agent = { prompt = "daily-note", allow_writes = true }
+        "#;
+        let config: VaultConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.jobs.len(), 1);
+        assert_eq!(config.jobs[0].after, vec!["calendar-sync".to_string()]);
+        assert!(config.jobs[0].agent.is_some());
+
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().join("vault.toml");
+        config.save_to(&path).unwrap();
+        let loaded = VaultConfig::load_from(&path).unwrap();
+        assert_eq!(loaded.jobs, config.jobs);
+    }
+
+    #[test]
+    fn jobs_round_trip_through_disk() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().join("vault.toml");
+        let mut config = VaultConfig::default();
+        config.name = "round-trip".to_string();
+        config.jobs = vec![crate::jobs::JobConfig {
+            name: "calendar-sync".to_string(),
+            enabled: true,
+            every: Some("15m".to_string()),
+            command: Some("sync.py".to_string()),
+            timeout: Some("60s".to_string()),
+            ..Default::default()
+        }];
+
+        config.save_to(&path).unwrap();
+        let loaded = VaultConfig::load_from(&path).unwrap();
+        assert_eq!(loaded.jobs, config.jobs);
+    }
+
+    #[test]
+    fn empty_jobs_are_omitted_from_disk() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().join("vault.toml");
+        let mut config = VaultConfig::default();
+        config.name = "no-jobs".to_string();
+
+        config.save_to(&path).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("[[jobs]]"));
     }
 
     #[test]

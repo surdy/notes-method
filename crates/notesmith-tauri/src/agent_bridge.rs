@@ -36,7 +36,7 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 use notesmith_agent::{
     AcpSession, AgentDescriptor, AgentDiagnosticsLog, AgentEvent, AgentSession, DiagEntry,
     DiffPreview, EditorContext, McpBinding, ModelPicker, PermissionDecider, PermissionDecision,
-    PermissionRequest,
+    PermissionRequest, extra_mcp_bindings, load_mcp_config,
 };
 use notesmith_config::{
     AgentEntry, AgentsConfig, CompanionMemoryConfig, McpConfig, McpServerEntry, expand_path_vars,
@@ -155,8 +155,35 @@ pub struct McpServerDto {
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
     pub url: Option<String>,
+    /// HTTP request headers of an HTTP server, value-redacted on the way out
+    /// (see [`McpHeaderDto`]). Defaults to empty so older payloads still parse.
+    #[serde(default)]
+    pub headers: Vec<McpHeaderDto>,
     pub display_name: Option<String>,
     pub enabled: bool,
+}
+
+/// One HTTP header row of an `[[mcp.servers]]` entry over the wire (#283).
+///
+/// Header values may carry bearer credentials, so — per the `ServerView`
+/// precedent (ADR 0017) — they are **redacted outbound**: `mcp_servers_get`
+/// always sends `value: None` with `has_value` flagging whether one is stored.
+/// Inbound (`mcp_servers_set`), a non-empty `value` sets/overwrites the stored
+/// value, while `None` (or an empty string) means "keep whatever is stored for
+/// this server id + header name" so a Settings save never wipes a token the UI
+/// never saw. Removing the row removes the header.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct McpHeaderDto {
+    /// Header name (e.g. `Authorization`). Sent in both directions.
+    pub name: String,
+    /// Outbound: always `None`. Inbound: `Some(value)` to set, `None`/empty to
+    /// keep the stored value.
+    #[serde(default)]
+    pub value: Option<String>,
+    /// Outbound: whether a value is stored for this header. Ignored inbound.
+    #[serde(default)]
+    pub has_value: bool,
 }
 
 /// The `[mcp]` section over the wire. Mirrors the frontend `McpConfigData`.
@@ -207,6 +234,9 @@ pub struct McpConfigDto {
 }
 
 /// Project the in-memory [`McpConfig`] to its wire DTO, preserving order.
+/// Header **values** are redacted (`value: None`, `has_value` set) — they may
+/// carry bearer credentials and are never shown to the UI (see
+/// [`McpHeaderDto`]).
 fn mcp_config_to_dto(cfg: &McpConfig) -> McpConfigDto {
     let servers = cfg
         .servers
@@ -221,6 +251,15 @@ fn mcp_config_to_dto(cfg: &McpConfig) -> McpConfigDto {
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect(),
             url: entry.url.clone(),
+            headers: entry
+                .headers
+                .iter()
+                .map(|(name, value)| McpHeaderDto {
+                    name: name.clone(),
+                    value: None,
+                    has_value: !value.is_empty(),
+                })
+                .collect(),
             display_name: entry.display_name.clone(),
             enabled: entry.enabled,
         })
@@ -234,7 +273,13 @@ fn mcp_config_to_dto(cfg: &McpConfig) -> McpConfigDto {
 /// Fold the wire DTO back into an [`McpConfig`]. Servers with a blank id are
 /// skipped (the UI may carry an empty "add server" draft row); env pairs become
 /// a `BTreeMap`, so a later duplicate key wins. Order is preserved.
-fn dto_to_mcp_config(dto: McpConfigDto) -> McpConfig {
+///
+/// `previous` is the currently persisted config: header rows arriving without a
+/// value (the redacted view the UI round-trips, see [`McpHeaderDto`]) keep the
+/// value stored there under the same server id + header name, so a Settings
+/// save never wipes a token. A redacted row whose header no longer exists in
+/// `previous` has no value at all and is dropped.
+fn dto_to_mcp_config(dto: McpConfigDto, previous: &McpConfig) -> McpConfig {
     let McpConfigDto {
         servers: dto_servers,
         companion_memory,
@@ -245,6 +290,29 @@ fn dto_to_mcp_config(dto: McpConfigDto) -> McpConfig {
         if id.is_empty() {
             continue;
         }
+        let stored_headers = previous
+            .servers
+            .iter()
+            .find(|entry| entry.id == id)
+            .map(|entry| &entry.headers);
+        let mut headers = BTreeMap::new();
+        for row in server.headers {
+            let name = row.name.trim().to_string();
+            if name.is_empty() {
+                continue;
+            }
+            match row.value.filter(|value| !value.is_empty()) {
+                Some(value) => {
+                    headers.insert(name, value);
+                }
+                None => {
+                    // Redacted row: preserve the stored value, if any.
+                    if let Some(value) = stored_headers.and_then(|stored| stored.get(&name)) {
+                        headers.insert(name, value.clone());
+                    }
+                }
+            }
+        }
         let env: BTreeMap<String, String> = server.env.into_iter().collect();
         servers.push(McpServerEntry {
             id,
@@ -252,6 +320,7 @@ fn dto_to_mcp_config(dto: McpConfigDto) -> McpConfig {
             args: server.args,
             env,
             url: server.url,
+            headers,
             display_name: server.display_name,
             enabled: server.enabled,
         });
@@ -260,52 +329,6 @@ fn dto_to_mcp_config(dto: McpConfigDto) -> McpConfig {
         servers,
         companion_memory: dto_to_companion_memory(companion_memory),
     }
-}
-
-/// Convert the enabled external MCP servers into [`McpBinding`]s for an agent
-/// session (ADR 0016 / #211). A server with a non-empty `command` becomes a
-/// stdio binding (env + tilde/`$VAR` expansion applied); otherwise a non-empty
-/// `url` becomes an HTTP binding. Disabled servers and servers with neither a
-/// command nor a url are skipped (ADR 0009: malformed config never panics).
-fn extra_mcp_bindings(cfg: &McpConfig) -> Vec<McpBinding> {
-    let mut bindings = Vec::new();
-    for server in &cfg.servers {
-        if !server.enabled {
-            continue;
-        }
-        let name = server.id.clone();
-        match server.command.as_deref().filter(|c| !c.trim().is_empty()) {
-            Some(command) => {
-                let args = server.args.iter().map(|a| expand_path_vars(a)).collect();
-                let env = server
-                    .env
-                    .iter()
-                    .map(|(key, value)| (key.clone(), expand_path_vars(value)))
-                    .collect();
-                bindings.push(McpBinding::stdio_with_env(
-                    name,
-                    expand_path_vars(command),
-                    args,
-                    env,
-                    false,
-                ));
-            }
-            None => {
-                if let Some(url) = server.url.as_deref().filter(|u| !u.trim().is_empty()) {
-                    bindings.push(McpBinding::http(name, url.to_string()));
-                }
-            }
-        }
-    }
-    bindings
-}
-
-/// Read the `[mcp]` section of the global config, degrading to the default
-/// (empty) config when the file is absent or unreadable (ADR 0009).
-fn load_mcp_config() -> McpConfig {
-    notesmith_config::GlobalConfig::load()
-        .map(|config| config.mcp)
-        .unwrap_or_default()
 }
 
 fn companion_http_binding(
@@ -1239,14 +1262,16 @@ pub async fn mcp_servers_get() -> Result<McpConfigDto, String> {
 
 /// Replace the `[mcp]` section of the global config from the management surface
 /// (ADR 0016 / #211). Loads the current global config (defaulting when absent),
-/// swaps in the edited MCP section, and persists it. A write failure surfaces to
-/// the UI as an `Err` — an explicit user action, not a hot path (ADR 0009).
+/// swaps in the edited MCP section, and persists it. Header values arrive
+/// redacted from the UI, so the fold merge-preserves them against the config
+/// being replaced (#283). A write failure surfaces to the UI as an `Err` — an
+/// explicit user action, not a hot path (ADR 0009).
 #[tauri::command]
 pub async fn mcp_servers_set(config: McpConfigDto) -> Result<(), String> {
     let path = notesmith_config::GlobalConfig::default_path()
         .ok_or_else(|| "could not determine the config directory".to_string())?;
     let mut global = notesmith_config::GlobalConfig::load().unwrap_or_default();
-    global.mcp = dto_to_mcp_config(config);
+    global.mcp = dto_to_mcp_config(config, &global.mcp);
     global.save_to(&path).map_err(|error| error.to_string())
 }
 
@@ -1739,18 +1764,14 @@ mod tests {
                     command: Some("npx".to_string()),
                     args: vec!["-y".to_string(), "server-fs".to_string()],
                     env: BTreeMap::from([("TOKEN".to_string(), "secret".to_string())]),
-                    url: None,
                     display_name: Some("Files".to_string()),
-                    enabled: true,
+                    ..Default::default()
                 },
                 McpServerEntry {
                     id: "remote".to_string(),
-                    command: None,
-                    args: vec![],
-                    env: BTreeMap::new(),
                     url: Some("https://tools.example.com/mcp".to_string()),
-                    display_name: None,
                     enabled: false,
+                    ..Default::default()
                 },
             ],
             companion_memory: CompanionMemoryConfig::default(),
@@ -1765,7 +1786,7 @@ mod tests {
         );
         assert!(!dto.servers[1].enabled);
 
-        let back = dto_to_mcp_config(dto);
+        let back = dto_to_mcp_config(dto, &cfg);
         assert_eq!(back, cfg);
     }
 
@@ -1779,6 +1800,7 @@ mod tests {
                     args: vec![],
                     env: vec![],
                     url: None,
+                    headers: vec![],
                     display_name: None,
                     enabled: true,
                 },
@@ -1788,6 +1810,7 @@ mod tests {
                     args: vec![],
                     env: vec![],
                     url: None,
+                    headers: vec![],
                     display_name: None,
                     enabled: true,
                 },
@@ -1795,92 +1818,124 @@ mod tests {
             companion_memory: CompanionMemoryDto::default(),
         };
 
-        let cfg = dto_to_mcp_config(dto);
+        let cfg = dto_to_mcp_config(dto, &McpConfig::default());
         assert_eq!(cfg.servers.len(), 1);
         assert_eq!(cfg.servers[0].id, "keep");
     }
 
     #[test]
-    fn extra_mcp_bindings_maps_command_to_stdio_and_url_to_http() {
+    fn mcp_config_to_dto_redacts_header_values() {
         let cfg = McpConfig {
-            servers: vec![
-                McpServerEntry {
-                    id: "fs".to_string(),
-                    command: Some("npx".to_string()),
-                    args: vec!["-y".to_string()],
-                    env: BTreeMap::from([("K".to_string(), "v".to_string())]),
-                    url: None,
-                    display_name: None,
-                    enabled: true,
-                },
-                McpServerEntry {
-                    id: "remote".to_string(),
-                    command: None,
-                    args: vec![],
-                    env: BTreeMap::new(),
-                    url: Some("https://tools.example.com/mcp".to_string()),
-                    display_name: None,
-                    enabled: true,
-                },
-            ],
+            servers: vec![McpServerEntry {
+                id: "workiq".to_string(),
+                url: Some("https://workiq.example.com/mcp".to_string()),
+                headers: BTreeMap::from([(
+                    "Authorization".to_string(),
+                    "Bearer super-secret".to_string(),
+                )]),
+                ..Default::default()
+            }],
             companion_memory: CompanionMemoryConfig::default(),
         };
 
-        let bindings = extra_mcp_bindings(&cfg);
-        assert_eq!(bindings.len(), 2);
-        match &bindings[0] {
-            McpBinding::Stdio {
-                name,
-                command,
-                args,
-                env,
-                ..
-            } => {
-                assert_eq!(name, "fs");
-                assert_eq!(command, "npx");
-                assert_eq!(args, &["-y".to_string()]);
-                assert_eq!(env, &[("K".to_string(), "v".to_string())]);
-            }
-            other => panic!("expected stdio, got {other:?}"),
-        }
-        match &bindings[1] {
-            McpBinding::Http { name, url, .. } => {
-                assert_eq!(name, "remote");
-                assert_eq!(url, "https://tools.example.com/mcp");
-            }
-            other => panic!("expected http, got {other:?}"),
-        }
+        let dto = mcp_config_to_dto(&cfg);
+        let headers = &dto.servers[0].headers;
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0].name, "Authorization");
+        assert_eq!(headers[0].value, None);
+        assert!(headers[0].has_value);
+
+        // Non-leakage: the serialized wire payload never carries the value.
+        let json = serde_json::to_string(&dto).unwrap();
+        assert!(
+            !json.contains("super-secret"),
+            "header value leaked: {json}"
+        );
     }
 
     #[test]
-    fn extra_mcp_bindings_skips_disabled_and_transportless_servers() {
-        let cfg = McpConfig {
-            servers: vec![
-                McpServerEntry {
-                    id: "disabled".to_string(),
-                    command: Some("npx".to_string()),
-                    enabled: false,
-                    ..Default::default()
-                },
-                McpServerEntry {
-                    id: "no-transport".to_string(),
-                    command: None,
-                    url: None,
-                    enabled: true,
-                    ..Default::default()
-                },
-                McpServerEntry {
-                    id: "blank-url".to_string(),
-                    command: Some("  ".to_string()),
-                    url: Some("   ".to_string()),
-                    enabled: true,
-                    ..Default::default()
-                },
-            ],
+    fn dto_to_mcp_config_merge_preserves_redacted_header_values() {
+        let previous = McpConfig {
+            servers: vec![McpServerEntry {
+                id: "workiq".to_string(),
+                url: Some("https://workiq.example.com/mcp".to_string()),
+                headers: BTreeMap::from([(
+                    "Authorization".to_string(),
+                    "Bearer stored".to_string(),
+                )]),
+                ..Default::default()
+            }],
             companion_memory: CompanionMemoryConfig::default(),
         };
 
-        assert!(extra_mcp_bindings(&cfg).is_empty());
+        // A UI save round-trips the redacted view (value: None) untouched and
+        // adds a new header with an explicit value.
+        let mut dto = mcp_config_to_dto(&previous);
+        dto.servers[0].headers.push(McpHeaderDto {
+            name: "X-New".to_string(),
+            value: Some("fresh".to_string()),
+            has_value: false,
+        });
+
+        let merged = dto_to_mcp_config(dto, &previous);
+        let headers = &merged.servers[0].headers;
+        // The redacted Authorization value is preserved from the stored config,
+        // not wiped by the save.
+        assert_eq!(headers["Authorization"], "Bearer stored");
+        assert_eq!(headers["X-New"], "fresh");
+    }
+
+    #[test]
+    fn dto_to_mcp_config_overwrites_a_header_when_a_value_is_supplied() {
+        let previous = McpConfig {
+            servers: vec![McpServerEntry {
+                id: "workiq".to_string(),
+                url: Some("https://workiq.example.com/mcp".to_string()),
+                headers: BTreeMap::from([("Authorization".to_string(), "Bearer old".to_string())]),
+                ..Default::default()
+            }],
+            companion_memory: CompanionMemoryConfig::default(),
+        };
+
+        let mut dto = mcp_config_to_dto(&previous);
+        dto.servers[0].headers[0].value = Some("Bearer new".to_string());
+
+        let merged = dto_to_mcp_config(dto, &previous);
+        assert_eq!(merged.servers[0].headers["Authorization"], "Bearer new");
+    }
+
+    #[test]
+    fn dto_to_mcp_config_drops_headers_with_no_value_anywhere() {
+        let dto = McpConfigDto {
+            servers: vec![McpServerDto {
+                id: "workiq".to_string(),
+                command: None,
+                args: vec![],
+                env: vec![],
+                url: Some("https://workiq.example.com/mcp".to_string()),
+                headers: vec![
+                    // A draft row the user never filled in: no inbound value and
+                    // nothing stored to preserve.
+                    McpHeaderDto {
+                        name: "Authorization".to_string(),
+                        value: None,
+                        has_value: false,
+                    },
+                    // Blank names are skipped outright.
+                    McpHeaderDto {
+                        name: "   ".to_string(),
+                        value: Some("x".to_string()),
+                        has_value: false,
+                    },
+                ],
+                display_name: None,
+                enabled: true,
+            }],
+            companion_memory: CompanionMemoryDto::default(),
+        };
+
+        let merged = dto_to_mcp_config(dto, &McpConfig::default());
+        assert!(merged.servers[0].headers.is_empty());
     }
 
     #[test]
@@ -1895,7 +1950,7 @@ mod tests {
             },
         };
 
-        let cfg = dto_to_mcp_config(dto.clone());
+        let cfg = dto_to_mcp_config(dto.clone(), &McpConfig::default());
         assert!(cfg.companion_memory.enabled);
         assert_eq!(
             cfg.companion_memory.server_id.as_deref(),

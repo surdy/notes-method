@@ -231,12 +231,21 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
             post(agent_create_daily),
         )
         .route(
+            "/api/v/{vault}/agent-prompts/{name}",
+            get(crate::routes::agent_prompts::render_agent_prompt),
+        )
+        .route(
             "/api/v/{vault}/periodic/{kind}/current",
             get(get_current_periodic_note),
         )
         .route(
             "/api/v/{vault}/periodic/{kind}/list",
             get(list_periodic_notes),
+        )
+        .route("/api/v/{vault}/jobs", get(crate::routes::jobs::list_jobs))
+        .route(
+            "/api/v/{vault}/jobs/{name}/run",
+            post(crate::routes::jobs::run_job),
         )
         .route("/api/v/{vault}/events", get(vault_events))
         .route(
@@ -598,6 +607,7 @@ pub async fn serve_configured_vaults(
     }
     let _config_watcher = watch_global_config(state.clone(), vault_watchers).await?;
     let _schedulers = crate::scheduler::start_daily_schedulers(state.clone()).await;
+    let _job_runners = crate::jobs::start_job_runners(state.clone(), bind).await;
     let _embed_schedulers = crate::embed_scheduler::start_embed_workers(state.clone()).await;
     let _ingest_schedulers = crate::ingest_scheduler::start_ingest_workers(state.clone()).await;
     let _transcribe_schedulers =
@@ -848,6 +858,13 @@ pub fn data_dir() -> anyhow::Result<PathBuf> {
         .or_else(dirs::data_local_dir)
         .context("could not determine data directory")?;
     Ok(data_root.join("notesmith"))
+}
+
+/// Durable per-vault data dir under [`data_dir`] (alongside `embeddings.db`),
+/// used for job-run state and connector state (issue #280, ADR 0025). Created
+/// on demand by callers.
+pub fn vault_data_dir(vault_name: &str) -> anyhow::Result<PathBuf> {
+    Ok(data_dir()?.join(sanitize_vault_name(vault_name)))
 }
 
 /// Path to the single daemon-owned transcript database. Per ADR 0012 Decision

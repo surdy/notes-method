@@ -38,6 +38,10 @@ pub enum AiCommand {
     Summarize(SummarizeArgs),
     /// Produce a digest from the current week's notes.
     WeeklyDigest(WeeklyDigestArgs),
+    /// Run a named vault prompt (`.notesmith/prompts/<name>.md`) headlessly.
+    /// The daemon renders the prompt (executing its `context_queries`); the
+    /// agent is driven with the result. Agent-kind `[[jobs]]` run this.
+    Prompt(PromptArgs),
 }
 
 /// Options shared by every `notes ai` command for selecting and scoping the
@@ -69,6 +73,20 @@ pub struct SummarizeArgs {
 /// Arguments for `notes ai weekly-digest`.
 #[derive(Debug, Args)]
 pub struct WeeklyDigestArgs {
+    #[command(flatten)]
+    pub agent: AgentOpts,
+}
+
+/// Arguments for `notes ai prompt`.
+#[derive(Debug, Args)]
+pub struct PromptArgs {
+    /// Prompt name — a file stem under the vault's `.notesmith/prompts/`
+    /// (e.g. `daily-note` for `.notesmith/prompts/daily-note.md`).
+    pub name: String,
+    /// Target date (`YYYY-MM-DD`) substituted for `{{ today }}` in the
+    /// template. Defaults to today.
+    #[arg(long)]
+    pub date: Option<String>,
     #[command(flatten)]
     pub agent: AgentOpts,
 }
@@ -142,7 +160,75 @@ impl AiCommand {
                         .await?;
                 emit(&output, "digest", format)
             }
+            AiCommand::Prompt(args) => {
+                let prompt = fetch_rendered_prompt(
+                    global_config,
+                    explicit_vault,
+                    cwd,
+                    &args.name,
+                    args.date.as_deref(),
+                )
+                .await?;
+                let output =
+                    drive_agent_turn(global_config, explicit_vault, cwd, &args.agent, &prompt)
+                        .await?;
+                emit(&output, "output", format)
+            }
         }
+    }
+}
+
+/// Fetch the daemon-rendered prompt for `name` (the daemon executes the
+/// template's `context_queries` against the vault index). Any failure —
+/// unknown prompt, bad SQL, unreachable daemon — is an error, so a job
+/// running this command records a failed run rather than driving the agent
+/// with a half-rendered instruction.
+async fn fetch_rendered_prompt(
+    global_config: &GlobalConfig,
+    explicit_vault: Option<&str>,
+    cwd: &Path,
+    name: &str,
+    date: Option<&str>,
+) -> anyhow::Result<String> {
+    crate::daemon_client::ensure_daemon(global_config).await?;
+    let detected = detect_vault(cwd, explicit_vault, global_config)?;
+
+    let mut url = crate::daemon_client::daemon_url(global_config)?;
+    url.path_segments_mut()
+        .map_err(|_| anyhow::anyhow!("daemon URL cannot be a base"))?
+        .push("api")
+        .push("v")
+        .push(&detected.name)
+        .push("agent-prompts")
+        .push(name);
+    if let Some(date) = date {
+        url.query_pairs_mut().append_pair("date", date);
+    }
+
+    let response = reqwest::Client::new()
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| {
+            if error.is_connect() {
+                anyhow::anyhow!(
+                    "could not reach the Notesmith daemon at {}",
+                    global_config.daemon.bind
+                )
+            } else {
+                anyhow::anyhow!("prompt render request failed: {error}")
+            }
+        })?;
+
+    let status = response.status();
+    let body: serde_json::Value = response.json().await.unwrap_or(serde_json::Value::Null);
+    if !status.is_success() {
+        let reason = body["error"].as_str().unwrap_or("unknown error");
+        anyhow::bail!("could not render prompt {name:?}: {reason}");
+    }
+    match body["prompt"].as_str() {
+        Some(prompt) if !prompt.trim().is_empty() => Ok(prompt.to_string()),
+        _ => anyhow::bail!("prompt {name:?} rendered empty; refusing to drive the agent with it"),
     }
 }
 
@@ -209,6 +295,12 @@ async fn drive_agent_turn(
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "notesmith".to_string());
     let binding = McpBinding::local_bridge(notesmith_bin, &detected.name, read_only);
+    // Enabled external `[[mcp.servers]]` from the global config ride alongside
+    // the vault bridge, as in the desktop app (#283). The vault read-only flag
+    // is deliberately not applied to them: it governs vault writes, while an
+    // external server is a third-party endpoint whose own credentials/scopes
+    // decide what the agent may do there. Companion memory stays desktop-only.
+    let extra = notesmith_agent::extra_mcp_bindings(&global_config.mcp);
     let decider: Arc<dyn PermissionDecider> = Arc::new(HeadlessDecider {
         allow_writes: opts.allow_writes,
     });
@@ -217,6 +309,7 @@ async fn drive_agent_turn(
         .session(opts.agent_bin.as_deref())
         .in_dir(Some(detected.root.clone()))
         .with_mcp(binding)
+        .with_extra_mcp(extra)
         .read_only(read_only)
         .with_permission_decider(decider);
 
@@ -301,6 +394,43 @@ mod tests {
     fn parses_weekly_digest() {
         let command = parse(&["notes-ai", "weekly-digest"]);
         assert!(matches!(command, AiCommand::WeeklyDigest(_)));
+    }
+
+    #[test]
+    fn parses_prompt_with_defaults() {
+        let command = parse(&["notes-ai", "prompt", "daily-note"]);
+        match command {
+            AiCommand::Prompt(args) => {
+                assert_eq!(args.name, "daily-note");
+                assert_eq!(args.date, None);
+                assert_eq!(args.agent.agent, "copilot");
+                assert!(!args.agent.allow_writes);
+            }
+            other => panic!("expected prompt, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_prompt_with_date_agent_and_writes() {
+        let command = parse(&[
+            "notes-ai",
+            "prompt",
+            "weekly-review",
+            "--date",
+            "2026-08-05",
+            "--agent",
+            "claude",
+            "--allow-writes",
+        ]);
+        match command {
+            AiCommand::Prompt(args) => {
+                assert_eq!(args.name, "weekly-review");
+                assert_eq!(args.date.as_deref(), Some("2026-08-05"));
+                assert_eq!(args.agent.agent, "claude");
+                assert!(args.agent.allow_writes);
+            }
+            other => panic!("expected prompt, got {other:?}"),
+        }
     }
 
     #[test]

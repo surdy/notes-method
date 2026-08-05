@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+# Standalone package: the repo workspace excludes this crate, and the empty
+# table stops cargo from walking up to (and rejecting) an enclosing manifest
+# when the checkout is nested (e.g. a git worktree inside the repo).
+[workspace]
+
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "macos-private-api", "image-png"] }
 tauri-plugin-deep-link = "2"

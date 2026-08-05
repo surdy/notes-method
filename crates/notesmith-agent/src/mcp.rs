@@ -23,7 +23,10 @@
 
 use std::path::PathBuf;
 
-use agent_client_protocol::schema::{EnvVariable, McpServer, McpServerHttp, McpServerStdio};
+use agent_client_protocol::schema::{
+    EnvVariable, HttpHeader, McpServer, McpServerHttp, McpServerStdio,
+};
+use notesmith_config::{McpConfig, expand_path_vars};
 
 /// Server name surfaced to the agent for the vault's MCP server.
 pub const MCP_SERVER_NAME: &str = "notesmith";
@@ -102,20 +105,43 @@ pub enum McpBinding {
         name: String,
         /// Streamable HTTP MCP endpoint URL (already scope-resolved).
         url: String,
+        /// HTTP headers the agent sends with every request to the endpoint
+        /// (e.g. an `Authorization` bearer credential for an auth-protected
+        /// remote MCP server). Empty for the built-in daemon endpoints;
+        /// populated for external servers. Values must already be fully
+        /// resolved (any `$VAR` expansion happens before the binding is built).
+        headers: Vec<(String, String)>,
         /// Whether the endpoint targets the read-only scope.
         read_only: bool,
     },
 }
 
 impl McpBinding {
-    /// Build an HTTP(S) binding for `name` at `url`. The read-only scope
-    /// is derived from the endpoint path: `/mcp-ro/` denotes read-only.
+    /// Build an HTTP(S) binding for `name` at `url` with no request headers.
+    /// The read-only scope is derived from the endpoint path: `/mcp-ro/`
+    /// denotes read-only. Use
+    /// [`http_with_headers`](Self::http_with_headers) for an external server
+    /// that needs auth (or other) headers on every request.
     pub fn http(name: impl Into<String>, url: impl Into<String>) -> Self {
+        Self::http_with_headers(name, url, Vec::new())
+    }
+
+    /// Build an HTTP(S) binding with explicit request headers, for an external
+    /// MCP server that requires credentials (e.g. an `Authorization` bearer
+    /// token for an Entra-protected remote server). Header values must already
+    /// be fully resolved — `$VAR` expansion happens at binding-build time,
+    /// before this constructor is called.
+    pub fn http_with_headers(
+        name: impl Into<String>,
+        url: impl Into<String>,
+        headers: Vec<(String, String)>,
+    ) -> Self {
         let url = url.into();
         let read_only = url.contains("/mcp-ro/");
         Self::Http {
             name: name.into(),
             url,
+            headers,
             read_only,
         }
     }
@@ -202,17 +228,84 @@ impl McpBinding {
                         .env(env_vars),
                 )
             }
-            Self::Http { name, url, .. } => {
-                McpServer::Http(McpServerHttp::new(name.clone(), url.clone()))
+            Self::Http {
+                name, url, headers, ..
+            } => {
+                let http_headers: Vec<HttpHeader> = headers
+                    .iter()
+                    .map(|(header_name, value)| HttpHeader::new(header_name.clone(), value.clone()))
+                    .collect();
+                McpServer::Http(McpServerHttp::new(name.clone(), url.clone()).headers(http_headers))
             }
         }
     }
 }
 
+/// Convert the enabled external `[[mcp.servers]]` entries of the global
+/// `[mcp]` config into [`McpBinding`]s for an agent session (ADR 0016 / #211,
+/// hoisted from the Tauri bridge for the headless CLI in #283). A server with a
+/// non-empty `command` becomes a stdio binding (env + tilde/`$VAR` expansion
+/// applied); otherwise a non-empty `url` becomes an HTTP binding whose header
+/// *values* also go through `$VAR` expansion, so config can hold
+/// `"Bearer $WORKIQ_TOKEN"` and the secret stays in the environment. Disabled
+/// servers and servers with neither a command nor a url are skipped (ADR 0009:
+/// malformed config never panics).
+pub fn extra_mcp_bindings(cfg: &McpConfig) -> Vec<McpBinding> {
+    let mut bindings = Vec::new();
+    for server in &cfg.servers {
+        if !server.enabled {
+            continue;
+        }
+        let name = server.id.clone();
+        match server.command.as_deref().filter(|c| !c.trim().is_empty()) {
+            Some(command) => {
+                let args = server.args.iter().map(|a| expand_path_vars(a)).collect();
+                let env = server
+                    .env
+                    .iter()
+                    .map(|(key, value)| (key.clone(), expand_path_vars(value)))
+                    .collect();
+                bindings.push(McpBinding::stdio_with_env(
+                    name,
+                    expand_path_vars(command),
+                    args,
+                    env,
+                    false,
+                ));
+            }
+            None => {
+                if let Some(url) = server.url.as_deref().filter(|u| !u.trim().is_empty()) {
+                    let headers = server
+                        .headers
+                        .iter()
+                        .map(|(header, value)| (header.clone(), expand_path_vars(value)))
+                        .collect();
+                    bindings.push(McpBinding::http_with_headers(
+                        name,
+                        url.to_string(),
+                        headers,
+                    ));
+                }
+            }
+        }
+    }
+    bindings
+}
+
+/// Read the `[mcp]` section of the global config, degrading to the default
+/// (empty) config when the file is absent or unreadable (ADR 0009).
+pub fn load_mcp_config() -> McpConfig {
+    notesmith_config::GlobalConfig::load()
+        .map(|config| config.mcp)
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use notesmith_config::McpServerEntry;
     use serde_json::json;
+    use std::collections::BTreeMap;
 
     #[test]
     fn http_binding_derives_read_only_from_the_endpoint_path() {
@@ -298,6 +391,170 @@ mod tests {
             server_name_for_namespaced_vault("other", " / "),
             "notesmith-other"
         );
+    }
+
+    #[test]
+    fn http_binding_serializes_with_no_headers_by_default() {
+        let server = McpBinding::http("notesmith", "https://h/mcp/work").to_mcp_server();
+        let value = serde_json::to_value(server).unwrap();
+        assert_eq!(value["headers"], json!([]));
+    }
+
+    #[test]
+    fn http_with_headers_serializes_http_headers() {
+        let binding = McpBinding::http_with_headers(
+            "workiq",
+            "https://workiq.example.com/mcp",
+            vec![
+                ("Authorization".to_string(), "Bearer tok".to_string()),
+                ("X-Client".to_string(), "notesmith".to_string()),
+            ],
+        );
+        assert!(!binding.read_only());
+        let value = serde_json::to_value(binding.to_mcp_server()).unwrap();
+        assert_eq!(value["type"], json!("http"));
+        assert_eq!(value["url"], json!("https://workiq.example.com/mcp"));
+        let headers = value["headers"].as_array().unwrap();
+        assert_eq!(headers.len(), 2);
+        assert_eq!(headers[0]["name"], json!("Authorization"));
+        assert_eq!(headers[0]["value"], json!("Bearer tok"));
+        assert_eq!(headers[1]["name"], json!("X-Client"));
+        assert_eq!(headers[1]["value"], json!("notesmith"));
+    }
+
+    #[test]
+    fn extra_mcp_bindings_maps_command_to_stdio_and_url_to_http() {
+        let cfg = McpConfig {
+            servers: vec![
+                McpServerEntry {
+                    id: "fs".to_string(),
+                    command: Some("npx".to_string()),
+                    args: vec!["-y".to_string()],
+                    env: BTreeMap::from([("K".to_string(), "v".to_string())]),
+                    ..Default::default()
+                },
+                McpServerEntry {
+                    id: "remote".to_string(),
+                    url: Some("https://tools.example.com/mcp".to_string()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        let bindings = extra_mcp_bindings(&cfg);
+        assert_eq!(bindings.len(), 2);
+        match &bindings[0] {
+            McpBinding::Stdio {
+                name,
+                command,
+                args,
+                env,
+                ..
+            } => {
+                assert_eq!(name, "fs");
+                assert_eq!(command, "npx");
+                assert_eq!(args, &["-y".to_string()]);
+                assert_eq!(env, &[("K".to_string(), "v".to_string())]);
+            }
+            other => panic!("expected stdio, got {other:?}"),
+        }
+        match &bindings[1] {
+            McpBinding::Http {
+                name, url, headers, ..
+            } => {
+                assert_eq!(name, "remote");
+                assert_eq!(url, "https://tools.example.com/mcp");
+                assert!(headers.is_empty());
+            }
+            other => panic!("expected http, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn extra_mcp_bindings_skips_disabled_and_transportless_servers() {
+        let cfg = McpConfig {
+            servers: vec![
+                McpServerEntry {
+                    id: "disabled".to_string(),
+                    command: Some("npx".to_string()),
+                    enabled: false,
+                    ..Default::default()
+                },
+                McpServerEntry {
+                    id: "no-transport".to_string(),
+                    command: None,
+                    url: None,
+                    ..Default::default()
+                },
+                McpServerEntry {
+                    id: "blank-url".to_string(),
+                    command: Some("  ".to_string()),
+                    url: Some("   ".to_string()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        assert!(extra_mcp_bindings(&cfg).is_empty());
+    }
+
+    #[test]
+    fn extra_mcp_bindings_expands_header_values_from_the_environment() {
+        // SAFETY: a uniquely-named variable avoids collisions with parallel tests.
+        let var = "NOTESMITH_TEST_MCP_HEADER_TOKEN";
+        unsafe {
+            std::env::set_var(var, "tok-123");
+        }
+        let cfg = McpConfig {
+            servers: vec![McpServerEntry {
+                id: "workiq".to_string(),
+                url: Some("https://workiq.example.com/mcp".to_string()),
+                headers: BTreeMap::from([
+                    ("Authorization".to_string(), format!("Bearer ${var}")),
+                    ("X-Static".to_string(), "plain".to_string()),
+                ]),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let bindings = extra_mcp_bindings(&cfg);
+        unsafe {
+            std::env::remove_var(var);
+        }
+        assert_eq!(bindings.len(), 1);
+        match &bindings[0] {
+            McpBinding::Http { headers, .. } => {
+                // Header *values* are expanded against the environment at
+                // binding-build time; names pass through verbatim.
+                assert_eq!(
+                    headers,
+                    &[
+                        ("Authorization".to_string(), "Bearer tok-123".to_string()),
+                        ("X-Static".to_string(), "plain".to_string()),
+                    ]
+                );
+            }
+            other => panic!("expected http, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn extra_mcp_bindings_ignores_headers_on_a_stdio_server() {
+        let cfg = McpConfig {
+            servers: vec![McpServerEntry {
+                id: "fs".to_string(),
+                command: Some("npx".to_string()),
+                headers: BTreeMap::from([("Authorization".to_string(), "Bearer x".to_string())]),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let bindings = extra_mcp_bindings(&cfg);
+        assert!(matches!(&bindings[0], McpBinding::Stdio { .. }));
     }
 
     #[test]

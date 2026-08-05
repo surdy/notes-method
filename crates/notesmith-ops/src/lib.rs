@@ -14,8 +14,10 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use chrono::{Local, NaiveDate, NaiveDateTime};
-use notesmith_config::VaultConfig;
-use notesmith_core::{Note, NotesmithError, VaultEngine, VaultName, VaultPath, WriteResult};
+use notesmith_config::{PeriodicConfig, VaultConfig};
+use notesmith_core::{
+    Note, NotesmithError, PeriodKind, VaultEngine, VaultName, VaultPath, WriteResult,
+};
 use notesmith_index::{SearchIndex, VaultCache};
 use notesmith_query::execute_sql;
 use notesmith_routing::RoutingEngine;
@@ -34,6 +36,7 @@ use uuid::Uuid;
 pub mod document;
 pub mod hybrid;
 pub mod memory;
+pub mod periodic;
 pub mod related;
 pub mod time_query;
 pub mod youtube;
@@ -631,6 +634,12 @@ impl LocalOps {
             preview_signing_key,
             hybrid: std::sync::OnceLock::new(),
         }
+    }
+
+    /// The periodic config governing daily notes (issue #279): delegates to
+    /// the shared fallback rule on `VaultConfig`.
+    fn daily_periodic_config(&self) -> PeriodicConfig {
+        self.vault_config.effective_daily_periodic()
     }
 
     /// Rank notes related to `path` by blending embedding similarity with
@@ -2208,7 +2217,21 @@ impl Ops for LocalOps {
         }
 
         if let Some(date) = uri.strip_prefix("note:///daily/") {
-            let path = format!("{}/{}.md", self.vault_config.daily.folder, date);
+            // Resolve through the shared periodic path (issue #279) so the
+            // resource reads the same file `create_daily_note` writes. Keep
+            // the legacy folder/date fallback for unparseable dates.
+            let path = match NaiveDate::parse_from_str(date, "%Y-%m-%d") {
+                Ok(parsed) => {
+                    periodic::resolve_periodic_note(
+                        &self.daily_periodic_config(),
+                        PeriodKind::Daily,
+                        parsed,
+                        &self.template_engine,
+                    )?
+                    .path
+                }
+                Err(_) => format!("{}/{}.md", self.vault_config.daily.folder, date),
+            };
             return Ok(self.engine.read(&self.vault_root, &VaultPath::new(path))?);
         }
 
@@ -2334,37 +2357,31 @@ impl Ops for LocalOps {
                 .with_context(|| format!("invalid date: {date}"))?,
             None => Local::now().date_naive(),
         };
-        let date_str = parsed_date.format("%Y-%m-%d").to_string();
-        let note_path = VaultPath::new(format!(
-            "{}/{}.md",
-            self.vault_config.daily.folder, date_str
-        ));
-
-        match self.engine.read(&self.vault_root, &note_path) {
-            Ok(_) => {
-                return Ok(json!({
-                    "path": note_path.as_str(),
-                    "created": false,
-                }));
-            }
-            Err(NotesmithError::NoteNotFound { .. }) => {}
-            Err(error) => return Err(error.into()),
-        }
-
-        let mut prompts = HashMap::new();
-        prompts.insert("today".to_string(), date_str);
-        let rendered = self.template_engine.instantiate(
-            &self.vault_config.daily.template,
-            &prompts,
+        // Resolve and create through the shared periodic path (issue #279) so
+        // this entry point lands on the identical path the scheduler and the
+        // HTTP daily routes resolve, including custom filename patterns.
+        let result = periodic::ensure_periodic_note(
+            &self.vault_root,
+            &self.daily_periodic_config(),
+            PeriodKind::Daily,
+            parsed_date,
+            &self.template_engine,
             self.engine.as_ref(),
         )?;
-        let rendered_path = VaultPath::new(rendered.path.clone());
-        self.refresh_indexes(&rendered_path)?;
 
-        Ok(json!({
-            "path": rendered.path,
-            "created": true,
-        }))
+        match result.created_path {
+            Some(path) => {
+                self.refresh_indexes(&VaultPath::new(path.clone()))?;
+                Ok(json!({
+                    "path": path,
+                    "created": true,
+                }))
+            }
+            None => Ok(json!({
+                "path": result.note.path,
+                "created": false,
+            })),
+        }
     }
 
     fn create_from_template(
@@ -3563,6 +3580,140 @@ mod tests {
 
     fn build_test_ops_with_clock(root: &Path, clock: &TestClock) -> LocalOps {
         build_test_ops_with_timestamp_provider(root, clock.provider())
+    }
+
+    fn build_test_ops_with_vault_config(root: &Path, config: VaultConfig) -> LocalOps {
+        let engine: Arc<dyn VaultEngine> = Arc::new(NativeVaultEngine);
+        let notes = engine.scan(root).unwrap();
+        let cache = VaultCache::open_in_memory().unwrap();
+        cache
+            .reindex_with_periodic("test-vault", &notes, &config.periodic)
+            .unwrap();
+        let search_index = SearchIndex::open_in_memory().unwrap();
+        search_index.reindex("test-vault", &notes).unwrap();
+        LocalOps::new_with_engine_and_timestamp_provider(
+            "test-vault".to_string(),
+            root.to_path_buf(),
+            engine,
+            cache,
+            search_index,
+            config,
+            Arc::new(now_timestamp_string),
+            LocalOps::new_preview_signing_key(),
+        )
+    }
+
+    /// A daily template whose own `output_path` points somewhere other than
+    /// the configured daily folder, to prove the periodic config (not the
+    /// template) decides where the note lands.
+    fn write_daily_template(root: &Path) {
+        let dir = root.join(".notesmith").join("templates");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("daily-note.md"),
+            "---\nnotesmith:\n  name: daily-note\n  description: Daily note\n  output_path: \"Elsewhere/{{ today }}.md\"\n---\n# {{ today }} ({{ day_name }})\n",
+        )
+        .unwrap();
+    }
+
+    fn vault_config_with_periodic_daily(filename: &str) -> VaultConfig {
+        let mut config = vault_config();
+        config.periodic.daily = Some(notesmith_config::PeriodKindConfig {
+            folder: "Daily".to_string(),
+            template: Some("daily-note".to_string()),
+            filename: filename.to_string(),
+            generate_at: None,
+            timezone: None,
+            catch_up: false,
+        });
+        config
+    }
+
+    /// Regression test for issue #279: the MCP-facing `create_daily_note`
+    /// must resolve the same path the scheduler/HTTP daily routes resolve,
+    /// including a custom `[periodic.daily] filename` pattern, and the
+    /// template's own `output_path` must not reroute the note.
+    #[test]
+    fn create_daily_note_respects_custom_periodic_filename() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        write_daily_template(root);
+        let ops = build_test_ops_with_vault_config(
+            root,
+            vault_config_with_periodic_daily("Journal {{ date }}"),
+        );
+
+        let result = ops.create_daily_note(Some("2026-03-05")).unwrap();
+
+        assert_eq!(result["path"], "Daily/Journal 2026-03-05.md");
+        assert_eq!(result["created"], true);
+        assert!(root.join("Daily/Journal 2026-03-05.md").exists());
+        // The template's own output_path must not decide where the note lands.
+        assert!(!root.join("Elsewhere/2026-03-05.md").exists());
+
+        let content = std::fs::read_to_string(root.join("Daily/Journal 2026-03-05.md")).unwrap();
+        assert!(
+            content.contains("# 2026-03-05 (Thursday)"),
+            "expected full periodic context in template render, got:\n{content}"
+        );
+    }
+
+    /// Issue #279: the exists/created flag must be consistent with the
+    /// resolved path — a second call for the same date reports the note as
+    /// already existing at that exact path.
+    #[test]
+    fn create_daily_note_created_flag_tracks_resolved_path() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        write_daily_template(root);
+        let ops = build_test_ops_with_vault_config(
+            root,
+            vault_config_with_periodic_daily("Journal {{ date }}"),
+        );
+
+        let first = ops.create_daily_note(Some("2026-03-05")).unwrap();
+        assert_eq!(first["created"], true);
+
+        let second = ops.create_daily_note(Some("2026-03-05")).unwrap();
+        assert_eq!(second["created"], false);
+        assert_eq!(second["path"], first["path"]);
+    }
+
+    /// Vault configs without a `[periodic.daily]` section fall back to the
+    /// legacy `[daily]` table (same compat rule the config loader applies).
+    #[test]
+    fn create_daily_note_falls_back_to_daily_config_when_periodic_missing() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        write_daily_template(root);
+        let mut config = vault_config();
+        config.daily.folder = "Daily".to_string();
+        assert!(config.periodic.daily.is_none());
+        let ops = build_test_ops_with_vault_config(root, config);
+
+        let result = ops.create_daily_note(Some("2026-03-05")).unwrap();
+
+        assert_eq!(result["path"], "Daily/2026-03-05.md");
+        assert_eq!(result["created"], true);
+        assert!(root.join("Daily/2026-03-05.md").exists());
+    }
+
+    /// The `note:///daily/{date}` resource must read the same path
+    /// `create_daily_note` writes, including a custom filename pattern.
+    #[test]
+    fn read_resource_daily_uses_periodic_filename() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        write_daily_template(root);
+        let ops = build_test_ops_with_vault_config(
+            root,
+            vault_config_with_periodic_daily("Journal {{ date }}"),
+        );
+
+        ops.create_daily_note(Some("2026-03-05")).unwrap();
+
+        let content = ops.read_resource("note:///daily/2026-03-05").unwrap();
+        assert!(content.contains("# 2026-03-05"));
     }
 
     #[derive(Clone, Default)]

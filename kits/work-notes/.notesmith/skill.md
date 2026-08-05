@@ -43,6 +43,17 @@ General/            — notes with no kind; routing leaves them alone
   deadlines or delegation. Don't copy note metadata onto tasks.
 - Do not create People notes for one-off attendees; link them and move on.
 
+## Managed sections
+
+Some notes contain machine-owned regions delimited by
+`<!-- notesmith:section:begin <id> -->` / `<!-- notesmith:section:end <id> -->`
+(e.g. the daily note's `briefing/*` sections, refreshed by the daily-briefing
+job). When refreshing one, replace only the content between its marker pair —
+keep the markers, and leave every byte outside them untouched. If the pair is
+missing, append the whole marked block at the end of the note; never wrap
+existing human text in new markers. Content between markers is overwritten on
+the next run, so durable human notes belong outside them.
+
 ## Command cheat sheet
 
 ```bash

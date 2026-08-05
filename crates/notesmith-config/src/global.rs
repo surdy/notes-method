@@ -141,6 +141,13 @@ pub struct McpServerEntry {
     /// with `command`.
     #[serde(default)]
     pub url: Option<String>,
+    /// HTTP headers sent with every request to an HTTP server (e.g. an
+    /// `Authorization` bearer credential for an auth-protected remote MCP
+    /// server). Values support `$VAR` / `${VAR}` expansion at binding-build
+    /// time, so secrets can live in the environment (`"Bearer $WORKIQ_TOKEN"`)
+    /// instead of on disk. Ignored for stdio servers (use `env` there).
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
     /// Display name shown in the Settings list (falls back to `id`).
     #[serde(default)]
     pub display_name: Option<String>,
@@ -157,6 +164,7 @@ impl Default for McpServerEntry {
             args: Vec::new(),
             env: BTreeMap::new(),
             url: None,
+            headers: BTreeMap::new(),
             display_name: None,
             enabled: true,
         }
@@ -622,6 +630,64 @@ enabled = false
         config.save_to(&round_trip_path).unwrap();
         let reloaded = GlobalConfig::load_from(&round_trip_path).unwrap();
         assert_eq!(reloaded, config);
+    }
+
+    #[test]
+    fn mcp_server_headers_round_trip_through_disk() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[[mcp.servers]]
+id = "workiq"
+url = "https://workiq.example.com/mcp"
+
+[mcp.servers.headers]
+Authorization = "Bearer $WORKIQ_TOKEN"
+"X-Client" = "notesmith"
+"#,
+        )
+        .unwrap();
+
+        let config = GlobalConfig::load_from(&path).unwrap();
+        let server = &config.mcp.servers[0];
+        // Values are stored verbatim: `$VAR` expansion happens at
+        // binding-build time, never on disk.
+        assert_eq!(server.headers["Authorization"], "Bearer $WORKIQ_TOKEN");
+        assert_eq!(server.headers["X-Client"], "notesmith");
+
+        // Re-serialize and re-load: headers survive intact.
+        let round_trip_path = temp_dir.path().join("round-trip.toml");
+        config.save_to(&round_trip_path).unwrap();
+        let reloaded = GlobalConfig::load_from(&round_trip_path).unwrap();
+        assert_eq!(reloaded, config);
+    }
+
+    #[test]
+    fn mcp_server_headers_default_to_empty_when_omitted() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[[mcp.servers]]
+id = "remote"
+url = "https://tools.example.com/mcp"
+"#,
+        )
+        .unwrap();
+
+        let config = GlobalConfig::load_from(&path).unwrap();
+        assert!(config.mcp.servers[0].headers.is_empty());
+        assert_eq!(
+            config.mcp.servers[0],
+            McpServerEntry {
+                id: "remote".to_string(),
+                url: Some("https://tools.example.com/mcp".to_string()),
+                ..Default::default()
+            }
+        );
     }
 
     #[test]

@@ -3283,6 +3283,7 @@ version = "0.1.0"
 dependencies = [
  "agent-client-protocol",
  "futures",
+ "notesmith-config",
  "serde",
  "serde_json",
  "tempfile",

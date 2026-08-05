@@ -3,6 +3,7 @@
 pub mod detection;
 pub mod error;
 pub mod global;
+pub mod jobs;
 pub mod lockfile;
 pub mod migration;
 pub mod vault;
@@ -16,6 +17,7 @@ pub use global::{
     AgentEntry, AgentsConfig, CompanionMemoryConfig, DaemonConfig, GlobalConfig, McpConfig,
     McpServerEntry, VaultRegistration, expand_path_vars,
 };
+pub use jobs::{JobAgentConfig, JobAgentField, JobConfig};
 pub use lockfile::DaemonLockfile;
 pub use vault::{
     AppearanceConfig, CURRENT_SCHEMA_VERSION, CaptureConfig, ClipConfig, ClipTemplate, DailyConfig,

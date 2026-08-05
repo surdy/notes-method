@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod agent_prompts;
 pub mod capabilities;
 pub mod capture;
 pub mod clip;
@@ -10,6 +11,7 @@ pub mod events;
 pub mod fields;
 pub mod git;
 pub mod helpers;
+pub mod jobs;
 pub mod kits;
 pub mod notes;
 pub mod periodic;

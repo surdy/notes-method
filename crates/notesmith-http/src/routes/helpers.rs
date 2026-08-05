@@ -41,6 +41,22 @@ pub(crate) fn query_error(error: QueryError) -> (StatusCode, Json<Value>) {
     (status, Json(json!({ "error": error.to_string() })))
 }
 
+/// Map a prompt-template render failure to an HTTP response: missing
+/// template 404, bad context SQL as per [`query_error`], anything else 500.
+pub(crate) fn render_prompt_error(
+    error: crate::prompt_render::RenderError,
+) -> (StatusCode, Json<Value>) {
+    use crate::prompt_render::RenderError;
+    match error {
+        RenderError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": error.to_string() })),
+        ),
+        RenderError::Query(query) => query_error(query),
+        RenderError::Io { .. } | RenderError::Parse(_) => internal_error(error),
+    }
+}
+
 pub(crate) fn note_error(error: NotesmithError) -> (StatusCode, Json<Value>) {
     let status = match error {
         NotesmithError::NoteNotFound { .. } => StatusCode::NOT_FOUND,

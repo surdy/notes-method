@@ -107,6 +107,8 @@ TOKEN = "secret"
 id = "remote-tools"
 url = "https://tools.example.com/mcp"
 enabled = false
+[mcp.servers.headers]
+Authorization = "Bearer $REMOTE_TOOLS_TOKEN"
 
 [mcp.companion_memory]                 # optional embedded-chat memory vault
 enabled = true
@@ -122,6 +124,10 @@ read_only = true
 - `mcp.servers[].args` — arguments passed to `command`
 - `mcp.servers[].env` — extra environment variables for a stdio server
 - `mcp.servers[].url` — endpoint for an **HTTP(S)** server
+- `mcp.servers[].headers` — request headers the agent sends to an HTTP(S)
+  server (e.g. an `Authorization` bearer credential); values support
+  `$VAR`/`${VAR}` expansion at session start so secrets can stay in the
+  environment. Ignored for stdio servers
 - `mcp.servers[].display_name` — label shown in Settings (defaults to the id)
 - `mcp.servers[].enabled` — set `false` to keep an entry configured but hide it
   from agent sessions (default `true`)

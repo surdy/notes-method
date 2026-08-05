@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { createAgentClient } from '$lib/agent/agent-client';
-	import type { CompanionMemoryData, McpConfigData, McpServerData } from '$lib/agent/types';
+	import type {
+		CompanionMemoryData,
+		McpConfigData,
+		McpHeaderData,
+		McpServerData
+	} from '$lib/agent/types';
 	import {
 		createConnectionClient,
 		type ConnectionCachedVaults,
@@ -153,6 +158,23 @@
 		server.env = server.env.filter((_, i) => i !== index);
 	}
 
+	/**
+	 * Headers of an HTTP server, tolerating payloads that predate the field.
+	 * Stored values are redacted by the backend (`value: null`, `hasValue`
+	 * true); leaving the value blank on save keeps the stored value.
+	 */
+	function headerRows(server: McpServerData): McpHeaderData[] {
+		return server.headers ?? [];
+	}
+
+	function addHeaderRow(server: McpServerData) {
+		server.headers = [...headerRows(server), { name: '', value: '', hasValue: false }];
+	}
+
+	function removeHeaderRow(server: McpServerData, index: number) {
+		server.headers = headerRows(server).filter((_, i) => i !== index);
+	}
+
 	async function toggleEnabled(server: McpServerData, value: boolean) {
 		server.enabled = value;
 		await saveConfig();
@@ -191,6 +213,7 @@
 			args: draftTransport === 'command' ? splitArgs(draftArgs) : [],
 			env: [],
 			url: url || null,
+			headers: [],
 			displayName: draftDisplayName.trim() || null,
 			enabled: true
 		};
@@ -401,6 +424,46 @@
 							oninput={(e) => (server.displayName = e.currentTarget.value || null)}
 						/>
 					</label>
+					{#if !isStdio(server)}
+						<div class="env-block">
+							<span class="field-label">Headers</span>
+							{#each headerRows(server) as header, hi}
+								<div class="env-row">
+									<input
+										type="text"
+										class="env-key"
+										placeholder="Header"
+										value={header.name}
+										oninput={(e) => (header.name = e.currentTarget.value)}
+									/>
+									<input
+										type="text"
+										class="env-val"
+										placeholder={header.hasValue && !header.value
+											? 'value stored — leave blank to keep'
+											: 'value, e.g. Bearer $MY_TOKEN'}
+										value={header.value ?? ''}
+										oninput={(e) => (header.value = e.currentTarget.value || null)}
+									/>
+									<button
+										type="button"
+										class="btn btn-ghost"
+										onclick={() => removeHeaderRow(server, hi)}
+									>
+										Remove
+									</button>
+								</div>
+							{/each}
+							<button type="button" class="btn btn-ghost" onclick={() => addHeaderRow(server)}>
+								Add header
+							</button>
+							<p class="field-description">
+								Stored header values are never shown. Saving with a blank value keeps the stored
+								one; remove the row to delete the header. Values support <code>$VAR</code>
+								expansion, so secrets can stay in the environment.
+							</p>
+						</div>
+					{/if}
 					{#if isStdio(server)}
 						<div class="env-block">
 							<span class="field-label">Environment</span>
