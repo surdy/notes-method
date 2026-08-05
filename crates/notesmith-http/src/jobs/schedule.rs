@@ -5,15 +5,21 @@
 //! `now`), so the every/at/timezone/weekday/catch-up decisions are unit-tested
 //! without clocks or sleeping.
 
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use chrono::{DateTime, Datelike, Local, LocalResult, NaiveTime, TimeZone, Utc, Weekday};
 use chrono_tz::Tz;
-use notesmith_config::JobConfig;
+use notesmith_config::{JobAgentConfig, JobConfig};
 use notesmith_git::timers::parse_duration;
 
-/// Default subprocess budget when a job omits `timeout`.
+/// Default subprocess budget when a `command` job omits `timeout`.
 pub const DEFAULT_JOB_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Default budget when an `agent` job omits `timeout`. Headless agent turns
+/// legitimately take minutes (LLM latency, tool calls), so the connector
+/// default would kill healthy runs.
+pub const DEFAULT_AGENT_JOB_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// A validated job schedule.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,24 +34,37 @@ pub enum JobSchedule {
     },
 }
 
+/// What a validated job executes: exactly one of `command` / `agent`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JobAction {
+    /// Vault-relative connector executable.
+    Command(String),
+    /// Headless agent run with a named prompt (issue #282).
+    Agent(JobAgentConfig),
+}
+
 /// A `[[jobs]]` entry validated for execution by the runner.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidatedJob {
     pub name: String,
     pub schedule: JobSchedule,
-    pub command: String,
+    pub action: JobAction,
     pub timeout: Duration,
+    /// Same-day ordering prerequisites (validated against the sibling jobs).
+    pub after: Vec<String>,
 }
 
-/// Validate one `[[jobs]]` entry into a runnable form. Errors are surfaced as
-/// human-readable strings the runner logs as warnings — a bad entry is skipped,
-/// never fatal (ADR 0009).
-pub fn validate_job(job: &JobConfig) -> Result<ValidatedJob, String> {
+/// Validate one `[[jobs]]` entry into a runnable form. `siblings` is the
+/// vault's full `[[jobs]]` list (used to resolve `after` references). Errors
+/// are surfaced as human-readable strings the runner logs as warnings — a bad
+/// entry is skipped, never fatal (ADR 0009).
+pub fn validate_job(job: &JobConfig, siblings: &[JobConfig]) -> Result<ValidatedJob, String> {
     if job.name.trim().is_empty() {
         return Err("job is missing a name".to_string());
     }
 
-    let command = validate_command(job)?;
+    let action = validate_action(job)?;
+    let after = validate_after(job, siblings)?;
 
     let schedule = match (job.every.as_deref(), job.at.as_deref()) {
         (Some(_), Some(_)) => {
@@ -83,28 +102,91 @@ pub fn validate_job(job: &JobConfig) -> Result<ValidatedJob, String> {
     let timeout = match job.timeout.as_deref() {
         Some(raw) => parse_duration(raw)
             .ok_or_else(|| format!("invalid `timeout` {raw:?} (use e.g. \"120s\")"))?,
-        None => DEFAULT_JOB_TIMEOUT,
+        None => match action {
+            JobAction::Command(_) => DEFAULT_JOB_TIMEOUT,
+            JobAction::Agent(_) => DEFAULT_AGENT_JOB_TIMEOUT,
+        },
     };
 
     Ok(ValidatedJob {
         name: job.name.clone(),
         schedule,
-        command,
+        action,
         timeout,
+        after,
     })
 }
 
 /// Validate just the executable part of a job — the requirement for *manual*
 /// triggers, which deliberately work even when the schedule is absent or
-/// invalid (useful while developing a connector).
-pub fn validate_command(job: &JobConfig) -> Result<String, String> {
-    if job.agent.is_some() && job.command.is_none() {
-        return Err("agent-kind jobs are not supported yet (#282)".to_string());
+/// invalid (useful while developing a connector). A job must declare exactly
+/// one of `command` / `agent`.
+pub fn validate_action(job: &JobConfig) -> Result<JobAction, String> {
+    match (job.command.as_deref(), job.agent.as_ref()) {
+        (Some(_), Some(_)) => {
+            Err("`command` and `agent` are mutually exclusive; set exactly one".to_string())
+        }
+        (None, None) => Err("job needs a `command` or an `agent`; set exactly one".to_string()),
+        (Some(command), None) => {
+            let command = command.trim();
+            if command.is_empty() {
+                return Err("job is missing a `command`".to_string());
+            }
+            Ok(JobAction::Command(command.to_string()))
+        }
+        (None, Some(agent)) => match agent.config() {
+            Some(config) if !config.prompt.trim().is_empty() => Ok(JobAction::Agent(config.clone())),
+            Some(_) => Err("`agent.prompt` must not be empty".to_string()),
+            None => Err(
+                "invalid `agent` config: expected agent = { prompt = \"name\", allow_writes = false }"
+                    .to_string(),
+            ),
+        },
     }
-    match job.command.as_deref().map(str::trim) {
-        Some(command) if !command.is_empty() => Ok(command.to_string()),
-        _ => Err("job is missing a `command`".to_string()),
+}
+
+/// Validate a job's `after` list against its sibling jobs: every name must
+/// exist, none may be the job itself, and the `after` graph must be acyclic
+/// (a cycle would mean the jobs simply never fire, so it is rejected here
+/// where it is cheap to see).
+fn validate_after(job: &JobConfig, siblings: &[JobConfig]) -> Result<Vec<String>, String> {
+    if job.after.is_empty() {
+        return Ok(Vec::new());
     }
+
+    let known: HashSet<&str> = siblings.iter().map(|entry| entry.name.as_str()).collect();
+    for name in &job.after {
+        if name == &job.name {
+            return Err("`after` must not reference the job itself".to_string());
+        }
+        if !known.contains(name.as_str()) {
+            return Err(format!("`after` references unknown job {name:?}"));
+        }
+    }
+
+    // Walk the after-graph from this job's prerequisites; reaching the job
+    // again means a cycle. Bounded by the number of jobs, so always cheap.
+    let graph: HashMap<&str, &[String]> = siblings
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry.after.as_slice()))
+        .collect();
+    let mut stack: Vec<&str> = job.after.iter().map(String::as_str).collect();
+    let mut visited: HashSet<&str> = HashSet::new();
+    while let Some(current) = stack.pop() {
+        if current == job.name {
+            return Err(format!(
+                "`after` cycle detected involving {:?}; ordered jobs must not depend on each other",
+                job.name
+            ));
+        }
+        if visited.insert(current) {
+            if let Some(nexts) = graph.get(current) {
+                stack.extend(nexts.iter().map(String::as_str));
+            }
+        }
+    }
+
+    Ok(job.after.clone())
 }
 
 /// Whether a job is due, given the current instant, the persisted last run,
@@ -262,34 +344,41 @@ mod tests {
         NaiveTime::from_hms_opt(h, m, 0).expect("valid test time")
     }
 
+    fn validate(config: serde_json::Value) -> Result<ValidatedJob, String> {
+        let entry = job(config);
+        let siblings = vec![entry.clone()];
+        validate_job(&entry, &siblings)
+    }
+
     // ---- validation -------------------------------------------------------
 
     #[test]
     fn validate_every_job() {
-        let validated = validate_job(&job(serde_json::json!({
+        let validated = validate(serde_json::json!({
             "name": "calendar-sync",
             "every": "15m",
             "command": "sync.py",
             "timeout": "60s"
-        })))
+        }))
         .unwrap();
         assert_eq!(
             validated.schedule,
             JobSchedule::Every(Duration::from_secs(900))
         );
-        assert_eq!(validated.command, "sync.py");
+        assert_eq!(validated.action, JobAction::Command("sync.py".to_string()));
         assert_eq!(validated.timeout, Duration::from_secs(60));
+        assert!(validated.after.is_empty());
     }
 
     #[test]
     fn validate_at_job_with_timezone_and_weekdays() {
-        let validated = validate_job(&job(serde_json::json!({
+        let validated = validate(serde_json::json!({
             "name": "email-digest",
             "at": "07:30",
             "weekdays_only": true,
             "timezone": "America/Vancouver",
             "command": "digest.py"
-        })))
+        }))
         .unwrap();
         assert_eq!(
             validated.schedule,
@@ -303,58 +392,165 @@ mod tests {
     }
 
     #[test]
+    fn validate_agent_job_with_after() {
+        let briefing = job(serde_json::json!({
+            "name": "daily-briefing",
+            "at": "07:30",
+            "weekdays_only": true,
+            "after": ["calendar-sync"],
+            "agent": { "prompt": "daily-note", "allow_writes": true }
+        }));
+        let sync = job(serde_json::json!({
+            "name": "calendar-sync", "every": "15m", "command": "sync.py"
+        }));
+        let validated = validate_job(&briefing, &[sync, briefing.clone()]).unwrap();
+
+        assert_eq!(
+            validated.action,
+            JobAction::Agent(notesmith_config::JobAgentConfig {
+                prompt: "daily-note".to_string(),
+                allow_writes: true,
+            })
+        );
+        assert_eq!(validated.after, vec!["calendar-sync".to_string()]);
+        // Agent jobs get the larger default budget.
+        assert_eq!(validated.timeout, DEFAULT_AGENT_JOB_TIMEOUT);
+    }
+
+    #[test]
     fn validate_rejects_both_every_and_at() {
-        let error = validate_job(&job(serde_json::json!({
+        let error = validate(serde_json::json!({
             "name": "x", "every": "5m", "at": "07:30", "command": "c"
-        })))
+        }))
         .unwrap_err();
         assert!(error.contains("mutually exclusive"), "{error}");
     }
 
     #[test]
     fn validate_rejects_neither_every_nor_at() {
-        let error =
-            validate_job(&job(serde_json::json!({ "name": "x", "command": "c" }))).unwrap_err();
+        let error = validate(serde_json::json!({ "name": "x", "command": "c" })).unwrap_err();
         assert!(error.contains("neither"), "{error}");
     }
 
     #[test]
     fn validate_rejects_bad_interval_time_timezone_and_timeout() {
-        let bad_interval = job(serde_json::json!({ "name": "x", "every": "soon", "command": "c" }));
-        assert!(validate_job(&bad_interval).unwrap_err().contains("every"));
+        let bad_interval = serde_json::json!({ "name": "x", "every": "soon", "command": "c" });
+        assert!(validate(bad_interval).unwrap_err().contains("every"));
 
-        let bad_time = job(serde_json::json!({ "name": "x", "at": "7:3pm", "command": "c" }));
-        assert!(validate_job(&bad_time).unwrap_err().contains("at"));
+        let bad_time = serde_json::json!({ "name": "x", "at": "7:3pm", "command": "c" });
+        assert!(validate(bad_time).unwrap_err().contains("at"));
 
-        let bad_tz = job(serde_json::json!({
+        let bad_tz = serde_json::json!({
             "name": "x", "at": "07:30", "timezone": "Mars/Olympus", "command": "c"
-        }));
-        assert!(validate_job(&bad_tz).unwrap_err().contains("timezone"));
+        });
+        assert!(validate(bad_tz).unwrap_err().contains("timezone"));
 
-        let bad_timeout = job(serde_json::json!({
+        let bad_timeout = serde_json::json!({
             "name": "x", "every": "5m", "command": "c", "timeout": "forever"
-        }));
-        assert!(validate_job(&bad_timeout).unwrap_err().contains("timeout"));
+        });
+        assert!(validate(bad_timeout).unwrap_err().contains("timeout"));
     }
 
     #[test]
-    fn validate_rejects_missing_name_or_command() {
-        let no_name = job(serde_json::json!({ "every": "5m", "command": "c" }));
-        assert!(validate_job(&no_name).unwrap_err().contains("name"));
+    fn validate_rejects_missing_name_or_action() {
+        let no_name = serde_json::json!({ "every": "5m", "command": "c" });
+        assert!(validate(no_name).unwrap_err().contains("name"));
 
-        let no_command = job(serde_json::json!({ "name": "x", "every": "5m" }));
-        assert!(validate_job(&no_command).unwrap_err().contains("command"));
+        let no_action = serde_json::json!({ "name": "x", "every": "5m" });
+        let error = validate(no_action).unwrap_err();
+        assert!(error.contains("`command` or an `agent`"), "{error}");
     }
 
     #[test]
-    fn validate_reports_agent_jobs_as_unsupported() {
-        let agent_job = job(serde_json::json!({
-            "name": "daily-briefing",
-            "at": "07:30",
+    fn validate_rejects_both_command_and_agent() {
+        let error = validate(serde_json::json!({
+            "name": "x",
+            "every": "5m",
+            "command": "c.sh",
             "agent": { "prompt": "daily-note" }
+        }))
+        .unwrap_err();
+        assert!(
+            error.contains("`command` and `agent` are mutually exclusive"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_malformed_or_empty_agent_config() {
+        let malformed = serde_json::json!({
+            "name": "x", "at": "07:30", "agent": "daily-note"
+        });
+        let error = validate(malformed).unwrap_err();
+        assert!(error.contains("invalid `agent` config"), "{error}");
+
+        let empty_prompt = serde_json::json!({
+            "name": "x", "at": "07:30", "agent": { "prompt": "  " }
+        });
+        let error = validate(empty_prompt).unwrap_err();
+        assert!(error.contains("`agent.prompt`"), "{error}");
+    }
+
+    #[test]
+    fn validate_after_rejects_unknown_self_and_cycles() {
+        let sync = job(serde_json::json!({
+            "name": "calendar-sync", "every": "15m", "command": "sync.py"
         }));
-        let error = validate_job(&agent_job).unwrap_err();
-        assert!(error.contains("#282"), "{error}");
+
+        let unknown = job(serde_json::json!({
+            "name": "briefing", "at": "07:30", "command": "b.sh", "after": ["nope"]
+        }));
+        let error = validate_job(&unknown, &[sync.clone(), unknown.clone()]).unwrap_err();
+        assert!(error.contains("unknown job \"nope\""), "{error}");
+
+        let selfish = job(serde_json::json!({
+            "name": "briefing", "at": "07:30", "command": "b.sh", "after": ["briefing"]
+        }));
+        let error = validate_job(&selfish, &[selfish.clone()]).unwrap_err();
+        assert!(
+            error.contains("must not reference the job itself"),
+            "{error}"
+        );
+
+        // a -> b -> a: both report the cycle.
+        let a = job(serde_json::json!({
+            "name": "a", "at": "07:30", "command": "a.sh", "after": ["b"]
+        }));
+        let b = job(serde_json::json!({
+            "name": "b", "at": "07:40", "command": "b.sh", "after": ["a"]
+        }));
+        let siblings = vec![a.clone(), b.clone()];
+        assert!(validate_job(&a, &siblings).unwrap_err().contains("cycle"));
+        assert!(validate_job(&b, &siblings).unwrap_err().contains("cycle"));
+
+        // Transitive cycle a -> b -> c -> a.
+        let a = job(serde_json::json!({
+            "name": "a", "at": "07:30", "command": "a.sh", "after": ["b"]
+        }));
+        let b = job(serde_json::json!({
+            "name": "b", "at": "07:40", "command": "b.sh", "after": ["c"]
+        }));
+        let c = job(serde_json::json!({
+            "name": "c", "at": "07:50", "command": "c.sh", "after": ["a"]
+        }));
+        let siblings = vec![a.clone(), b, c];
+        assert!(validate_job(&a, &siblings).unwrap_err().contains("cycle"));
+
+        // A diamond (shared prerequisite) is NOT a cycle.
+        let root = job(serde_json::json!({
+            "name": "root", "every": "15m", "command": "r.sh"
+        }));
+        let left = job(serde_json::json!({
+            "name": "left", "at": "07:30", "command": "l.sh", "after": ["root"]
+        }));
+        let right = job(serde_json::json!({
+            "name": "right", "at": "07:30", "command": "r2.sh", "after": ["root"]
+        }));
+        let top = job(serde_json::json!({
+            "name": "top", "at": "08:00", "command": "t.sh", "after": ["left", "right"]
+        }));
+        let siblings = vec![root, left, right, top.clone()];
+        assert!(validate_job(&top, &siblings).is_ok());
     }
 
     // ---- every jobs -------------------------------------------------------

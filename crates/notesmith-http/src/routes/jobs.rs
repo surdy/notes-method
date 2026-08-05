@@ -77,7 +77,7 @@ pub async fn list_jobs(
     let entries: Vec<JobListEntry> = jobs
         .iter()
         .map(|job| {
-            let config_error = schedule::validate_job(job).err();
+            let config_error = schedule::validate_job(job, &jobs).err();
             let last_run = records.get(&job.name).map(|record| JobLastRun {
                 at: record.last_run.to_rfc3339(),
                 status: record.status.as_str().to_string(),
@@ -236,6 +236,11 @@ command = "sync.sh"
 name = "agent-only"
 at = "07:30"
 agent = { prompt = "daily-note" }
+
+[[jobs]]
+name = "bad-agent"
+at = "07:45"
+agent = "daily-note"
 "#,
             &[("sync.sh", "#!/bin/sh\nexit 0\n")],
         );
@@ -244,7 +249,7 @@ agent = { prompt = "daily-note" }
         let (status, body) = request(&router, "GET", "/api/v/jobs-routes-list/jobs").await;
         assert_eq!(status, StatusCode::OK);
         let jobs = body["jobs"].as_array().unwrap();
-        assert_eq!(jobs.len(), 3);
+        assert_eq!(jobs.len(), 4);
 
         assert_eq!(jobs[0]["name"], "calendar-sync");
         assert_eq!(jobs[0]["valid"], true);
@@ -260,8 +265,20 @@ agent = { prompt = "daily-note" }
                 .contains("mutually exclusive")
         );
 
-        assert_eq!(jobs[2]["valid"], false);
-        assert!(jobs[2]["config_error"].as_str().unwrap().contains("#282"));
+        // Agent-kind jobs are valid (#282)…
+        assert_eq!(jobs[2]["name"], "agent-only");
+        assert_eq!(jobs[2]["valid"], true);
+        assert!(jobs[2].get("config_error").is_none());
+
+        // …but a malformed agent table is surfaced, not dropped.
+        assert_eq!(jobs[3]["name"], "bad-agent");
+        assert_eq!(jobs[3]["valid"], false);
+        assert!(
+            jobs[3]["config_error"]
+                .as_str()
+                .unwrap()
+                .contains("invalid `agent` config")
+        );
 
         let (status, _) = request(&router, "GET", "/api/v/no-such-vault/jobs").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
