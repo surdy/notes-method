@@ -34,6 +34,7 @@ use uuid::Uuid;
 pub mod document;
 pub mod hybrid;
 pub mod memory;
+pub mod periodic;
 pub mod related;
 pub mod time_query;
 pub mod youtube;
