@@ -238,6 +238,11 @@ fn build_router_with_shared_state_and_app_dir(state: SharedAppState, app_dir: Pa
             "/api/v/{vault}/periodic/{kind}/list",
             get(list_periodic_notes),
         )
+        .route("/api/v/{vault}/jobs", get(crate::routes::jobs::list_jobs))
+        .route(
+            "/api/v/{vault}/jobs/{name}/run",
+            post(crate::routes::jobs::run_job),
+        )
         .route("/api/v/{vault}/events", get(vault_events))
         .route(
             "/api/v/{vault}/agent/threads",
