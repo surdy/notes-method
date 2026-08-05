@@ -287,24 +287,17 @@ async fn run_catch_up(state: &SharedAppState, vault_name: &str) {
     }
 }
 
-/// Compute how long to sleep before the next trigger at `time_str` (HH:MM).
-pub fn compute_delay_until(time_str: &str, _timezone: Option<&str>) -> std::time::Duration {
-    let target_time = NaiveTime::parse_from_str(time_str, "%H:%M")
-        .unwrap_or_else(|_| NaiveTime::from_hms_opt(6, 30, 0).unwrap());
-
-    let now = Local::now();
-    let today_target = now.date_naive().and_time(target_time);
-
-    let target_datetime = if today_target > now.naive_local() {
-        today_target
-    } else {
-        (now.date_naive() + chrono::Duration::days(1)).and_time(target_time)
-    };
-
-    let duration = target_datetime - now.naive_local();
-    duration
-        .to_std()
-        .unwrap_or(std::time::Duration::from_secs(3600))
+/// Compute how long to sleep before the next trigger at `time_str` (HH:MM),
+/// interpreted in `timezone` (an IANA name) or daemon-local time when absent
+/// or unknown. Shares the tz-aware time-of-day math with the job runner
+/// (`crate::jobs::schedule`).
+pub fn compute_delay_until(time_str: &str, timezone: Option<&str>) -> std::time::Duration {
+    let target_time = NaiveTime::parse_from_str(time_str, "%H:%M").unwrap_or_else(|_| {
+        tracing::warn!(time = %time_str, "invalid generate_at time; defaulting to 06:30");
+        NaiveTime::from_hms_opt(6, 30, 0).expect("06:30 is a valid time")
+    });
+    let tz = crate::jobs::schedule::resolve_timezone(timezone);
+    crate::jobs::schedule::delay_until_time_of_day(target_time, tz)
 }
 
 #[cfg(test)]
@@ -470,6 +463,23 @@ notesmith:
         // Should schedule for tomorrow, so delay > ~0 seconds
         assert!(delay.as_secs() > 0);
         assert!(delay.as_secs() <= 86400);
+    }
+
+    #[test]
+    fn compute_delay_honors_named_timezone() {
+        // Delays to the same wall-clock time in two zones must differ by the
+        // zone offset (mod 24h): Tokyo (UTC+9) reaches its noon 9h before UTC.
+        let tokyo = compute_delay_until("12:00", Some("Asia/Tokyo"));
+        let utc = compute_delay_until("12:00", Some("UTC"));
+        let diff_secs = (tokyo.as_secs() as i64 - utc.as_secs() as i64).rem_euclid(86_400);
+        assert!((diff_secs - 15 * 3600).abs() <= 2, "diff was {diff_secs}s");
+    }
+
+    #[test]
+    fn compute_delay_unknown_timezone_falls_back_to_local() {
+        let delay = compute_delay_until("23:59", Some("Not/AZone"));
+        assert!(delay.as_secs() > 0);
+        assert!(delay.as_secs() <= 86_400 + 3600);
     }
 
     #[test]
