@@ -1486,15 +1486,54 @@ Agent daily workflow endpoint. In prompt mode, the daemon loads `.notesmith/prom
 - `409` — daily note already exists in write mode
 - `422` — invalid SQL in a context query
 
+### `GET /api/v/{vault}/agent-prompts/{name}`
+
+Render a named agent prompt (issue #282): the generic sibling of the daily
+`agent-create` prompt mode. The daemon loads
+`.notesmith/prompts/{name}.md`, executes its `context_queries` frontmatter
+against the vault index, replaces each `{{ query_name }}` placeholder with
+the result as a markdown table plus `{{ today }}` with the target date, and
+returns the assembled prompt. `notesmith ai prompt <name>` (and therefore
+every agent-kind job) fetches its instruction here.
+
+**Query parameters:**
+- `date` — optional target date (`YYYY-MM-DD`) substituted for
+  `{{ today }}`; defaults to the daemon's local date.
+
+**Example:**
+```bash
+curl "http://127.0.0.1:27183/api/v/work/agent-prompts/daily-note?date=2026-08-05"
+```
+
+**Response:** `200 OK`
+```json
+{
+  "name": "daily-note",
+  "date": "2026-08-05",
+  "prompt": "# Daily Note Prompt\n..."
+}
+```
+
+**Errors:**
+- `400` — invalid prompt name (path separators / traversal) or date format
+- `404` — vault or prompt template not found
+- `422` — invalid SQL in a context query
+
 ---
 
 ## Jobs
 
-Scheduled jobs (ADR 0025, issue #280) are declared per vault as `[[jobs]]`
-entries in `.notesmith/vault.toml` and executed by the daemon's generic job
-runner (`command` kind only today; agent-kind jobs and `after` ordering are
-planned, #282). These endpoints expose the runner for debuggability and
-manual triggers.
+Scheduled jobs (ADR 0025, issues #280/#282) are declared per vault as
+`[[jobs]]` entries in `.notesmith/vault.toml` and executed by the daemon's
+generic job runner. A job is `command`-kind (connector subprocess) or
+`agent`-kind (headless `notesmith ai prompt` run via the colocated CLI) —
+exactly one of `command`/`agent` per entry — and may declare same-day
+ordering with `after = ["other-job"]`: it only runs once every named job has
+a successful run today (in the job's timezone), re-checked each scheduler
+tick. An `at` fire whose day ends with unmet prerequisites is recorded as
+`missed` (WARNed once, never run late on a following day); `every` jobs
+simply stay blocked until the prerequisites succeed today. These endpoints
+expose the runner for debuggability and manual triggers.
 
 ### `GET /api/v/{vault}/jobs`
 
@@ -1523,6 +1562,21 @@ and persisted last-run status.
       }
     },
     {
+      "name": "daily-briefing",
+      "enabled": true,
+      "at": "07:30",
+      "weekdays_only": true,
+      "agent": { "prompt": "daily-note", "allow_writes": true },
+      "after": ["calendar-sync"],
+      "waiting_on": ["calendar-sync"],
+      "valid": true,
+      "running": false,
+      "last_run": {
+        "at": "2026-08-04T23:59:41+00:00",
+        "status": "missed"
+      }
+    },
+    {
       "name": "broken",
       "enabled": true,
       "every": "5m",
@@ -1538,17 +1592,26 @@ and persisted last-run status.
 ```
 
 `valid: false` entries are skipped by the scheduler (with a daemon WARN);
-`config_error` carries the reason. `last_run.status` is one of `succeeded`,
-`failed`, `timed_out`; it is omitted for jobs that have never run.
+`config_error` carries the reason (including a malformed `agent` table, an
+unknown/self/cyclic `after` reference, or an entry with both or neither of
+`command`/`agent`). `agent` and `after` echo the entry's configuration.
+`waiting_on` (present on valid, enabled jobs with `after`) lists the
+prerequisites without a successful run today — non-empty means the scheduler
+is holding the job back. `last_run.status` is one of `succeeded`, `failed`,
+`timed_out`, `missed` (an `at` fire forfeited because its `after`
+prerequisites were never met that day); it is omitted for jobs that have
+never run.
 
 **Errors:**
 - `404` — vault not found
 
 ### `POST /api/v/{vault}/jobs/{name}/run`
 
-Manually trigger a job by name, bypassing its schedule. Deliberately works
-for entries with a missing or invalid *schedule* as long as they have a
-runnable `command` — the connector-development workflow.
+Manually trigger a job by name, bypassing its schedule **and its `after`
+gating** (a manual trigger means the human decided). Deliberately works for
+entries with a missing or invalid *schedule* as long as their
+`command`/`agent` action is runnable — the connector/prompt development
+workflow.
 
 **Response:** `202 Accepted`
 ```json
@@ -1563,7 +1626,8 @@ returns `409` (the trigger is rejected, not queued).
 **Errors:**
 - `404` — vault or job not found
 - `409` — a run of this job is already in flight
-- `400` — the job has no runnable `command` (including agent-kind entries, #282)
+- `400` — the job has no runnable action (no `command`/`agent`, both at
+  once, or a malformed `agent` table)
 
 ---
 

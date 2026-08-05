@@ -1,11 +1,13 @@
-//! Jobs endpoints (issue #280, ADR 0025).
+//! Jobs endpoints (issues #280/#282, ADR 0025).
 //!
 //! - `GET  /api/v/{vault}/jobs` — list configured jobs with schedule,
-//!   validity, running flag, and last-run status (debuggability).
-//! - `POST /api/v/{vault}/jobs/{name}/run` — manual trigger. Returns `202`
-//!   and runs in the background (watch `job.*` SSE events or the list for
-//!   the outcome); `409` when a run of that job is already in flight; `404`
-//!   for unknown vault/job; `400` when the job has no runnable `command`.
+//!   validity, `after` gating status (`waiting_on`), running flag, and
+//!   last-run status incl. `missed` (debuggability).
+//! - `POST /api/v/{vault}/jobs/{name}/run` — manual trigger, bypassing both
+//!   the schedule and `after` gating. Returns `202` and runs in the
+//!   background (watch `job.*` SSE events or the list for the outcome);
+//!   `409` when a run of that job is already in flight; `404` for unknown
+//!   vault/job; `400` when the job has no runnable `command`/`agent` action.
 
 use axum::{
     Json,
