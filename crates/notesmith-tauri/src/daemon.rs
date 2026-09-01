@@ -29,6 +29,15 @@ pub struct DaemonSettings {
     /// worker it spawns. `None` in dev/unbundled builds, which then fall back to
     /// the download-on-first-run path.
     pub whisper_model_dir: Option<PathBuf>,
+    /// When set, points the spawned local daemon at the bundled SvelteKit
+    /// frontend (`ui/app/build`) via `NOTESMITH_APP_DIR`, so the daemon can
+    /// serve `/app/` to the desktop webview. Without this the daemon resolves
+    /// the frontend relative to its own binary (`<exe>/../../ui/app/build`),
+    /// which only exists in the dev source tree — a packaged `.app` has no such
+    /// path, so `/app/` 404s and the window renders blank. Populated from the
+    /// Tauri resource dir at startup; `None` in dev/unbundled builds, which then
+    /// fall back to the source-tree path.
+    pub app_dir: Option<PathBuf>,
     pub ping_timeout: Duration,
     pub startup_wait: Duration,
     pub startup_poll_interval: Duration,
@@ -54,6 +63,7 @@ impl Default for DaemonSettings {
             sidecar_path: None,
             model_dir: None,
             whisper_model_dir: None,
+            app_dir: None,
             ping_timeout: Duration::from_secs(2),
             startup_wait: Duration::from_secs(10),
             startup_poll_interval: Duration::from_millis(500),
@@ -738,6 +748,15 @@ async fn spawn_daemon(
     // Unset in unbundled/dev builds, where the worker downloads the model.
     if let Some(whisper_model_dir) = settings.whisper_model_dir.as_deref() {
         command.env("NOTESMITH_WHISPER_MODEL_DIR", whisper_model_dir);
+    }
+
+    // Point the local daemon at the app-bundled SvelteKit frontend so it can
+    // serve `/app/` to the desktop webview. Without this a packaged `.app`
+    // resolves the frontend relative to the sidecar binary and finds nothing,
+    // so `/app/` 404s and the window renders blank. Unset in unbundled/dev
+    // builds, where the daemon falls back to the source-tree `ui/app/build`.
+    if let Some(app_dir) = settings.app_dir.as_deref() {
+        command.env("NOTESMITH_APP_DIR", app_dir);
     }
 
     #[cfg(unix)]

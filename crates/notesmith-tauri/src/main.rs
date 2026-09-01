@@ -792,6 +792,37 @@ fn dir_has_ggml_model(dir: &std::path::Path) -> bool {
     })
 }
 
+/// The filename that marks a directory as the built SvelteKit frontend.
+const BUNDLED_APP_INDEX: &str = "index.html";
+
+/// Resolve the app-bundled SvelteKit frontend directory, if present.
+///
+/// The frontend (`ui/app/build`) ships as a Tauri bundle resource mapped to
+/// `app/`, which lands next to the executable at runtime: on macOS at
+/// `Notesmith.app/Contents/Resources/app` (i.e. `../Resources/app` from the
+/// `MacOS` executable dir), and alongside the binary in flat/dev layouts. When
+/// found, its path is passed to the spawned daemon via `NOTESMITH_APP_DIR` so
+/// the daemon serves `/app/` to the desktop webview. Returns `None` in
+/// unbundled/dev builds, where the daemon falls back to the source-tree
+/// `<exe>/../../ui/app/build`.
+fn resolve_bundled_app_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let exe_dir = exe.parent()?;
+    let candidates = [exe_dir.join("../Resources/app"), exe_dir.join("app")];
+    find_bundled_app_dir_in(candidates.iter().map(PathBuf::as_path))
+}
+
+/// Pure selection over candidate directories, separated for unit testing: the
+/// first candidate that contains [`BUNDLED_APP_INDEX`] wins.
+fn find_bundled_app_dir_in<'a>(
+    candidates: impl IntoIterator<Item = &'a std::path::Path>,
+) -> Option<PathBuf> {
+    candidates
+        .into_iter()
+        .find(|dir| dir.join(BUNDLED_APP_INDEX).is_file())
+        .map(std::path::Path::to_path_buf)
+}
+
 fn setup_deep_links<R: Runtime>(app: &AppHandle<R>) -> Result<(), DynError> {
     let handle = app.clone();
     app.deep_link().on_open_url(move |event| {
@@ -1913,6 +1944,7 @@ fn startup_settings() -> DaemonSettings {
         sidecar_path: resolve_sidecar_path(),
         model_dir: resolve_bundled_model_dir(),
         whisper_model_dir: resolve_bundled_whisper_dir(),
+        app_dir: resolve_bundled_app_dir(),
         ..Default::default()
     }
 }
