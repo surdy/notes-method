@@ -853,6 +853,7 @@ mod tests {
             startup_wait: std::time::Duration::from_millis(30),
             startup_poll_interval: std::time::Duration::from_millis(5),
             external_url: false,
+            app_dir: None,
         }
     }
 

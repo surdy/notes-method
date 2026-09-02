@@ -146,6 +146,17 @@ impl McpBinding {
         }
     }
 
+    /// Build the HTTP binding for a daemon-served vault: `<base>/mcp/<vault>`
+    /// read-write, `<base>/mcp-ro/<vault>` read-only. Named via
+    /// [`server_name_for_vault`] so it surfaces to the agent as the same server
+    /// as the stdio [`local_bridge`](Self::local_bridge) for that vault,
+    /// whichever transport the session ends up selecting.
+    pub fn daemon_http(daemon_url: &str, vault: &str, read_only: bool) -> Self {
+        let base = daemon_url.trim_end_matches('/');
+        let scope = if read_only { "mcp-ro" } else { "mcp" };
+        Self::http(server_name_for_vault(vault), format!("{base}/{scope}/{vault}"))
+    }
+
     /// Build a local stdio binding that launches `command` with `args` and no
     /// extra environment. Use [`stdio_with_env`](Self::stdio_with_env) to pass
     /// environment variables to an external server.
@@ -320,6 +331,30 @@ mod tests {
         assert_eq!(value["type"], json!("http"));
         assert_eq!(value["name"], json!("notesmith"));
         assert_eq!(value["url"], json!("https://h/mcp/work"));
+    }
+
+    #[test]
+    fn daemon_http_builds_the_read_write_endpoint() {
+        let binding = McpBinding::daemon_http("http://127.0.0.1:27183", "work", false);
+        assert_eq!(binding.name(), "notesmith-work");
+        assert!(!binding.read_only());
+        match &binding {
+            McpBinding::Http { url, .. } => assert_eq!(url, "http://127.0.0.1:27183/mcp/work"),
+            other => panic!("expected an http binding, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn daemon_http_builds_the_read_only_endpoint_and_trims_a_trailing_slash() {
+        let binding = McpBinding::daemon_http("https://notes.example.com/", "journal", true);
+        assert_eq!(binding.name(), "notesmith-journal");
+        assert!(binding.read_only());
+        match &binding {
+            McpBinding::Http { url, .. } => {
+                assert_eq!(url, "https://notes.example.com/mcp-ro/journal");
+            }
+            other => panic!("expected an http binding, got {other:?}"),
+        }
     }
 
     #[test]

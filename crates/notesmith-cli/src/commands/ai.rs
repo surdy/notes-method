@@ -2,9 +2,10 @@
 //!
 //! These subcommands drive the user's external ACP agent (Copilot/Claude/Codex/
 //! Gemini/OpenCode) for scripting and cron, with no human at the keyboard. The
-//! agent reaches vault content through Notesmith's MCP tools over the local
-//! `notesmith mcp start` stdio bridge (ADR 0012, ADR 0015 Option A). Notesmith
-//! never runs its own chat LLM.
+//! agent reaches vault content through Notesmith's MCP tools — over the
+//! daemon's Streamable HTTP endpoint when the agent supports HTTP MCP, with the
+//! local `notesmith mcp start` stdio bridge as the fallback (ADR 0012, ADR 0015
+//! Option A). Notesmith never runs its own chat LLM.
 //!
 //! ## Headless permission safety
 //!
@@ -269,8 +270,28 @@ fn current_week(today: NaiveDate) -> (NaiveDate, NaiveDate) {
     (start, end)
 }
 
+/// The vault's MCP bindings for a headless session: the daemon's HTTP endpoint
+/// as the primary, and the stdio `notesmith mcp start` bridge as the fallback
+/// for agents that do not advertise HTTP MCP support. The ACP driver picks by
+/// the agent's `mcpCapabilities` — some agents (GitHub Copilot) are HTTP/SSE
+/// only and silently ignore stdio servers, so the HTTP endpoint must be the
+/// preferred binding, exactly as in the desktop app's `agent_bridge`. The
+/// bridge subprocess can only reach the local daemon, so it is omitted when
+/// `local_daemon` is false (a remote `--url` / `NOTESMITH_URL` target).
+fn vault_mcp_bindings(
+    daemon_url: &str,
+    vault: &str,
+    read_only: bool,
+    local_daemon: bool,
+    notesmith_bin: String,
+) -> (McpBinding, Option<McpBinding>) {
+    let http = McpBinding::daemon_http(daemon_url, vault, read_only);
+    let fallback = local_daemon.then(|| McpBinding::local_bridge(notesmith_bin, vault, read_only));
+    (http, fallback)
+}
+
 /// Drive a single headless agent turn: ensure the daemon is up, resolve the
-/// vault, wire the MCP bridge with the appropriate scope, send `prompt`, and
+/// vault, wire the MCP bindings with the appropriate scope, send `prompt`, and
 /// accumulate the agent's reply until the turn completes.
 async fn drive_agent_turn(
     global_config: &GlobalConfig,
@@ -279,8 +300,9 @@ async fn drive_agent_turn(
     opts: &AgentOpts,
     prompt: &str,
 ) -> anyhow::Result<String> {
-    // The MCP stdio bridge forwards to the local daemon, so it must be running.
-    crate::daemon_client::ensure_daemon(global_config).await?;
+    // Both vault MCP transports front the daemon, so it must be running; keep
+    // its base URL for the HTTP binding.
+    let daemon_url = crate::daemon_client::ensure_daemon(global_config).await?;
     let detected = detect_vault(cwd, explicit_vault, global_config)?;
 
     let descriptor = notesmith_agent::descriptor(&opts.agent).ok_or_else(|| {
@@ -294,7 +316,13 @@ async fn drive_agent_turn(
     let notesmith_bin = std::env::current_exe()
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "notesmith".to_string());
-    let binding = McpBinding::local_bridge(notesmith_bin, &detected.name, read_only);
+    let (http, stdio_fallback) = vault_mcp_bindings(
+        daemon_url.as_str(),
+        &detected.name,
+        read_only,
+        !crate::daemon_client::has_remote_override(),
+        notesmith_bin,
+    );
     // Enabled external `[[mcp.servers]]` from the global config ride alongside
     // the vault bridge, as in the desktop app (#283). The vault read-only flag
     // is deliberately not applied to them: it governs vault writes, while an
@@ -308,10 +336,13 @@ async fn drive_agent_turn(
     let mut session = descriptor
         .session(opts.agent_bin.as_deref())
         .in_dir(Some(detected.root.clone()))
-        .with_mcp(binding)
+        .with_mcp(http)
         .with_extra_mcp(extra)
         .read_only(read_only)
         .with_permission_decider(decider);
+    if let Some(bridge) = stdio_fallback {
+        session = session.with_mcp_stdio_fallback(bridge);
+    }
 
     session.start().await?;
     session.send(prompt).await?;
@@ -360,6 +391,64 @@ mod tests {
 
     fn parse(args: &[&str]) -> AiCommand {
         TestCli::try_parse_from(args).expect("args parse").command
+    }
+
+    #[test]
+    fn vault_bindings_prefer_the_daemon_http_endpoint_with_a_stdio_fallback() {
+        let (http, fallback) = vault_mcp_bindings(
+            "http://127.0.0.1:27183/",
+            "work",
+            false,
+            true,
+            "notesmith".to_string(),
+        );
+        match &http {
+            McpBinding::Http { url, .. } => assert_eq!(url, "http://127.0.0.1:27183/mcp/work"),
+            other => panic!("expected an http primary binding, got {other:?}"),
+        }
+        assert!(!http.read_only());
+        let bridge = fallback.expect("local daemon gets a stdio fallback");
+        assert!(matches!(bridge, McpBinding::Stdio { .. }));
+        // Same server name on both transports — the agent sees one vault server
+        // whichever binding the ACP handshake selects.
+        assert_eq!(http.name(), bridge.name());
+    }
+
+    #[test]
+    fn vault_bindings_use_the_read_only_scope_by_default_semantics() {
+        let (http, fallback) = vault_mcp_bindings(
+            "http://127.0.0.1:27183",
+            "work",
+            true,
+            true,
+            "notesmith".to_string(),
+        );
+        match &http {
+            McpBinding::Http { url, .. } => assert_eq!(url, "http://127.0.0.1:27183/mcp-ro/work"),
+            other => panic!("expected an http primary binding, got {other:?}"),
+        }
+        assert!(http.read_only());
+        assert!(fallback.expect("stdio fallback").read_only());
+    }
+
+    #[test]
+    fn vault_bindings_skip_the_stdio_fallback_for_a_remote_daemon() {
+        let (http, fallback) = vault_mcp_bindings(
+            "https://notes.example.com/notesmith/",
+            "work",
+            false,
+            false,
+            "notesmith".to_string(),
+        );
+        match &http {
+            McpBinding::Http { url, .. } => {
+                assert_eq!(url, "https://notes.example.com/notesmith/mcp/work");
+            }
+            other => panic!("expected an http primary binding, got {other:?}"),
+        }
+        // The stdio bridge only reaches the local daemon; a remote --url /
+        // NOTESMITH_URL session must not advertise it.
+        assert!(fallback.is_none());
     }
 
     #[test]

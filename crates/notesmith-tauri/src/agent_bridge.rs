@@ -1116,10 +1116,7 @@ async fn build_session(
 /// Build the daemon's Streamable HTTP MCP binding for the requested vault and
 /// scope (`/mcp-ro/<vault>` read-only, `/mcp/<vault>` read-write).
 fn http_binding(daemon_url: &str, opts: &StartSessionOptions) -> McpBinding {
-    let base = daemon_url.trim_end_matches('/');
-    let scope = if opts.read_only { "mcp-ro" } else { "mcp" };
-    let url = format!("{base}/{scope}/{}", opts.vault);
-    McpBinding::http(notesmith_agent::server_name_for_vault(&opts.vault), url)
+    McpBinding::daemon_http(daemon_url, &opts.vault, opts.read_only)
 }
 
 fn vault_root(vault: &str) -> Option<PathBuf> {

@@ -1038,7 +1038,7 @@ notesmith url-open "notesmith://user/standup?date=2026-05-10"
 
 ## ai
 
-Headless, non-interactive commands that drive your external ACP agent (Copilot/Claude/Codex/Gemini/OpenCode) for scripting and cron. Notesmith never runs its own chat LLM: it starts the agent over ACP and the agent reaches vault content through Notesmith's MCP tools via the local `notesmith mcp start` stdio bridge. The daemon is auto-started because the bridge forwards to it.
+Headless, non-interactive commands that drive your external ACP agent (Copilot/Claude/Codex/Gemini/OpenCode) for scripting and cron. Notesmith never runs its own chat LLM: it starts the agent over ACP and the agent reaches vault content through Notesmith's MCP tools — over the daemon's HTTP MCP endpoint when the agent supports HTTP MCP (GitHub Copilot's ACP client is HTTP-only), falling back to the local `notesmith mcp start` stdio bridge otherwise. The daemon is auto-started because both transports front it.
 
 > For **interactive** AI chat inside the desktop app (with a model picker, edit approvals, slash commands, and more), see the [AI Chat Panel guide](ai-chat.md). The `ai` commands below are the scriptable, no-UI counterpart.
 

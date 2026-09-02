@@ -45,6 +45,12 @@ fn remote_override() -> Option<Url> {
     REMOTE_OVERRIDE.get().cloned()
 }
 
+/// Whether a remote daemon override (`--url` / `NOTESMITH_URL`) is in effect
+/// for this process.
+pub fn has_remote_override() -> bool {
+    REMOTE_OVERRIDE.get().is_some()
+}
+
 fn normalize_base(raw: &str) -> Result<Url> {
     let mut base = Url::parse(raw).with_context(|| format!("invalid daemon URL: {raw}"))?;
     if base.cannot_be_a_base() || base.host_str().is_none() {
