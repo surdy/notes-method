@@ -735,8 +735,10 @@ impl AcpSession {
     ///
     /// This is the **preferred** binding, used whenever the agent advertises
     /// HTTP MCP support during `initialize`. For a local daemon this is the
-    /// daemon's Streamable HTTP endpoint, which every HTTP-capable agent (e.g.
-    /// GitHub Copilot, which supports *only* HTTP/SSE) can reach. Pair it with
+    /// daemon's Streamable HTTP endpoint, which every HTTP-capable agent can
+    /// reach — and the only one GitHub Copilot accepts from us, since its ACP
+    /// mode rejects client-supplied stdio MCP servers (ADR 0012, 2026-09-02
+    /// amendment). Pair it with
     /// [`with_mcp_stdio_fallback`](Self::with_mcp_stdio_fallback) so
     /// HTTP-incapable agents still get the vault over a stdio bridge.
     pub fn with_mcp(mut self, binding: McpBinding) -> Self {
@@ -1105,8 +1107,10 @@ impl AcpSession {
                         }
                     };
                     // Pick the MCP transport the agent can actually use. Some
-                    // agents (e.g. GitHub Copilot) support only HTTP/SSE MCP and
-                    // silently ignore stdio servers, so honour the advertised
+                    // agents (e.g. GitHub Copilot) refuse stdio MCP servers
+                    // supplied by the ACP client — Copilot logs `Rejecting
+                    // non-http/sse MCP server "<id>" from client` and the vault
+                    // never reaches the session — so honour the advertised
                     // `mcpCapabilities` rather than assuming a transport.
                     let agent_supports_http = init.agent_capabilities.mcp_capabilities.http;
                     let chosen_mcp = select_mcp_binding(

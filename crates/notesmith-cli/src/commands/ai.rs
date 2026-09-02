@@ -7,6 +7,14 @@
 //! local `notesmith mcp start` stdio bridge as the fallback (ADR 0012, ADR 0015
 //! Option A). Notesmith never runs its own chat LLM.
 //!
+//! HTTP is preferred rather than merely available: GitHub Copilot's ACP mode
+//! **rejects** stdio MCP servers supplied by the ACP client (`Rejecting
+//! non-http/sse MCP server "<id>" from client`, Copilot CLI 1.0.83-1), so a
+//! stdio-only binding leaves a Copilot session with no Notesmith tools at all.
+//! The same rejection applies to external stdio `[[mcp.servers]]` entries in a
+//! Copilot session; other agents accept them. See the 2026-09-02 amendment to
+//! ADR 0012.
+//!
 //! ## Headless permission safety
 //!
 //! There is no human to answer ACP `session/request_permission` prompts, so the
@@ -273,9 +281,10 @@ fn current_week(today: NaiveDate) -> (NaiveDate, NaiveDate) {
 /// The vault's MCP bindings for a headless session: the daemon's HTTP endpoint
 /// as the primary, and the stdio `notesmith mcp start` bridge as the fallback
 /// for agents that do not advertise HTTP MCP support. The ACP driver picks by
-/// the agent's `mcpCapabilities` — some agents (GitHub Copilot) are HTTP/SSE
-/// only and silently ignore stdio servers, so the HTTP endpoint must be the
-/// preferred binding, exactly as in the desktop app's `agent_bridge`. The
+/// the agent's `mcpCapabilities` — GitHub Copilot's ACP mode rejects stdio MCP
+/// servers supplied by the client, so the HTTP endpoint must be the preferred
+/// binding, exactly as in the desktop app's `agent_bridge` (ADR 0012,
+/// 2026-09-02 amendment). The
 /// bridge subprocess can only reach the local daemon, so it is omitted when
 /// `local_daemon` is false (a remote `--url` / `NOTESMITH_URL` target).
 fn vault_mcp_bindings(

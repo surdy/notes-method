@@ -8,8 +8,12 @@
 //!
 //! - **HTTP(S)** (preferred): the agent connects to the daemon's Streamable
 //!   HTTP MCP endpoint (`/mcp/<vault>` or `/mcp-ro/<vault>`) directly. Every
-//!   HTTP-capable agent uses this — including GitHub Copilot, whose ACP client
-//!   supports *only* HTTP/SSE MCP and silently ignores stdio servers.
+//!   HTTP-capable agent uses this — and GitHub Copilot needs it, because its
+//!   ACP mode *rejects* stdio MCP servers supplied by the ACP client
+//!   (`Rejecting non-http/sse MCP server "<id>" from client`, verified on
+//!   Copilot CLI 1.0.83-1). Copilot does support stdio MCP configured through
+//!   its own config/SDK paths; it is the ACP-client-supplied case that fails.
+//!   See the 2026-09-02 amendment to ADR 0012.
 //! - **stdio** (local fallback): Notesmith launches the `notesmith mcp start`
 //!   bridge as a child process; the bridge forwards every request to the
 //!   daemon's HTTP MCP endpoint, so stdio and HTTP clients share the daemon's
@@ -261,6 +265,12 @@ impl McpBinding {
 /// `"Bearer $WORKIQ_TOKEN"` and the secret stays in the environment. Disabled
 /// servers and servers with neither a command nor a url are skipped (ADR 0009:
 /// malformed config never panics).
+///
+/// Note that a **stdio** entry here does not reach every agent: Copilot's ACP
+/// mode rejects client-supplied stdio MCP servers outright, so such an entry is
+/// available in Claude/Codex/Gemini/OpenCode sessions but absent from Copilot
+/// ones (ADR 0012, 2026-09-02 amendment). Notesmith still passes it — the
+/// refusal is the agent's, and is logged by the agent, not by us.
 pub fn extra_mcp_bindings(cfg: &McpConfig) -> Vec<McpBinding> {
     let mut bindings = Vec::new();
     for server in &cfg.servers {

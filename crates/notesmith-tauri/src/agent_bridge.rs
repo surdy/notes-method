@@ -17,7 +17,8 @@
 //! Selection is capability-aware (ADR 0012, Decision 2): an HTTP binding to the
 //! daemon's Streamable HTTP MCP endpoint (`/mcp/<vault>` read-write,
 //! `/mcp-ro/<vault>` read-only) is preferred when the agent advertises
-//! `mcpCapabilities.http` at `initialize` (e.g. Copilot is HTTP/SSE-only). For a
+//! `mcpCapabilities.http` at `initialize` (Copilot's ACP mode rejects stdio MCP
+//! servers supplied by the client, so HTTP is the only binding it takes). For a
 //! **local** daemon a `notesmith mcp start` stdio bridge (which itself forwards
 //! to the daemon over HTTP) is supplied as a fallback for agents that do not
 //! support HTTP MCP; a **remote** daemon only offers the HTTP binding.
@@ -1057,8 +1058,9 @@ async fn build_session(
     // handshake (see `AcpSession`), not assumed up front:
     //   - **HTTP** (preferred) points at the daemon's Streamable HTTP endpoint
     //     (`/mcp/<vault>` read-write, `/mcp-ro/<vault>` read-only). Every
-    //     HTTP-capable agent uses this — including GitHub Copilot, whose ACP
-    //     client supports *only* HTTP/SSE MCP and silently ignores stdio.
+    //     HTTP-capable agent uses this — and GitHub Copilot requires it: its
+    //     ACP mode rejects stdio MCP servers supplied by the client (ADR 0012,
+    //     2026-09-02 amendment).
     //   - **stdio** (`notesmith mcp start` bridge) is supplied only for a local
     //     daemon, as a fallback for agents that do not advertise HTTP MCP. The
     //     bridge forwards to the same daemon over HTTP so indexes stay shared
@@ -1933,6 +1935,69 @@ mod tests {
 
         let merged = dto_to_mcp_config(dto, &McpConfig::default());
         assert!(merged.servers[0].headers.is_empty());
+    }
+
+    #[test]
+    fn dto_to_mcp_config_never_copies_another_servers_stored_header_value() {
+        // The redaction contract ("stored values are never displayed") only
+        // holds if the merge is keyed by server id *and* header name. Keyed by
+        // name alone, adding a second server with an empty `Authorization` row
+        // would silently hand it the first server's bearer token — a way to
+        // read back a secret the UI is never shown.
+        let previous = McpConfig {
+            servers: vec![McpServerEntry {
+                id: "workiq".to_string(),
+                url: Some("https://workiq.example.com/mcp".to_string()),
+                headers: BTreeMap::from([(
+                    "Authorization".to_string(),
+                    "Bearer super-secret".to_string(),
+                )]),
+                ..Default::default()
+            }],
+            companion_memory: CompanionMemoryConfig::default(),
+        };
+
+        let mut dto = mcp_config_to_dto(&previous);
+        // A newly added server carrying a redacted `Authorization` row.
+        dto.servers.push(McpServerDto {
+            id: "other".to_string(),
+            command: None,
+            args: vec![],
+            env: vec![],
+            url: Some("https://other.example.com/mcp".to_string()),
+            headers: vec![McpHeaderDto {
+                name: "Authorization".to_string(),
+                value: None,
+                has_value: false,
+            }],
+            display_name: None,
+            enabled: true,
+        });
+
+        let merged = dto_to_mcp_config(dto, &previous);
+        let other = merged
+            .servers
+            .iter()
+            .find(|entry| entry.id == "other")
+            .expect("the added server survives the fold");
+        assert!(
+            other.headers.is_empty(),
+            "another server's stored header value was copied: {:?}",
+            other.headers
+        );
+        // The owning server keeps its value.
+        assert_eq!(
+            merged
+                .servers
+                .iter()
+                .find(|entry| entry.id == "workiq")
+                .expect("original server survives")
+                .headers["Authorization"],
+            "Bearer super-secret"
+        );
+        // And it is still redacted on the way back out.
+        let json = serde_json::to_string(&mcp_config_to_dto(&merged)).unwrap();
+        assert!(!json.contains("super-secret"), "header value leaked: {json}");
     }
 
     #[test]

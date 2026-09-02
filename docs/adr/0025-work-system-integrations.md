@@ -132,3 +132,84 @@ corp-approved remote, never the homelab.
 - Vocabulary: "event" (calendar note kind) vs `VaultEvent` (runtime), and
   "Transcript Note" vs the chat `TranscriptStore`, are disambiguated in
   `CONTEXT.md`.
+
+## Amendment (2026-09-02) — managed-section interiors are a core operation
+
+Decision 5 shipped the section-marker convention with **no core enforcement**:
+prompts and `skill.md` told the agent to read the note, splice between the
+markers, and write the whole note back through `update_note`. Real-machine
+verification of the daily-briefing job disproved that stance
+(`plans/work-integrations-post-fix-rerun-handoff.md`, Finding 1). A compliant
+agent — one that reported having preserved all human content — still stripped
+trailing spaces from human text outside the markers, and the save pipeline's
+automatic `updated:` stamp changed the frontmatter on every run. Prompt
+instructions cannot guarantee byte preservation.
+
+**Decision (partially revises Decision 5).** The marker convention itself is
+unchanged and still lives in vault config. But **replacing a section's interior
+is now a deterministic core operation**, not agent behaviour: a pure transform
+in `notesmith-vault` that replaces only the byte range between the marker
+lines, surfaced as `POST /api/v/{vault}/notes-section/{path...}` and the
+`update_managed_section` MCP tool (write-only, rejected on `/mcp-ro`).
+Malformed layouts (duplicate, inverted, unpaired markers) are structured
+refusals that write nothing, and the write is hash-guarded so a concurrent
+human edit conflicts rather than being overwritten.
+
+**Managed-section writes do not touch automatic note metadata.** This is the
+one write path that skips the save pipeline: no `updated:` restamp, no key
+sorting, no whitespace trimming. "Outside the markers is inviolable" includes
+the frontmatter — a machine refreshing its own region is not a human editing
+the note. Callers that want `updated:` refreshed do that explicitly through
+`PATCH /notes/{path...}`.
+
+"Core ships only mechanisms" still holds: this is a generic note-editing
+primitive with no knowledge of daily notes or briefings. What changes is that
+the byte-preservation half of the convention is now enforced by code rather
+than requested in a prompt.
+
+## Amendment (2026-09-02) — scope of the raw-email boundary
+
+Decision 4 states that **raw email is never stored** — "not in the vault, not
+staged on disk". Verification raised the obvious follow-up: raw email
+unavoidably *exists* somewhere while a briefing is composed, so where exactly
+does the boundary run? This amendment states it precisely; it narrows nothing
+Decision 4 promised, it just says which side of the line each component is on.
+
+**The boundary is Notesmith's processes and storage, not "any disk anywhere".**
+Raw email must never enter:
+
+- the daemon or any Notesmith process (no fetching, parsing, or buffering of
+  message bodies);
+- rendered prompts — the text Notesmith composes and hands to an agent;
+- job history, run records, captured stdout, or error/diagnostic output;
+- vault files, templates, or note bodies;
+- connector state, caches, or any Notesmith-owned database.
+
+Raw email **may** transit the *agent's* context. The sanctioned judgment-tier
+path is a Work IQ tool attached to the agent itself — Copilot's own Work IQ
+plugin, or `workiq mcp` as a stdio server for agents that accept
+client-supplied stdio servers (ADR 0012's 2026-09-02 amendment: not Copilot).
+The agent reads mail live, decides what matters, and writes only its
+human-facing summary back through Notesmith's tools. What the agent's own CLI
+retains locally — session transcripts, its own caches — is governed by that
+agent's retention settings and is **explicitly outside Notesmith's boundary**.
+Notesmith does not inspect, mirror, or promise anything about it; a user who
+needs that constrained configures it in the agent.
+
+**Consequence: Notesmith deliberately does not splice email content into
+rendered prompts.** A "context commands" design — a connector fetches messages
+and the prompt renderer interpolates them the way it interpolates SQL context
+queries — was considered and rejected. It would put raw bodies through the
+prompt renderer, the job runner's record of what it ran, and every error path
+that quotes a prompt on failure. That makes Notesmith a custodian of raw email,
+and it makes every future change to prompt rendering, job recording, stdout
+capture, or error formatting a re-verification of this boundary. Keeping the
+raw data on the agent's side of the wire means the boundary is enforced by
+architecture rather than by remembering.
+
+**Fallback tier.** A future deterministic (non-LLM) connector for the email
+summary is still permitted and stays inside the boundary, provided it persists
+only **sender and subject metadata** — which is exactly what the briefing
+summary is allowed to contain anyway. Bodies, quoted passages, and raw headers
+remain out. That connector is the answer for agents with no Work IQ tool at
+all, not a replacement for the judgment tier.

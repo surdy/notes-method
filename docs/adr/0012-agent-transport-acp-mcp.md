@@ -252,3 +252,34 @@ injected into the prompt) is portable: route **everything through `Ops`**, and
 - Zed `agent-client-protocol` crate v0.14 — the ACP `Client` implementation.
 - [agentclientprotocol.com](https://agentclientprotocol.com) — Session Config
   Options (model selection), MCP servers, filesystem & terminal capabilities.
+
+## Amendment (2026-09-02) — scoping the Copilot stdio claim
+
+Decision 2 describes GitHub Copilot as an ACP client that "supports *only*
+HTTP/SSE and silently ignores stdio servers". Real-machine verification
+(`plans/work-integrations-post-fix-rerun-handoff.md`) shows that claim is too
+broad, and wrong about the failure mode. The empirically correct statement is:
+
+> **Copilot's ACP mode rejects stdio MCP servers supplied by the ACP client.**
+> On Copilot CLI `1.0.83-1`, `copilot --acp` logs
+> `Rejecting non-http/sse MCP server "<id>" from client` during `session/new`
+> — an explicit refusal, not silence, and the server subprocess is never
+> spawned. Copilot *does* support stdio MCP servers configured through its own
+> paths (its own config file and the Copilot SDK); the Copilot CLI `1.0.25`
+> changelog even states that ACP clients may supply stdio servers. Runtime
+> behaviour and changelog disagree; treat it as an ACP-mode gap or Copilot bug
+> until upstream confirms the intended contract.
+
+**Nothing about the decision changes.** HTTP remains the preferred and primary
+transport for the vault binding for the reasons already recorded — it removes a
+subprocess, it works unchanged against a remote daemon, and it is the daemon's
+native transport. The stdio bridge remains the fallback for agents that do not
+advertise HTTP MCP. Only the justification is narrowed: Copilot needs the HTTP
+binding because *its ACP client* will not accept a client-supplied stdio
+server, not because Copilot lacks stdio MCP support altogether.
+
+The practical consequence for users is in the *external* `[[mcp.servers]]`
+surface rather than the vault binding: a stdio-only external server (e.g.
+`workiq mcp`) reaches Claude/Codex/Gemini/OpenCode sessions but is rejected in
+Copilot sessions. That caveat is documented in
+[`docs/ai-mcp-servers.md`](../ai-mcp-servers.md).

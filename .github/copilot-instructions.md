@@ -27,7 +27,7 @@ The desktop shell (`crates/notesmith-tauri`) spawns the daemon as a sidecar; the
 
 ## Agent MCP Transport (ADR 0012)
 
-- The desktop exposes the active vault to ACP agents over MCP with **capability-aware** transport: prefer an **HTTP** binding (`/mcp/<vault>` rw, `/mcp-ro/<vault>` ro) when the agent advertises `mcpCapabilities.http` at `initialize`; supply a local **stdio bridge** (`notesmith mcp start`) only as a fallback. **Copilot is HTTP/SSE-only** — it silently ignores stdio `mcpServers`.
+- The desktop exposes the active vault to ACP agents over MCP with **capability-aware** transport: prefer an **HTTP** binding (`/mcp/<vault>` rw, `/mcp-ro/<vault>` ro) when the agent advertises `mcpCapabilities.http` at `initialize`; supply a local **stdio bridge** (`notesmith mcp start`) only as a fallback. **Copilot's ACP mode rejects client-supplied stdio `mcpServers`** (`Rejecting non-http/sse MCP server "<id>" from client`), so HTTP is the only binding it accepts from us; it does support stdio servers configured through its own config/SDK paths. Same rejection applies to external stdio `[[mcp.servers]]` entries in a Copilot session.
 - **Read-only sessions allow their (read-only) permission requests silently** — they can only ever expose safe reads. Do not reintroduce a read-only "hard-deny". Read-write writes prompt per-call.
 - Tauri **strips the target-triple** from bundled `externalBin`, so the sidecar resolves as `notesmith` (not `notesmith-<triple>`) at runtime; resolvers must check both names.
 - See `docs/adr/0012-agent-transport-acp-mcp.md` for the full transport/permission policy.

@@ -133,8 +133,17 @@ Before each sub-check snapshot the daily note (`cp Daily/<today>.md /tmp/…`).
    from the note. Re-run. The full marked block (markers + content) is
    appended at the **end** of the note; nothing else moved; no markers were
    wrapped around existing human text.
-4. **Data change propagates.** Flip `Streams/Payments Migration.md` to
-   `status: active`, re-run: it leaves attention. Flip back for later phases.
+4. **Data change propagates.** Two edits, in this order — the second is
+   required, not optional. **First** create (or update) a meeting note with
+   `date: <today>` and `streams: ["[[Payments Migration]]"]`, so the stream has
+   a recent meeting reference. **Then** flip
+   `Streams/Payments Migration.md` to `status: active`. Re-run: the stream must
+   leave Attention **entirely**. Flipping the status alone is not enough — the
+   stream would drop out of the blocked/waiting group but immediately reappear
+   in the stale-active group (an active stream no meeting has touched in 30
+   days), which is correct behaviour and not the thing this sub-check is
+   testing. Restore both edits (status back to `blocked`, remove the meeting
+   reference) for later phases.
 
 ### D. Job runner integration
 
