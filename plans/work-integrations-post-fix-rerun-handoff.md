@@ -44,8 +44,15 @@ The test targeted September 1, 2026 because that was the daemon's PDT
 
 ## What `73fc0b9` fixed
 
-Before the fix, `notesmith ai` passed only a stdio vault MCP binding. Copilot
-is HTTP/SSE-only and silently ignored it.
+Before the fix, `notesmith ai` passed only a stdio vault MCP binding and the
+agent received no Notesmith tools. That was initially attributed to Copilot
+being HTTP/SSE-only.
+
+Current Copilot CLI documentation contradicts that attribution: Copilot
+supports local/stdio, Streamable HTTP, and SSE MCP servers, and its changelog
+states that ACP clients can supply all three transports. The observed failure
+therefore proves that the old Notesmith stdio path failed, but does not prove
+that Copilot lacks stdio MCP support.
 
 After the fix:
 
@@ -54,6 +61,38 @@ After the fix:
   `/mcp-ro/<vault>`;
 - the stdio bridge is retained as a fallback for non-HTTP agents;
 - Copilot can call Notesmith vault tools in direct and job-driven sessions.
+
+### Correction: Copilot currently supports stdio MCP
+
+The project ADR currently says Copilot supports only HTTP/SSE MCP and silently
+ignores stdio servers. That statement should be treated as stale until
+revalidated against the current CLI.
+
+Evidence from the current Copilot CLI:
+
+- the Copilot CLI `1.0.25` changelog says ACP clients can provide stdio, HTTP,
+  and SSE MCP servers when creating or loading sessions;
+- current GitHub documentation lists `local` / `stdio`, `http`, and `sse` as
+  supported MCP transport types;
+- `github/copilot-cli#3440` demonstrates a Copilot SDK session spawning and
+  using a stdio MCP child process;
+- `github/copilot-cli#4421` documents a more plausible failure mode: a stdio
+  server can miss the fixed initialization deadline, be marked failed, and
+  leave the session without tools or a useful user-facing retry.
+
+Possible explanations for the original Notesmith result include:
+
+1. the stdio bridge did not inherit the explicit daemon URL and connected to
+   the wrong endpoint;
+2. the bridge process failed or exceeded Copilot's MCP initialization budget;
+3. a transport or configuration-shape incompatibility prevented registration;
+4. the failure was logged internally but not surfaced through the ACP session,
+   making it appear that the server was silently ignored.
+
+The HTTP-first fix remains appropriate because it removes a subprocess,
+preserves explicit remote daemon URLs, and uses the daemon's native transport.
+However, capability selection and documentation should not claim that current
+Copilot lacks stdio MCP without a focused reproduction.
 
 ### Post-fix proof
 
@@ -341,15 +380,43 @@ authentication block seen during verification.
 
 #### `workiq mcp` as a stdio server
 
-Configuring the CLI directly as a stdio MCP server is not sufficient for
-Copilot because Copilot's ACP implementation ignores stdio MCP servers.
+Current Copilot versions document stdio MCP support, so this path may be the
+shortest way to unblock Work IQ without exporting a bearer token:
 
-It would require:
+```toml
+[[mcp.servers]]
+id = "workiq"
+command = "npx"
+args = ["-y", "@microsoft/workiq@latest", "mcp"]
+display_name = "Work IQ"
+enabled = true
+```
 
-- a different ACP agent with stdio MCP support; or
-- a Notesmith-owned stdio-to-Streamable-HTTP adapter; or
-- Notesmith invoking the CLI directly as a connector instead of passing it to
-  the agent as an MCP server.
+The official Work IQ CLI has already authenticated successfully on this
+laptop, so the subprocess can use its protected MSAL cache. Notesmith would
+attach the stdio server through its normal `[[mcp.servers]]` path, while
+Copilot would receive it in ACP `session/new`.
+
+This needs a focused end-to-end test before being declared supported. Prefer
+an installed `workiq` executable over `npx` for scheduled jobs if package
+startup approaches Copilot's MCP initialization timeout.
+
+If the test passes, it unblocks:
+
+- phase F's functional Work IQ email briefing;
+- scheduled Copilot jobs without `WORKIQ_TOKEN`;
+- Notesmith-managed enable/disable of Work IQ;
+- reuse of the official CLI's OAuth and refresh-token cache;
+- other local MCP servers that are available only over stdio.
+
+It would not validate Notesmith's HTTP-header expansion or OAuth support for a
+remote Work IQ endpoint. Those should be tested separately with a controlled
+auth-protected HTTP fixture.
+
+If the current Copilot ACP path still fails to register `workiq mcp`, capture
+the Copilot MCP logs and distinguish startup timeout, bridge process failure,
+configuration rejection, and unsupported transport before adding an HTTP
+proxy or building a direct connector.
 
 ## Authentication evidence
 
@@ -375,6 +442,11 @@ not make its token available to Azure CLI or Notesmith.
 Use Copilot's existing Work IQ plugin for Copilot-backed daily briefing jobs.
 This validates the user-facing briefing flow without asking users to export
 short-lived bearer tokens.
+
+Also run a focused `workiq mcp` stdio experiment with Copilot's own Work IQ
+plugin disabled. Current Copilot documentation says this transport is
+supported, and a successful result would provide a Notesmith-managed Work IQ
+path using the CLI's existing OAuth cache.
 
 Update the verification plan so it distinguishes:
 
@@ -424,11 +496,14 @@ The design should cover:
    operation?
 2. Should read-only `ai prompt` produce a preview when writes are denied?
 3. Should Work IQ be agent-provided, a first-class CLI-backed connector, or an
-   OAuth-aware external MCP integration?
+   OAuth-aware external MCP integration? Before deciding, verify whether the
+   existing `workiq mcp` stdio server works through current Copilot ACP.
 4. Should the production Work IQ dependency be removed from transport tests
    in favor of a deterministic auth-protected fixture MCP server?
 5. Is automatic `updated` metadata allowed to change during a managed-section
    refresh, or does "outside is inviolable" prohibit it?
+6. Should ADR 0012's claim that Copilot is HTTP/SSE-only be corrected now that
+   current Copilot documentation explicitly supports stdio MCP?
 
 ## Repository and machine state
 
