@@ -172,8 +172,7 @@ pub fn update_managed_section(
 
     match locate_section(note, section_id) {
         Ok(Some(span)) => {
-            let mut updated =
-                String::with_capacity(note.len() + content.len().saturating_add(2));
+            let mut updated = String::with_capacity(note.len() + content.len().saturating_add(2));
             updated.push_str(&note[..span.interior_start]);
             updated.push_str(&interior_block(content));
             updated.push_str(&note[span.interior_end..]);
@@ -444,7 +443,11 @@ mod tests {
             &result.content[result.content.len() - (note.len() - suffix_start)..],
             &note[suffix_start..]
         );
-        assert!(result.content.contains("\nnew\n<!-- notesmith:section:end s -->\r\n"));
+        assert!(
+            result
+                .content
+                .contains("\nnew\n<!-- notesmith:section:end s -->\r\n")
+        );
     }
 
     #[test]
@@ -470,7 +473,8 @@ mod tests {
 
     #[test]
     fn empty_content_empties_the_interior() {
-        let note = "<!-- notesmith:section:begin s -->\nold\nlines\n<!-- notesmith:section:end s -->\n";
+        let note =
+            "<!-- notesmith:section:begin s -->\nold\nlines\n<!-- notesmith:section:end s -->\n";
         let result = update_managed_section(note, "s", "", true).unwrap();
         assert_eq!(
             result.content,
@@ -484,7 +488,9 @@ mod tests {
         let result = update_managed_section(&note, "briefing/meetings", "- x", true).unwrap();
 
         let others = |text: &str| {
-            let start = text.find("<!-- notesmith:section:begin briefing/tasks -->").unwrap();
+            let start = text
+                .find("<!-- notesmith:section:begin briefing/tasks -->")
+                .unwrap();
             text[start..].to_string()
         };
         assert_eq!(others(&result.content), others(&note));
@@ -584,7 +590,8 @@ mod tests {
 
     #[test]
     fn markers_for_other_ids_are_ignored() {
-        let note = "<!-- notesmith:section:begin other -->\na\n<!-- notesmith:section:end other -->\n";
+        let note =
+            "<!-- notesmith:section:begin other -->\na\n<!-- notesmith:section:end other -->\n";
         let error = update_managed_section(note, "s", "x", false).unwrap_err();
         assert_eq!(error.code(), "section_not_found");
     }
@@ -599,7 +606,11 @@ mod tests {
         ] {
             let error =
                 update_managed_section(&note, "briefing/meetings", content, true).unwrap_err();
-            assert_eq!(error.code(), "content_contains_marker", "content {content:?}");
+            assert_eq!(
+                error.code(),
+                "content_contains_marker",
+                "content {content:?}"
+            );
         }
         // The note is untouched on refusal by construction (no write happened),
         // and ordinary HTML comments in content are still fine.
@@ -617,7 +628,8 @@ mod tests {
 
     #[test]
     fn marker_lines_may_carry_a_carriage_return() {
-        let note = "<!-- notesmith:section:begin s -->\r\nold\r\n<!-- notesmith:section:end s -->\r\n";
+        let note =
+            "<!-- notesmith:section:begin s -->\r\nold\r\n<!-- notesmith:section:end s -->\r\n";
         let result = update_managed_section(note, "s", "new", true).unwrap();
         assert_eq!(
             result.content,

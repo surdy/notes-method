@@ -23,10 +23,10 @@ use notesmith_query::execute_sql;
 use notesmith_routing::RoutingEngine;
 use notesmith_tasks::toggle_task;
 use notesmith_templates::TemplateEngine;
+use notesmith_vault::managed_section::update_managed_section as splice_managed_section;
 use notesmith_vault::{
     NativeVaultEngine, apply_save_pipeline, apply_save_pipeline_with_timestamp, parse_note,
 };
-use notesmith_vault::managed_section::update_managed_section as splice_managed_section;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -2317,7 +2317,9 @@ impl Ops for LocalOps {
     ) -> Result<Value> {
         let note_path = VaultPath::new(path.to_string());
         let current_content = self.engine.read(&self.vault_root, &note_path)?;
-        let current_hash = blake3::hash(current_content.as_bytes()).to_hex().to_string();
+        let current_hash = blake3::hash(current_content.as_bytes())
+            .to_hex()
+            .to_string();
         if let Some(expected) = expected_hash {
             if expected != current_hash {
                 anyhow::bail!(
@@ -2327,13 +2329,9 @@ impl Ops for LocalOps {
             }
         }
 
-        let update = splice_managed_section(
-            &current_content,
-            section_id,
-            content,
-            append_if_missing,
-        )
-        .map_err(|error| anyhow::anyhow!("managed section [{}]: {error}", error.code()))?;
+        let update =
+            splice_managed_section(&current_content, section_id, content, append_if_missing)
+                .map_err(|error| anyhow::anyhow!("managed section [{}]: {error}", error.code()))?;
 
         // Deliberately no `apply_save_pipeline` here: "outside the markers is
         // inviolable" includes the frontmatter, so this write must not restamp
@@ -6342,8 +6340,12 @@ mod tests {
 
         let stored = std::fs::read_to_string(temp_dir.path().join("Daily/Today.md")).unwrap();
         let cut = |note: &str| {
-            let begin = note.find("<!-- notesmith:section:begin briefing/meetings -->").unwrap();
-            let end = note.find("<!-- notesmith:section:end briefing/meetings -->").unwrap();
+            let begin = note
+                .find("<!-- notesmith:section:begin briefing/meetings -->")
+                .unwrap();
+            let end = note
+                .find("<!-- notesmith:section:end briefing/meetings -->")
+                .unwrap();
             (note[..begin].to_string(), note[end..].to_string())
         };
         assert_eq!(cut(&stored), cut(MANAGED_SECTION_NOTE));
@@ -6374,7 +6376,13 @@ mod tests {
         let ops = build_test_ops(temp_dir.path());
 
         let result = ops
-            .update_managed_section("Daily/Today.md", "briefing/email", "- inbox zero", true, None)
+            .update_managed_section(
+                "Daily/Today.md",
+                "briefing/email",
+                "- inbox zero",
+                true,
+                None,
+            )
             .unwrap();
         assert_eq!(result["appended"], json!(true));
 
@@ -6461,7 +6469,9 @@ mod tests {
 
         let stored = std::fs::read_to_string(temp_dir.path().join("Daily/Today.md")).unwrap();
         let tail = |note: &str| {
-            let start = note.find("<!-- notesmith:section:begin briefing/tasks -->").unwrap();
+            let start = note
+                .find("<!-- notesmith:section:begin briefing/tasks -->")
+                .unwrap();
             note[start..].to_string()
         };
         assert_eq!(tail(&stored), tail(MANAGED_SECTION_NOTE));

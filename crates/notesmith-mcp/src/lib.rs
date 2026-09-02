@@ -924,8 +924,9 @@ impl ServerHandler for NotesmithMcp {
                 .handle_tool_call::<UpdateNoteParams, _>(request.arguments, |params| {
                     self.ops.update_note(&params.path, &params.content)
                 }),
-            "update_managed_section" => self
-                .handle_tool_call::<UpdateManagedSectionParams, _>(request.arguments, |params| {
+            "update_managed_section" => self.handle_tool_call::<UpdateManagedSectionParams, _>(
+                request.arguments,
+                |params| {
                     self.ops.update_managed_section(
                         &params.path,
                         &params.section_id,
@@ -933,7 +934,8 @@ impl ServerHandler for NotesmithMcp {
                         params.append_if_missing,
                         params.expected_hash.as_deref(),
                     )
-                }),
+                },
+            ),
             "append_to_note" => self
                 .handle_tool_call::<AppendToNoteParams, _>(request.arguments, |params| {
                     self.ops.append_to_note(&params.path, &params.content)
@@ -1574,15 +1576,14 @@ mod tests {
             "<!-- notesmith:section:begin s -->\nold\n<!-- notesmith:section:end s -->",
         );
         let mcp = build_test_mcp(temp_dir.path());
-        let read_only = NotesmithMcp::from_ops(Arc::new(notesmith_ops::ReadOnlyOps::new(
-            LocalOps::new(
+        let read_only =
+            NotesmithMcp::from_ops(Arc::new(notesmith_ops::ReadOnlyOps::new(LocalOps::new(
                 "test-vault".to_string(),
                 temp_dir.path().to_path_buf(),
                 VaultCache::open_in_memory().unwrap(),
                 SearchIndex::open_in_memory().unwrap(),
                 vault_config(),
-            ),
-        )));
+            ))));
 
         // The write surface performs it...
         assert!(

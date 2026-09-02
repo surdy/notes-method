@@ -53,7 +53,10 @@ fn daily_note_prompt_context_queries_execute_against_the_index() {
             query.name
         );
     }
-    assert!(body.contains("{{ today }}"), "prompt must use {{{{ today }}}}");
+    assert!(
+        body.contains("{{ today }}"),
+        "prompt must use {{{{ today }}}}"
+    );
 }
 
 /// The `<!-- notesmith:section:begin/end <id> -->` pairs in a template body
@@ -65,9 +68,9 @@ fn assert_marker_pairs(content: &str, expected_ids: &[&str], context: &str) {
     for line in content.lines() {
         let line = line.trim();
         if let Some(rest) = line.strip_prefix("<!-- notesmith:section:begin ") {
-            let id = rest.strip_suffix(" -->").unwrap_or_else(|| {
-                panic!("{context}: malformed begin marker line {line:?}")
-            });
+            let id = rest
+                .strip_suffix(" -->")
+                .unwrap_or_else(|| panic!("{context}: malformed begin marker line {line:?}"));
             assert!(open.is_none(), "{context}: nested begin marker {id:?}");
             assert!(
                 !seen.iter().any(|s| s == id),
@@ -75,9 +78,9 @@ fn assert_marker_pairs(content: &str, expected_ids: &[&str], context: &str) {
             );
             open = Some(id.to_string());
         } else if let Some(rest) = line.strip_prefix("<!-- notesmith:section:end ") {
-            let id = rest.strip_suffix(" -->").unwrap_or_else(|| {
-                panic!("{context}: malformed end marker line {line:?}")
-            });
+            let id = rest
+                .strip_suffix(" -->")
+                .unwrap_or_else(|| panic!("{context}: malformed end marker line {line:?}"));
             match open.take() {
                 Some(begin) if begin == id => seen.push(begin),
                 Some(begin) => panic!("{context}: end {id:?} does not match begin {begin:?}"),
@@ -120,11 +123,17 @@ fn golden_vault_declares_the_daily_briefing_job() {
         .find(|job| job.get("name").and_then(|n| n.as_str()) == Some("daily-briefing"))
         .expect("daily-briefing job missing");
     assert_eq!(
-        briefing.get("agent").and_then(|a| a.get("prompt")).and_then(|p| p.as_str()),
+        briefing
+            .get("agent")
+            .and_then(|a| a.get("prompt"))
+            .and_then(|p| p.as_str()),
         Some("daily-note")
     );
     assert_eq!(
-        briefing.get("agent").and_then(|a| a.get("allow_writes")).and_then(|w| w.as_bool()),
+        briefing
+            .get("agent")
+            .and_then(|a| a.get("allow_writes"))
+            .and_then(|w| w.as_bool()),
         Some(true)
     );
     assert_eq!(briefing.get("at").and_then(|a| a.as_str()), Some("07:30"));

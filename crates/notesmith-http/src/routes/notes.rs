@@ -730,7 +730,9 @@ pub async fn update_managed_section(
         .engine
         .read(&vault.root, &note_path)
         .map_err(note_error)?;
-    let current_hash = blake3::hash(current_content.as_bytes()).to_hex().to_string();
+    let current_hash = blake3::hash(current_content.as_bytes())
+        .to_hex()
+        .to_string();
 
     // Stale-write detection over the same hash mechanism as `PUT /notes`: a
     // concurrent human edit since the caller read the note is a conflict, never
@@ -785,9 +787,7 @@ pub async fn update_managed_section(
 
 /// Map a managed-section layout failure to a structured `422` body. The `reason`
 /// code is stable so callers can branch on the kind of malformed layout.
-fn managed_section_error(
-    error: notesmith_vault::ManagedSectionError,
-) -> (StatusCode, Json<Value>) {
+fn managed_section_error(error: notesmith_vault::ManagedSectionError) -> (StatusCode, Json<Value>) {
     (
         StatusCode::UNPROCESSABLE_ENTITY,
         Json(json!({

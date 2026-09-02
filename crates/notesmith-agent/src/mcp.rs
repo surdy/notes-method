@@ -158,7 +158,10 @@ impl McpBinding {
     pub fn daemon_http(daemon_url: &str, vault: &str, read_only: bool) -> Self {
         let base = daemon_url.trim_end_matches('/');
         let scope = if read_only { "mcp-ro" } else { "mcp" };
-        Self::http(server_name_for_vault(vault), format!("{base}/{scope}/{vault}"))
+        Self::http(
+            server_name_for_vault(vault),
+            format!("{base}/{scope}/{vault}"),
+        )
     }
 
     /// Build a local stdio binding that launches `command` with `args` and no

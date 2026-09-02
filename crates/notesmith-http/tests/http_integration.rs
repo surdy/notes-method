@@ -1568,8 +1568,7 @@ async fn update_managed_section_rejects_a_missing_pair_without_append() {
 #[tokio::test]
 async fn update_managed_section_rejects_malformed_marker_layouts() {
     let duplicate = "<!-- notesmith:section:begin s -->\na\n<!-- notesmith:section:begin s -->\nb\n<!-- notesmith:section:end s -->\n";
-    let inverted =
-        "<!-- notesmith:section:end s -->\na\n<!-- notesmith:section:begin s -->\n";
+    let inverted = "<!-- notesmith:section:end s -->\na\n<!-- notesmith:section:begin s -->\n";
     let unpaired_begin = "<!-- notesmith:section:begin s -->\na\n";
     let unpaired_end = "a\n<!-- notesmith:section:end s -->\n";
 
@@ -1588,7 +1587,11 @@ async fn update_managed_section_rejects_malformed_marker_layouts() {
             unpaired_begin,
             "missing_end_marker",
         ),
-        ("Broken/UnpairedEnd.md", unpaired_end, "missing_begin_marker"),
+        (
+            "Broken/UnpairedEnd.md",
+            unpaired_end,
+            "missing_begin_marker",
+        ),
     ] {
         let response = client
             .post(server.url(&format!("/api/v/test-vault/notes-section/{note}")))
