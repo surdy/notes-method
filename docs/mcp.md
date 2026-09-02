@@ -36,6 +36,7 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `create_note` | `title`, `content?`, `folder?`, `frontmatter?` |
 | `get_note` | `path` |
 | `update_note` | `path`, `content` |
+| `update_managed_section` | `path`, `section_id`, `content`, `append_if_missing?` (default `true`), `expected_hash?` |
 | `append_to_note` | `path`, `content` |
 | `archive_note` | `path` |
 | `search_notes` | `query`, `limit?` |
@@ -65,6 +66,41 @@ The MCP operations wrap the existing vault engine, SQLite cache, search index, r
 | `note:///{vault-path}` | Read an individual note |
 | `note:///daily/{date}` | Read a daily note by date |
 | `note:///vault/structure` | List all note paths in the vault |
+
+### `update_managed_section`
+
+Refreshes one [managed section](managed-sections.md) — a machine-owned region
+inside a human-owned note — deterministically. Prefer it over `update_note` for
+**any** note that carries `<!-- notesmith:section:begin <id> -->` /
+`<!-- notesmith:section:end <id> -->` markers.
+
+Only the bytes between that section's marker pair change. Everything else is
+preserved exactly: human prose (trailing whitespace, tabs and mixed line
+endings included), other managed sections, and the YAML frontmatter — this is
+the one write tool that does **not** restamp `updated:`. An agent therefore
+never has to read a note, splice it, and write the whole thing back; doing so
+was measured to corrupt human bytes even when the agent believed it had not.
+
+- `path` — vault-relative note path.
+- `section_id` — the id inside the markers, e.g. `briefing/meetings`.
+- `content` — the new interior, without the marker lines. An empty string
+  empties the section.
+- `append_if_missing` (default `true`) — when the pair is absent, append one
+  complete marked block at the end of the note. With `false`, a missing pair is
+  a `section_not_found` error. Existing human text is never wrapped in new
+  markers either way.
+- `expected_hash` (optional) — the note hash as last read; a mismatch is a write
+  conflict rather than a silent overwrite.
+
+Returns `path`, `hash`, `section_id`, `appended`, and `changed` (`false` when
+the section already held exactly this content — writing the same content twice
+is a byte-level no-op, so jobs can re-run freely). Malformed marker layouts
+(duplicate, inverted or unpaired markers) return a coded error and write
+nothing; the codes match the `reason` values in
+[`docs/http-api.md`](http-api.md).
+
+It is a **write** tool: available on `/mcp/{vault}`, rejected on
+`/mcp-ro/{vault}`.
 
 ### `vault_search` vs `search_notes`
 

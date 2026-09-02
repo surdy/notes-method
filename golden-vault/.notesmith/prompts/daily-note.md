@@ -109,11 +109,15 @@ Today's date: {{ today }}
    `daily` template already contains the empty marked sections), then fetch it.
 2. **Fill the managed sections.** The note contains marker pairs
    `<!-- notesmith:section:begin <id> -->` / `<!-- notesmith:section:end <id> -->`.
-   For each id below, compose the content, then write the note back with the
-   new content spliced **strictly between** that pair — the markers stay, and
-   everything outside every pair must be byte-identical to what you read. If a
-   pair is missing, append the whole marked block (markers plus content) at
-   the end of the note; never wrap existing text in new markers.
+   For each id below, compose that section's content, then call the
+   `update_managed_section` tool **once per section** with the note path, the
+   section id, the composed content, and `append_if_missing: true`. The tool
+   replaces only the bytes between that pair and preserves everything outside
+   it exactly, so you never have to reconstruct the note yourself — do **not**
+   read the whole note, splice it, and write it back with `update_note`. When
+   a pair is missing, `append_if_missing` appends the whole marked block
+   (markers plus content) at the end of the note; never wrap existing text in
+   new markers.
    - `briefing/meetings` — today's meetings from the event-notes table above:
      one bullet per meeting, `HH:MM–HH:MM [[title]] (audience)`, in start
      order. If none: `No meetings today.`
@@ -125,8 +129,17 @@ Today's date: {{ today }}
      entry on a customer note or a manual link). Skip empty groups; if all
      are empty: `Nothing needs attention.`
 3. **Re-runs.** This prompt may run again the same day (manual
-   `notesmith job run daily-briefing`). Replacing between the markers keeps
-   that idempotent — never append duplicate sections or duplicate bullets.
+   `notesmith job run daily-briefing`). Calling `update_managed_section` with
+   the same content is a byte-level no-op, so re-runs converge — never append
+   duplicate sections or duplicate bullets.
+
+## Read-only sessions
+
+If creating or updating the note is denied because this session has only
+read-only vault access, do **not** fail the run. Render the full four-section
+briefing (`briefing/meetings`, `briefing/email`, `briefing/tasks`,
+`briefing/attention`) to stdout as a preview instead, under a short line saying
+the vault is read-only so nothing was written.
 
 ## Email rules (hard boundary)
 

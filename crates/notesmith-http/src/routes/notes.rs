@@ -111,6 +111,30 @@ pub struct AppendNoteRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct UpdateManagedSectionRequest {
+    pub section_id: String,
+    pub content: String,
+    #[serde(default = "default_append_if_missing")]
+    pub append_if_missing: bool,
+    pub expected_hash: Option<String>,
+}
+
+fn default_append_if_missing() -> bool {
+    true
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateManagedSectionResponse {
+    pub path: String,
+    pub hash: String,
+    pub section_id: String,
+    /// True when the marker pair was absent and a whole block was appended.
+    pub appended: bool,
+    /// False when the section interior already held exactly this content.
+    pub changed: bool,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct MoveNoteRequest {
     pub destination: String,
 }
@@ -680,6 +704,98 @@ pub async fn append_note(
     );
 
     Ok(Json(response))
+}
+
+/// Replace the interior of one managed section, byte-preserving everything else.
+///
+/// Unlike every other note write, this endpoint deliberately does **not** run
+/// the save pipeline: "outside the markers is inviolable" includes the YAML
+/// frontmatter, so no automatic `updated:` stamp is applied and no trailing
+/// whitespace is trimmed anywhere in the note. See `docs/managed-sections.md`.
+pub async fn update_managed_section(
+    State(state): State<SharedAppState>,
+    Path((vault_name, note_path)): Path<(String, String)>,
+    Json(request): Json<UpdateManagedSectionRequest>,
+) -> Result<Json<UpdateManagedSectionResponse>, (StatusCode, Json<Value>)> {
+    let state = state.read().await;
+    let vault = state.vaults.get(&vault_name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("vault not found: {vault_name}") })),
+        )
+    })?;
+
+    let note_path = VaultPath::new(note_path);
+    let current_content = vault
+        .engine
+        .read(&vault.root, &note_path)
+        .map_err(note_error)?;
+    let current_hash = blake3::hash(current_content.as_bytes()).to_hex().to_string();
+
+    // Stale-write detection over the same hash mechanism as `PUT /notes`: a
+    // concurrent human edit since the caller read the note is a conflict, never
+    // a silent overwrite.
+    if let Some(expected) = request.expected_hash.as_deref() {
+        if expected != current_hash {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "write conflict",
+                    "path": note_path.as_str(),
+                    "expected": expected,
+                    "actual": current_hash,
+                })),
+            ));
+        }
+    }
+
+    let update = notesmith_vault::update_managed_section(
+        &current_content,
+        &request.section_id,
+        &request.content,
+        request.append_if_missing,
+    )
+    .map_err(managed_section_error)?;
+
+    // No `apply_save_pipeline` — see the doc comment above. The hash of the
+    // content we just read also guards our own read-modify-write window.
+    let response = write_note(
+        &vault.engine,
+        &vault.root,
+        &note_path,
+        Some(&current_hash),
+        &update.content,
+    )?;
+
+    events::emit(
+        &state.event_tx,
+        &state.event_buffer,
+        VaultEvent::new(&vault_name, EventType::NoteUpdated, note_path.as_str())
+            .with_hash(response.hash.clone()),
+    );
+
+    Ok(Json(UpdateManagedSectionResponse {
+        path: response.path,
+        hash: response.hash,
+        section_id: request.section_id,
+        appended: update.appended,
+        changed: update.changed,
+    }))
+}
+
+/// Map a managed-section layout failure to a structured `422` body. The `reason`
+/// code is stable so callers can branch on the kind of malformed layout.
+fn managed_section_error(
+    error: notesmith_vault::ManagedSectionError,
+) -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(json!({
+            "error": error.to_string(),
+            "reason": error.code(),
+            "section_id": error.section_id(),
+        })),
+    )
 }
 
 pub async fn move_note(

@@ -48,11 +48,14 @@ General/            — notes with no kind; routing leaves them alone
 Some notes contain machine-owned regions delimited by
 `<!-- notesmith:section:begin <id> -->` / `<!-- notesmith:section:end <id> -->`
 (e.g. the daily note's `briefing/*` sections, refreshed by the daily-briefing
-job). When refreshing one, replace only the content between its marker pair —
-keep the markers, and leave every byte outside them untouched. If the pair is
-missing, append the whole marked block at the end of the note; never wrap
-existing human text in new markers. Content between markers is overwritten on
-the next run, so durable human notes belong outside them.
+job). Refresh one with the `update_managed_section` tool — never by rewriting
+the note. The tool replaces only the bytes between that section's marker pair
+and guarantees every byte outside it (human prose, other sections, and the
+frontmatter, which keeps its existing `updated:` value) is preserved exactly;
+`append_if_missing` appends the whole marked block at the end when the pair is
+absent, so you never wrap existing human text in new markers. Content between
+markers is overwritten on the next run, so durable human notes belong outside
+them.
 
 ## Command cheat sheet
 

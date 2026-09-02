@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 notesmith-core = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 walkdir = { workspace = true }
 notify = { workspace = true }
 blake3 = { workspace = true }

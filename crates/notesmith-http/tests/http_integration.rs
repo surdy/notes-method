@@ -1398,6 +1398,334 @@ async fn append_note_adds_content() {
     server.server.abort();
 }
 
+// --- managed sections -------------------------------------------------------
+//
+// These reproduce the scenarios from the real-machine verification report that
+// prompt-only enforcement failed (see
+// `plans/work-integrations-post-fix-rerun-handoff.md`, Finding 1). The fixture
+// note is deliberately hostile to a whole-note rewrite: trailing spaces, a tab,
+// an unterminated HTML comment, a CRLF marker line, and an `updated:` stamp.
+
+const MANAGED_SECTION_NOTE: &str = concat!(
+    "---\ntitle: Daily\nupdated: 2026-09-01 08:00\n---\n\n",
+    "## Focus\nHuman focus text with trailing spaces.   \n",
+    "\tIndented human note with a trailing tab.\t\n",
+    "<!-- an incomplete comment\n\n",
+    "<!-- notesmith:section:begin briefing/meetings -->\n",
+    "- stale meeting\n",
+    "<!-- notesmith:section:end briefing/meetings -->\r\n\n",
+    "<!-- notesmith:section:begin briefing/tasks -->\n",
+    "- stale task\n",
+    "<!-- notesmith:section:end briefing/tasks -->\n",
+);
+
+/// The three byte ranges outside the two managed-section interiors: the prefix
+/// (frontmatter plus human prose), the gap between the sections, and the tail.
+/// Each must survive a section update unchanged.
+fn outside_managed_sections(note: &str) -> (&str, &str, &str) {
+    let find = |needle: &str| {
+        note.find(needle)
+            .unwrap_or_else(|| panic!("missing {needle} in note"))
+    };
+    let begin_meetings = find("<!-- notesmith:section:begin briefing/meetings -->");
+    let end_meetings = find("<!-- notesmith:section:end briefing/meetings -->");
+    let begin_tasks = find("<!-- notesmith:section:begin briefing/tasks -->");
+    let end_tasks = find("<!-- notesmith:section:end briefing/tasks -->");
+    (
+        &note[..begin_meetings],
+        &note[end_meetings..begin_tasks],
+        &note[end_tasks..],
+    )
+}
+
+async fn managed_section_server() -> TestServer {
+    let server = TestServer::empty().await;
+    write_note(&server.root, "Daily/Today.md", MANAGED_SECTION_NOTE);
+    server
+}
+
+fn stored_note(server: &TestServer, relative: &str) -> String {
+    fs::read_to_string(server.root.join(relative)).unwrap()
+}
+
+#[tokio::test]
+async fn update_managed_section_preserves_hostile_bytes_outside_the_markers() {
+    let server = managed_section_server().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-section/Daily/Today.md"))
+        .json(&serde_json::json!({
+            "section_id": "briefing/meetings",
+            "content": "- 09:30 standup",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["section_id"], serde_json::json!("briefing/meetings"));
+    assert_eq!(body["appended"], serde_json::json!(false));
+    assert_eq!(body["changed"], serde_json::json!(true));
+
+    let stored = stored_note(&server, "Daily/Today.md");
+    assert_eq!(
+        outside_managed_sections(&stored),
+        outside_managed_sections(MANAGED_SECTION_NOTE),
+        "bytes outside the markers changed"
+    );
+    assert!(stored.contains("\n- 09:30 standup\n"));
+    assert!(!stored.contains("- stale meeting"));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn update_managed_section_leaves_frontmatter_byte_identical() {
+    let server = managed_section_server().await;
+    let client = reqwest::Client::new();
+
+    client
+        .post(server.url("/api/v/test-vault/notes-section/Daily/Today.md"))
+        .json(&serde_json::json!({
+            "section_id": "briefing/tasks",
+            "content": "- ship it",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // No automatic `updated:` touch: managed-section writes skip the save
+    // pipeline entirely, by design (docs/managed-sections.md).
+    let stored = stored_note(&server, "Daily/Today.md");
+    assert!(
+        stored.starts_with("---\ntitle: Daily\nupdated: 2026-09-01 08:00\n---\n"),
+        "frontmatter was rewritten: {stored:?}"
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn update_managed_section_appends_one_block_when_the_pair_is_missing() {
+    let server = managed_section_server().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-section/Daily/Today.md"))
+        .json(&serde_json::json!({
+            "section_id": "briefing/email",
+            "content": "- one reply needed",
+            "append_if_missing": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["appended"], serde_json::json!(true));
+
+    assert_eq!(
+        stored_note(&server, "Daily/Today.md"),
+        format!(
+            "{MANAGED_SECTION_NOTE}\n\
+             <!-- notesmith:section:begin briefing/email -->\n\
+             - one reply needed\n\
+             <!-- notesmith:section:end briefing/email -->\n"
+        )
+    );
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn update_managed_section_rejects_a_missing_pair_without_append() {
+    let server = managed_section_server().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-section/Daily/Today.md"))
+        .json(&serde_json::json!({
+            "section_id": "briefing/email",
+            "content": "- nope",
+            "append_if_missing": false,
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["reason"], serde_json::json!("section_not_found"));
+    assert_eq!(body["section_id"], serde_json::json!("briefing/email"));
+    assert_eq!(stored_note(&server, "Daily/Today.md"), MANAGED_SECTION_NOTE);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn update_managed_section_rejects_malformed_marker_layouts() {
+    let duplicate = "<!-- notesmith:section:begin s -->\na\n<!-- notesmith:section:begin s -->\nb\n<!-- notesmith:section:end s -->\n";
+    let inverted =
+        "<!-- notesmith:section:end s -->\na\n<!-- notesmith:section:begin s -->\n";
+    let unpaired_begin = "<!-- notesmith:section:begin s -->\na\n";
+    let unpaired_end = "a\n<!-- notesmith:section:end s -->\n";
+
+    let server = TestServer::empty().await;
+    write_note(&server.root, "Broken/Duplicate.md", duplicate);
+    write_note(&server.root, "Broken/Inverted.md", inverted);
+    write_note(&server.root, "Broken/UnpairedBegin.md", unpaired_begin);
+    write_note(&server.root, "Broken/UnpairedEnd.md", unpaired_end);
+    let client = reqwest::Client::new();
+
+    for (note, original, expected_reason) in [
+        ("Broken/Duplicate.md", duplicate, "duplicate_begin_marker"),
+        ("Broken/Inverted.md", inverted, "inverted_markers"),
+        (
+            "Broken/UnpairedBegin.md",
+            unpaired_begin,
+            "missing_end_marker",
+        ),
+        ("Broken/UnpairedEnd.md", unpaired_end, "missing_begin_marker"),
+    ] {
+        let response = client
+            .post(server.url(&format!("/api/v/test-vault/notes-section/{note}")))
+            .json(&serde_json::json!({
+                "section_id": "s",
+                "content": "replacement",
+            }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+            "{note}"
+        );
+        let body = response.json::<serde_json::Value>().await.unwrap();
+        assert_eq!(body["reason"], serde_json::json!(expected_reason), "{note}");
+        // A refused update must leave the note untouched.
+        assert_eq!(stored_note(&server, note), original, "{note}");
+    }
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn update_managed_section_is_idempotent() {
+    let server = managed_section_server().await;
+    let client = reqwest::Client::new();
+
+    let request = serde_json::json!({
+        "section_id": "briefing/tasks",
+        "content": "- one\n- two\n",
+    });
+
+    client
+        .post(server.url("/api/v/test-vault/notes-section/Daily/Today.md"))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+    let first = stored_note(&server, "Daily/Today.md");
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-section/Daily/Today.md"))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    let second = stored_note(&server, "Daily/Today.md");
+
+    assert_eq!(first, second, "second identical write changed bytes");
+    assert_eq!(body["changed"], serde_json::json!(false));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn update_managed_section_cannot_change_another_section() {
+    let server = managed_section_server().await;
+    let client = reqwest::Client::new();
+
+    client
+        .post(server.url("/api/v/test-vault/notes-section/Daily/Today.md"))
+        .json(&serde_json::json!({
+            "section_id": "briefing/meetings",
+            "content": "- rewritten",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    let stored = stored_note(&server, "Daily/Today.md");
+    let tail = |note: &str| {
+        let start = note
+            .find("<!-- notesmith:section:begin briefing/tasks -->")
+            .unwrap();
+        note[start..].to_string()
+    };
+    assert_eq!(tail(&stored), tail(MANAGED_SECTION_NOTE));
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn update_managed_section_conflicts_on_a_stale_hash() {
+    let server = managed_section_server().await;
+    let client = reqwest::Client::new();
+    let stale_hash = blake3::hash(MANAGED_SECTION_NOTE.as_bytes())
+        .to_hex()
+        .to_string();
+
+    // A human edits the note after the agent read it.
+    let edited = MANAGED_SECTION_NOTE.replace("## Focus", "## Focus (human edit)");
+    write_note(&server.root, "Daily/Today.md", &edited);
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-section/Daily/Today.md"))
+        .json(&serde_json::json!({
+            "section_id": "briefing/meetings",
+            "content": "- would clobber",
+            "expected_hash": stale_hash,
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(body["expected"], serde_json::json!(stale_hash));
+    // The human's edit stands; nothing was silently overwritten.
+    assert_eq!(stored_note(&server, "Daily/Today.md"), edited);
+
+    server.server.abort();
+}
+
+#[tokio::test]
+async fn update_managed_section_returns_404_for_a_missing_note() {
+    let server = TestServer::empty().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/v/test-vault/notes-section/Daily/Absent.md"))
+        .json(&serde_json::json!({
+            "section_id": "briefing/meetings",
+            "content": "- x",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+    server.server.abort();
+}
+
 #[tokio::test]
 async fn move_note_changes_path() {
     let server = TestServer::with_files(&[("Inbox/Example.md", "# Move me\n")]).await;

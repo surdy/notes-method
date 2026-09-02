@@ -45,6 +45,20 @@ struct UpdateNoteParams {
 }
 
 #[derive(Debug, Deserialize)]
+struct UpdateManagedSectionParams {
+    path: String,
+    section_id: String,
+    content: String,
+    #[serde(default = "default_append_if_missing")]
+    append_if_missing: bool,
+    expected_hash: Option<String>,
+}
+
+fn default_append_if_missing() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
 struct AppendToNoteParams {
     path: String,
     content: String,
@@ -287,6 +301,42 @@ impl NotesmithMcp {
                         "content": {"type": "string"}
                     },
                     "required": ["path", "content"],
+                    "additionalProperties": false
+                }),
+            ),
+            tool_definition(
+                "update_managed_section",
+                scoped(
+                    "Refresh one managed section of a note in place. Replaces only the bytes \
+                     between that section's `<!-- notesmith:section:begin <id> -->` and \
+                     `<!-- notesmith:section:end <id> -->` marker lines; every other byte of the \
+                     note — human prose, other managed sections, and the frontmatter (no `updated:` \
+                     restamp) — is preserved exactly. Prefer this over `update_note` for any note \
+                     that carries markers: it is idempotent and cannot disturb human content",
+                ),
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Vault-relative note path"},
+                        "section_id": {
+                            "type": "string",
+                            "description": "Section id inside the markers, e.g. `briefing/meetings`"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "New interior content, without the marker lines"
+                        },
+                        "append_if_missing": {
+                            "type": "boolean",
+                            "default": true,
+                            "description": "When the marker pair is absent, append one complete marked block at the end of the note instead of erroring"
+                        },
+                        "expected_hash": {
+                            "type": "string",
+                            "description": "Optional hash of the note as last read; a mismatch is a write conflict rather than a silent overwrite"
+                        }
+                    },
+                    "required": ["path", "section_id", "content"],
                     "additionalProperties": false
                 }),
             ),
@@ -874,6 +924,16 @@ impl ServerHandler for NotesmithMcp {
                 .handle_tool_call::<UpdateNoteParams, _>(request.arguments, |params| {
                     self.ops.update_note(&params.path, &params.content)
                 }),
+            "update_managed_section" => self
+                .handle_tool_call::<UpdateManagedSectionParams, _>(request.arguments, |params| {
+                    self.ops.update_managed_section(
+                        &params.path,
+                        &params.section_id,
+                        &params.content,
+                        params.append_if_missing,
+                        params.expected_hash.as_deref(),
+                    )
+                }),
             "append_to_note" => self
                 .handle_tool_call::<AppendToNoteParams, _>(request.arguments, |params| {
                     self.ops.append_to_note(&params.path, &params.content)
@@ -1454,7 +1514,8 @@ mod tests {
         let mcp = build_test_mcp(temp_dir.path());
 
         let tools = mcp.registered_tools();
-        assert_eq!(tools.len(), 24);
+        assert_eq!(tools.len(), 25);
+        assert!(tools.iter().any(|t| t.name == "update_managed_section"));
         assert!(tools.iter().any(|t| t.name == "memory_recall"));
         assert!(tools.iter().any(|t| t.name == "memory_list"));
         assert!(tools.iter().any(|t| t.name == "memory_save"));
@@ -1466,6 +1527,77 @@ mod tests {
         assert!(tools.iter().any(|t| t.name == "vault_stats"));
         assert!(tools.iter().any(|t| t.name == "youtube_transcript"));
         assert!(tools.iter().any(|t| t.name == "read_document"));
+    }
+
+    #[test]
+    fn update_managed_section_tool_has_expected_schema() {
+        let temp_dir = TempDir::new().unwrap();
+        let mcp = build_test_mcp(temp_dir.path());
+
+        let tools = mcp.registered_tools();
+        let tool = tools
+            .iter()
+            .find(|t| t.name == "update_managed_section")
+            .expect("update_managed_section tool must be registered");
+
+        let schema = tool.input_schema.as_ref();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["properties"]["path"]["type"], "string");
+        assert_eq!(schema["properties"]["section_id"]["type"], "string");
+        assert_eq!(schema["properties"]["content"]["type"], "string");
+        assert_eq!(schema["properties"]["append_if_missing"]["type"], "boolean");
+        assert_eq!(schema["properties"]["expected_hash"]["type"], "string");
+        assert_eq!(schema["required"], json!(["path", "section_id", "content"]));
+        assert_eq!(schema["additionalProperties"], json!(false));
+    }
+
+    #[test]
+    fn update_managed_section_tool_defaults_to_appending_a_missing_pair() {
+        // `append_if_missing` is optional in the schema; omitting it must mean
+        // "append", matching the guidance the vault prompts give agents.
+        let params: UpdateManagedSectionParams = serde_json::from_value(json!({
+            "path": "Daily/Today.md",
+            "section_id": "briefing/meetings",
+            "content": "- x",
+        }))
+        .unwrap();
+        assert!(params.append_if_missing);
+        assert!(params.expected_hash.is_none());
+    }
+
+    #[test]
+    fn update_managed_section_is_rejected_on_a_read_only_surface() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note(
+            temp_dir.path(),
+            "Daily/Today.md",
+            "<!-- notesmith:section:begin s -->\nold\n<!-- notesmith:section:end s -->",
+        );
+        let mcp = build_test_mcp(temp_dir.path());
+        let read_only = NotesmithMcp::from_ops(Arc::new(notesmith_ops::ReadOnlyOps::new(
+            LocalOps::new(
+                "test-vault".to_string(),
+                temp_dir.path().to_path_buf(),
+                VaultCache::open_in_memory().unwrap(),
+                SearchIndex::open_in_memory().unwrap(),
+                vault_config(),
+            ),
+        )));
+
+        // The write surface performs it...
+        assert!(
+            mcp.ops()
+                .update_managed_section("Daily/Today.md", "s", "new", true, None)
+                .is_ok()
+        );
+        // ...the read-only surface refuses, like every other write tool.
+        let error = read_only
+            .ops()
+            .update_managed_section("Daily/Today.md", "s", "newer", true, None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("update_managed_section"), "{error}");
+        assert!(error.contains("read-only"), "{error}");
     }
 
     #[test]

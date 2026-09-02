@@ -40,13 +40,50 @@ carry any number of managed sections.
 
 ## How it is implemented
 
-There is no core enforcement engine: the convention lives in vault config and
-agent guidance. Templates ship empty marker pairs (see the work-notes kit's
-`daily` template), prompts instruct the agent to read the note, splice the new
-section content between the markers, and write the result back via
-`update_note`, and the vault `skill.md` teaches every agent session the
-contract above. Note-level git history (the `[git]` timers) is the undo
-mechanism for a bad automated run.
+The marker convention stays vault-level, but **replacing a section's interior
+is a deterministic core operation** — prompt guidance alone could not hold the
+"outside is inviolable" line (see the amendment to
+[ADR 0025](adr/0025-work-system-integrations.md): a compliant agent still
+stripped trailing spaces from human text, and the save pipeline restamped
+`updated:`).
+
+- **Core.** `notesmith_vault::update_managed_section` is pure string surgery:
+  it finds the one marker pair, replaces only the byte range between the
+  marker lines, and copies every other byte through unchanged. Content is
+  written verbatim, with a single `\n` appended when it does not already end
+  in one so the end marker keeps its own line. Re-running with identical
+  content is a byte-level no-op.
+- **HTTP.** `POST /api/v/{vault}/notes-section/{path...}` — see
+  [`docs/http-api.md`](http-api.md).
+- **MCP.** The `update_managed_section` tool, on the read-write `/mcp/{vault}`
+  surface only (rejected on `/mcp-ro/{vault}` like every other write) — see
+  [`docs/mcp.md`](mcp.md).
+- **Structured refusals.** Duplicate begin or end markers for the same id, an
+  inverted pair (end before begin), a begin without an end, an end without a
+  begin, a missing pair with `append_if_missing` off, and replacement content
+  that itself contains a marker line (which would corrupt the section for
+  every later run) all return a coded error and write nothing. The note is
+  never partially rewritten.
+- **Conflict detection.** The write is atomic (temp file + rename) and guarded
+  by the same content hash the other note writes use, so a concurrent human
+  edit produces a conflict instead of a silent overwrite.
+
+### No automatic `updated:` on managed-section writes
+
+Managed-section writes are the one write path that does **not** run the save
+pipeline. Every other write stamps `updated:`, sorts frontmatter keys, and
+trims trailing whitespace; this one does none of that. "Outside the markers is
+inviolable" includes the YAML frontmatter — a machine refreshing its own
+region is not a human editing the note, so it must not claim the note was
+modified, and it must not reformat human bytes on the way past. A caller that
+*wants* the note's `updated:` refreshed makes that a separate, explicit
+`PATCH /notes/{path...}`.
+
+Templates still ship empty marker pairs (see the work-notes kit's `daily`
+template), the `daily-note` prompt tells the agent to call the tool once per
+section rather than rewrite the note, and the vault `skill.md` teaches every
+agent session the contract above. Note-level git history (the `[git]` timers)
+remains the undo mechanism for a bad automated run.
 
 The first user of the convention is the morning daily-briefing agent job
 (issue #288): a `[[jobs]]` entry renders the `daily-note` prompt and fills the

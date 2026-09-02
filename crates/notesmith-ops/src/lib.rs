@@ -26,6 +26,7 @@ use notesmith_templates::TemplateEngine;
 use notesmith_vault::{
     NativeVaultEngine, apply_save_pipeline, apply_save_pipeline_with_timestamp, parse_note,
 };
+use notesmith_vault::managed_section::update_managed_section as splice_managed_section;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -348,6 +349,30 @@ pub trait Ops: Send + Sync {
     ) -> Result<Value>;
     /// Replace a note's content.
     fn update_note(&self, path: &str, content: &str) -> Result<Value>;
+    /// Replace the interior of one **managed section** in place.
+    ///
+    /// Deterministic and byte-preserving: only the bytes between the
+    /// `<!-- notesmith:section:begin <id> -->` / `<!-- notesmith:section:end <id> -->`
+    /// marker pair change. Everything else — human prose, trailing whitespace,
+    /// mixed line endings, other managed sections, and the YAML frontmatter —
+    /// is copied through untouched. In particular the save pipeline is
+    /// deliberately **not** run, so no automatic `updated:` stamp is applied
+    /// (see `docs/managed-sections.md`).
+    ///
+    /// When the pair is absent, `append_if_missing` appends one complete block
+    /// at EOF; otherwise a structured not-found error is returned. Malformed
+    /// layouts (duplicate, inverted or unpaired markers) always error and never
+    /// write. `expected_hash` gives the caller stale-write detection over the
+    /// same mechanism as the other note writes; the read-modify-write window is
+    /// always guarded by the hash of the content this operation itself read.
+    fn update_managed_section(
+        &self,
+        path: &str,
+        section_id: &str,
+        content: &str,
+        append_if_missing: bool,
+        expected_hash: Option<&str>,
+    ) -> Result<Value>;
     /// Append content to an existing note.
     fn append_to_note(&self, path: &str, content: &str) -> Result<Value>;
     /// Route/archive a note according to the vault routing rules.
@@ -2282,6 +2307,51 @@ impl Ops for LocalOps {
         }))
     }
 
+    fn update_managed_section(
+        &self,
+        path: &str,
+        section_id: &str,
+        content: &str,
+        append_if_missing: bool,
+        expected_hash: Option<&str>,
+    ) -> Result<Value> {
+        let note_path = VaultPath::new(path.to_string());
+        let current_content = self.engine.read(&self.vault_root, &note_path)?;
+        let current_hash = blake3::hash(current_content.as_bytes()).to_hex().to_string();
+        if let Some(expected) = expected_hash {
+            if expected != current_hash {
+                anyhow::bail!(
+                    "write conflict for {} (expected {expected}, actual {current_hash})",
+                    note_path.as_str()
+                );
+            }
+        }
+
+        let update = splice_managed_section(
+            &current_content,
+            section_id,
+            content,
+            append_if_missing,
+        )
+        .map_err(|error| anyhow::anyhow!("managed section [{}]: {error}", error.code()))?;
+
+        // Deliberately no `apply_save_pipeline` here: "outside the markers is
+        // inviolable" includes the frontmatter, so this write must not restamp
+        // `updated:` or trim trailing whitespace anywhere in the note.
+        // `current_hash` guards our own read-modify-write window even when the
+        // caller supplied no `expected_hash`.
+        let hash = self.write_content(&note_path, Some(&current_hash), &update.content)?;
+        self.refresh_indexes(&note_path)?;
+
+        Ok(json!({
+            "path": note_path.as_str(),
+            "hash": hash,
+            "section_id": section_id,
+            "appended": update.appended,
+            "changed": update.changed,
+        }))
+    }
+
     fn append_to_note(&self, path: &str, content: &str) -> Result<Value> {
         let note_path = VaultPath::new(path.to_string());
         let current_content = self.engine.read(&self.vault_root, &note_path)?;
@@ -2831,6 +2901,17 @@ impl<O: Ops> Ops for ReadOnlyOps<O> {
 
     fn update_note(&self, _path: &str, _content: &str) -> Result<Value> {
         Err(read_only_error("update_note"))
+    }
+
+    fn update_managed_section(
+        &self,
+        _path: &str,
+        _section_id: &str,
+        _content: &str,
+        _append_if_missing: bool,
+        _expected_hash: Option<&str>,
+    ) -> Result<Value> {
+        Err(read_only_error("update_managed_section"))
     }
 
     fn append_to_note(&self, _path: &str, _content: &str) -> Result<Value> {
@@ -6216,6 +6297,206 @@ mod tests {
         assert_eq!(stored, "Captured thought");
     }
 
+    /// A note whose human-owned bytes are deliberately hostile to a whole-note
+    /// rewrite: trailing spaces, a tab, an unterminated HTML comment, a CRLF
+    /// marker line, and an `updated:` stamp that must not be refreshed.
+    const MANAGED_SECTION_NOTE: &str = concat!(
+        "---\ntitle: Daily\nupdated: 2026-09-01 08:00\n---\n\n",
+        "## Focus\nHuman focus text with trailing spaces.   \n",
+        "\tIndented human note with a trailing tab.\t\n",
+        "<!-- an incomplete comment\n\n",
+        "<!-- notesmith:section:begin briefing/meetings -->\n",
+        "- stale meeting\n",
+        "<!-- notesmith:section:end briefing/meetings -->\r\n\n",
+        "<!-- notesmith:section:begin briefing/tasks -->\n",
+        "- stale task\n",
+        "<!-- notesmith:section:end briefing/tasks -->\n",
+    );
+
+    /// Write bytes exactly as given — unlike `write_note`, which runs the save
+    /// pipeline and would strip the very whitespace these tests are about.
+    fn write_note_verbatim(root: &Path, path: &str, content: &str) {
+        let engine = NativeVaultEngine;
+        engine
+            .write(root, &VaultPath::new(path.to_string()), None, content)
+            .unwrap();
+    }
+
+    #[test]
+    fn update_managed_section_preserves_every_byte_outside_the_markers() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note_verbatim(temp_dir.path(), "Daily/Today.md", MANAGED_SECTION_NOTE);
+        let ops = build_test_ops(temp_dir.path());
+
+        let result = ops
+            .update_managed_section(
+                "Daily/Today.md",
+                "briefing/meetings",
+                "- 09:30 standup",
+                true,
+                None,
+            )
+            .unwrap();
+        assert_eq!(result["appended"], json!(false));
+        assert_eq!(result["changed"], json!(true));
+
+        let stored = std::fs::read_to_string(temp_dir.path().join("Daily/Today.md")).unwrap();
+        let cut = |note: &str| {
+            let begin = note.find("<!-- notesmith:section:begin briefing/meetings -->").unwrap();
+            let end = note.find("<!-- notesmith:section:end briefing/meetings -->").unwrap();
+            (note[..begin].to_string(), note[end..].to_string())
+        };
+        assert_eq!(cut(&stored), cut(MANAGED_SECTION_NOTE));
+        assert!(stored.contains("- 09:30 standup\n"));
+        assert!(!stored.contains("- stale meeting"));
+    }
+
+    #[test]
+    fn update_managed_section_never_restamps_updated_frontmatter() {
+        // The deliberate product decision: "outside the markers is inviolable"
+        // includes the frontmatter, so the save pipeline is not run here.
+        let temp_dir = TempDir::new().unwrap();
+        write_note_verbatim(temp_dir.path(), "Daily/Today.md", MANAGED_SECTION_NOTE);
+        let ops = build_test_ops(temp_dir.path());
+
+        ops.update_managed_section("Daily/Today.md", "briefing/tasks", "- do it", true, None)
+            .unwrap();
+
+        let stored = std::fs::read_to_string(temp_dir.path().join("Daily/Today.md")).unwrap();
+        let frontmatter_end = "---\ntitle: Daily\nupdated: 2026-09-01 08:00\n---\n";
+        assert!(stored.starts_with(frontmatter_end), "frontmatter changed");
+    }
+
+    #[test]
+    fn update_managed_section_appends_when_the_pair_is_missing() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note_verbatim(temp_dir.path(), "Daily/Today.md", MANAGED_SECTION_NOTE);
+        let ops = build_test_ops(temp_dir.path());
+
+        let result = ops
+            .update_managed_section("Daily/Today.md", "briefing/email", "- inbox zero", true, None)
+            .unwrap();
+        assert_eq!(result["appended"], json!(true));
+
+        let stored = std::fs::read_to_string(temp_dir.path().join("Daily/Today.md")).unwrap();
+        assert_eq!(
+            stored,
+            format!(
+                "{MANAGED_SECTION_NOTE}\n\
+                 <!-- notesmith:section:begin briefing/email -->\n\
+                 - inbox zero\n\
+                 <!-- notesmith:section:end briefing/email -->\n"
+            )
+        );
+    }
+
+    #[test]
+    fn update_managed_section_rejects_a_missing_pair_without_append() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note_verbatim(temp_dir.path(), "Daily/Today.md", MANAGED_SECTION_NOTE);
+        let ops = build_test_ops(temp_dir.path());
+
+        let error = ops
+            .update_managed_section("Daily/Today.md", "briefing/email", "x", false, None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("section_not_found"), "{error}");
+
+        let stored = std::fs::read_to_string(temp_dir.path().join("Daily/Today.md")).unwrap();
+        assert_eq!(stored, MANAGED_SECTION_NOTE);
+    }
+
+    #[test]
+    fn update_managed_section_rejects_malformed_layouts_without_writing() {
+        let temp_dir = TempDir::new().unwrap();
+        let broken = concat!(
+            "Body\n",
+            "<!-- notesmith:section:begin s -->\n",
+            "a\n",
+            "<!-- notesmith:section:begin s -->\n",
+            "b\n",
+            "<!-- notesmith:section:end s -->\n",
+        );
+        write_note_verbatim(temp_dir.path(), "Daily/Broken.md", broken);
+        let ops = build_test_ops(temp_dir.path());
+
+        let error = ops
+            .update_managed_section("Daily/Broken.md", "s", "x", true, None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("duplicate_begin_marker"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(temp_dir.path().join("Daily/Broken.md")).unwrap(),
+            broken
+        );
+    }
+
+    #[test]
+    fn update_managed_section_is_idempotent() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note_verbatim(temp_dir.path(), "Daily/Today.md", MANAGED_SECTION_NOTE);
+        let ops = build_test_ops(temp_dir.path());
+
+        ops.update_managed_section("Daily/Today.md", "briefing/tasks", "- one", true, None)
+            .unwrap();
+        let first = std::fs::read_to_string(temp_dir.path().join("Daily/Today.md")).unwrap();
+
+        let second_result = ops
+            .update_managed_section("Daily/Today.md", "briefing/tasks", "- one", true, None)
+            .unwrap();
+        let second = std::fs::read_to_string(temp_dir.path().join("Daily/Today.md")).unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(second_result["changed"], json!(false));
+    }
+
+    #[test]
+    fn update_managed_section_cannot_touch_another_section() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note_verbatim(temp_dir.path(), "Daily/Today.md", MANAGED_SECTION_NOTE);
+        let ops = build_test_ops(temp_dir.path());
+
+        ops.update_managed_section("Daily/Today.md", "briefing/meetings", "- new", true, None)
+            .unwrap();
+
+        let stored = std::fs::read_to_string(temp_dir.path().join("Daily/Today.md")).unwrap();
+        let tail = |note: &str| {
+            let start = note.find("<!-- notesmith:section:begin briefing/tasks -->").unwrap();
+            note[start..].to_string()
+        };
+        assert_eq!(tail(&stored), tail(MANAGED_SECTION_NOTE));
+    }
+
+    #[test]
+    fn update_managed_section_reports_a_conflict_for_a_stale_hash() {
+        let temp_dir = TempDir::new().unwrap();
+        write_note_verbatim(temp_dir.path(), "Daily/Today.md", MANAGED_SECTION_NOTE);
+        let ops = build_test_ops(temp_dir.path());
+        let stale_hash = blake3::hash(MANAGED_SECTION_NOTE.as_bytes())
+            .to_hex()
+            .to_string();
+
+        // Simulate a concurrent human edit landing after the caller read.
+        let edited = MANAGED_SECTION_NOTE.replace("## Focus", "## Focus (edited by a human)");
+        write_note_verbatim(temp_dir.path(), "Daily/Today.md", &edited);
+
+        let error = ops
+            .update_managed_section(
+                "Daily/Today.md",
+                "briefing/meetings",
+                "- new",
+                true,
+                Some(&stale_hash),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("write conflict"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(temp_dir.path().join("Daily/Today.md")).unwrap(),
+            edited
+        );
+    }
+
     #[test]
     fn read_only_allows_reads() {
         let temp_dir = TempDir::new().unwrap();
@@ -6246,6 +6527,10 @@ mod tests {
 
         assert!(ops.create_note("New", None, None, None).is_err());
         assert!(ops.update_note("Inbox/Existing.md", "changed").is_err());
+        assert!(
+            ops.update_managed_section("Inbox/Existing.md", "briefing/tasks", "x", true, None)
+                .is_err()
+        );
         assert!(ops.append_to_note("Inbox/Existing.md", "more").is_err());
         assert!(ops.archive_note("Inbox/Existing.md").is_err());
         assert!(

@@ -459,6 +459,82 @@ Append content to an existing note, then run the save pipeline.
 }
 ```
 
+### `POST /api/v/{vault}/notes-section/{path...}`
+
+Replace the interior of one [managed section](managed-sections.md) in place.
+
+Only the bytes between that section's `<!-- notesmith:section:begin <id> -->`
+and `<!-- notesmith:section:end <id> -->` marker lines change. Every other byte
+of the note is preserved exactly — human prose (including trailing whitespace,
+tabs and mixed CRLF/LF line endings), other managed sections, and the YAML
+frontmatter. **This endpoint deliberately does not run the [save
+pipeline](#save-pipeline)**: no automatic `updated:` stamp, no key sorting, no
+whitespace trimming. See [managed sections](managed-sections.md) for why.
+
+Writing the same content twice is a byte-level no-op, so agent jobs can re-run
+freely.
+
+**Request body:**
+```json
+{
+  "section_id": "briefing/meetings",
+  "content": "- 09:30–10:00 [[Acme sync]] (external)",
+  "append_if_missing": true,
+  "expected_hash": "9a5b62..."
+}
+```
+
+- `section_id` (required) — the id inside the markers.
+- `content` (required) — the new interior, without the marker lines. A single
+  trailing newline is added when missing; an empty string empties the section.
+- `append_if_missing` (optional, default `true`) — when the marker pair is
+  absent, append one complete marked block at the end of the note, separated
+  from the existing final content by exactly one blank line. With `false`, a
+  missing pair is a `422` instead.
+- `expected_hash` (optional) — the note hash as last read. A mismatch is a
+  `409` rather than a silent overwrite. The read-modify-write window is hash-
+  guarded regardless.
+
+**Response:** `200 OK`
+```json
+{
+  "path": "Daily/2026-09-02.md",
+  "hash": "35cb45...",
+  "section_id": "briefing/meetings",
+  "appended": false,
+  "changed": true
+}
+```
+
+- `appended` — `true` when the pair was absent and a whole block was appended.
+- `changed` — `false` when the section already held exactly this content.
+
+**Errors:**
+- `404` — vault or note not found
+- `409` — write conflict (`expected` / `actual` hashes in the body)
+- `422` — the section could not be located unambiguously. The body carries a
+  stable `reason` code plus `section_id`:
+
+  | `reason` | Meaning |
+  |----------|---------|
+  | `section_not_found` | No marker pair for the id, and `append_if_missing` was `false` |
+  | `duplicate_begin_marker` | The begin marker appears more than once |
+  | `duplicate_end_marker` | The end marker appears more than once |
+  | `inverted_markers` | The end marker precedes the begin marker |
+  | `missing_end_marker` | A begin marker with no matching end marker |
+  | `missing_begin_marker` | An end marker with no matching begin marker |
+  | `invalid_section_id` | The id is empty, padded with whitespace, or contains `--` or a line break |
+  | `content_contains_marker` | The replacement content itself contains a section marker line (any id) |
+
+  Every `422` leaves the note byte-identical.
+
+**Example:**
+```bash
+curl -X POST http://127.0.0.1:27183/api/v/work/notes-section/Daily/2026-09-02.md \
+  -H 'Content-Type: application/json' \
+  -d '{"section_id":"briefing/tasks","content":"- Nothing due."}'
+```
+
 ### `POST /api/v/{vault}/notes-move/{path...}`
 
 Move a note to another vault-relative path.
@@ -543,6 +619,11 @@ Every write path (`POST /notes`, `PUT /notes/{path...}`, `PATCH /notes/{path...}
 - sort frontmatter keys alphabetically
 - trim trailing whitespace on every line
 - ensure exactly one trailing newline
+
+`POST /notes-section/{path...}` is the deliberate exception: managed-section
+writes skip the pipeline entirely so that nothing outside the markers — the
+frontmatter's `updated:` value included — can change. See
+[managed sections](managed-sections.md).
 
 ### Hooks
 
