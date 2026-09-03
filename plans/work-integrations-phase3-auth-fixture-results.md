@@ -7,7 +7,7 @@ tags:
   - mcp
   - security
   - handoff
-status: needs-follow-up
+status: complete
 ---
 
 # Work integrations phase 3 auth fixture results
@@ -42,7 +42,7 @@ present and matched. It never logged the value.
 | Resolved secret absent from Notesmith storage | Pass | Scanned the scratch vault, vault-specific application state, and daemon log segment for both the valid and deliberately wrong token values. Both produced zero matches. |
 | Wrong token / HTTP 401 | Pass | With `FIXTURE_TOKEN` changed while the server expectation remained unchanged, the fixture logged `matches=False` and returned 401. Copilot then probed OAuth protected-resource metadata, but the daily-briefing job still recorded `succeeded`, created all four balanced sections, and used the exact disconnected fallback. |
 | Connection refused | Pass | With the fixture process stopped, a second daily-briefing job advanced `last` from `2026-09-03T16:09:08.862493+00:00` to `2026-09-03T16:09:48.010515+00:00`, remained `succeeded`, retained four balanced sections, and used the exact fallback. |
-| Desktop Settings redaction and save preservation | Not exercised | This requires the real Tauri Settings surface. The headless CLI cannot invoke `mcp_servers_get` / `mcp_servers_set`, and no desktop UI automation tool was available in this session. Existing tests cover the DTO redaction and merge-preservation logic, but that is not a substitute for the requested real-screen acceptance check. |
+| Desktop Settings redaction and save preservation | Pass | Launched the real desktop app with the isolated config. The `Authorization` field rendered empty with the `value stored - leave blank to keep` hint. Saving with the field blank succeeded; the unexpanded stored value remained in `config.toml`, and the resolved value was absent. |
 
 ## Commands
 
@@ -90,16 +90,17 @@ valid resolved value: 0
 wrong resolved value: 0
 ```
 
-## Cleanup and remaining acceptance check
+## Desktop acceptance and cleanup
 
-The fixture server was stopped and its `[[mcp.servers]]` entry was removed
-from the isolated config. The scratch fixture and prompt remain in the scratch
-vault as evidence. The normal Notesmith.app daemon was restored.
+The real desktop Settings check was completed against the isolated config:
 
-To close this section completely, open Settings -> MCP Servers against an
-isolated config containing the fixture entry and verify:
-
-1. `Authorization` renders with an empty value and the
+1. `Authorization` rendered with an empty value and the
    `value stored - leave blank to keep` hint.
-2. Saving without entering a replacement value preserves
-   `Bearer $FIXTURE_TOKEN` in `config.toml`.
+2. Saving without entering a replacement value preserved the unexpanded
+   environment-variable reference in `config.toml`.
+3. The resolved dummy secret did not appear in the config.
+
+The fixture entry was then removed from the isolated config. The scratch
+fixture and prompt remain in the scratch vault as evidence. The isolated app
+and daemon were stopped, and the normal Notesmith.app desktop and daemon were
+restored.

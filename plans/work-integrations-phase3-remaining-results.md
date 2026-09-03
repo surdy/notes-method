@@ -7,7 +7,7 @@ tags:
   - workiq
   - mcp
   - handoff
-status: needs-follow-up
+status: complete
 ---
 
 # Work integrations phase 3 remaining results
@@ -229,14 +229,23 @@ provided the connector supplies a narrow `$select`.
   disrupting the working sign-in.
 - Rate limiting was not induced.
 
-## Cleanup and remaining manual check
+## Desktop Settings acceptance and cleanup
+
+The final manual acceptance check passed in the real desktop app:
+
+- The app was launched with the isolated scratch config containing the
+  `auth-fixture` entry.
+- Settings -> MCP Servers displayed the `Authorization` value field empty with
+  the `value stored - leave blank to keep` hint.
+- Saving without entering a replacement value succeeded.
+- The unexpanded environment-variable reference remained in `config.toml`.
+- The resolved dummy secret was absent from the config.
 
 - The schedule was restored to `07:30`.
 - The kit prompt was restored byte-identically.
 - The C4 data edits and C5 malformed marker were removed.
 - The isolated daemon was stopped.
-- The normal Notesmith.app daemon was restored.
+- The isolated desktop was closed.
+- The normal Notesmith.app desktop and daemon were restored with the `work`
+  and `Customer Notes` vaults healthy.
 - The scratch vault and stdio fixtures remain at the path above.
-
-The only remaining handoff item is the real desktop Settings redaction check
-from [[work-integrations-phase3-auth-fixture-results]].
