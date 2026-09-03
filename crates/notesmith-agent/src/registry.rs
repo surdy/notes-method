@@ -54,6 +54,18 @@ pub struct AgentDescriptor {
     /// `--version` probe and warn only when a detected version is strictly
     /// below this.
     pub min_version: Option<&'static str>,
+    /// Whether this agent's ACP mode **rejects** stdio MCP servers supplied by
+    /// the ACP client in `session/new` (GitHub Copilot logs `Rejecting
+    /// non-http/sse MCP server "<id>" from client`; github/copilot-cli#3889).
+    ///
+    /// For such an agent the external stdio `[[mcp.servers]]` entries cannot
+    /// travel over ACP at all, so [`session`](Self::session) enables
+    /// [`AcpSession::with_spawn_stdio_mcp_config`], which writes them to a
+    /// per-session config file and injects it with `--additional-mcp-config`
+    /// when the process is spawned (ADR 0012, 2026-09-03 addendum). It is a
+    /// per-agent capability flag rather than an id check so the behavior lives
+    /// with the agent's description, and no other agent's wiring changes.
+    pub rejects_client_stdio_mcp: bool,
 }
 
 impl AgentDescriptor {
@@ -96,7 +108,8 @@ impl AgentDescriptor {
                 Vec::new(),
             ),
         };
-        let session = AcpSession::new(program, args);
+        let session = AcpSession::new(program, args)
+            .with_spawn_stdio_mcp_config(self.rejects_client_stdio_mcp);
         if self.setup_hint.is_empty() {
             session
         } else {
@@ -153,6 +166,10 @@ static BUILTIN: &[AgentDescriptor] = &[
         docs_url: "https://github.com/github/copilot-cli",
         auth_hint: "Sign in with your GitHub Copilot subscription via the Copilot CLI.",
         min_version: None,
+        // Copilot's ACP mode drops every client-supplied stdio MCP server, so
+        // external stdio servers ride in via `--additional-mcp-config` at spawn
+        // time instead (github/copilot-cli#3889; ADR 0012, 2026-09-03 addendum).
+        rejects_client_stdio_mcp: true,
     },
     AgentDescriptor {
         id: "claude",
@@ -164,6 +181,7 @@ static BUILTIN: &[AgentDescriptor] = &[
         docs_url: "https://github.com/zed-industries/claude-code-acp",
         auth_hint: "Authenticate with your Anthropic / Claude account in Claude Code.",
         min_version: None,
+        rejects_client_stdio_mcp: false,
     },
     AgentDescriptor {
         id: "codex",
@@ -174,6 +192,7 @@ static BUILTIN: &[AgentDescriptor] = &[
         docs_url: "https://github.com/zed-industries/codex-acp",
         auth_hint: "Authenticate with your OpenAI / Codex account in the Codex adapter.",
         min_version: None,
+        rejects_client_stdio_mcp: false,
     },
     AgentDescriptor {
         id: "gemini",
@@ -184,6 +203,7 @@ static BUILTIN: &[AgentDescriptor] = &[
         docs_url: "https://github.com/google-gemini/gemini-cli",
         auth_hint: "Authenticate with your Google account in the Gemini CLI.",
         min_version: None,
+        rejects_client_stdio_mcp: false,
     },
     AgentDescriptor {
         id: "opencode",
@@ -194,6 +214,7 @@ static BUILTIN: &[AgentDescriptor] = &[
         docs_url: "https://github.com/sst/opencode",
         auth_hint: "Authenticate with your configured provider in the OpenCode CLI.",
         min_version: None,
+        rejects_client_stdio_mcp: false,
     },
 ];
 
@@ -284,6 +305,30 @@ mod tests {
         assert_eq!(session.args, vec!["--experimental-acp".to_string()]);
         assert!(session.setup_hint.is_some());
         assert!(!session.setup_hint.as_deref().unwrap_or("").is_empty());
+    }
+
+    #[test]
+    fn only_copilot_rejects_client_supplied_stdio_mcp_servers() {
+        assert!(descriptor("copilot").unwrap().rejects_client_stdio_mcp);
+        for id in ["claude", "codex", "gemini", "opencode"] {
+            assert!(
+                !descriptor(id).unwrap().rejects_client_stdio_mcp,
+                "{id} should keep advertising stdio MCP servers over ACP"
+            );
+        }
+    }
+
+    #[test]
+    fn session_builder_propagates_the_stdio_mcp_capability_flag() {
+        // The flag rides from the registry into the session for both callers
+        // (desktop bridge and headless CLI) with no extra wiring.
+        let copilot = descriptor("copilot").unwrap().session(None);
+        assert!(copilot.injects_stdio_mcp_at_spawn());
+        let gemini = descriptor("gemini").unwrap().session(None);
+        assert!(!gemini.injects_stdio_mcp_at_spawn());
+        // A binary override does not change the capability.
+        let copilot = descriptor("copilot").unwrap().session(Some("/opt/copilot"));
+        assert!(copilot.injects_stdio_mcp_at_spawn());
     }
 
     #[test]

@@ -1040,6 +1040,8 @@ notesmith url-open "notesmith://user/standup?date=2026-05-10"
 
 Headless, non-interactive commands that drive your external ACP agent (Copilot/Claude/Codex/Gemini/OpenCode) for scripting and cron. Notesmith never runs its own chat LLM: it starts the agent over ACP and the agent reaches vault content through Notesmith's MCP tools — over the daemon's HTTP MCP endpoint when the agent supports HTTP MCP (GitHub Copilot's ACP mode rejects stdio MCP servers supplied by the client, so HTTP is the only binding it accepts from Notesmith — it does support stdio servers configured through its own config/SDK paths), falling back to the local `notesmith mcp start` stdio bridge otherwise. The daemon is auto-started because both transports front it.
 
+Your enabled external `[[mcp.servers]]` entries ride along in the same session. HTTP entries are handed to the agent in its ACP session setup; **stdio** entries are too — except for GitHub Copilot, which refuses client-supplied stdio servers. For Copilot, Notesmith writes those entries to a private `0600` config file for that one run and starts the process with `--additional-mcp-config=@<file>`, deleting the file when the run ends (see [External MCP servers](ai-mcp-servers.md)).
+
 > For **interactive** AI chat inside the desktop app (with a model picker, edit approvals, slash commands, and more), see the [AI Chat Panel guide](ai-chat.md). The `ai` commands below are the scriptable, no-UI counterpart.
 
 **Shared flags (all `ai` subcommands):**

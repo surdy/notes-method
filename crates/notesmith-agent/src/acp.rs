@@ -63,6 +63,7 @@ use crate::permission::{
     DenyAll, DiffPreview, PermissionDecider, PermissionRequest, PermissionState, resolve_permission,
 };
 use crate::session::AgentSession;
+use crate::spawn_mcp::SpawnMcpConfig;
 
 /// Client name advertised to the agent during `initialize`.
 const CLIENT_NAME: &str = "notesmith";
@@ -571,6 +572,15 @@ pub struct AcpSession {
     /// Additional user-configured external MCP servers (ADR 0016 / #211),
     /// advertised alongside the built-in vault binding on every transport.
     extra_mcp: Vec<McpBinding>,
+    /// Whether this agent's ACP mode refuses client-supplied stdio MCP servers,
+    /// so the stdio entries of `extra_mcp` must instead be injected into the
+    /// process at spawn time (Copilot; see [`crate::spawn_mcp`]).
+    inject_stdio_mcp_at_spawn: bool,
+    /// The per-session spawn-time MCP config file, materialized at start when
+    /// `inject_stdio_mcp_at_spawn` is set and stdio extras exist. Holding it
+    /// here ties the file's lifetime to the session: it is deleted when the
+    /// session is dropped.
+    spawn_mcp_config: Option<SpawnMcpConfig>,
     has_companion_memory: bool,
     read_only: bool,
     local_io: bool,
@@ -607,6 +617,8 @@ impl AcpSession {
             mcp: None,
             mcp_stdio_fallback: None,
             extra_mcp: Vec::new(),
+            inject_stdio_mcp_at_spawn: false,
+            spawn_mcp_config: None,
             has_companion_memory: false,
             read_only: true,
             local_io: false,
@@ -630,10 +642,13 @@ impl AcpSession {
     /// Build an ACP session for the GitHub Copilot CLI (`copilot --acp`).
     ///
     /// `bin` overrides the binary (path or name); `None` uses
-    /// [`DEFAULT_COPILOT_BIN`].
+    /// [`DEFAULT_COPILOT_BIN`]. Copilot refuses client-supplied stdio MCP
+    /// servers, so the session is built with spawn-time stdio MCP injection
+    /// enabled (see
+    /// [`with_spawn_stdio_mcp_config`](Self::with_spawn_stdio_mcp_config)).
     pub fn copilot(bin: Option<&str>) -> Self {
         let program = bin.filter(|b| !b.is_empty()).unwrap_or(DEFAULT_COPILOT_BIN);
-        Self::new(program, vec!["--acp".to_string()])
+        Self::new(program, vec!["--acp".to_string()]).with_spawn_stdio_mcp_config(true)
     }
 
     /// Build an ACP session for Claude Code via its ACP adapter.
@@ -765,6 +780,29 @@ impl AcpSession {
         self
     }
 
+    /// Declare that this agent's ACP mode **rejects** stdio MCP servers handed
+    /// to it by the ACP client, so the stdio entries of
+    /// [`with_extra_mcp`](Self::with_extra_mcp) must be injected into the agent
+    /// process at spawn time instead (ADR 0012, 2026-09-03 addendum).
+    ///
+    /// When enabled and the extras contain at least one stdio binding, starting
+    /// the session writes a `0600` per-session JSON config file describing those
+    /// servers, appends `--additional-mcp-config=@<path>` to the spawn
+    /// arguments, and omits them from the `session/new` `mcpServers` array (the
+    /// agent would only refuse them there, with a warning in *its* log). HTTP
+    /// extras and the vault binding are unaffected. The file is deleted when
+    /// the session is dropped.
+    ///
+    /// Off by default: every other agent keeps advertising stdio servers over
+    /// ACP exactly as before. The flag comes from the agent registry
+    /// ([`AgentDescriptor::rejects_client_stdio_mcp`](crate::AgentDescriptor::rejects_client_stdio_mcp)),
+    /// so both the desktop bridge and the headless CLI get it from
+    /// [`AgentDescriptor::session`](crate::AgentDescriptor::session).
+    pub fn with_spawn_stdio_mcp_config(mut self, enabled: bool) -> Self {
+        self.inject_stdio_mcp_at_spawn = enabled;
+        self
+    }
+
     /// Mark that this session carries a companion fact-memory MCP server so the
     /// preamble can inject bounded scope guidance.
     pub fn with_companion_memory(mut self, enabled: bool) -> Self {
@@ -840,6 +878,83 @@ impl AcpSession {
         self.setup_hint.as_deref()
     }
 
+    /// Whether this session injects its external stdio MCP servers into the
+    /// agent process at spawn time instead of advertising them over ACP (see
+    /// [`with_spawn_stdio_mcp_config`](Self::with_spawn_stdio_mcp_config)).
+    pub fn injects_stdio_mcp_at_spawn(&self) -> bool {
+        self.inject_stdio_mcp_at_spawn
+    }
+
+    /// The arguments the child process is actually spawned with: the base
+    /// [`args`](Self::args) plus `--additional-mcp-config=@<path>` when a
+    /// spawn-time MCP config was materialized for this session. Identical to
+    /// `args()` until (and unless) that happens.
+    pub fn spawn_args(&self) -> Vec<String> {
+        let mut args = self.args.clone();
+        if let Some(config) = &self.spawn_mcp_config {
+            args.push(config.flag_arg());
+        }
+        args
+    }
+
+    /// Materialize the spawn-time MCP config file for agents that reject
+    /// client-supplied stdio servers, once per session, before the process is
+    /// spawned. A no-op when the flag is off, when the file already exists, or
+    /// when there are no stdio extras to inject.
+    ///
+    /// An I/O failure is recorded in diagnostics and otherwise ignored: the
+    /// session then behaves exactly as it did before this mechanism existed
+    /// (the stdio servers stay in `session/new` and the agent refuses them),
+    /// which is strictly better than failing to start. The error text never
+    /// includes the document, whose env values may be credentials.
+    fn prepare_spawn_mcp_config(&mut self) {
+        if !self.inject_stdio_mcp_at_spawn || self.spawn_mcp_config.is_some() {
+            return;
+        }
+        let stdio: Vec<McpBinding> = self
+            .extra_mcp
+            .iter()
+            .filter(|binding| binding.is_stdio())
+            .cloned()
+            .collect();
+        if stdio.is_empty() {
+            return;
+        }
+        match SpawnMcpConfig::write(&stdio) {
+            Ok(config) => self.spawn_mcp_config = Some(config),
+            Err(error) => {
+                if let Some(log) = &self.diagnostics {
+                    log.record_error(
+                        Some(&self.program),
+                        format!(
+                            "could not write the spawn-time MCP config ({}); \
+                             external stdio servers may be unavailable this session",
+                            error.kind()
+                        ),
+                        None,
+                    );
+                }
+            }
+        }
+    }
+
+    /// The extra MCP bindings advertised in `session/new` / `session/load`.
+    ///
+    /// Once a spawn-time config carries the stdio extras into the agent's own
+    /// config, advertising them over ACP as well would only earn a rejection
+    /// warning from the agent and a duplicate server name, so they are dropped
+    /// here. HTTP extras always pass through.
+    fn advertised_extra_mcp(&self) -> Vec<McpBinding> {
+        if self.spawn_mcp_config.is_none() {
+            return self.extra_mcp.clone();
+        }
+        self.extra_mcp
+            .iter()
+            .filter(|binding| !binding.is_stdio())
+            .cloned()
+            .collect()
+    }
+
     /// Resolve the session working directory as an **absolute** path. ACP
     /// agents reject relative `cwd` values, so a missing or relative working
     /// directory is resolved against the process's current directory.
@@ -859,10 +974,12 @@ impl AcpSession {
         resolved.to_string_lossy().into_owned()
     }
 
-    /// Build the ACP subprocess transport from the launch table entry.
+    /// Build the ACP subprocess transport from the launch table entry, spawning
+    /// with [`spawn_args`](Self::spawn_args) so a materialized spawn-time MCP
+    /// config is passed to the agent process.
     fn build_agent(&self) -> AcpAgent {
         let mut stdio =
-            McpServerStdio::new(AGENT_SERVER_NAME, self.program.clone()).args(self.args.clone());
+            McpServerStdio::new(AGENT_SERVER_NAME, self.program.clone()).args(self.spawn_args());
         if !self.env.is_empty() {
             stdio = stdio.env(
                 self.env
@@ -879,6 +996,11 @@ impl AcpSession {
     /// has completed (or failed). The driver streams normalized events through
     /// `self.event_rx` and consumes user messages from `self.user_tx`.
     fn start_driver(&mut self) -> oneshot::Receiver<HandshakeResult> {
+        // Materialize the spawn-time MCP config (if this agent needs one)
+        // *before* the transport is built: it contributes a launch argument and
+        // decides which extras are still advertised over ACP.
+        self.prepare_spawn_mcp_config();
+
         let (user_tx, mut user_rx) = mpsc::unbounded_channel::<DriverCommand>();
         let (event_tx, event_rx) = mpsc::unbounded_channel::<AgentEvent>();
         let (ready_tx, ready_rx) = oneshot::channel::<HandshakeResult>();
@@ -893,7 +1015,7 @@ impl AcpSession {
         let cwd = self.absolute_cwd();
         let mcp = self.mcp.clone();
         let mcp_stdio_fallback = self.mcp_stdio_fallback.clone();
-        let extra_mcp = self.extra_mcp.clone();
+        let extra_mcp = self.advertised_extra_mcp();
         let has_companion_memory = self.has_companion_memory;
         let local_io = self.local_io;
         let read_only = self.read_only;
@@ -1488,6 +1610,9 @@ impl Drop for AcpSession {
             // spawned agent process.
             driver.abort();
         }
+        // The spawn-time MCP config file (which may contain credentials) is
+        // removed when `self.spawn_mcp_config` drops, immediately after this
+        // body runs — i.e. after the agent process has been torn down.
     }
 }
 
@@ -1630,6 +1755,151 @@ mod tests {
         let servers = value["mcpServers"].as_array().unwrap();
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0]["url"], json!("https://tools.example.com/mcp"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Spawn-time MCP config injection for agents that reject client-supplied
+    // stdio servers (Copilot; github/copilot-cli#3889).
+    // -----------------------------------------------------------------------
+
+    fn stdio_and_http_extras() -> Vec<McpBinding> {
+        vec![
+            McpBinding::stdio_with_env(
+                "workiq",
+                "/opt/workiq/bin/workiq",
+                vec!["mcp".to_string()],
+                vec![("WORKIQ_TOKEN".to_string(), "secret".to_string())],
+                false,
+            ),
+            McpBinding::http("remote-tools", "https://tools.example.com/mcp"),
+        ]
+    }
+
+    #[test]
+    fn spawn_config_carries_stdio_extras_and_keeps_them_out_of_session_new() {
+        let mut session = AcpSession::new("copilot", vec!["--acp".to_string()])
+            .with_spawn_stdio_mcp_config(true)
+            .with_extra_mcp(stdio_and_http_extras());
+        session.prepare_spawn_mcp_config();
+
+        // The stdio server reached the spawn-time config file, in the shape
+        // Copilot accepts.
+        let path = session
+            .spawn_mcp_config
+            .as_ref()
+            .expect("a spawn config was written")
+            .path()
+            .to_path_buf();
+        let document: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read config"))
+                .expect("valid json");
+        let servers = document["mcpServers"].as_object().unwrap();
+        assert_eq!(servers.len(), 1, "only stdio extras belong in the file");
+        assert_eq!(servers["workiq"]["type"], json!("local"));
+        assert_eq!(
+            servers["workiq"]["command"],
+            json!("/opt/workiq/bin/workiq")
+        );
+        assert_eq!(servers["workiq"]["args"], json!(["mcp"]));
+        assert_eq!(servers["workiq"]["timeout"], json!(55_000));
+
+        // Spawn args gain exactly the one flag, appended after the base args.
+        let args = session.spawn_args();
+        assert_eq!(
+            args,
+            vec![
+                "--acp".to_string(),
+                format!("--additional-mcp-config=@{}", path.display()),
+            ]
+        );
+        // The base args accessor is unchanged.
+        assert_eq!(session.args(), &["--acp".to_string()]);
+
+        // `session/new` advertises the vault binding and the HTTP extra only —
+        // the stdio extra would just be rejected there.
+        let vault = McpBinding::http("notesmith-work", "http://127.0.0.1:27183/mcp/work");
+        let advertised = session.advertised_extra_mcp();
+        let value =
+            serde_json::to_value(new_session_request("/vault", Some(&vault), &advertised)).unwrap();
+        let advertised_servers = value["mcpServers"].as_array().unwrap();
+        assert_eq!(advertised_servers.len(), 2);
+        assert_eq!(advertised_servers[0]["name"], json!("notesmith-work"));
+        assert_eq!(advertised_servers[1]["name"], json!("remote-tools"));
+        assert!(
+            !advertised_servers
+                .iter()
+                .any(|server| server["name"] == json!("workiq")),
+            "stdio extras must not be double-advertised: {advertised_servers:?}"
+        );
+    }
+
+    #[test]
+    fn without_the_capability_flag_stdio_extras_stay_on_the_acp_transport() {
+        let mut session =
+            AcpSession::new("claude-code-acp", Vec::new()).with_extra_mcp(stdio_and_http_extras());
+        session.prepare_spawn_mcp_config();
+
+        assert!(session.spawn_mcp_config.is_none(), "no file is written");
+        assert!(session.spawn_args().is_empty(), "no extra spawn args");
+        let advertised = session.advertised_extra_mcp();
+        assert_eq!(advertised.len(), 2);
+        assert!(advertised[0].is_stdio());
+        assert_eq!(advertised[0].name(), "workiq");
+    }
+
+    #[test]
+    fn no_spawn_config_is_written_when_the_extras_are_all_http() {
+        let mut session = AcpSession::new("copilot", vec!["--acp".to_string()])
+            .with_spawn_stdio_mcp_config(true)
+            .with_extra_mcp(vec![McpBinding::http(
+                "remote-tools",
+                "https://tools.example.com/mcp",
+            )]);
+        session.prepare_spawn_mcp_config();
+
+        assert!(session.spawn_mcp_config.is_none());
+        assert_eq!(session.spawn_args(), vec!["--acp".to_string()]);
+        assert_eq!(session.advertised_extra_mcp().len(), 1);
+    }
+
+    #[test]
+    fn preparing_twice_reuses_the_same_config_file() {
+        let mut session = AcpSession::new("copilot", vec!["--acp".to_string()])
+            .with_spawn_stdio_mcp_config(true)
+            .with_extra_mcp(stdio_and_http_extras());
+        session.prepare_spawn_mcp_config();
+        let first = session.spawn_args();
+        session.prepare_spawn_mcp_config();
+        assert_eq!(session.spawn_args(), first);
+    }
+
+    #[test]
+    fn dropping_the_session_removes_the_spawn_mcp_config_file() {
+        let mut session = AcpSession::new("copilot", vec!["--acp".to_string()])
+            .with_spawn_stdio_mcp_config(true)
+            .with_extra_mcp(stdio_and_http_extras());
+        session.prepare_spawn_mcp_config();
+        let path = session
+            .spawn_mcp_config
+            .as_ref()
+            .expect("a spawn config was written")
+            .path()
+            .to_path_buf();
+        assert!(path.exists());
+
+        drop(session);
+        assert!(
+            !path.exists(),
+            "the spawn MCP config must not outlive the session"
+        );
+    }
+
+    #[test]
+    fn copilot_sessions_enable_spawn_time_stdio_injection() {
+        assert!(AcpSession::copilot(None).inject_stdio_mcp_at_spawn);
+        assert!(!AcpSession::claude_code(None).inject_stdio_mcp_at_spawn);
+        assert!(!AcpSession::gemini(None).inject_stdio_mcp_at_spawn);
+        assert!(!AcpSession::codex(None).inject_stdio_mcp_at_spawn);
     }
 
     #[test]

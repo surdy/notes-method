@@ -25,6 +25,7 @@ mod model;
 mod permission;
 mod registry;
 mod session;
+mod spawn_mcp;
 
 pub use acp::{
     AcpSession, CLAUDE_ACP_PACKAGE, DEFAULT_CODEX_ACP_BIN, DEFAULT_COPILOT_BIN, DEFAULT_GEMINI_BIN,

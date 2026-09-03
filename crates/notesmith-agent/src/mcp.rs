@@ -219,6 +219,16 @@ impl McpBinding {
         }
     }
 
+    /// Whether this binding launches a local stdio subprocess.
+    ///
+    /// Agents whose ACP mode refuses client-supplied stdio servers (Copilot,
+    /// github/copilot-cli#3889) receive these through a spawn-time config file
+    /// instead of the `session/new` `mcpServers` array — see
+    /// [`AcpSession::with_spawn_stdio_mcp_config`](crate::AcpSession::with_spawn_stdio_mcp_config).
+    pub fn is_stdio(&self) -> bool {
+        matches!(self, Self::Stdio { .. })
+    }
+
     /// Whether this binding targets the read-only scope.
     pub fn read_only(&self) -> bool {
         match self {
@@ -269,11 +279,15 @@ impl McpBinding {
 /// servers and servers with neither a command nor a url are skipped (ADR 0009:
 /// malformed config never panics).
 ///
-/// Note that a **stdio** entry here does not reach every agent: Copilot's ACP
-/// mode rejects client-supplied stdio MCP servers outright, so such an entry is
-/// available in Claude/Codex/Gemini/OpenCode sessions but absent from Copilot
-/// ones (ADR 0012, 2026-09-02 amendment). Notesmith still passes it — the
-/// refusal is the agent's, and is logged by the agent, not by us.
+/// A **stdio** entry reaches every agent, but not by the same route: Copilot's
+/// ACP mode rejects client-supplied stdio MCP servers outright
+/// (github/copilot-cli#3889), so for agents flagged with
+/// [`AgentDescriptor::rejects_client_stdio_mcp`](crate::AgentDescriptor::rejects_client_stdio_mcp)
+/// the stdio bindings are written to a per-session config file and injected at
+/// spawn time via `--additional-mcp-config` instead of being advertised in
+/// `session/new` (ADR 0012, 2026-09-02 amendment and 2026-09-03 addendum).
+/// Every other agent receives them in the `session/new` `mcpServers` array as
+/// before.
 pub fn extra_mcp_bindings(cfg: &McpConfig) -> Vec<McpBinding> {
     let mut bindings = Vec::new();
     for server in &cfg.servers {

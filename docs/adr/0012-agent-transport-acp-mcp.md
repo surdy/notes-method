@@ -295,3 +295,47 @@ or comment upstream; re-test against new Copilot releases when it matters. A
 known ecosystem workaround is `--additional-mcp-config=@<file>` at Copilot
 spawn time (process-scoped — which matches one-session-per-process headless
 runs).
+
+## Addendum (2026-09-03) — Notesmith injects stdio externals at Copilot spawn
+
+The workaround named at the end of the amendment above is now **implemented**,
+so the user-facing consequence recorded there no longer holds: external stdio
+`[[mcp.servers]]` entries do reach Copilot sessions.
+
+Field-validated on 2026-09-03 against Copilot CLI `1.0.83-3`
+(`plans/work-integrations-phase3-remaining-results.md`, Section 6): Copilot
+accepts `--additional-mcp-config=@/absolute/path/config.json` at spawn, the
+stdio server it describes starts, and it **coexists** with the ACP-supplied
+HTTP Notesmith binding in the same session — the agent called a tool from each
+in one turn, and no `Rejecting non-http/sse MCP server` line appeared.
+
+What Notesmith does when a session is built for an agent whose descriptor sets
+`rejects_client_stdio_mcp` (today only `copilot`) and whose extra MCP bindings
+include stdio entries (`crates/notesmith-agent/src/spawn_mcp.rs`):
+
+1. Writes a per-session JSON config describing those stdio servers —
+   `{"mcpServers": {"<name>": {"type": "local", "command", "args", "tools":
+   ["*"], "deferTools": "never", "disableToolCache": true, "timeout":
+   55000}}}`, plus an `"env"` object when the binding carries environment
+   variables.
+2. Appends `--additional-mcp-config=@<absolute path>` to that session's spawn
+   arguments.
+3. Omits those stdio bindings from the `session/new` / `session/load`
+   `mcpServers` array, where they would only be refused. HTTP externals and the
+   vault binding are unchanged, and agents without the flag behave exactly as
+   before.
+
+`timeout` is 55000 ms deliberately: it sits just under Copilot's hard 60s MCP
+initialization budget ([copilot-cli#4421](https://github.com/github/copilot-cli/issues/4421)),
+so a slow server times out as one dead server rather than tripping Copilot's
+global budget and failing the whole session start.
+
+The generated file may contain credentials (a server's `env`), so it is created
+`0600`, is never logged, and is deleted when the session is dropped — its
+lifetime is the process it configures, matching the process-scoped nature of
+the flag.
+
+The decision is still unchanged: HTTP remains the vault binding's preferred
+transport, and this affects only the *external* server surface. #3889 stays
+open; if Copilot later accepts client-supplied stdio servers, the capability
+flag is the single place to turn this off.
