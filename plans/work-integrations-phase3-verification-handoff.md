@@ -361,19 +361,16 @@ Report back, verbatim where possible:
 That report is the input to the connector design. A guessed interface would
 mean designing twice.
 
-## 5. Still outstanding: file the upstream Copilot issue
+## 5. Upstream Copilot issue: do NOT file
 
-You have the evidence and your report already lists what to include: Copilot
-CLI `1.0.83-1`, launch mode `copilot --acp`, the `session/new` stdio MCP entry,
-the exact log line `Rejecting non-http/sse MCP server "notesmith-workiq" from
-client`, and the CLI `1.0.25` changelog statement that ACP clients may supply
-stdio MCP servers. File it against `github/copilot-cli` (or link an existing
-issue if one already covers it) and put the URL in your report. Ask Harpreet
-before filing anything under his account.
-
-Nothing in this round depends on the outcome — the HTTP binding is the right
-answer regardless — but the docs now claim this is an upstream gap, and a
-tracked issue is what makes that claim checkable later.
+Harpreet has decided nothing gets filed against `github/copilot-cli` — do not
+open an issue, comment on one, or otherwise report this upstream from any
+account. The evidence (the `Rejecting non-http/sse MCP server` log line and
+the changelog contradiction) stays recorded in
+[[work-integrations-post-fix-rerun-handoff]] and the ADR 0012 amendment;
+periodically re-testing against new Copilot CLI releases is how the claim
+stays checkable. Nothing in this round depends on the outcome — the HTTP
+binding is the right answer regardless.
 
 ## 6. Report back
 
