@@ -372,7 +372,43 @@ periodically re-testing against new Copilot CLI releases is how the claim
 stays checkable. Nothing in this round depends on the outcome — the HTTP
 binding is the right answer regardless.
 
-## 6. Report back
+For the record, upstream already tracks our exact failure mode:
+[copilot-cli#3889](https://github.com/github/copilot-cli/issues/3889) (open,
+no maintainer response; reproduced by others on 1.0.52–1.0.81-11). Watch it;
+do not touch it.
+
+## 6. Experiment: `--additional-mcp-config` at Copilot spawn time
+
+Research into #3889 surfaced a working ecosystem workaround: Copilot accepts
+stdio MCP servers passed via `--additional-mcp-config=@<file>` on its own
+command line (that path predates ACP and is what the SDK uses). The flag is
+process-scoped, which is normally its weakness — but a headless
+`notesmith ai` run is one session in one process, so for our use it is
+effectively session-scoped. If this works, Notesmith could hand Copilot a
+stdio server like `workiq mcp` after all, without waiting on #3889.
+
+Test it with the same wrapper-script trick you used for
+`--disable-mcp-server` in your phase-F run:
+
+1. Confirm the flag's exact name and payload shape on your CLI version
+   (`copilot --help`, and try `--additional-mcp-config=@file` with a JSON
+   body shaped like Copilot's own MCP config).
+2. First isolate transport from auth: use a trivial local stdio MCP server
+   (the fixture from section 3 has an HTTP shape; any minimal stdio echo
+   server or `npx @modelcontextprotocol/server-everything` works) in the
+   config file, wrapper script appends the flag, then
+   `notesmith ai prompt daily-note --agent copilot --agent-bin <wrapper>`.
+   Success = the agent can list/call the stdio server's tools in the
+   session; note whether the ACP-supplied servers still arrive normally
+   alongside it.
+3. Only if step 2 passes, swap in `workiq mcp` (pre-installed binary, not
+   `npx` — #4421 documents a hard 60s init budget with no retry, and npx
+   cold starts can blow it) and re-run the phase-F boundary checks.
+4. Report exact flag syntax, CLI version, and logs either way — if it works,
+   the product change is small (per-agent spawn-time config injection in
+   `notesmith-agent`), and your findings are its spec.
+
+## 7. Report back
 
 One results table: phase / sub-check, pass / fail / not-exercised, and for
 every failure the exact command, the exact output, and the note content

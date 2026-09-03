@@ -283,3 +283,15 @@ surface rather than the vault binding: a stdio-only external server (e.g.
 `workiq mcp`) reaches Claude/Codex/Gemini/OpenCode sessions but is rejected in
 Copilot sessions. That caveat is documented in
 [`docs/ai-mcp-servers.md`](../ai-mcp-servers.md).
+
+Tracked upstream as
+[copilot-cli#3889](https://github.com/github/copilot-cli/issues/3889) (open
+since 2026-06-23; no maintainer response as of 2026-09-03; independently
+reproduced on 1.0.52 through 1.0.83). Root cause per third-party analysis:
+Copilot's ACP `initialize` advertises `mcpCapabilities` of http and sse only,
+omitting stdio — the one transport the ACP spec marks mandatory — while its
+own v1.0.25 changelog claims ACP clients may supply all three. We do not file
+or comment upstream; re-test against new Copilot releases when it matters. A
+known ecosystem workaround is `--additional-mcp-config=@<file>` at Copilot
+spawn time (process-scoped — which matches one-session-per-process headless
+runs).
