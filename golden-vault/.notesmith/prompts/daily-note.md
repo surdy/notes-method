@@ -2,12 +2,14 @@
 context_queries:
   - name: todays_meetings
     sql: >
-      SELECT s.value AS start, n.title, a.value AS audience, n.path
+      SELECT s.value AS start, e.value AS "end", n.title, a.value AS audience, n.path
       FROM v_notes n
       JOIN v_field_values k ON k.vault_name = n.vault_name AND k.note_path = n.path
        AND k.key = 'kind' AND k.value = 'event'
       JOIN v_field_values s ON s.vault_name = n.vault_name AND s.note_path = n.path
        AND s.key = 'start' AND date(s.value) = date('now', 'localtime')
+      LEFT JOIN v_field_values e ON e.vault_name = n.vault_name AND e.note_path = n.path
+       AND e.key = 'end'
       LEFT JOIN v_field_values a ON a.vault_name = n.vault_name AND a.note_path = n.path
        AND a.key = 'audience'
       ORDER BY s.value
@@ -119,8 +121,12 @@ Today's date: {{ today }}
    (markers plus content) at the end of the note; never wrap existing text in
    new markers.
    - `briefing/meetings` — today's meetings from the event-notes table above:
-     one bullet per meeting, `HH:MM–HH:MM [[title]] (audience)`, in start
-     order. If none: `No meetings today.`
+     one bullet per meeting, in start order. Render
+     `HH:MM–HH:MM [[title]] (audience)` when that row has an `end`, and
+     `HH:MM [[title]] (audience)` when its `end` is empty. **Never invent an
+     end time** — an empty `end` means the end is unknown, so the bullet
+     carries the start alone; do not guess a duration. If none:
+     `No meetings today.`
    - `briefing/email` — see the email rules below.
    - `briefing/tasks` — tasks due today or overdue (flag overdue ones), then
      an "Upcoming" line for the next-3-days table. If nothing: `Nothing due.`

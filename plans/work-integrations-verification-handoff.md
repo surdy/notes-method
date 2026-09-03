@@ -72,8 +72,8 @@ Frontmatter relationship fields are lists of quoted wikilinks
 
 | Note | Frontmatter / content | Exercises |
 |---|---|---|
-| `Meetings/… Standup.md` | `kind: event`, `start: <today>T09:30`, `audience: internal` | todays_meetings |
-| `Meetings/… Acme sync.md` | `kind: event`, `start: <today>T14:00`, `audience: external`, `customers: ["[[Acme Corp]]"]` | todays_meetings; **control** for unmatched_events (has customers → must NOT appear there) |
+| `Meetings/… Standup.md` | `kind: event`, `start: <today>T09:30`, `end: <today>T09:45`, `audience: internal` | todays_meetings (the `end` case) |
+| `Meetings/… Acme sync.md` | `kind: event`, `start: <today>T14:00`, **no** `end` key, `audience: external`, `customers: ["[[Acme Corp]]"]` | todays_meetings (**control** for the no-`end` case — the agent must not invent one); **control** for unmatched_events (has customers → must NOT appear there) |
 | `Meetings/… Globex intro.md` | `kind: event`, `start: <today−2d>T11:00`, `audience: external`, **no** `customers` key | unmatched_events |
 | `Meetings/… Old town hall.md` | `kind: event`, `start: <today−10d>`, `audience: external`, no customers | **control**: outside 7-day window → absent |
 | any task note | `- [ ] pay invoice [due:: <today>]`, `- [ ] overdue thing [due:: <today−3d>]` | tasks_due (overdue one must be flagged) |
@@ -110,7 +110,9 @@ check record pass/fail plus the actual output on failure.
 
 - `Daily/<today>.md` exists (created via template if absent) and all four
   `briefing/*` sections are filled between their markers:
-  meetings in start order (`HH:MM–HH:MM [[title]] (audience)`), tasks with
+  meetings in start order — the Standup as `HH:MM–HH:MM [[title]] (audience)`
+  (it has an `end`) and the Acme sync as `HH:MM [[title]] (audience)` (it has
+  none; an invented end time is a **fail**) — tasks with
   the overdue one flagged plus an "Upcoming" line, attention listing the two
   blocked/waiting streams + the stale stream + the unmatched external event.
 - With no Work IQ attached, `briefing/email` reads exactly
