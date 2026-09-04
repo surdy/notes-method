@@ -150,6 +150,45 @@ vault whose indexed frontmatter retained:
 
 The positive mid-call meeting-prefill path is verified.
 
+### Transcript connector end-to-end
+
+The work-notes kit containing `transcript-sync.py` and the paginated calendar
+connector was applied to the isolated vault. Both connectors passed their
+offline self-tests, and calendar sync then completed successfully through the
+Notesmith job runner.
+
+The first transcript-sync run found no eligible cached occurrence. This was
+not a matcher failure: the approved Calendar-tree rebuild had intentionally
+restored only today through seven days ahead, while transcript sync looks back
+three days for recently ended meetings. A one-time September 1-4 calendar
+backfill using the corrected timezone conversion restored nineteen past event
+notes and produced nine eligible online occurrences across nine series.
+
+Transcript sync then completed successfully and created two sidecar notes.
+Both carried:
+
+- `kind: transcript`
+- `source_type: teams`
+- the matched occurrence's `event_id`
+- an event-note wikilink
+
+No matching human meeting note existed, so neither sidecar carried a meeting
+wikilink. The user opened the September 2 customer-call transcript and
+confirmed from memory that it belonged to the correct meeting and contained
+the expected speakers. This is the required ground-truth check that metadata
+and schema validation cannot provide.
+
+A second manual transcript-sync run left the note count at two, confirming
+idempotence. After this check, both `calendar-sync` and `transcript-sync` were
+enabled in the isolated vault; each job hot-reloaded as valid, and
+`transcript-sync` had no unmet `after = ["calendar-sync"]` dependency.
+
+**Fresh-install caveat:** a forward-only Calendar tree cannot support
+transcript sync's three-day lookback until enough new meetings have accumulated.
+Historical testing requires a one-time matching calendar backfill, but normal
+scheduled operation does not: calendar events will already exist before their
+transcripts become available.
+
 ## Phase-5 Requirements
 
 1. Use the existing `match_transcript` algorithm.
