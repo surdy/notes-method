@@ -515,11 +515,11 @@ fn parse_timedtext_srv3(xml: &str) -> Vec<TranscriptSegment> {
         if text.is_empty() {
             continue;
         }
-        segments.push(TranscriptSegment {
-            start: start_ms / 1000.0,
-            end: (start_ms + dur_ms) / 1000.0,
+        segments.push(TranscriptSegment::new(
+            start_ms / 1000.0,
+            (start_ms + dur_ms) / 1000.0,
             text,
-        });
+        ));
     }
     segments
 }
@@ -551,11 +551,7 @@ fn parse_timedtext_legacy(xml: &str) -> Vec<TranscriptSegment> {
         if text.is_empty() {
             continue;
         }
-        segments.push(TranscriptSegment {
-            start,
-            end: start + dur,
-            text,
-        });
+        segments.push(TranscriptSegment::new(start, start + dur, text));
     }
     segments
 }

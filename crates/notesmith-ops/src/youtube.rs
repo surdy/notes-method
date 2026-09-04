@@ -119,16 +119,8 @@ mod tests {
         let transcript = YoutubeTranscript {
             meta: meta(),
             segments: vec![
-                TranscriptSegment {
-                    start: 0.0,
-                    end: 2.5,
-                    text: "Never gonna give you up".to_string(),
-                },
-                TranscriptSegment {
-                    start: 65.0,
-                    end: 67.0,
-                    text: "Never gonna let you down".to_string(),
-                },
+                TranscriptSegment::new(0.0, 2.5, "Never gonna give you up"),
+                TranscriptSegment::new(65.0, 67.0, "Never gonna let you down"),
             ],
         };
         let value = youtube_outcome_to_value(&YoutubeOutcome::Captions(transcript));

@@ -20,6 +20,7 @@ mod model;
 mod paths;
 mod queue;
 mod render;
+mod vtt;
 mod worker;
 
 #[cfg(feature = "local-whisper")]
@@ -31,7 +32,11 @@ pub use queue::{
     EnqueueOutcome, NewQueueEntry, QueueItem, QueueStatus, SOURCE_TYPE_AUDIO, SOURCE_TYPE_YOUTUBE,
     TranscriptionQueue,
 };
-pub use render::{MediaMeta, format_timestamp, render_transcript_note, transcript_body};
+pub use render::{
+    MediaMeta, format_timestamp, render_transcript_note, render_transcript_note_with_frontmatter,
+    transcript_body,
+};
+pub use vtt::parse_vtt;
 pub use worker::{TranscribeReport, TranscribeWorker};
 
 #[cfg(feature = "local-whisper")]
@@ -77,6 +82,40 @@ pub struct TranscriptSegment {
     pub end: f64,
     /// Segment text (trimmed).
     pub text: String,
+    /// Who spoke this segment, when the source attributes it (ADR 0025's
+    /// 2026-09-04 amendment). Teams WebVTT carries a `<v Speaker>` voice tag on
+    /// every cue; Whisper and YouTube captions carry nothing, and pass `None`.
+    pub speaker: Option<String>,
+}
+
+impl TranscriptSegment {
+    /// An unattributed segment — the shape every engine but Teams produces.
+    pub fn new(start: f64, end: f64, text: impl Into<String>) -> Self {
+        Self {
+            start,
+            end,
+            text: text.into(),
+            speaker: None,
+        }
+    }
+
+    /// A segment attributed to a speaker. An empty or whitespace-only name is
+    /// treated as no attribution, so a malformed voice tag degrades to a plain
+    /// line rather than rendering a stray separator.
+    pub fn spoken(
+        start: f64,
+        end: f64,
+        speaker: impl Into<String>,
+        text: impl Into<String>,
+    ) -> Self {
+        let speaker = speaker.into();
+        Self {
+            start,
+            end,
+            text: text.into(),
+            speaker: Some(speaker.trim().to_string()).filter(|name| !name.is_empty()),
+        }
+    }
 }
 
 /// A fully decoded transcript: an optional detected language plus timestamped
@@ -232,16 +271,8 @@ mod tests {
     #[test]
     fn stub_yields_configured_segments() {
         let stub = StubTranscriber::with_segments(vec![
-            TranscriptSegment {
-                start: 0.0,
-                end: 1.5,
-                text: "hello".into(),
-            },
-            TranscriptSegment {
-                start: 1.5,
-                end: 3.0,
-                text: "world".into(),
-            },
+            TranscriptSegment::new(0.0, 1.5, "hello"),
+            TranscriptSegment::new(1.5, 3.0, "world"),
         ]);
         let t = stub
             .transcribe(&AudioInput::Pcm {

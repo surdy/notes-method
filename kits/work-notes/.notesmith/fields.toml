@@ -81,6 +81,13 @@ description = "Event end (ISO datetime)"
 type = "string"
 description = "Event organizer email"
 
+# The bridge to Teams transcripts (ADR 0025, 2026-09-04 amendment). Identifies
+# the online meeting, not the occurrence: recurring instances reuse one URL, so
+# transcript-sync matches timestamps to pick the occurrence.
+[fields.join_url]
+type = "string"
+description = "Teams join URL for an online meeting event"
+
 # Set on a meeting note by the meeting-prefill hook: a wikilink to the
 # machine-owned event note the meeting was captured from. Together with
 # `event_id` it joins a hand-written meeting to its calendar record.

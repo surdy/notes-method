@@ -438,6 +438,55 @@ The real engine loads a whisper.cpp GGML model from
 `NOTESMITH_WHISPER_MODEL_DIR` (a directory containing a `ggml-*.bin` file); when
 unset or empty, the stub is used.
 
+### `transcribe --from-vtt <PATH|-> [...]`
+
+Render an **already existing** WebVTT transcript into a note. No speech-to-text
+runs, so this works identically in lean builds.
+
+This is the entry point connectors use (ADR 0025's 2026-09-04 amendment). A
+Teams meeting transcript arrives as VTT, and a subprocess connector cannot call
+the shared Rust renderer directly — without this it would have to reimplement
+the body format and drift from it.
+
+```bash
+# The connector shape: VTT on stdin, vault-specific keys merged in.
+workiq fetch -u "/me/onlineMeetings/$ID/transcripts/$TID/content?\$format=text/vtt" \
+  | jq -r . \
+  | notesmith transcribe --from-vtt - \
+      --title "Acme Q3 sync" \
+      --source "teams:$EVENT_ID" \
+      --frontmatter '{"event_id":"'"$EVENT_ID"'","event":"[[2026-08-04 0930 Acme Q3 sync]]"}'
+
+notesmith transcribe --from-vtt meeting.vtt --output note.md
+```
+
+- `<PATH>` — the VTT file, or `-` to read stdin. **Prefer stdin from a
+  connector**: transcript content then never touches disk.
+- `--title T` — note title. Defaults to the file stem, or empty for stdin.
+- `--source S` — `source_url`, the dedup key. Defaults to the path, or `stdin`
+  for a pipe, so a connector should pass a stable external identifier.
+- `--source-type T` — defaults to `teams`, the only VTT producer we have.
+- `--frontmatter JSON` — a JSON object merged into the rendered frontmatter.
+  This is how vault-specific keys (`event_id`, meeting and customer wikilinks)
+  reach the note without core learning the vault's model (ADR 0025 Decision 5).
+  Keys already rendered are replaced; new keys are appended. A non-object, or
+  invalid JSON, is an error rather than a silently dropped `event_id`.
+- `--tag TAG`, `--output FILE`, `--format json` — as above; the JSON payload is
+  `{ source, segments, speakers, output, note }`.
+
+The note carries `kind: transcript` (ADR 0025's one Transcript Note concept)
+ahead of the usual media-provenance keys, and a `[M:SS] Name: text` body when
+the VTT attributes cues to speakers — Teams puts a `<v Speaker>` voice tag on
+every cue. Cues are emitted in source order and never sorted, because Teams cue
+intervals can overlap.
+
+A VTT that yields no cues is an error: rendering an empty note would look like
+success and leave the meeting silently untranscribed.
+
+> The audio and YouTube paths still emit no `kind`, so their shipped note shape
+> is unchanged. Applying ADR 0025's "`kind: transcript` regardless of origin" to
+> those two is a vault migration, tracked separately.
+
 ### `transcribe --drain [--vault NAME] [--format json]`
 
 Drain each vault's pending-transcription queue into notes instead of

@@ -97,6 +97,7 @@ Notes on the layout:
 | `event` | meeting (optional) | `"[[<event note>]]"` — wikilink back to the calendar record the meeting was captured from |
 | `start` / `end` | event | ISO datetime (string; SQL `date()` parses it) |
 | `organizer` | event | organizer email |
+| `join_url` | event (online meetings) | Teams join URL — the bridge to meeting transcripts. Identifies the *online meeting*, not the occurrence: recurring instances reuse one URL. |
 | `domains` | customer | list of email domains that identify the customer (feeds calendar sync) |
 
 ```toml
@@ -566,9 +567,24 @@ attendees: ["alice@acme.com", "harpreet@corp.example.com"]
 audience: external            # derived: any non-corp attendee domain present
 customers: ["[[Acme Corp]]"]  # derived via domains -> customer mapping; [] if none
 organizer: alice@acme.com
+join_url: "https://teams.microsoft.com/l/..."   # only on online meetings
 tags: ["calendar"]
 ---
 ```
+
+**The transcript bridge.** `join_url` is requested via `isOnlineMeeting,
+onlineMeeting` and persisted so `transcript-sync` can reach Teams transcripts:
+a calendar event exposes no transcript link, but its join URL resolves to an
+online meeting, and transcripts hang off that (ADR 0025's 2026-09-04
+amendment). The URL identifies the online *meeting*, not the occurrence —
+recurring instances reuse one URL — so transcript sync matches transcript
+timestamps to the occurrence before assigning `event_id`.
+
+Note this is **forward-only**: the connector syncs today through +7 days with no
+lookback, so events that already happened before `join_url` shipped will never
+acquire one. Combined with the observed transcript retention floor, that means
+no transcript catch-up for meetings predating the change — only coverage from
+here on.
 
 Events are *records of the calendar*, distinct from `kind: meeting` notes; the
 meeting note stays the authoritative record. `todays_meetings` and
