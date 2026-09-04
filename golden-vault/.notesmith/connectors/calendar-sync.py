@@ -24,10 +24,16 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+try:  # Python 3.9+; absent only on very old interpreters.
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover - fallback keeps the connector running
+    ZoneInfo = None
 
 # --------------------------------------------------------------------------
 # Pure functions (unit-testable, no I/O)
@@ -51,24 +57,81 @@ def sanitize_subject(subject: str) -> str:
     return cleaned or "Untitled"
 
 
-def parse_graph_datetime(value: str) -> datetime:
-    """Parse a Graph dateTime into a naive local-wall-clock ``datetime``.
+# Graph spells UTC several ways depending on the surface.
+_UTC_ALIASES = {"utc", "gmt", "z", "coordinated universal time"}
 
-    Graph returns values like ``2026-08-04T09:30:00.0000000`` (calendarView,
-    in the request's timezone) or with a trailing ``Z``. We only ever use the
-    wall-clock components, so fractional seconds and any zone suffix are
-    dropped rather than converted.
+_ZONE_MARKER = re.compile(r"(Z|[+-]\d{2}:?\d{2})$")
+
+
+def _offset_tz(token: str) -> timezone:
+    """`+02:00` / `-0700` -> a fixed-offset tzinfo."""
+    digits = token[1:].replace(":", "")
+    delta = timedelta(hours=int(digits[:2]), minutes=int(digits[2:4]))
+    return timezone(delta if token[0] == "+" else -delta)
+
+
+def _zone_from_name(name: str):
+    """A tzinfo for a Graph ``timeZone`` value; UTC when it is not recognised.
+
+    calendarView returns UTC unless the request carries a
+    ``Prefer: outlook.timezone`` header, and the Work IQ CLI gives us no way to
+    send one -- so UTC is both the default and the overwhelmingly likely value.
+    A Windows zone name ("Pacific Standard Time") is not IANA and would not
+    resolve; we say so on stderr rather than silently guessing.
+    """
+    text = (name or "").strip()
+    if not text or text.lower() in _UTC_ALIASES:
+        return timezone.utc
+    if ZoneInfo is not None:
+        try:
+            return ZoneInfo(text)
+        except Exception:  # noqa: BLE001 - any resolution failure means fall back
+            pass
+    print(
+        f"calendar-sync: unrecognised timeZone {text!r}; treating it as UTC",
+        file=sys.stderr,
+    )
+    return timezone.utc
+
+
+def parse_graph_datetime(value: str, zone: str = "UTC") -> datetime:
+    """Parse a Graph dateTime into a naive **local wall-clock** ``datetime``.
+
+    Graph sends calendarView times as a zone-less ``dateTime`` plus a sibling
+    ``timeZone`` field -- UTC in practice, per `zone` -- while other surfaces
+    use a trailing ``Z`` or an offset. All three are converted to the local
+    wall clock, because that is what the rest of the vault means by a time:
+    `date:` fields, the briefing's `date('now', 'localtime')` queries, and
+    meeting-prefill's window around `now` are all local.
+
+    This previously *dropped* the zone and kept the raw components, which
+    stored UTC clock values labelled as local -- a 7-hour error in PDT that
+    also rolled evening meetings onto the following day. Verified against real
+    synced notes on 2026-09-04; see
+    `spikes/transcript-occurrence-matching/FINDINGS.md`.
     """
     text = (value or "").strip()
-    text = re.sub(r"(Z|[+-]\d{2}:?\d{2})$", "", text)
-    if "." in text:
-        text = text.split(".", 1)[0]
+    marker = _ZONE_MARKER.search(text)
+    body = text[: marker.start()] if marker else text
+    if "." in body:
+        body = body.split(".", 1)[0]
+
+    parsed = None
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
         try:
-            return datetime.strptime(text, fmt)
+            parsed = datetime.strptime(body, fmt)
+            break
         except ValueError:
             continue
-    raise ValueError(f"unparseable Graph dateTime: {value!r}")
+    if parsed is None:
+        raise ValueError(f"unparseable Graph dateTime: {value!r}")
+
+    if marker:
+        token = marker.group(0)
+        tzinfo = timezone.utc if token in ("Z", "z") else _offset_tz(token)
+    else:
+        tzinfo = _zone_from_name(zone)
+    return parsed.replace(tzinfo=tzinfo).astimezone().replace(tzinfo=None)
 
 
 def _iso_naive(dt: datetime) -> str:
@@ -76,9 +139,19 @@ def _iso_naive(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def _utc_z(dt: datetime) -> str:
+    """Render an aware datetime as a UTC ``...Z`` stamp for a Graph query.
+
+    A zone-less bound is interpreted by Graph as UTC, so sending local midnight
+    bare shifted the whole sync window by the local offset.
+    """
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def event_start(event: dict) -> datetime:
-    """The event's start as a naive datetime (raises on absent/invalid)."""
-    return parse_graph_datetime(event["start"]["dateTime"])
+    """The event's start as a naive local datetime (raises on absent/invalid)."""
+    start = event["start"]
+    return parse_graph_datetime(start["dateTime"], start.get("timeZone"))
 
 
 def event_note_path(event: dict) -> str:
@@ -180,15 +253,17 @@ def graph_event_to_frontmatter(event, corp_domains, domain_to_customer) -> dict:
     frontmatter = {
         "kind": "event",
         "event_id": event["id"],
-        "start": _iso_naive(parse_graph_datetime(event["start"]["dateTime"])),
+        "start": _iso_naive(event_start(event)),
         "attendees": addresses,
         "audience": derive_audience(domains, corp_domains),
         "customers": map_customers(domains, domain_to_customer),
         "tags": ["calendar"],
     }
-    end = (event.get("end") or {}).get("dateTime")
-    if end:
-        frontmatter["end"] = _iso_naive(parse_graph_datetime(end))
+    end_field = event.get("end") or {}
+    if end_field.get("dateTime"):
+        frontmatter["end"] = _iso_naive(
+            parse_graph_datetime(end_field["dateTime"], end_field.get("timeZone"))
+        )
     organizer = organizer_address(event)
     if organizer:
         frontmatter["organizer"] = organizer
@@ -376,11 +451,15 @@ def workiq_fetch(entity_url: str) -> dict:
 
 def calendar_view_url(days_ahead: int) -> str:
     """Graph calendarView entity URL for [start of today, +days_ahead]."""
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = (
+        datetime.now()
+        .astimezone()
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+    )
     end = today + timedelta(days=days_ahead)
     params = {
-        "startDateTime": _iso_naive(today),
-        "endDateTime": _iso_naive(end),
+        "startDateTime": _utc_z(today),
+        "endDateTime": _utc_z(end),
         "$select": (
             "id,subject,start,end,attendees,organizer,isCancelled,"
             "isOnlineMeeting,onlineMeeting"
@@ -486,7 +565,90 @@ _SELF_TEST_GRAPH = {
 }
 
 
+class _PinnedZone:
+    """Pin the process timezone so conversion assertions are machine-independent.
+
+    `parse_graph_datetime` converts to *local* time, so a self-test that did not
+    pin the zone would pass or fail depending on where it ran.
+    """
+
+    def __init__(self, name: str):
+        self.name = name
+        self.previous = os.environ.get("TZ")
+
+    def __enter__(self):
+        os.environ["TZ"] = self.name
+        time.tzset()
+        return self
+
+    def __exit__(self, *_exc):
+        if self.previous is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = self.previous
+        time.tzset()
+        return False
+
+
+def _test_timezone_conversion() -> None:
+    """The 2026-09-04 bug: Graph sends UTC, the vault stores local wall clock.
+
+    Real synced notes showed a 17:00 PDT meeting stored as `2026-09-04T00:00:00`
+    -- the right instant, the wrong clock, and the wrong day.
+    """
+    with _PinnedZone("America/Los_Angeles"):
+        # calendarView's shape: zone-less dateTime + a sibling timeZone.
+        assert parse_graph_datetime("2026-09-04T00:00:00", "UTC") == datetime(
+            2026, 9, 3, 17, 0
+        ), "a 00:00 UTC stamp is the previous day at 17:00 in PDT"
+        assert parse_graph_datetime("2026-09-03T16:05:00.0000000", "UTC") == datetime(
+            2026, 9, 3, 9, 5
+        )
+
+        # An explicit marker on the value wins over the sibling field.
+        assert parse_graph_datetime("2026-09-03T16:05:00Z", "UTC") == datetime(
+            2026, 9, 3, 9, 5
+        )
+        assert parse_graph_datetime("2026-09-03T18:05:00+02:00", "UTC") == datetime(
+            2026, 9, 3, 9, 5
+        )
+        assert parse_graph_datetime("2026-09-03T18:05:00+0200", "UTC") == datetime(
+            2026, 9, 3, 9, 5
+        )
+
+        # Standard time, not just daylight time: the offset is -08:00 in January.
+        assert parse_graph_datetime("2026-01-15T17:00:00", "UTC") == datetime(
+            2026, 1, 15, 9, 0
+        ), "DST must come from the zone database, not a fixed offset"
+
+        # A Windows zone name is not IANA; fall back to UTC rather than guess.
+        assert parse_graph_datetime(
+            "2026-09-03T16:05:00", "Pacific Standard Time"
+        ) == datetime(2026, 9, 3, 9, 5)
+
+        # The request window goes out as UTC, so Graph does not reinterpret it.
+        url = calendar_view_url(7)
+        assert "startDateTime=2026" in url or "startDateTime=" in url, url
+        assert "Z&" in url or url.rstrip().endswith("Z"), url
+
+    with _PinnedZone("UTC"):
+        # In UTC the conversion is the identity -- the shape the old code
+        # accidentally assumed everywhere.
+        assert parse_graph_datetime("2026-09-03T16:05:00", "UTC") == datetime(
+            2026, 9, 3, 16, 5
+        )
+
+
 def self_test() -> int:
+    _test_timezone_conversion()
+    # The fixture assertions below read the fixtures' UTC clock values at face
+    # value. `parse_graph_datetime` now converts to local, so pin UTC or the
+    # expected paths and times would depend on where the test runs.
+    with _PinnedZone("UTC"):
+        return _self_test_fixtures()
+
+
+def _self_test_fixtures() -> int:
     corp = ["corp.example.com"]
     mapping = {"acme.com": "[[Acme Corp]]"}
     events = _SELF_TEST_GRAPH["value"]
