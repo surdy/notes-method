@@ -1653,8 +1653,12 @@ and persisted last-run status.
       "valid": true,
       "running": false,
       "last_run": {
-        "at": "2026-08-04T23:59:41+00:00",
-        "status": "missed"
+        "at": "2026-08-05T07:30:07+00:00",
+        "status": "succeeded",
+        "exit_code": 0,
+        "duration_ms": 42137,
+        "writes": 4,
+        "sections_written": ["briefing/attention", "briefing/email", "briefing/meetings", "briefing/tasks"]
       }
     },
     {
@@ -1680,8 +1684,30 @@ unknown/self/cyclic `after` reference, or an entry with both or neither of
 prerequisites without a successful run today — non-empty means the scheduler
 is holding the job back. `last_run.status` is one of `succeeded`, `failed`,
 `timed_out`, `missed` (an `at` fire forfeited because its `after`
-prerequisites were never met that day); it is omitted for jobs that have
-never run.
+prerequisites were never met that day), or `no_writes`; it is omitted for jobs
+that have never run.
+
+**Write attribution and `success_when` (ADR 0025 amendment).** For agent jobs
+with `allow_writes = true`, the daemon attributes the run's vault writes and
+adds two `last_run` fields (both omitted for command jobs and read-only agent
+jobs):
+
+- `writes` — the number of vault writes the run performed. A write-tracked run
+  that exited 0 but performed **zero** writes gets `status: "no_writes"`
+  (visible, but distinct from `succeeded`, and it does not advance the job's
+  last-success or satisfy an `after` prerequisite). `writes` is present even on
+  a `no_writes` run (as `0`).
+- `sections_written` — the managed sections the run wrote via
+  `update_managed_section` (sorted, deduped). Present only when the run touched
+  at least one; diagnostic metadata (a *partial* briefing is not failed).
+
+A job may also declare `success_when = "<SELECT …>"` in its `[[jobs]]` config
+(any job kind). When set, the daemon runs the SELECT against the vault index
+after the run and it is **authoritative**: a non-empty / truthy result →
+`succeeded`, an empty / false result → `failed`, a SQL error or non-SELECT →
+`failed`. It overrides the write-attribution verdict (including `no_writes`),
+while `writes` / `sections_written` are still recorded. `success_when` itself
+is not echoed in this response — only its effect on `last_run.status`.
 
 **Errors:**
 - `404` — vault not found

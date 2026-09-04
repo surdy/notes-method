@@ -528,6 +528,44 @@ would simply never fire, so it is rejected up front). `every`-jobs with
 prerequisites succeed today. **Manual triggers (`job run`) bypass `after`
 entirely** — a human asking for the run is the decision.
 
+**Success criteria (write attribution + `success_when`).** A subprocess exit
+code alone is a weak signal for agent jobs — a headless agent can exit 0 while
+writing nothing (the daily-briefing incident). Two refinements make the daemon
+score a run by what it actually did to the vault (ADR 0025 amendment):
+
+- **Write attribution (default, agent jobs with `allow_writes = true`).** The
+  daemon tallies the vault writes the run performed. An agent run that exits 0
+  but writes **nothing** is recorded as `no_writes` — visible in `job list` as
+  `no writes` and distinct from `succeeded`. A `no_writes` run does **not**
+  advance the job's last-success (so an `after` prerequisite that wrote nothing
+  keeps holding its dependents). The write count is shown in `job list` and the
+  managed sections the run wrote (via `update_managed_section`) are surfaced as
+  `sections_written` in `GET /jobs` (see [HTTP API](http-api.md)). Command jobs
+  and read-only agent jobs are not write-tracked. Per the signed-off decision,
+  a *partial* briefing is **not** failed — `sections_written` is diagnostic
+  metadata only.
+
+- **`success_when` (opt-in, authoritative).** Add a `success_when = "<SELECT
+  …>"` to any job entry to declare a SQL predicate run against the vault index
+  **after** the run finishes:
+
+  ```toml
+  [[jobs]]
+  name = "daily-briefing"
+  at = "07:30"
+  agent = { prompt = "daily-note", allow_writes = true }
+  success_when = "SELECT 1 FROM v_notes WHERE path = 'daily/' || strftime('%Y-%m-%d','now') || '.md'"
+  ```
+
+  A non-empty result (or a single truthy scalar) is **success**; an empty /
+  false result is a **failure** (reason `success_when predicate not
+  satisfied`); a SQL error or a non-SELECT statement is a job-config failure
+  carrying the error. When present, `success_when` **overrides** the default
+  write-attribution verdict (including `no_writes`) — the write metadata is
+  still recorded. It is SELECT-only, reusing the same read-only guard as prompt
+  `context_queries`, and the index reflects the run's writes by evaluation time
+  (agent writes reindex synchronously). Applies to any job kind.
+
 ### `job list`
 
 List the vault's configured jobs with schedule, state, and last-run status.
@@ -537,10 +575,15 @@ notesmith job list [--vault NAME] [--format json]
 ```
 
 ```
-calendar-sync  [every 15m]  enabled  last: succeeded 2026-08-05T07:30:02+00:00
+calendar-sync  [every 15m]  enabled  last: succeeded 2026-08-05T07:30:02+00:00 (3 writes)
 email-digest  [at 07:30 weekdays (America/Vancouver)]  enabled  last: never
 daily-briefing  [at 07:30 weekdays]  (agent: daily-note)  waiting on calendar-sync  last: missed 2026-08-04T23:59:41+00:00
+weekly-review  [at 08:00]  (agent: weekly-note)  enabled  last: no writes 2026-08-05T08:00:03+00:00
 ```
+
+A write-tracked agent run shows its write count (`(3 writes)`); a run that
+exited 0 but wrote nothing shows `no writes`. `GET /jobs` additionally carries
+`writes` and `sections_written` (the managed sections the run touched).
 
 ### `job run <name>`
 

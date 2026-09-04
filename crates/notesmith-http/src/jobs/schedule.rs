@@ -52,6 +52,11 @@ pub struct ValidatedJob {
     pub timeout: Duration,
     /// Same-day ordering prerequisites (validated against the sibling jobs).
     pub after: Vec<String>,
+    /// Declared SELECT predicate evaluated against the vault index after the
+    /// run; when present it is authoritative over the layer-A verdict (job
+    /// success criteria, ADR 0025 amendment 2026-09-04). Passed through verbatim
+    /// — the SELECT-only / read-only guard is enforced at evaluation time.
+    pub success_when: Option<String>,
 }
 
 /// Validate one `[[jobs]]` entry into a runnable form. `siblings` is the
@@ -114,6 +119,7 @@ pub fn validate_job(job: &JobConfig, siblings: &[JobConfig]) -> Result<Validated
         action,
         timeout,
         after,
+        success_when: job.success_when.clone(),
     })
 }
 

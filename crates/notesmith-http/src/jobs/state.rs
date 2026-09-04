@@ -61,6 +61,14 @@ pub struct JobRunRecord {
     /// `status` (`writes == 0` on an exit-0 tracked run yields `NoWrites`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub writes: Option<u32>,
+    /// Which managed sections this run wrote via `update_managed_section`
+    /// (sorted, deduped), for write-tracked agent runs (job success criteria,
+    /// ADR 0025 amendment 2026-09-04). Diagnostic metadata only — it does NOT
+    /// change the verdict (a partial briefing is not failed). `None` for
+    /// command jobs, read-only agent jobs, and write-tracked runs that touched
+    /// no managed section (they may still have `writes >= 1`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sections_written: Option<Vec<String>>,
     /// When this job last SUCCEEDED (start time of that run), kept separately
     /// from `last_run` so a later failure does not erase it — same-day `after`
     /// gating (issue #282) needs "has this job succeeded today". Maintained by
@@ -181,6 +189,7 @@ mod tests {
             exit_code: Some(0),
             duration_ms: Some(1234),
             writes: None,
+            sections_written: None,
             last_success: None,
         }
     }
@@ -297,6 +306,28 @@ mod tests {
         record.writes = Some(3);
         store.record("briefing", record).unwrap();
         assert_eq!(store.get("briefing").unwrap().writes, Some(3));
+    }
+
+    #[test]
+    fn sections_written_metadata_round_trips() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = store_in(&dir);
+        let mut record = record(JobRunStatus::Succeeded);
+        record.writes = Some(4);
+        record.sections_written = Some(vec![
+            "briefing/meetings".to_string(),
+            "briefing/tasks".to_string(),
+        ]);
+        store.record("briefing", record).unwrap();
+        let loaded = store.get("briefing").unwrap();
+        assert_eq!(loaded.writes, Some(4));
+        assert_eq!(
+            loaded.sections_written,
+            Some(vec![
+                "briefing/meetings".to_string(),
+                "briefing/tasks".to_string()
+            ])
+        );
     }
 
     #[test]

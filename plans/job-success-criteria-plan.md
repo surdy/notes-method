@@ -5,7 +5,11 @@ tags:
   - notesmith
   - jobs
   - plan
-status: awaiting-signoff
+status: implemented
+implemented:
+  - "phase 1 (A-core): run-id threading, per-run write counter, NoWrites status + metadata"
+  - "phase 2 (A-sections): per-section write attribution (sections_written)"
+  - "phase 3 (C): success_when declared predicate + precedence over layer A"
 ---
 
 # Job success criteria — implementation plan

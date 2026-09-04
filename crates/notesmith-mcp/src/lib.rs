@@ -4,7 +4,7 @@
 //! All operation logic lives in [`notesmith_ops::LocalOps`]; this crate only
 //! maps MCP tool/resource requests onto that surface.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -30,6 +30,29 @@ pub use bridge::{run_bridge, run_stdio_bridge};
 /// `X-Notesmith-Run-Id` matches this lower-case form.
 pub const RUN_ID_HEADER: &str = "x-notesmith-run-id";
 
+/// What a run wrote to the vault, attributed by run id.
+///
+/// `count` is the total number of successful write-tool calls; `sections` are
+/// the distinct managed-section ids touched by `update_managed_section` calls
+/// (sorted and deduped). A run that wrote only non-section tools (e.g.
+/// `update_note`) has `count >= 1` and an empty `sections` list. Diagnostic
+/// metadata — the briefing's verdict still keys off `count` alone (job success
+/// criteria, ADR 0025 amendment 2026-09-04); per-section data is captured for
+/// surfacing and a future partial-write option.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunWrites {
+    pub count: u32,
+    /// Managed-section ids touched, sorted and deduped.
+    pub sections: Vec<String>,
+}
+
+/// Internal accumulator: a total count plus the set of section ids touched.
+#[derive(Debug, Default)]
+struct RunWriteTally {
+    count: u32,
+    sections: BTreeSet<String>,
+}
+
 /// Process-global per-run write tally, keyed by run id.
 ///
 /// The daemon is a single process: the job runner and the HTTP MCP write
@@ -37,27 +60,38 @@ pub const RUN_ID_HEADER: &str = "x-notesmith-run-id";
 /// global is the whole surface — no persistence, no per-vault scoping. Entries
 /// are created on the first attributed write and removed by the runner
 /// ([`take_run_writes`]) once the run has exited, so the map stays small.
-fn run_write_counter() -> &'static Mutex<HashMap<String, u32>> {
-    static COUNTER: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
+fn run_write_counter() -> &'static Mutex<HashMap<String, RunWriteTally>> {
+    static COUNTER: OnceLock<Mutex<HashMap<String, RunWriteTally>>> = OnceLock::new();
     COUNTER.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Record one successful vault write attributed to `run_id`.
-pub fn record_run_write(run_id: &str) {
+/// Record one successful vault write attributed to `run_id`. When the write was
+/// an `update_managed_section` call, `section_id` names the section it touched,
+/// which is recorded alongside the count for per-section attribution.
+pub fn record_run_write(run_id: &str, section_id: Option<&str>) {
     let mut map = run_write_counter()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    *map.entry(run_id.to_string()).or_insert(0) += 1;
+    let tally = map.entry(run_id.to_string()).or_default();
+    tally.count += 1;
+    if let Some(section) = section_id {
+        tally.sections.insert(section.to_string());
+    }
 }
 
 /// Read and remove the write tally for `run_id`. `None` means no attributed
 /// write was ever recorded for that run (the map entry is created lazily on the
-/// first write). The runner treats `None` as zero writes.
-pub fn take_run_writes(run_id: &str) -> Option<u32> {
+/// first write). The runner treats `None` as zero writes. The returned
+/// `sections` are sorted and deduped.
+pub fn take_run_writes(run_id: &str) -> Option<RunWrites> {
     run_write_counter()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .remove(run_id)
+        .map(|tally| RunWrites {
+            count: tally.count,
+            sections: tally.sections.into_iter().collect(),
+        })
 }
 
 /// Whether a tool call mutates the vault, for per-run write attribution.
@@ -989,6 +1023,19 @@ impl ServerHandler for NotesmithMcp {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let is_write = is_write_tool(request.name.as_ref());
+        // Capture the managed-section id before `request.arguments` is moved into
+        // the dispatch, so a successful `update_managed_section` write can be
+        // attributed to the section it touched (per-run write attribution).
+        let section_id = if request.name.as_ref() == "update_managed_section" {
+            request
+                .arguments
+                .as_ref()
+                .and_then(|args| args.get("section_id"))
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        } else {
+            None
+        };
         let result = match request.name.as_ref() {
             "create_note" => {
                 self.handle_tool_call::<CreateNoteParams, _>(request.arguments, |params| {
@@ -1208,7 +1255,7 @@ impl ServerHandler for NotesmithMcp {
         // written — `no_writes` must reflect what actually landed in the vault.
         if is_write && result.is_error != Some(true) {
             if let Some(run_id) = run_id_from_context(&context) {
-                record_run_write(&run_id);
+                record_run_write(&run_id, section_id.as_deref());
             }
         }
         Ok(result)
@@ -1899,17 +1946,68 @@ mod tests {
         // Unique ids so parallel tests never collide on the process-global map.
         let a = "counter-test-run-a";
         let b = "counter-test-run-b";
-        record_run_write(a);
-        record_run_write(a);
-        record_run_write(b);
+        record_run_write(a, None);
+        record_run_write(a, None);
+        record_run_write(b, None);
         // take() reads and removes; two ids stay isolated.
-        assert_eq!(take_run_writes(a), Some(2));
-        assert_eq!(take_run_writes(b), Some(1));
+        assert_eq!(
+            take_run_writes(a),
+            Some(RunWrites {
+                count: 2,
+                sections: vec![]
+            })
+        );
+        assert_eq!(
+            take_run_writes(b),
+            Some(RunWrites {
+                count: 1,
+                sections: vec![]
+            })
+        );
         // Draining leaves nothing behind.
         assert_eq!(take_run_writes(a), None);
         assert_eq!(take_run_writes(b), None);
         // A run that never wrote has no entry.
         assert_eq!(take_run_writes("counter-test-run-never"), None);
+    }
+
+    #[test]
+    fn write_counter_records_touched_managed_sections_sorted_and_deduped() {
+        let run = "counter-test-run-sections";
+        // update_managed_section calls contribute their section id; a repeat is
+        // deduped, and the ids come back sorted.
+        record_run_write(run, Some("briefing/tasks"));
+        record_run_write(run, Some("briefing/meetings"));
+        record_run_write(run, Some("briefing/tasks"));
+        // A non-section write (e.g. update_note) bumps the count only.
+        record_run_write(run, None);
+
+        assert_eq!(
+            take_run_writes(run),
+            Some(RunWrites {
+                count: 4,
+                sections: vec![
+                    "briefing/meetings".to_string(),
+                    "briefing/tasks".to_string(),
+                ],
+            })
+        );
+    }
+
+    #[test]
+    fn write_counter_with_only_non_section_writes_has_empty_sections() {
+        // A run that wrote update_note but touched no managed section: count >= 1
+        // with an empty sections list (not None — the run did write).
+        let run = "counter-test-run-nosections";
+        record_run_write(run, None);
+        record_run_write(run, None);
+        assert_eq!(
+            take_run_writes(run),
+            Some(RunWrites {
+                count: 2,
+                sections: vec![],
+            })
+        );
     }
 
     #[test]

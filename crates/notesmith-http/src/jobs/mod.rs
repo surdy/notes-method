@@ -276,6 +276,7 @@ async fn runner_pass(
             &validated.name,
             &validated.action,
             validated.timeout,
+            validated.success_when.as_deref(),
         )
         .await;
     }
@@ -299,6 +300,7 @@ fn record_missed_run(ctx: &RunnerCtx, job_name: &str, after: &[String]) {
             exit_code: None,
             duration_ms: None,
             writes: None,
+            sections_written: None,
             last_success: None, // derived by the store
         },
     ) {
@@ -352,6 +354,58 @@ fn refine_agent_outcome(
     }
 }
 
+/// Decide a job's final status from its declared `success_when` predicate's
+/// outcome (layer C, ADR 0025 amendment 2026-09-04). Pure over the query result
+/// so the status logic is unit-testable without a live vault; the SQL execution
+/// itself is done by the caller against the vault index.
+///
+/// - a SQL / execution error (including a non-SELECT statement, which the
+///   read-only guard rejects) → `Failed`, reason carrying the error — a broken
+///   predicate is a job-config failure, surfaced not swallowed.
+/// - a single scalar result (one row, one column) → `Succeeded` when the scalar
+///   is truthy, `Failed` (predicate not satisfied) when it is falsy (null,
+///   `false`, `0`, `0.0`, or an empty string).
+/// - any other non-empty result set (≥1 row) → `Succeeded`.
+/// - an empty result set → `Failed` (predicate not satisfied).
+fn evaluate_success_when(
+    result: Result<notesmith_query::QueryResult, notesmith_query::QueryError>,
+) -> (JobRunStatus, Option<String>) {
+    const NOT_SATISFIED: &str = "success_when predicate not satisfied";
+    match result {
+        Err(error) => (
+            JobRunStatus::Failed,
+            Some(format!("success_when query failed: {error}")),
+        ),
+        Ok(result) => {
+            let satisfied = if result.rows.len() == 1 && result.columns.len() == 1 {
+                json_is_truthy(&result.rows[0][0])
+            } else {
+                result.row_count >= 1
+            };
+            if satisfied {
+                (JobRunStatus::Succeeded, None)
+            } else {
+                (JobRunStatus::Failed, Some(NOT_SATISFIED.to_string()))
+            }
+        }
+    }
+}
+
+/// Truthiness of a single scalar cell for a `success_when` predicate: null,
+/// `false`, a zero number, and the empty string are falsy; everything else is
+/// truthy.
+fn json_is_truthy(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(flag) => *flag,
+        serde_json::Value::Number(number) => number.as_f64().map(|n| n != 0.0).unwrap_or(true),
+        serde_json::Value::String(text) => !text.is_empty(),
+        // Arrays/objects cannot come out of the SQL scalar path; treat a present
+        // structured value as truthy.
+        _ => true,
+    }
+}
+
 /// Execute one job run end to end: `job.started` event, subprocess with the
 /// connector env, state record, then a `job.succeeded` / `job.no_writes` /
 /// `job.failed` event keyed off the refined status. All failure modes log WARN
@@ -363,6 +417,7 @@ async fn execute_job(
     job_name: &str,
     action: &JobAction,
     timeout: Duration,
+    success_when: Option<&str>,
 ) {
     let (root, event_tx, event_buffer) = {
         let app = state.read().await;
@@ -451,15 +506,47 @@ async fn execute_job(
     // accumulated in this daemon (removing the entry), then refine the verdict —
     // an exit-0 run that wrote nothing becomes `NoWrites`. The tally is read
     // only AFTER the subprocess has fully exited, so every write it made is in.
-    let writes = run_id
+    let run_writes = run_id
         .as_deref()
-        .map(|id| notesmith_mcp::take_run_writes(id).unwrap_or(0));
-    let (status, writes) = refine_agent_outcome(base_status, action, writes);
+        .map(|id| notesmith_mcp::take_run_writes(id).unwrap_or_default());
+    let writes_count = run_writes.as_ref().map(|writes| writes.count);
+    let (status, writes) = refine_agent_outcome(base_status, action, writes_count);
+    // Per-section attribution (diagnostic only; does not change the verdict).
+    // `Some(non-empty)` only for a write-tracked run that touched at least one
+    // managed section; a run that wrote nothing section-shaped is left `None` so
+    // the record stays clean.
+    let sections_written = run_writes
+        .map(|writes| writes.sections)
+        .filter(|sections| !sections.is_empty());
     let failure = match status {
         JobRunStatus::NoWrites => {
             Some("agent run exited 0 but wrote nothing to the vault".to_string())
         }
         _ => base_failure,
+    };
+
+    // Layer C: a declared `success_when` predicate is authoritative — when set,
+    // it OVERRIDES layer A's verdict (including `NoWrites` and `Succeeded`),
+    // running SELECT-only against the vault index which already reflects the
+    // run's writes (Ops reindexes the shared cache synchronously, and this runs
+    // after the subprocess exited). The write/section metadata is still kept.
+    let (status, failure) = match success_when {
+        Some(sql) => {
+            let result = {
+                let app = state.read().await;
+                app.vaults
+                    .get(&ctx.vault_name)
+                    .map(|vault| notesmith_query::execute_sql(&vault.cache, sql))
+            };
+            match result {
+                Some(result) => evaluate_success_when(result),
+                None => (
+                    JobRunStatus::Failed,
+                    Some("vault removed before success_when could be evaluated".to_string()),
+                ),
+            }
+        }
+        None => (status, failure),
     };
 
     if let Err(error) = ctx.store.record(
@@ -470,6 +557,7 @@ async fn execute_job(
             exit_code,
             duration_ms: Some(duration.as_millis().min(u64::MAX as u128) as u64),
             writes,
+            sections_written,
             last_success: None, // derived by the store
         },
     ) {
@@ -611,9 +699,18 @@ pub async fn trigger_job(
 
     let state = state.clone();
     let job_name = job_name.to_string();
+    let success_when = job.success_when.clone();
     tokio::spawn(async move {
         let _guard = guard; // released when the run finishes
-        execute_job(&state, &ctx, &job_name, &action, timeout).await;
+        execute_job(
+            &state,
+            &ctx,
+            &job_name,
+            &action,
+            timeout,
+            success_when.as_deref(),
+        )
+        .await;
     });
 
     TriggerOutcome::Started
@@ -708,6 +805,7 @@ mod tests {
     use super::*;
     use crate::server::{build_app_state, create_vault_state};
     use notesmith_config::GlobalConfig;
+    use notesmith_query::QueryResult;
     use std::path::Path;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -979,6 +1077,7 @@ command = "job.sh"
                     exit_code: Some(0),
                     duration_ms: Some(1),
                     writes: None,
+                    sections_written: None,
                     last_success: None,
                 },
             )
@@ -1146,6 +1245,7 @@ after = ["calendar-sync"]
                     exit_code: Some(0),
                     duration_ms: Some(1),
                     writes: None,
+                    sections_written: None,
                     last_success: None,
                 },
             )
@@ -1163,6 +1263,7 @@ after = ["calendar-sync"]
                     exit_code: Some(0),
                     duration_ms: Some(1),
                     writes: None,
+                    sections_written: None,
                     last_success: None,
                 },
             )
@@ -1289,6 +1390,172 @@ after = ["calendar-sync"]
         assert_eq!(tailed.chars().count(), 501);
     }
 
+    #[tokio::test]
+    async fn success_when_overrides_no_writes_to_succeeded() {
+        // Layer C precedence: an allow_writes agent that wrote NOTHING would be
+        // `NoWrites` under layer A, but a satisfied `success_when` (here keyed on
+        // pre-existing vault state) overrides that to `Succeeded`.
+        let vault = TempDir::new().unwrap();
+        let scratch = TempDir::new().unwrap();
+        std::fs::write(
+            vault.path().join("seed.md"),
+            "---\ntype: note\n---\nseed body\n",
+        )
+        .unwrap();
+        write_vault_config(
+            vault.path(),
+            r#"
+name = "jobs-success-when-nw"
+
+[[jobs]]
+name = "briefing"
+every = "1s"
+agent = { prompt = "daily-note", allow_writes = true }
+success_when = "SELECT path FROM v_notes WHERE path = 'seed.md'"
+"#,
+        );
+        let vault_name = "jobs-success-when-nw";
+        let state = state_with_vault(vault_name, vault.path()).await;
+        let mut event_rx = state.read().await.event_tx.subscribe();
+        let ctx = test_ctx(vault_name, &scratch);
+        // Stub agent exits 0 but performs no MCP writes → base verdict NoWrites.
+        write_executable(&ctx.notesmith_bin.clone(), "#!/bin/sh\nexit 0\n");
+
+        runner_pass(&state, &ctx, Utc::now(), &mut HashSet::new()).await;
+
+        let record = ctx.store.get("briefing").unwrap();
+        assert_eq!(record.status, JobRunStatus::Succeeded);
+        // The write metadata is still recorded (the run wrote nothing).
+        assert_eq!(record.writes, Some(0));
+        assert!(
+            record.last_success.is_some(),
+            "a success_when success advances last_success"
+        );
+        assert_eq!(
+            event_rx.recv().await.unwrap().event_type,
+            EventType::JobStarted
+        );
+        assert_eq!(
+            event_rx.recv().await.unwrap().event_type,
+            EventType::JobSucceeded
+        );
+    }
+
+    #[tokio::test]
+    async fn success_when_overrides_a_succeeded_run_to_failed() {
+        // The inverse precedence: a command job exits 0 (would be `Succeeded`)
+        // but an unsatisfied `success_when` (empty result) overrides to `Failed`
+        // — and this IS a real failure, so it emits `job.failed`.
+        let vault = TempDir::new().unwrap();
+        let scratch = TempDir::new().unwrap();
+        write_executable(&vault.path().join("ok.sh"), "#!/bin/sh\nexit 0\n");
+        write_vault_config(
+            vault.path(),
+            r#"
+name = "jobs-success-when-fail"
+
+[[jobs]]
+name = "check"
+every = "1s"
+command = "ok.sh"
+success_when = "SELECT path FROM v_notes WHERE path = 'never-exists.md'"
+"#,
+        );
+        let vault_name = "jobs-success-when-fail";
+        let state = state_with_vault(vault_name, vault.path()).await;
+        let mut event_rx = state.read().await.event_tx.subscribe();
+        let ctx = test_ctx(vault_name, &scratch);
+
+        runner_pass(&state, &ctx, Utc::now(), &mut HashSet::new()).await;
+
+        let record = ctx.store.get("check").unwrap();
+        assert_eq!(record.status, JobRunStatus::Failed);
+        assert_eq!(record.writes, None, "command jobs are not write-tracked");
+        assert_eq!(record.last_success, None);
+        assert_eq!(
+            event_rx.recv().await.unwrap().event_type,
+            EventType::JobStarted
+        );
+        assert_eq!(
+            event_rx.recv().await.unwrap().event_type,
+            EventType::JobFailed
+        );
+    }
+
+    #[tokio::test]
+    async fn success_when_sql_error_fails_the_run() {
+        // A broken predicate (querying a nonexistent table) is a job-config
+        // failure, surfaced as `Failed` — not swallowed.
+        let vault = TempDir::new().unwrap();
+        let scratch = TempDir::new().unwrap();
+        write_executable(&vault.path().join("ok.sh"), "#!/bin/sh\nexit 0\n");
+        write_vault_config(
+            vault.path(),
+            r#"
+name = "jobs-success-when-sqlerr"
+
+[[jobs]]
+name = "check"
+every = "1s"
+command = "ok.sh"
+success_when = "SELECT * FROM no_such_view"
+"#,
+        );
+        let vault_name = "jobs-success-when-sqlerr";
+        let state = state_with_vault(vault_name, vault.path()).await;
+        let ctx = test_ctx(vault_name, &scratch);
+
+        runner_pass(&state, &ctx, Utc::now(), &mut HashSet::new()).await;
+
+        assert_eq!(ctx.store.get("check").unwrap().status, JobRunStatus::Failed);
+    }
+
+    #[tokio::test]
+    async fn success_when_observes_a_write_reflected_in_the_shared_cache() {
+        // Index freshness: agent writes go through Ops, which reindexes the
+        // shared vault cache synchronously, and the predicate runs only after
+        // the run — so a write made "during" the run is visible to success_when.
+        // The write here goes through the same shared cache the runner reads.
+        use notesmith_ops::Ops;
+
+        let vault = TempDir::new().unwrap();
+        let scratch = TempDir::new().unwrap();
+        write_executable(&vault.path().join("ok.sh"), "#!/bin/sh\nexit 0\n");
+        write_vault_config(
+            vault.path(),
+            r#"
+name = "jobs-success-when-fresh"
+
+[[jobs]]
+name = "check"
+every = "1s"
+command = "ok.sh"
+success_when = "SELECT path FROM v_notes WHERE path = 'Inbox/Fresh.md'"
+"#,
+        );
+        let vault_name = "jobs-success-when-fresh";
+        let state = state_with_vault(vault_name, vault.path()).await;
+        let ctx = test_ctx(vault_name, &scratch);
+
+        // The note does not exist at config time; write it through Ops (as an
+        // MCP write would), reindexing the shared cache the predicate reads.
+        {
+            let app = state.read().await;
+            let vault_state = app.vaults.get(vault_name).unwrap();
+            let ops = crate::server::local_ops_for(vault_name, vault_state);
+            ops.create_note("Fresh", Some("body"), Some("Inbox"), None)
+                .unwrap();
+        }
+
+        runner_pass(&state, &ctx, Utc::now(), &mut HashSet::new()).await;
+
+        // The predicate observes the freshly written note → Succeeded.
+        assert_eq!(
+            ctx.store.get("check").unwrap().status,
+            JobRunStatus::Succeeded
+        );
+    }
+
     fn agent_action(allow_writes: bool) -> JobAction {
         JobAction::Agent(notesmith_config::JobAgentConfig {
             prompt: "daily-note".to_string(),
@@ -1341,6 +1608,84 @@ after = ["calendar-sync"]
             ),
             (JobRunStatus::Succeeded, None)
         );
+    }
+
+    fn query_result(columns: &[&str], rows: Vec<Vec<serde_json::Value>>) -> QueryResult {
+        let row_count = rows.len();
+        QueryResult {
+            columns: columns.iter().map(|c| c.to_string()).collect(),
+            rows,
+            row_count,
+            truncated: false,
+        }
+    }
+
+    #[test]
+    fn evaluate_success_when_succeeds_on_non_empty_and_truthy_scalar() {
+        use serde_json::json;
+
+        // A single truthy scalar (e.g. COUNT(*) = 4) → Succeeded, no reason.
+        assert_eq!(
+            evaluate_success_when(Ok(query_result(&["c"], vec![vec![json!(4)]]))),
+            (JobRunStatus::Succeeded, None)
+        );
+        // A truthy boolean / non-empty string scalar.
+        assert_eq!(
+            evaluate_success_when(Ok(query_result(&["ok"], vec![vec![json!(true)]]))).0,
+            JobRunStatus::Succeeded
+        );
+        assert_eq!(
+            evaluate_success_when(Ok(query_result(&["p"], vec![vec![json!("daily/x.md")]]))).0,
+            JobRunStatus::Succeeded
+        );
+        // A multi-column, multi-row non-empty result → Succeeded regardless of
+        // any individual value's truthiness (existence of rows is the signal).
+        assert_eq!(
+            evaluate_success_when(Ok(query_result(
+                &["path", "n"],
+                vec![vec![json!("a.md"), json!(0)]]
+            )))
+            .0,
+            JobRunStatus::Succeeded
+        );
+    }
+
+    #[test]
+    fn evaluate_success_when_fails_on_empty_and_falsy_scalar() {
+        use serde_json::json;
+
+        // Empty result set → Failed with the predicate reason.
+        let (status, reason) = evaluate_success_when(Ok(query_result(&["c"], vec![])));
+        assert_eq!(status, JobRunStatus::Failed);
+        assert_eq!(reason.as_deref(), Some("success_when predicate not satisfied"));
+
+        // Falsy scalars: 0, false, null, empty string → Failed.
+        for falsy in [json!(0), json!(false), json!(null), json!("")] {
+            let (status, reason) =
+                evaluate_success_when(Ok(query_result(&["v"], vec![vec![falsy.clone()]])));
+            assert_eq!(status, JobRunStatus::Failed, "value {falsy} should be falsy");
+            assert_eq!(reason.as_deref(), Some("success_when predicate not satisfied"));
+        }
+    }
+
+    #[test]
+    fn evaluate_success_when_surfaces_sql_errors_as_failures() {
+        // A non-SELECT statement is rejected by the read-only guard; the error
+        // is carried into the failure reason (a broken predicate is a
+        // job-config failure, not swallowed).
+        let (status, reason) =
+            evaluate_success_when(Err(notesmith_query::QueryError::NotReadOnly));
+        assert_eq!(status, JobRunStatus::Failed);
+        assert!(
+            reason.as_deref().unwrap().contains("Only SELECT"),
+            "{reason:?}"
+        );
+
+        let (status, reason) = evaluate_success_when(Err(
+            notesmith_query::QueryError::ExecutionError("no such table: bogus".to_string()),
+        ));
+        assert_eq!(status, JobRunStatus::Failed);
+        assert!(reason.as_deref().unwrap().contains("no such table"), "{reason:?}");
     }
 
     #[test]

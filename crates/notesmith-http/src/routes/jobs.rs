@@ -36,6 +36,11 @@ pub struct JobLastRun {
     /// (allow_writes). Absent for command jobs and read-only agent jobs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub writes: Option<u32>,
+    /// Managed sections this run wrote via `update_managed_section` (sorted,
+    /// deduped), for write-tracked agent runs that touched at least one.
+    /// Diagnostic metadata; absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sections_written: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -112,6 +117,7 @@ pub async fn list_jobs(
                 exit_code: record.exit_code,
                 duration_ms: record.duration_ms,
                 writes: record.writes,
+                sections_written: record.sections_written.clone(),
             });
             JobListEntry {
                 name: job.name.clone(),
@@ -248,6 +254,41 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         panic!("timed out waiting for {what}");
+    }
+
+    #[test]
+    fn job_last_run_surfaces_writes_and_sections_only_when_present() {
+        // Write-tracked run that touched managed sections: both fields serialize.
+        let with_sections = super::JobLastRun {
+            at: "2026-09-03T07:30:00+00:00".to_string(),
+            status: "succeeded".to_string(),
+            exit_code: Some(0),
+            duration_ms: Some(12),
+            writes: Some(2),
+            sections_written: Some(vec![
+                "briefing/meetings".to_string(),
+                "briefing/tasks".to_string(),
+            ]),
+        };
+        let json = serde_json::to_value(&with_sections).unwrap();
+        assert_eq!(json["writes"], serde_json::json!(2));
+        assert_eq!(
+            json["sections_written"],
+            serde_json::json!(["briefing/meetings", "briefing/tasks"])
+        );
+
+        // A command run: both are absent (skipped), keeping the record clean.
+        let bare = super::JobLastRun {
+            at: "t".to_string(),
+            status: "succeeded".to_string(),
+            exit_code: Some(0),
+            duration_ms: None,
+            writes: None,
+            sections_written: None,
+        };
+        let json = serde_json::to_value(&bare).unwrap();
+        assert!(json.get("writes").is_none());
+        assert!(json.get("sections_written").is_none());
     }
 
     #[tokio::test]

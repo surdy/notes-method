@@ -93,6 +93,16 @@ pub struct JobConfig {
     /// before this one fires. Manual triggers bypass this gate.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub after: Vec<String>,
+    /// Optional declared success predicate: a SELECT statement run against the
+    /// vault index after the job finishes (job success criteria, ADR 0025
+    /// amendment 2026-09-04). When set it is authoritative over the default
+    /// write-attribution verdict — a non-empty / truthy result is success, an
+    /// empty / false result is a failure, and a SQL error is a job-config
+    /// failure. Applies to any job kind (agent or command). Parsed leniently as
+    /// a plain string; the SELECT-only / read-only guard is enforced at
+    /// evaluation time, not here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub success_when: Option<String>,
 }
 
 fn default_enabled() -> bool {
@@ -224,6 +234,36 @@ mod tests {
             let back = serde_json::to_value(&job).unwrap();
             assert_eq!(back["agent"], bad);
         }
+    }
+
+    #[test]
+    fn success_when_parses_and_round_trips() {
+        let job: JobConfig = serde_json::from_value(json!({
+            "name": "daily-briefing",
+            "at": "07:30",
+            "agent": { "prompt": "daily-note", "allow_writes": true },
+            "success_when": "SELECT 1 FROM v_notes WHERE path = 'daily/2026-09-03.md'"
+        }))
+        .unwrap();
+        assert_eq!(
+            job.success_when.as_deref(),
+            Some("SELECT 1 FROM v_notes WHERE path = 'daily/2026-09-03.md'")
+        );
+
+        // Absent by default, and omitted from the serialized form when unset.
+        let plain: JobConfig =
+            serde_json::from_value(json!({ "name": "x", "every": "5m" })).unwrap();
+        assert!(plain.success_when.is_none());
+        let back = serde_json::to_value(&plain).unwrap();
+        assert!(back.get("success_when").is_none());
+
+        // Round-trips verbatim when set (stored as a plain string; the
+        // SELECT-only guard is enforced at evaluation time, not here).
+        let back = serde_json::to_value(&job).unwrap();
+        assert_eq!(
+            back["success_when"],
+            json!("SELECT 1 FROM v_notes WHERE path = 'daily/2026-09-03.md'")
+        );
     }
 
     #[test]

@@ -161,6 +161,7 @@ mod tests {
             exit_code: Some(0),
             duration_ms: Some(1),
             writes: None,
+            sections_written: None,
             last_success,
         }
     }
