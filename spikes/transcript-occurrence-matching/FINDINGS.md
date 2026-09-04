@@ -107,6 +107,35 @@ zero URL mismatches, and no offline event acquired a `join_url`. The connector
 bridge prerequisite is verified. Because calendar sync has no lookback, this
 coverage begins with events synced after the updated connector was applied.
 
+### Calendar local-time correction
+
+After the timezone fix in `30ed221`, the work-notes kit was reapplied to the
+isolated vault and `calendar-sync` was run through the Notesmith job runner.
+The job completed successfully.
+
+A live event known from Work IQ to begin at 09:00 local time had previously
+been stored with:
+
+- frontmatter start: `2026-09-09T16:00:00`
+- filename time: `1600`
+
+After the corrected sync, the existing note's frontmatter read
+`2026-09-09T09:00:00`, proving that Graph's UTC clock was converted to local
+wall-clock time. As expected, the in-place update left the old `1600` filename.
+
+Before rebuilding, `Meetings/` contained no `event:` backlinks. The user
+approved replacing the isolated vault's stale Calendar tree. Twenty-eight old
+Calendar notes were deleted, and a fresh forward-only sync restored twenty-six
+current-window event notes. The same known event then had both:
+
+- frontmatter start: `2026-09-09T09:00:00`
+- filename time: `0900`
+
+A full indexed scan after rebuilding found no `kind: meeting` notes carrying an
+`event_id`, so the filename change broke no meeting backlinks. Historical
+Calendar notes outside the connector's today-through-seven-days window were
+not restored.
+
 ### Meeting prefill
 
 One live external meeting overlapped the hook's current-time window. Rendering
