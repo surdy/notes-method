@@ -455,3 +455,114 @@ fn calendar_event_notes_persist_the_teams_join_url() {
         result.rows[0]
     );
 }
+
+// ── transcript-sync (ADR 0025 Decision 4) ────────────────────────────────────
+
+/// The connector reads occurrences from the local cache rather than
+/// re-querying calendarView, so these queries are its only contract with the
+/// index. Prove they execute and return the columns it reads.
+#[test]
+fn transcript_sync_queries_execute_against_the_index() {
+    let cache = indexed_golden_vault();
+
+    let occurrences = "SELECT n.path AS path, \
+         MAX(CASE WHEN f.key = 'event_id' THEN f.value END) AS event_id, \
+         MAX(CASE WHEN f.key = 'start' THEN f.value END) AS start, \
+         MAX(CASE WHEN f.key = 'end' THEN f.value END) AS end, \
+         MAX(CASE WHEN f.key = 'join_url' THEN f.value END) AS join_url \
+         FROM v_notes n \
+         JOIN v_fields f ON f.vault_name = n.vault_name AND f.note_path = n.path \
+         WHERE n.path IN (SELECT note_path FROM v_fields WHERE key = 'kind' AND value = 'event') \
+         GROUP BY n.path";
+    let result = execute_sql(&cache, occurrences).unwrap();
+    assert_eq!(
+        result.columns,
+        vec!["path", "event_id", "start", "end", "join_url"]
+    );
+    assert_eq!(
+        result.rows.len(),
+        1,
+        "the golden-vault event must be a transcript-sync candidate"
+    );
+    assert!(
+        result.rows[0][4]
+            .as_str()
+            .unwrap()
+            .starts_with("https://teams."),
+        "the candidate must carry the join_url bridge: {:?}",
+        result.rows[0]
+    );
+
+    // The dedup lookup: a transcript already ingested must not be re-created.
+    let dedup = "SELECT note_path AS path FROM v_field_values \
+                 WHERE key = 'source_url' AND value = 'teams:none'";
+    assert!(execute_sql(&cache, dedup).unwrap().rows.is_empty());
+
+    // The meeting back-link lookup.
+    let meeting = "SELECT note_path AS path FROM v_field_values \
+                   WHERE key = 'event_id' AND note_path IN \
+                   (SELECT note_path FROM v_fields WHERE key = 'kind' AND value = 'meeting') \
+                   AND value = 'AAMkAGI2-golden-0001'";
+    execute_sql(&cache, meeting).expect("meeting back-link query must be valid SQL");
+}
+
+/// The connector's pure logic — occurrence matching, the ambiguity guard, UTC
+/// conversion, note identity — offline. Skipped when python3 is absent.
+#[test]
+fn transcript_sync_connector_self_test_passes() {
+    let python = "python3";
+    if std::process::Command::new(python)
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        println!("skipping: python3 not on PATH");
+        return;
+    }
+
+    let output = std::process::Command::new(python)
+        .arg(".notesmith/connectors/transcript-sync.py")
+        .arg("--self-test")
+        .current_dir(golden_vault())
+        .output()
+        .expect("failed to spawn transcript-sync.py");
+
+    assert!(
+        output.status.success(),
+        "connector self-test failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("OK"));
+}
+
+/// transcript-sync must run after calendar-sync: it matches transcripts against
+/// the event notes that job writes, and an event with no synced `join_url` has
+/// no bridge to its transcript at all.
+#[test]
+fn golden_vault_orders_transcript_sync_after_calendar_sync() {
+    let config = std::fs::read_to_string(golden_vault().join(".notesmith/vault.toml")).unwrap();
+    let parsed: toml::Value = toml::from_str(&config).unwrap();
+    let jobs = parsed["jobs"].as_array().expect("jobs array");
+
+    let transcript = jobs
+        .iter()
+        .find(|job| job.get("name").and_then(|n| n.as_str()) == Some("transcript-sync"))
+        .expect("transcript-sync job missing");
+    assert_eq!(
+        transcript.get("command").and_then(|c| c.as_str()),
+        Some(".notesmith/connectors/transcript-sync.py")
+    );
+    assert_eq!(
+        transcript.get("enabled").and_then(|e| e.as_bool()),
+        Some(false),
+        "connectors ship disabled — they need the workiq CLI"
+    );
+    let after: Vec<&str> = transcript["after"]
+        .as_array()
+        .expect("transcript-sync must declare `after`")
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    assert_eq!(after, vec!["calendar-sync"]);
+}

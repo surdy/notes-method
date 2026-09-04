@@ -611,6 +611,12 @@ every message at its UTC time for the same reason.
 > record, but it only restores events inside the sync window. Check first
 > whether any meeting notes carry an `event:` backlink into that tree.
 
+**Pagination.** `$top` caps a *page*, not the result set, so the connector
+follows Graph's `@odata.nextLink` until it runs out (capped at 20 pages). The
+nextLink is absolute, and `workiq fetch -u` takes an entity path, so the
+service prefix is stripped before the follow-up request — an assumption about
+the CLI worth confirming the first time a window actually pages.
+
 **Corp domains and customer mapping.** Classification lives in config, so
 teaching the connector means editing config, not code:
 
@@ -733,6 +739,80 @@ A meeting note must always be creatable.
 Sanity-check the hook's logic offline with
 `python3 .notesmith/scripts/meeting-prefill.py --self-test` (no network, no
 cache; prints `OK`).
+
+## Teams transcripts
+
+`transcript-sync.py` pulls Teams meeting transcripts for recently-ended calls
+and writes them as **sidecar** notes — never inlined into the meeting note,
+which stays the distilled record (transcripts are long and noisy, and inlining
+them skews search and embedding chunks).
+
+**The join is the hard part.** A calendar event exposes no transcript link:
+
+```text
+event note (join_url)  ->  online meeting  ->  transcripts
+```
+
+Recurring occurrences reuse **one** join URL, so that lookup lands on the
+*series*, not the occurrence. Each transcript's `createdDateTime` is matched
+back to a specific occurrence's time window before that occurrence's `event_id`
+is written into the note. A real recurring series resolved with a 13-day margin
+over the runner-up (`spikes/transcript-occurrence-matching/FINDINGS.md`).
+
+**It declines rather than guesses.** A transcript outside the four-hour
+tolerance, or one where two occurrences sit within an hour of each other, is
+left unfiled and logged. An unfiled transcript is visible and recoverable; one
+attached to the wrong customer's call is a quiet error nobody catches.
+
+**Occurrences come from the local cache, not from Graph.** `calendar-sync` has
+already synced them with local timestamps, so this connector never touches
+calendarView or its pagination. It does convert the transcript's `Z` stamps to
+local before comparing — the same conversion whose absence made every synced
+event seven hours wrong.
+
+**The body is rendered by core.** The connector pipes WebVTT into
+`notesmith transcribe --from-vtt -` (see [cli.md](cli.md#transcribe)) and takes
+back the rendered body, so the `[M:SS] Name: text` format lives in exactly one
+place and a subprocess connector cannot drift from it. Piping on stdin also
+means transcript text never touches disk.
+
+The note (plan §E):
+
+```yaml
+# Meetings/Transcripts/2026-09-09 - Acme sync (transcript).md
+---
+kind: transcript
+source_type: teams
+source_url: teams:AAMk...        # the dedup key; a re-run is a no-op
+event_id: AAMkAGI2-...           # the matched occurrence
+event: "[[2026-09-09 0900 Acme sync]]"
+meeting: "[[2026-09-09 - Acme - Sync]]"   # when a meeting note exists
+date: 2026-09-09
+customers: ["[[Acme Corp]]"]
+tags: ["transcript"]
+---
+
+[0:03] Alice Smith: Morning, shall we start?
+[0:07] Bob Jones: Yes. The renewal is the main thing.
+```
+
+The back-link onto the meeting note is a **frontmatter PATCH** adding
+`transcript: "[[...]]"`. Meeting notes are human-owned and ship no managed
+section, so the body is never touched; frontmatter wikilinks are indexed as
+real links, which is how this vault models every other relationship.
+
+**Enabling it** (on the corp laptop, after `calendar-sync` is working):
+
+1. `chmod +x .notesmith/connectors/transcript-sync.py`.
+2. Flip `enabled = true` on the `transcript-sync` `[[jobs]]` entry. It declares
+   `after = ["calendar-sync"]` — an event with no synced `join_url` has no
+   bridge to its transcript, so enabling it alone does nothing.
+3. `lookback_days` in `transcript-sync.config.json` (default 3) bounds how far
+   back it looks. The observed tenant retention floor was ~17 days and there is
+   no historical backfill, so a larger value costs requests without finding
+   more.
+
+Offline check: `python3 .notesmith/connectors/transcript-sync.py --self-test`.
 
 ## Deterministic email summary
 

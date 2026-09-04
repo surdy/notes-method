@@ -89,3 +89,18 @@ weekdays_only = true
 after = ["daily-briefing"]
 command = ".notesmith/connectors/email-summary.py"
 timeout = "120s"
+
+
+# Teams transcript pull (ADR 0025 Decision 4). Runs after calendar-sync, since
+# it matches transcripts against the event notes that job writes -- an event
+# with no synced `join_url` has no bridge to its transcript. Hourly rather than
+# daily: transcripts appear some minutes after a call ends, and the observed
+# tenant retention floor was 17 days, so there is no rush but also no backfill.
+# Disabled by default; needs the `workiq` CLI and `chmod +x` after `kit apply`.
+[[jobs]]
+name = "transcript-sync"
+enabled = false
+every = "1h"
+after = ["calendar-sync"]
+command = ".notesmith/connectors/transcript-sync.py"
+timeout = "300s"

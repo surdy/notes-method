@@ -141,6 +141,16 @@ fn json_output_reports_segment_and_speaker_counts() {
     assert_eq!(value["speakers"], 2, "Alice and Bob, deduplicated");
     assert_eq!(value["source"], "stdin");
     assert!(value["note"].as_str().unwrap().contains("kind: transcript"));
+
+    // `body` is the transcript without the frontmatter fence — what a connector
+    // POSTs alongside its own vault-model frontmatter.
+    let body = value["body"].as_str().unwrap();
+    assert!(
+        !body.contains("kind: transcript"),
+        "body must exclude frontmatter: {body}"
+    );
+    assert!(body.starts_with("[0:03] Alice Smith:"), "{body}");
+    assert!(body.contains("[0:20] Alice Smith:"), "{body}");
 }
 
 #[test]

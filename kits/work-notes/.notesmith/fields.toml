@@ -88,6 +88,25 @@ description = "Event organizer email"
 type = "string"
 description = "Teams join URL for an online meeting event"
 
+# Set on a meeting note by transcript-sync: a wikilink to the sidecar
+# transcript. The reverse link (`meeting`) lives on the transcript note.
+[fields.transcript]
+type = "string"
+description = "Wikilink to this meeting's sidecar transcript note"
+
+[fields.meeting]
+type = "string"
+description = "Wikilink from a transcript note back to its meeting"
+
+[fields.source_type]
+type = "enum"
+description = "Origin of a transcript note"
+values = ["teams", "youtube", "audio"]
+
+[fields.source_url]
+type = "string"
+description = "Stable source identifier — the transcript dedup key"
+
 # Set on a meeting note by the meeting-prefill hook: a wikilink to the
 # machine-owned event note the meeting was captured from. Together with
 # `event_id` it joins a hand-written meeting to its calendar record.
