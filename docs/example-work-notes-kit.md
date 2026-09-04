@@ -617,6 +617,19 @@ nextLink is absolute, and `workiq fetch -u` takes an entity path, so the
 service prefix is stripped before the follow-up request — an assumption about
 the CLI worth confirming the first time a window actually pages.
 
+**Backfill (`--since`).** Scheduled runs are deliberately forward-only: an
+event note only has to exist *before* its transcript appears, which it always
+will. That breaks down once when standing a vault up, because
+`transcript-sync`'s lookback finds no past occurrences to match against. A
+one-time `notesmith job run` cannot pass flags, so run the connector directly:
+
+```sh
+python3 .notesmith/connectors/calendar-sync.py --since 2026-09-01
+```
+
+`--since` only ever moves the window's start earlier; a future date is a no-op
+rather than a way to skip today's events.
+
 **Corp domains and customer mapping.** Classification lives in config, so
 teaching the connector means editing config, not code:
 

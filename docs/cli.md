@@ -472,7 +472,11 @@ notesmith transcribe --from-vtt meeting.vtt --output note.md
   Keys already rendered are replaced; new keys are appended. A non-object, or
   invalid JSON, is an error rather than a silently dropped `event_id`.
 - `--tag TAG`, `--output FILE`, `--format json` — as above; the JSON payload is
-  `{ source, segments, speakers, output, note }`.
+  `{ source, segments, speakers, output, note, body }`. `body` is the rendered
+  transcript *without* the frontmatter fence — a connector builds its own
+  vault-model frontmatter and POSTs the two separately, so taking `body`
+  directly saves it slicing the note apart on a `---` that a quoted frontmatter
+  value could also contain. `transcript-sync.py` depends on this field.
 
 The note carries `kind: transcript` (ADR 0025's one Transcript Note concept)
 ahead of the usual media-provenance keys, and a `[M:SS] Name: text` body when
