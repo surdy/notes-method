@@ -179,9 +179,10 @@ fn calendar_sync_domain_map_query_resolves_acme() {
     let result = execute_sql(&cache, sql).unwrap();
     assert_eq!(result.columns, vec!["domain", "title"]);
 
-    let acme = result.rows.iter().find(|row| {
-        row.first().and_then(|v| v.as_str()) == Some("acme.com")
-    });
+    let acme = result
+        .rows
+        .iter()
+        .find(|row| row.first().and_then(|v| v.as_str()) == Some("acme.com"));
     let acme = acme.expect("acme.com domain mapping missing from golden-vault");
     assert_eq!(
         acme.get(1).and_then(|v| v.as_str()),

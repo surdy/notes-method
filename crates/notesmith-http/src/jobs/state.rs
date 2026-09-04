@@ -279,7 +279,10 @@ mod tests {
             )
             .unwrap();
         let success_at: DateTime<Utc> = "2026-08-05T07:00:00Z".parse().unwrap();
-        assert_eq!(store.get("briefing").unwrap().last_success, Some(success_at));
+        assert_eq!(
+            store.get("briefing").unwrap().last_success,
+            Some(success_at)
+        );
 
         // A later NoWrites run does NOT advance last_success (it did not
         // deliver) — the earlier success is carried forward, like a failure.

@@ -1657,14 +1657,24 @@ success_when = "SELECT path FROM v_notes WHERE path = 'Inbox/Fresh.md'"
         // Empty result set → Failed with the predicate reason.
         let (status, reason) = evaluate_success_when(Ok(query_result(&["c"], vec![])));
         assert_eq!(status, JobRunStatus::Failed);
-        assert_eq!(reason.as_deref(), Some("success_when predicate not satisfied"));
+        assert_eq!(
+            reason.as_deref(),
+            Some("success_when predicate not satisfied")
+        );
 
         // Falsy scalars: 0, false, null, empty string → Failed.
         for falsy in [json!(0), json!(false), json!(null), json!("")] {
             let (status, reason) =
                 evaluate_success_when(Ok(query_result(&["v"], vec![vec![falsy.clone()]])));
-            assert_eq!(status, JobRunStatus::Failed, "value {falsy} should be falsy");
-            assert_eq!(reason.as_deref(), Some("success_when predicate not satisfied"));
+            assert_eq!(
+                status,
+                JobRunStatus::Failed,
+                "value {falsy} should be falsy"
+            );
+            assert_eq!(
+                reason.as_deref(),
+                Some("success_when predicate not satisfied")
+            );
         }
     }
 
@@ -1673,8 +1683,7 @@ success_when = "SELECT path FROM v_notes WHERE path = 'Inbox/Fresh.md'"
         // A non-SELECT statement is rejected by the read-only guard; the error
         // is carried into the failure reason (a broken predicate is a
         // job-config failure, not swallowed).
-        let (status, reason) =
-            evaluate_success_when(Err(notesmith_query::QueryError::NotReadOnly));
+        let (status, reason) = evaluate_success_when(Err(notesmith_query::QueryError::NotReadOnly));
         assert_eq!(status, JobRunStatus::Failed);
         assert!(
             reason.as_deref().unwrap().contains("Only SELECT"),
@@ -1685,7 +1694,10 @@ success_when = "SELECT path FROM v_notes WHERE path = 'Inbox/Fresh.md'"
             notesmith_query::QueryError::ExecutionError("no such table: bogus".to_string()),
         ));
         assert_eq!(status, JobRunStatus::Failed);
-        assert!(reason.as_deref().unwrap().contains("no such table"), "{reason:?}");
+        assert!(
+            reason.as_deref().unwrap().contains("no such table"),
+            "{reason:?}"
+        );
     }
 
     #[test]

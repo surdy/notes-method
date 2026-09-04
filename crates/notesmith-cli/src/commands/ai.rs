@@ -307,10 +307,7 @@ fn vault_mcp_bindings(
             daemon_url,
             vault,
             read_only,
-            vec![(
-                notesmith_agent::RUN_ID_HEADER.to_string(),
-                id.to_string(),
-            )],
+            vec![(notesmith_agent::RUN_ID_HEADER.to_string(), id.to_string())],
         ),
         None => McpBinding::daemon_http(daemon_url, vault, read_only),
     };

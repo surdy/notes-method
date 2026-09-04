@@ -269,7 +269,10 @@ mod tests {
             "running": false,
             "last_run": { "status": "succeeded", "at": "2026-08-05T07:30:02+00:00", "writes": 3 }
         }));
-        assert!(wrote.contains("last: succeeded 2026-08-05T07:30:02+00:00 (3 writes)"), "{wrote}");
+        assert!(
+            wrote.contains("last: succeeded 2026-08-05T07:30:02+00:00 (3 writes)"),
+            "{wrote}"
+        );
 
         // Singular for a single write.
         let one = format_job_line(&json!({

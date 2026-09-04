@@ -1936,7 +1936,10 @@ mod tests {
     #[test]
     fn run_id_is_read_from_the_request_parts_header() {
         let extensions = extensions_with_run_id("run-abc");
-        assert_eq!(run_id_from_extensions(&extensions).as_deref(), Some("run-abc"));
+        assert_eq!(
+            run_id_from_extensions(&extensions).as_deref(),
+            Some("run-abc")
+        );
         // No parts at all → no run id (the stdio bridge case).
         assert_eq!(run_id_from_extensions(&Extensions::new()), None);
     }
