@@ -213,3 +213,41 @@ only **sender and subject metadata** — which is exactly what the briefing
 summary is allowed to contain anyway. Bodies, quoted passages, and raw headers
 remain out. That connector is the answer for agents with no Work IQ tool at
 all, not a replacement for the judgment tier.
+
+## Amendment (2026-09-04) — agent-job success is effect-based, not exit-code-based
+
+Two field runs of the daily-briefing job recorded `succeeded` while the agent
+wrote nothing: it exited 0 having declined, or having hallucinated a missing
+write tool. An exit code cannot distinguish "did the work" from "politely did
+nothing", so job success can no longer be read from the agent subprocess's
+exit status alone.
+
+**Decision.** A scheduled job's recorded outcome is refined by what the run
+*actually did to the vault*, in two layers:
+
+- **Default (A) — write attribution.** Vault mutations by an agent session
+  already flow through the daemon's MCP write tools, so the daemon can count
+  them per run. For an agent job that *can* write (`allow_writes = true`), a
+  run that exits 0 with **zero writes** is recorded as a new distinct outcome,
+  **`no_writes`**, surfaced as such in `job list` / `GET /jobs` / `job.*` SSE
+  — not silently `succeeded`, and not a hard `failed` (a genuinely quiet
+  morning is legitimate; `no_writes` is a visible signal the operator judges).
+  Read-only agent jobs and command jobs are unaffected. This is automatic, no
+  config.
+- **Opt-in (C) — declared success criterion.** A job may carry
+  `success_when` (a `SELECT` run against the vault index after the run). When
+  present it is **authoritative**: a false/empty result records `failed` with
+  the predicate as the reason, a true/non-empty result records `succeeded`,
+  overriding the layer-A verdict. The write count is still recorded as
+  diagnostic metadata. This is the answer for a job whose failure is subtle —
+  it wrote *something* but not the right thing.
+
+Precedence is `success_when` if declared, else the write-attribution outcome.
+The briefing's own "did all four `briefing/*` sections get filled" check is met
+by enriching layer A (attributing *which* managed sections a run's
+`update_managed_section` calls touched) rather than authoring a bespoke
+predicate — so it needs no `success_when`.
+
+"Core ships mechanisms" holds: write attribution and a post-run SQL predicate
+are generic job machinery with no knowledge of briefings. Implementation plan:
+`plans/job-success-criteria-plan.md`.
