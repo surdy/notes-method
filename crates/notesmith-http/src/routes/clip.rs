@@ -506,11 +506,11 @@ mod tests {
     fn captions_outcome_plans_a_note() {
         let transcript = YoutubeTranscript {
             meta: meta(),
-            segments: vec![TranscriptSegment {
-                start: 0.0,
-                end: 2.0,
-                text: "We're no strangers to love".into(),
-            }],
+            segments: vec![TranscriptSegment::new(
+                0.0,
+                2.0,
+                "We're no strangers to love",
+            )],
         };
         let plan = plan_youtube_clip(
             YoutubeOutcome::Captions(transcript),
@@ -538,11 +538,7 @@ mod tests {
     fn captions_outcome_applies_matching_template() {
         let transcript = YoutubeTranscript {
             meta: meta(),
-            segments: vec![TranscriptSegment {
-                start: 0.0,
-                end: 2.0,
-                text: "line".into(),
-            }],
+            segments: vec![TranscriptSegment::new(0.0, 2.0, "line")],
         };
         let mut fm = BTreeMap::new();
         fm.insert("channel_note".to_string(), "{{ channel }}".to_string());

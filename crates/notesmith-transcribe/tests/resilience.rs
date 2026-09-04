@@ -57,6 +57,7 @@ fn model_resolution_on_nonexistent_dir_is_none_not_panic() {
 #[test]
 fn renderer_handles_degenerate_transcripts() {
     let meta = MediaMeta {
+        kind: None,
         title: String::new(),
         source: "x".into(),
         source_type: "audio".into(),
@@ -70,16 +71,8 @@ fn renderer_handles_degenerate_transcripts() {
 
     // Whitespace-only / non-finite-timestamp segments do not panic.
     let weird = vec![
-        TranscriptSegment {
-            start: f64::NAN,
-            end: f64::INFINITY,
-            text: "   ".into(),
-        },
-        TranscriptSegment {
-            start: -1.0,
-            end: 0.0,
-            text: "kept".into(),
-        },
+        TranscriptSegment::new(f64::NAN, f64::INFINITY, "   "),
+        TranscriptSegment::new(-1.0, 0.0, "kept"),
     ];
     let body = transcript_body(&weird);
     assert!(body.contains("kept"));

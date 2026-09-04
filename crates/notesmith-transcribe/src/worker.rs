@@ -154,6 +154,7 @@ impl TranscribeWorker {
             .unwrap_or("")
             .to_string();
         let meta = MediaMeta {
+            kind: None,
             title,
             source: item.source_url.clone(),
             source_type: SOURCE_TYPE_AUDIO.to_string(),
@@ -202,6 +203,7 @@ impl TranscribeWorker {
             .or(queued.duration)
             .or_else(|| transcript.segments.last().map(|s| s.end.max(0.0) as u64));
         let meta = MediaMeta {
+            kind: None,
             title,
             source: item.source_url.clone(),
             source_type: SOURCE_TYPE_YOUTUBE.to_string(),
@@ -316,16 +318,8 @@ mod tests {
 
     fn stub_with_text() -> Box<dyn Transcriber> {
         Box::new(StubTranscriber::with_segments(vec![
-            TranscriptSegment {
-                start: 0.0,
-                end: 2.0,
-                text: "hello world".into(),
-            },
-            TranscriptSegment {
-                start: 65.0,
-                end: 70.0,
-                text: "second line".into(),
-            },
+            TranscriptSegment::new(0.0, 2.0, "hello world"),
+            TranscriptSegment::new(65.0, 70.0, "second line"),
         ]))
     }
 

@@ -21,12 +21,24 @@ pub fn format_timestamp(seconds: f64) -> String {
     }
 }
 
-/// The timestamped transcript body (`[M:SS] text` per non-empty segment).
+/// The timestamped transcript body: `[M:SS] text`, or `[M:SS] Name: text` when
+/// the source attributes the segment to a speaker (ADR 0025's 2026-09-04
+/// amendment — Teams supplies one, Whisper and YouTube do not).
+///
+/// Segments are emitted in the order given. Teams WebVTT cue intervals can
+/// overlap, so this must never reorder by timestamp.
 pub fn transcript_body(segments: &[TranscriptSegment]) -> String {
     segments
         .iter()
         .filter(|seg| !seg.text.trim().is_empty())
-        .map(|seg| format!("[{}] {}", format_timestamp(seg.start), seg.text.trim()))
+        .map(|seg| {
+            let stamp = format_timestamp(seg.start);
+            let text = seg.text.trim();
+            match seg.speaker.as_deref().map(str::trim) {
+                Some(name) if !name.is_empty() => format!("[{stamp}] {name}: {text}"),
+                _ => format!("[{stamp}] {text}"),
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -35,6 +47,13 @@ pub fn transcript_body(segments: &[TranscriptSegment]) -> String {
 /// frontmatter.
 #[derive(Debug, Clone)]
 pub struct MediaMeta {
+    /// `kind` frontmatter value, emitted first when present.
+    ///
+    /// ADR 0025 defines the Transcript Note as `kind: transcript` regardless of
+    /// origin. The Teams path sets it; the audio and YouTube paths still pass
+    /// `None` so their shipped note shape is unchanged — flipping them is a
+    /// vault migration, not a rendering change, and is tracked separately.
+    pub kind: Option<String>,
     /// Note title (defaults to the source when empty).
     pub title: String,
     /// Source identifier — a file path or URL (the dedup key).
@@ -61,8 +80,27 @@ pub fn render_transcript_note(
     extra_tags: &[String],
     now: DateTime<Local>,
 ) -> String {
+    render_transcript_note_with_frontmatter(meta, transcript, extra_tags, now, &Mapping::new())
+}
+
+/// As [`render_transcript_note`], with caller-supplied frontmatter merged in.
+///
+/// This is how vault-specific keys reach a transcript note without core
+/// learning the vault's model (ADR 0025 Decision 5): the Teams connector passes
+/// `event_id` and the meeting/customer wikilinks it resolved. A key already
+/// rendered is replaced in place; new keys are appended in the order given.
+pub fn render_transcript_note_with_frontmatter(
+    meta: &MediaMeta,
+    transcript: &Transcript,
+    extra_tags: &[String],
+    now: DateTime<Local>,
+    extra_frontmatter: &Mapping,
+) -> String {
     let ingested_at = now.to_rfc3339();
-    let fm = media_frontmatter(meta, transcript, &ingested_at, extra_tags);
+    let mut fm = media_frontmatter(meta, transcript, &ingested_at, extra_tags);
+    for (key, value) in extra_frontmatter {
+        fm.insert(key.clone(), value.clone());
+    }
     let body = transcript_body(&transcript.segments);
 
     let yaml = serde_yaml::to_string(&Value::Mapping(fm))
@@ -80,6 +118,11 @@ fn media_frontmatter(
     extra_tags: &[String],
 ) -> Mapping {
     let mut fm = Mapping::new();
+    if let Some(kind) = &meta.kind {
+        if !kind.trim().is_empty() {
+            fm.insert(Value::from("kind"), Value::from(kind.clone()));
+        }
+    }
     let title = if meta.title.trim().is_empty() {
         meta.source.clone()
     } else {
@@ -137,21 +180,9 @@ mod tests {
     #[test]
     fn body_skips_empty_segments_and_trims() {
         let segs = vec![
-            TranscriptSegment {
-                start: 0.0,
-                end: 2.0,
-                text: "  hello  ".into(),
-            },
-            TranscriptSegment {
-                start: 2.0,
-                end: 3.0,
-                text: "   ".into(),
-            },
-            TranscriptSegment {
-                start: 65.0,
-                end: 70.0,
-                text: "world".into(),
-            },
+            TranscriptSegment::new(0.0, 2.0, "  hello  "),
+            TranscriptSegment::new(2.0, 3.0, "   "),
+            TranscriptSegment::new(65.0, 70.0, "world"),
         ];
         assert_eq!(transcript_body(&segs), "[0:00] hello\n[1:05] world");
     }
@@ -159,6 +190,7 @@ mod tests {
     #[test]
     fn renders_media_frontmatter_and_timestamped_body() {
         let meta = MediaMeta {
+            kind: None,
             title: "Interview".into(),
             source: "/drop/interview.wav".into(),
             source_type: "audio".into(),
@@ -168,11 +200,7 @@ mod tests {
         };
         let transcript = Transcript {
             language: Some("en".into()),
-            segments: vec![TranscriptSegment {
-                start: 0.0,
-                end: 2.0,
-                text: "hello there".into(),
-            }],
+            segments: vec![TranscriptSegment::new(0.0, 2.0, "hello there")],
         };
         let now = Local.with_ymd_and_hms(2025, 1, 2, 3, 4, 5).unwrap();
         let note = render_transcript_note(&meta, &transcript, &["voice".into()], now);
@@ -191,6 +219,7 @@ mod tests {
     #[test]
     fn title_defaults_to_source_when_empty() {
         let meta = MediaMeta {
+            kind: None,
             title: "  ".into(),
             source: "/drop/clip.wav".into(),
             source_type: "audio".into(),
@@ -206,6 +235,7 @@ mod tests {
     #[test]
     fn renders_channel_and_published_when_present() {
         let meta = MediaMeta {
+            kind: None,
             title: "Talk".into(),
             source: "https://www.youtube.com/watch?v=abc".into(),
             source_type: "youtube".into(),
