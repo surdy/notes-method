@@ -489,14 +489,23 @@ def workiq_fetch(entity_url: str) -> dict:
     return json.loads(proc.stdout)
 
 
-def calendar_view_url(days_ahead: int) -> str:
-    """Graph calendarView entity URL for [start of today, +days_ahead]."""
+def calendar_view_url(days_ahead: int, since: "datetime | None" = None) -> str:
+    """Graph calendarView entity URL for [start of today, +days_ahead].
+
+    `since` moves the *start* of the window earlier, for a one-time backfill.
+    Scheduled runs never pass it: the connector is deliberately forward-only,
+    because an event note only needs to exist before its transcript appears.
+    Backfill matters when standing a vault up, where transcript-sync's lookback
+    would otherwise find no occurrences to match against.
+    """
     today = (
         datetime.now()
         .astimezone()
         .replace(hour=0, minute=0, second=0, microsecond=0)
     )
     end = today + timedelta(days=days_ahead)
+    if since is not None:
+        today = min(today, since)
     params = {
         "startDateTime": _utc_z(today),
         "endDateTime": _utc_z(end),
@@ -534,14 +543,14 @@ def load_config() -> dict:
 # --------------------------------------------------------------------------
 
 
-def run_sync() -> int:
+def run_sync(since: "datetime | None" = None) -> int:
     """Fetch the calendar window and upsert event notes. Returns exit code."""
     config = load_config()
     corp_domains = config.get("corp_domains", [])
     days_ahead = int(config.get("sync_days_ahead", 7))
 
     domain_to_customer = load_domain_to_customer()
-    events = fetch_all_pages(calendar_view_url(days_ahead))
+    events = fetch_all_pages(calendar_view_url(days_ahead, since))
 
     created = 0
     updated = 0
@@ -765,6 +774,15 @@ def _self_test_fixtures() -> int:
     assert "Machine-owned calendar record" in rendered
 
     # Empty / unsafe subjects still yield a well-formed path.
+    # --since only ever moves the window *earlier*; a future date must not
+    # shrink it and silently skip today's events.
+    past = datetime(2020, 1, 1).astimezone()
+    assert "2020-01-01" in calendar_view_url(7, past), calendar_view_url(7, past)
+    future = datetime.now().astimezone() + timedelta(days=365)
+    assert "startDateTime=2020" not in calendar_view_url(7, future)
+    today_url = calendar_view_url(7)
+    assert calendar_view_url(7, future) == today_url, "a future --since is a no-op"
+
     # Pagination: `$top` caps a page, so the nextLink must be followed and
     # relativised back into the entity-path shape `workiq fetch -u` takes.
     assert (
@@ -800,13 +818,33 @@ def main(argv=None) -> int:
         action="store_true",
         help="Run the embedded pure-logic checks (no network) and exit.",
     )
+    parser.add_argument(
+        "--since",
+        metavar="YYYY-MM-DD",
+        help=(
+            "One-time backfill: extend the window back to this date. For "
+            "standing a vault up, where transcript-sync's lookback would "
+            "otherwise find no past occurrences. Scheduled runs omit it."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.self_test:
         return self_test()
 
+    since = None
+    if args.since:
+        try:
+            since = datetime.strptime(args.since, "%Y-%m-%d").astimezone()
+        except ValueError:
+            print(
+                f"calendar-sync: --since must be YYYY-MM-DD, got {args.since!r}",
+                file=sys.stderr,
+            )
+            return 2
+
     try:
-        return run_sync()
+        return run_sync(since)
     except Exception as error:  # noqa: BLE001 -- surface as a failed job
         print(f"calendar-sync: FAILED: {error}", file=sys.stderr)
         return 1
