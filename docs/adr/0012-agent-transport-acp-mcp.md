@@ -339,3 +339,7 @@ The decision is still unchanged: HTTP remains the vault binding's preferred
 transport, and this affects only the *external* server surface. #3889 stays
 open; if Copilot later accepts client-supplied stdio servers, the capability
 flag is the single place to turn this off.
+
+The full narrative — the limitation, the two times it bit the project, and the
+mechanism — is written up in
+[`docs/copilot-acp-stdio-workaround.md`](../copilot-acp-stdio-workaround.md).
