@@ -38,10 +38,11 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 # The managed section this connector owns (docs/managed-sections.md). Kept as a
 # module constant so the marker lines are built one way everywhere.
@@ -80,23 +81,40 @@ def one_line_subject(subject) -> str:
 
 
 def received_hhmm(value) -> str:
-    """``HH:MM`` from a Graph ``receivedDateTime`` (wall-clock, zone dropped).
+    """Local ``HH:MM`` from a Graph ``receivedDateTime``.
 
-    Graph returns UTC values like ``2026-09-03T15:04:00Z``. Like the
-    calendar-sync connector we render the wall-clock components and drop any
-    zone suffix rather than converting -- deterministic and stdlib-only, no
-    timezone database. Unparseable values render ``--:--`` rather than raising,
-    so one odd message never fails the whole digest.
+    Graph returns UTC values like ``2026-09-03T15:04:00Z``. This previously
+    rendered the raw wall-clock components and dropped the zone, on the
+    reasoning that converting needed a timezone database -- it does not:
+    ``astimezone()`` is stdlib and uses the system zone. The result was that a
+    digest read by someone in PDT showed every message seven hours late.
+    Verified against real synced data on 2026-09-04.
+
+    Unparseable values render ``--:--`` rather than raising, so one odd message
+    never fails the whole digest.
     """
     text = (value or "").strip()
-    text = re.sub(r"(Z|[+-]\d{2}:?\d{2})$", "", text)
-    if "." in text:
-        text = text.split(".", 1)[0]
+    marker = re.search(r"(Z|[+-]\d{2}:?\d{2})$", text)
+    body = text[: marker.start()] if marker else text
+    if "." in body:
+        body = body.split(".", 1)[0]
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
         try:
-            return datetime.strptime(text, fmt).strftime("%H:%M")
+            parsed = datetime.strptime(body, fmt)
         except ValueError:
             continue
+        if marker:
+            token = marker.group(0)
+            if token in ("Z", "z"):
+                tzinfo = timezone.utc
+            else:
+                digits = token[1:].replace(":", "")
+                delta = timedelta(hours=int(digits[:2]), minutes=int(digits[2:4]))
+                tzinfo = timezone(delta if token[0] == "+" else -delta)
+        else:
+            # No marker: Graph's mail surfaces are UTC.
+            tzinfo = timezone.utc
+        return parsed.replace(tzinfo=tzinfo).astimezone().strftime("%H:%M")
     return "--:--"
 
 
@@ -387,7 +405,55 @@ def _forbidden_body_values(messages) -> list:
     return values
 
 
+class _PinnedZone:
+    """Pin the process timezone so time assertions do not depend on the host."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self.previous = os.environ.get("TZ")
+
+    def __enter__(self):
+        os.environ["TZ"] = self.name
+        time.tzset()
+        return self
+
+    def __exit__(self, *_exc):
+        if self.previous is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = self.previous
+        time.tzset()
+        return False
+
+
+def _test_local_times() -> None:
+    """Digest times are local, not the raw UTC Graph sends."""
+    with _PinnedZone("America/Los_Angeles"):
+        assert received_hhmm("2026-09-03T15:04:00Z") == "08:04"
+        assert received_hhmm("2026-09-04T00:30:00Z") == "17:30", "crosses back a day"
+        assert received_hhmm("2026-09-03T17:04:00+02:00") == "08:04"
+        # Standard time, not just daylight: -08:00 in January.
+        assert received_hhmm("2026-01-15T17:00:00Z") == "09:00"
+        # No marker: Graph's mail surfaces are UTC.
+        assert received_hhmm("2026-09-03T15:04:00") == "08:04"
+
+    with _PinnedZone("Asia/Kolkata"):
+        assert received_hhmm("2026-09-03T15:04:00Z") == "20:34", "half-hour offset"
+
+    # Degradation is unchanged and zone-independent.
+    assert received_hhmm("") == "--:--"
+    assert received_hhmm(None) == "--:--"
+    assert received_hhmm("not a date") == "--:--"
+
+
 def self_test() -> int:
+    _test_local_times()
+    # The fixtures below assert their own UTC clock values, so pin UTC.
+    with _PinnedZone("UTC"):
+        return _self_test_fixtures()
+
+
+def _self_test_fixtures() -> int:
     cap = 25
     rendered = render_email_section(_SELF_TEST_MESSAGES, cap)
 

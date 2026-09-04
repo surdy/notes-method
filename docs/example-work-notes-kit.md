@@ -558,6 +558,7 @@ idempotent.
 
 ```yaml
 # Calendar/2026/08/2026-08-04 0930 Acme Corp sync.md
+# start/end are LOCAL wall clock — see "Times are local" below.
 ---
 kind: event
 event_id: AAMkAGI2-...        # stable upsert key
@@ -589,6 +590,26 @@ here on.
 Events are *records of the calendar*, distinct from `kind: meeting` notes; the
 meeting note stays the authoritative record. `todays_meetings` and
 `unmatched_events` in the `daily-note` prompt read these notes for the briefing.
+
+**Times are local.** Graph returns calendarView times as a zone-less
+`dateTime` with a sibling `timeZone: UTC`, and mail `receivedDateTime` with a
+trailing `Z`. Both connectors convert to local wall clock before writing,
+because that is what the rest of the vault means by a time — `date:` fields,
+the briefing's `date('now', 'localtime')` queries, and meeting-prefill's window
+around `now`.
+
+Until 2026-09-04 they *dropped* the zone instead and stored the raw components,
+so a 17:00 PDT meeting was written as `2026-09-04T00:00:00`: the right instant
+with the wrong clock, and rolled onto the wrong day. The email digest showed
+every message at its UTC time for the same reason.
+
+> **Repairing a vault synced before the fix.** Events upsert by `event_id` and
+> are patched in place, so a re-sync corrects `start`/`end` but leaves the note
+> at its old UTC-derived `YYYY-MM-DD HHMM` filename. To bring paths back in
+> step, delete the `Calendar/` tree and let the connector rebuild it — safe,
+> since event notes are machine-owned and the meeting note is the authoritative
+> record, but it only restores events inside the sync window. Check first
+> whether any meeting notes carry an `event:` backlink into that tree.
 
 **Corp domains and customer mapping.** Classification lives in config, so
 teaching the connector means editing config, not code:

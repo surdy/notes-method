@@ -299,3 +299,35 @@ backfill is not guaranteed until the tenant retention policy is known.
 **Storage policy gate passed.** Verbatim customer-call transcripts are approved
 for the local work vault and its corporate Git remote. The laptop-only
 placement in Decision 6 remains unchanged.
+
+## Amendment (2026-09-04) — imported times are local wall clock
+
+The occurrence probe's timezone check surfaced a shipped defect rather than a
+future risk. Graph returns calendarView times as a zone-less `dateTime` with a
+sibling `timeZone: UTC`, and mail `receivedDateTime` with a trailing `Z`. Both
+connectors *dropped* the zone and stored the raw components as if they were
+local. Real synced notes confirmed it: a 17:00 PDT meeting was stored as
+`2026-09-04T00:00:00` — the right instant, the wrong clock, and the wrong day.
+
+This was invisible to every prior verification because phase 4 tested meeting
+times against hand-built fixtures and checked the live connector only for
+schema and idempotency, never for clock correctness.
+
+**Decision: the vault stores local wall-clock time; connectors normalize at the
+boundary.** Everything above the connectors already means local — `date:`
+fields, the briefing's `date('now', 'localtime')` queries, meeting-prefill's
+window around `now`. Storing UTC would have required changing all of them.
+Connectors therefore parse the zone Graph supplies (the `timeZone` sibling, a
+`Z`, or an explicit offset) and convert; they never discard it. This refines
+the earlier amendment's "normalize both explicitly to UTC": explicit
+normalization is the rule, and the canonical form on disk is local.
+
+Transcript sync converts its `Z` timestamps the same way before matching
+against occurrence windows.
+
+**Existing data is not repaired by the fix.** Event notes are upserted by
+`event_id` and patched in place, so a re-sync corrects `start`/`end` while the
+note keeps its old UTC-derived `YYYY-MM-DD HHMM` filename. Bringing paths back
+in step means deleting the `Calendar/` tree and letting the connector rebuild
+it — safe, since event notes are machine-owned and the meeting note is the
+authoritative record, but it only restores events inside the sync window.
