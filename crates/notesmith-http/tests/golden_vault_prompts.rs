@@ -223,3 +223,38 @@ fn calendar_sync_connector_self_test_passes() {
         "connector self-test did not print OK"
     );
 }
+
+/// Runs the email-summary connector's embedded `--self-test` (no network) so
+/// its pure logic — sender/subject rendering, the empty case, and above all the
+/// metadata-only boundary (no message body leaks into the output) — has real
+/// coverage. Skipped gracefully when python3 is not on PATH.
+#[test]
+fn email_summary_connector_self_test_passes() {
+    let python = "python3";
+    if std::process::Command::new(python)
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        println!("skipping: python3 not on PATH");
+        return;
+    }
+
+    let output = std::process::Command::new(python)
+        .arg(".notesmith/connectors/email-summary.py")
+        .arg("--self-test")
+        .current_dir(golden_vault())
+        .output()
+        .expect("failed to spawn email-summary.py");
+
+    assert!(
+        output.status.success(),
+        "connector self-test failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("OK"),
+        "connector self-test did not print OK"
+    );
+}

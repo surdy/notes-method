@@ -31,6 +31,11 @@ pub(crate) const FILES: &[KitFile] = &[
     // users to `chmod +x` it after installing.
     kit_file!(".notesmith/connectors/calendar-sync.py"),
     kit_file!(".notesmith/connectors/calendar-sync.config.json"),
+    // Email-summary connector (ADR 0025 fallback tier). Same story as
+    // calendar-sync: `include_str!` embeds text only, so `kit apply` writes the
+    // script without its executable bit — the docs tell users to `chmod +x` it.
+    kit_file!(".notesmith/connectors/email-summary.py"),
+    kit_file!(".notesmith/connectors/email-summary.config.json"),
     kit_file!(".notesmith/templates/internal-meeting.md"),
     kit_file!(".notesmith/templates/external-meeting.md"),
     kit_file!(".notesmith/templates/stream.md"),

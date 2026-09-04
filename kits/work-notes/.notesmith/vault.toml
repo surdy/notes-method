@@ -65,3 +65,27 @@ at = "07:30"
 weekdays_only = true
 after = ["calendar-sync"]
 agent = { prompt = "daily-note", allow_writes = true }
+
+# Deterministic email summary (ADR 0025 Decision 3 + the 2026-09-04 fallback-tier
+# amendment): a connector subprocess that fills the daily note's `briefing/email`
+# section with a metadata-only (sender + subject) digest of unread inbox mail via
+# the Work IQ CLI (docs/example-work-notes-kit.md, "Deterministic email summary").
+# This is the FALLBACK tier — enable it only on a machine whose briefing agent has
+# no Work IQ tool; the agent's judgment-tier summary is preferred when available
+# and is never overwritten. It fills briefing/email only when the agent left it
+# empty or wrote "Work IQ not connected". `after = ["daily-briefing"]` makes it
+# run last, after the agent has had its turn. The runner requires a schedule, so
+# it carries `at = "07:35"` (just after the 07:30 briefing) purely as its fire
+# time — the `after` gate does the real ordering. Disabled here because it needs
+# the `workiq` CLI installed and authenticated on the machine that runs it; set
+# enabled = true there (hot-reloaded, no daemon restart) and `chmod +x` the
+# connector after `kit apply`. Used WITHOUT the briefing agent, drop the `after`
+# line (else it waits on a prerequisite that never runs).
+[[jobs]]
+name = "email-summary"
+enabled = false
+at = "07:35"
+weekdays_only = true
+after = ["daily-briefing"]
+command = ".notesmith/connectors/email-summary.py"
+timeout = "120s"

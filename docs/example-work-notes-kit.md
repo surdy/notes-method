@@ -59,6 +59,8 @@ Dashboards/
   connectors/
     calendar-sync.py        # M365 -> event notes (ADR 0025)
     calendar-sync.config.json
+    email-summary.py        # unread mail -> briefing/email (ADR 0025 fallback tier)
+    email-summary.config.json
 ```
 
 Notes on the layout:
@@ -596,6 +598,84 @@ prerequisite never runs stays held back.
 
 You can sanity-check the connector's pure logic offline with
 `python3 .notesmith/connectors/calendar-sync.py --self-test` (no network; prints
+`OK`).
+
+## Deterministic email summary
+
+The daily briefing's email section has **two tiers** (ADR 0025 Decision 3 and
+its 2026-09-04 amendment). The **judgment tier** is the briefing agent itself:
+when a Work IQ email tool is attached to its session, the agent reads today's
+inbox *live*, decides what matters, and writes a short human-facing summary into
+`briefing/email` — sender and subject only, one clause of gist per item. That is
+always preferred. The **fallback tier** is `email-summary.py`, a deterministic,
+LLM-free connector for machines whose briefing agent has *no* email tool at all.
+
+**What it does.** `email-summary.py` shells out to the Work IQ CLI
+(`workiq fetch -u "/me/mailFolders/inbox/messages?..."`), which returns Graph
+JSON from its *own* auth cache — Notesmith never stores corp credentials. It
+renders one bullet per unread message, most recent first, into `briefing/email`:
+
+```markdown
+3 unread:
+- 15:04 **Alice Adams** — Contract renewal, sign by Friday
+- 09:12 **teammate@corp.example.com** — Re: standup notes
+- 06:00 **News Bot** — Weekly digest
+```
+
+The empty case renders `Nothing unread.` Sender is the display name (or the
+address when there is none); the subject is trimmed to one line. The cap comes
+from config.
+
+**The hard boundary — only sender and subject persist.** The Graph query's
+`$select` is fixed at `id,subject,from,receivedDateTime,isRead`. Message
+`body`, `bodyPreview`, `uniqueBody`, headers, and attachments are **never
+requested and never stored** — exactly the boundary Decision 4 draws for email.
+Config can widen the window or the message cap, but not the fields; the boundary
+is not user-tunable. The connector's `--self-test` proves it: it renders a
+fixture whose messages carry body content and asserts none of that content
+appears in the output.
+
+**Coexistence — the agent's summary is never overwritten.** `briefing/email`
+may be written by the agent *or* this connector, so the connector runs last (its
+job declares `after = ["daily-briefing"]`) and fills the section **only when the
+agent left it unavailable**: it reads the current section interior and writes
+only if it is empty/whitespace or still carries the agent's
+`Email summary unavailable (Work IQ not connected).` fallback (matched loosely).
+Any real summary is left byte-for-byte untouched, and the connector exits 0
+(a no-op success). The write goes through
+`POST /notes-section/{path}` with `append_if_missing: true`, so re-runs converge
+and the human content around the markers is never disturbed
+(see `docs/managed-sections.md`).
+
+**Config.** `.notesmith/connectors/email-summary.config.json` is user-edited:
+
+```json
+{ "unread_only": true, "max_messages": 25 }
+```
+
+`unread_only` (default true) filters to `isRead eq false`; `max_messages` caps
+both the Graph `$top` and the rendered bullet count.
+
+**Enabling it** (on a machine whose briefing agent has no Work IQ tool):
+
+1. `chmod +x .notesmith/connectors/email-summary.py` — `kit apply` writes the
+   file without its executable bit (the kit manifest embeds text only).
+2. Install and authenticate the Work IQ CLI (`workiq auth login`); confirm
+   `workiq fetch -u "/me"` returns JSON.
+3. Flip `enabled = true` on the `email-summary` `[[jobs]]` entry in `vault.toml`
+   (hot-reloaded; no daemon restart). Develop against it with
+   `notesmith job run email-summary`.
+
+The job carries `at = "07:35"` — just after the 07:30 briefing — because the
+runner requires every job to declare a schedule; the real ordering is the
+`after = ["daily-briefing"]` gate, which holds the connector until the agent has
+had its turn today. **If you run the email connector *without* the briefing
+agent** (no `daily-briefing` job enabled), remove the `after` line — otherwise
+the connector waits forever on a prerequisite that never succeeds, and its
+`at` fire is recorded as `missed` each day.
+
+Sanity-check the pure logic offline with
+`python3 .notesmith/connectors/email-summary.py --self-test` (no network; prints
 `OK`).
 
 ## Query recipes
