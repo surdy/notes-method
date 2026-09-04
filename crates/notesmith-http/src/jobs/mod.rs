@@ -298,6 +298,7 @@ fn record_missed_run(ctx: &RunnerCtx, job_name: &str, after: &[String]) {
             status: JobRunStatus::Missed,
             exit_code: None,
             duration_ms: None,
+            writes: None,
             last_success: None, // derived by the store
         },
     ) {
@@ -319,9 +320,42 @@ fn warn_once(warned: &mut HashSet<String>, vault: &str, job: &str, reason: &str)
     }
 }
 
+/// Refine a write-tracked agent run's verdict with what it actually wrote to
+/// the vault (job success criteria, ADR 0025 amendment 2026-09-04). Layer A
+/// applies ONLY to agent jobs with `allow_writes = true`; for command jobs and
+/// read-only agent jobs it is a no-op (returns the base status unchanged and no
+/// `writes` metadata), so those behave exactly as before.
+///
+/// - exit 0 (`Succeeded`) with 0 writes → `NoWrites` (it did not deliver)
+/// - exit 0 with >= 1 write → `Succeeded`
+/// - a nonzero exit / timeout (`Failed` / `TimedOut`) is unchanged; the writes
+///   count is still recorded as diagnostic metadata.
+///
+/// `writes` is `Some(count)` for a write-tracked run (from the per-run tally —
+/// zero when the run never wrote) and `None` for an untracked run.
+fn refine_agent_outcome(
+    status: JobRunStatus,
+    action: &JobAction,
+    writes: Option<u32>,
+) -> (JobRunStatus, Option<u32>) {
+    match action {
+        JobAction::Agent(agent) if agent.allow_writes => {
+            let count = writes.unwrap_or(0);
+            let status = if status == JobRunStatus::Succeeded && count == 0 {
+                JobRunStatus::NoWrites
+            } else {
+                status
+            };
+            (status, Some(count))
+        }
+        _ => (status, None),
+    }
+}
+
 /// Execute one job run end to end: `job.started` event, subprocess with the
-/// connector env, state record, `job.succeeded`/`job.failed` event. All
-/// failure modes log WARN and return normally — the caller's loop survives.
+/// connector env, state record, then a `job.succeeded` / `job.no_writes` /
+/// `job.failed` event keyed off the refined status. All failure modes log WARN
+/// and return normally — the caller's loop survives.
 /// Callers must hold the run reservation.
 async fn execute_job(
     state: &SharedAppState,
@@ -340,6 +374,16 @@ async fn execute_job(
             app.event_tx.clone(),
             app.event_buffer.clone(),
         )
+    };
+
+    // Write-tracked agent runs (allow_writes) get a unique run id: the CLI
+    // stamps it on its daemon HTTP vault binding as `X-Notesmith-Run-Id`, and
+    // this same daemon process tallies the run's writes under it (job success
+    // criteria, ADR 0025 amendment 2026-09-04). Command jobs and read-only
+    // agent jobs are not attributed — layer A does not apply to them.
+    let run_id = match action {
+        JobAction::Agent(agent) if agent.allow_writes => Some(uuid::Uuid::new_v4().to_string()),
+        _ => None,
     };
 
     let started_at = Utc::now();
@@ -362,6 +406,7 @@ async fn execute_job(
         api_base: api_base(),
         vault_name: ctx.vault_name.clone(),
         state_dir,
+        run_id: run_id.clone(),
     };
 
     let run_result = match action {
@@ -370,7 +415,7 @@ async fn execute_job(
             run_agent_job(&ctx.notesmith_bin, &root, agent, timeout, &env).await
         }
     };
-    let (status, exit_code, duration, failure) = match run_result {
+    let (base_status, exit_code, duration, base_failure) = match run_result {
         Ok(outcome) => {
             let status = if outcome.timed_out {
                 JobRunStatus::TimedOut
@@ -382,12 +427,15 @@ async fn execute_job(
             let failure = match status {
                 JobRunStatus::Succeeded => None,
                 JobRunStatus::TimedOut => Some(format!("timed out after {}s", timeout.as_secs())),
-                // Missed is recorded by the gating path, never by a run.
-                JobRunStatus::Failed | JobRunStatus::Missed => Some(format!(
-                    "exited with {:?}: {}",
-                    outcome.exit_code,
-                    tail(&outcome.stderr, LOG_STDERR_TAIL)
-                )),
+                // Missed is recorded by the gating path; NoWrites is derived
+                // below, never observed here.
+                JobRunStatus::Failed | JobRunStatus::Missed | JobRunStatus::NoWrites => {
+                    Some(format!(
+                        "exited with {:?}: {}",
+                        outcome.exit_code,
+                        tail(&outcome.stderr, LOG_STDERR_TAIL)
+                    ))
+                }
             };
             (status, outcome.exit_code, outcome.duration, failure)
         }
@@ -399,6 +447,21 @@ async fn execute_job(
         ),
     };
 
+    // Layer A: for a write-tracked agent run, read the writes this run's id
+    // accumulated in this daemon (removing the entry), then refine the verdict —
+    // an exit-0 run that wrote nothing becomes `NoWrites`. The tally is read
+    // only AFTER the subprocess has fully exited, so every write it made is in.
+    let writes = run_id
+        .as_deref()
+        .map(|id| notesmith_mcp::take_run_writes(id).unwrap_or(0));
+    let (status, writes) = refine_agent_outcome(base_status, action, writes);
+    let failure = match status {
+        JobRunStatus::NoWrites => {
+            Some("agent run exited 0 but wrote nothing to the vault".to_string())
+        }
+        _ => base_failure,
+    };
+
     if let Err(error) = ctx.store.record(
         job_name,
         JobRunRecord {
@@ -406,6 +469,7 @@ async fn execute_job(
             status,
             exit_code,
             duration_ms: Some(duration.as_millis().min(u64::MAX as u128) as u64),
+            writes,
             last_success: None, // derived by the store
         },
     ) {
@@ -417,8 +481,24 @@ async fn execute_job(
         );
     }
 
-    match failure {
-        None => {
+    // The emitted event keys off the refined status, not just the failure
+    // reason: `NoWrites` carries a reason (for the record) but is deliberately
+    // NOT `job.failed` — a quiet run must not trip failure alerting, while
+    // still being visible as its own signal (ADR 0025, 2026-09-04 amendment).
+    match status {
+        JobRunStatus::NoWrites => {
+            tracing::warn!(
+                vault = %ctx.vault_name,
+                job = %job_name,
+                "job exited 0 but wrote nothing to the vault"
+            );
+            crate::events::emit(
+                &event_tx,
+                &event_buffer,
+                VaultEvent::new(&ctx.vault_name, EventType::JobNoWrites, job_name),
+            );
+        }
+        _ if failure.is_none() => {
             tracing::info!(
                 vault = %ctx.vault_name,
                 job = %job_name,
@@ -431,11 +511,11 @@ async fn execute_job(
                 VaultEvent::new(&ctx.vault_name, EventType::JobSucceeded, job_name),
             );
         }
-        Some(reason) => {
+        _ => {
             tracing::warn!(
                 vault = %ctx.vault_name,
                 job = %job_name,
-                reason = %reason,
+                reason = failure.as_deref().unwrap_or("unknown"),
                 "job failed"
             );
             crate::events::emit(
@@ -898,6 +978,7 @@ command = "job.sh"
                     status: JobRunStatus::Succeeded,
                     exit_code: Some(0),
                     duration_ms: Some(1),
+                    writes: None,
                     last_success: None,
                 },
             )
@@ -946,10 +1027,47 @@ agent = { prompt = "daily-note", allow_writes = true }
             invocation.trim(),
             "--vault jobs-agent-vault ai prompt daily-note --allow-writes"
         );
+        // The stub exits 0 but makes no MCP writes: layer A records this
+        // write-tracked run as `NoWrites` (0 writes), NOT a false `succeeded` —
+        // the exact daily-briefing incident this feature fixes.
+        let record = ctx.store.get("daily-briefing").unwrap();
+        assert_eq!(record.status, JobRunStatus::NoWrites);
+        assert_eq!(record.writes, Some(0));
+        assert_eq!(record.last_success, None, "NoWrites never stamps success");
         assert_eq!(
-            ctx.store.get("daily-briefing").unwrap().status,
-            JobRunStatus::Succeeded
+            event_rx.recv().await.unwrap().event_type,
+            EventType::JobStarted
         );
+        // A no-write run surfaces as the distinct job.no_writes event — visible,
+        // but not job.failed, so failure alerting does not fire on a quiet run.
+        assert_eq!(
+            event_rx.recv().await.unwrap().event_type,
+            EventType::JobNoWrites
+        );
+    }
+
+    #[tokio::test]
+    async fn read_only_agent_job_exit_zero_stays_succeeded() {
+        // Layer A does not apply to read-only agent jobs (allow_writes = false):
+        // an exit-0 run is `Succeeded` regardless of writes, as before.
+        let vault = TempDir::new().unwrap();
+        let scratch = TempDir::new().unwrap();
+        write_vault_config(
+            vault.path(),
+            "name = \"jobs-agent-ro-vault\"\n\n[[jobs]]\nname = \"digest\"\nevery = \"1s\"\nagent = { prompt = \"daily-note\" }\n",
+        );
+
+        let vault_name = "jobs-agent-ro-vault";
+        let state = state_with_vault(vault_name, vault.path()).await;
+        let mut event_rx = state.read().await.event_tx.subscribe();
+        let ctx = test_ctx(vault_name, &scratch);
+        write_executable(&ctx.notesmith_bin.clone(), "#!/bin/sh\nexit 0\n");
+
+        runner_pass(&state, &ctx, Utc::now(), &mut HashSet::new()).await;
+
+        let record = ctx.store.get("digest").unwrap();
+        assert_eq!(record.status, JobRunStatus::Succeeded);
+        assert_eq!(record.writes, None, "read-only runs are not write-tracked");
         assert_eq!(
             event_rx.recv().await.unwrap().event_type,
             EventType::JobStarted
@@ -1027,6 +1145,7 @@ after = ["calendar-sync"]
                     status: JobRunStatus::Succeeded,
                     exit_code: Some(0),
                     duration_ms: Some(1),
+                    writes: None,
                     last_success: None,
                 },
             )
@@ -1043,6 +1162,7 @@ after = ["calendar-sync"]
                     status: JobRunStatus::Succeeded,
                     exit_code: Some(0),
                     duration_ms: Some(1),
+                    writes: None,
                     last_success: None,
                 },
             )
@@ -1167,6 +1287,60 @@ after = ["calendar-sync"]
         let tailed = tail(&long, 500);
         assert!(tailed.starts_with('…'));
         assert_eq!(tailed.chars().count(), 501);
+    }
+
+    fn agent_action(allow_writes: bool) -> JobAction {
+        JobAction::Agent(notesmith_config::JobAgentConfig {
+            prompt: "daily-note".to_string(),
+            allow_writes,
+        })
+    }
+
+    #[test]
+    fn refine_agent_outcome_flags_a_no_write_writeable_run() {
+        // Write-tracked agent (allow_writes), exit 0, 0 writes → NoWrites.
+        let write_agent = agent_action(true);
+        assert_eq!(
+            refine_agent_outcome(JobRunStatus::Succeeded, &write_agent, Some(0)),
+            (JobRunStatus::NoWrites, Some(0))
+        );
+        // Absent tally (never wrote) is treated as zero.
+        assert_eq!(
+            refine_agent_outcome(JobRunStatus::Succeeded, &write_agent, None),
+            (JobRunStatus::NoWrites, Some(0))
+        );
+        // Exit 0 with >= 1 write stays Succeeded, tally recorded.
+        assert_eq!(
+            refine_agent_outcome(JobRunStatus::Succeeded, &write_agent, Some(3)),
+            (JobRunStatus::Succeeded, Some(3))
+        );
+        // Nonzero exit / timeout are never rewritten; the tally is still kept.
+        assert_eq!(
+            refine_agent_outcome(JobRunStatus::Failed, &write_agent, Some(0)),
+            (JobRunStatus::Failed, Some(0))
+        );
+        assert_eq!(
+            refine_agent_outcome(JobRunStatus::TimedOut, &write_agent, Some(2)),
+            (JobRunStatus::TimedOut, Some(2))
+        );
+    }
+
+    #[test]
+    fn refine_agent_outcome_leaves_untracked_jobs_untouched() {
+        // Read-only agent job: layer A does not apply, no writes metadata.
+        assert_eq!(
+            refine_agent_outcome(JobRunStatus::Succeeded, &agent_action(false), Some(0)),
+            (JobRunStatus::Succeeded, None)
+        );
+        // Command job: unchanged, no writes metadata.
+        assert_eq!(
+            refine_agent_outcome(
+                JobRunStatus::Succeeded,
+                &JobAction::Command("sync.sh".to_string()),
+                None
+            ),
+            (JobRunStatus::Succeeded, None)
+        );
     }
 
     #[test]

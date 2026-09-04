@@ -35,8 +35,8 @@ pub use diag_log::{AgentDiagnosticsLog, DiagEntry, DiagKind};
 pub use error::AgentError;
 pub use event::{AgentEvent, ToolCall, ToolResult};
 pub use mcp::{
-    McpBinding, extra_mcp_bindings, load_mcp_config, server_name_for_namespaced_vault,
-    server_name_for_vault,
+    McpBinding, RUN_ID_HEADER, extra_mcp_bindings, load_mcp_config,
+    server_name_for_namespaced_vault, server_name_for_vault,
 };
 pub use model::{ModelOption, ModelPicker};
 pub use permission::{

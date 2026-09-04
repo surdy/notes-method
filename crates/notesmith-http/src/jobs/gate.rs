@@ -160,6 +160,7 @@ mod tests {
             status: JobRunStatus::Succeeded,
             exit_code: Some(0),
             duration_ms: Some(1),
+            writes: None,
             last_success,
         }
     }
@@ -302,6 +303,27 @@ mod tests {
         let recs = records(&[("calendar-sync", Some(utc(2026, 8, 5, 15, 0)))]);
         let decision = evaluate_gate(&after(&["calendar-sync"]), &schedule, &recs, now);
         assert_eq!(decision, GateDecision::Ready);
+    }
+
+    #[test]
+    fn a_no_writes_prereq_today_is_not_satisfied() {
+        // The prereq's only run today is `NoWrites` (exit 0, wrote nothing):
+        // it did not deliver, so `last_success` was never stamped and the gate
+        // must stay blocked, exactly as if the prereq had failed.
+        let now = utc(2026, 8, 5, 8, 0);
+        let mut recs = records(&[("calendar-sync", Some(utc(2026, 8, 5, 6, 0)))]);
+        if let Some(record) = recs.get_mut("calendar-sync") {
+            record.status = JobRunStatus::NoWrites;
+            record.writes = Some(0);
+            // A NoWrites run never advances last_success (see the store): model
+            // that here by clearing it, since this is the prereq's only run.
+            record.last_success = None;
+        }
+        let decision = evaluate_gate(&after(&["calendar-sync"]), &at_utc(7, 30), &recs, now);
+        assert!(
+            matches!(decision, GateDecision::Blocked { .. }),
+            "{decision:?}"
+        );
     }
 
     #[test]

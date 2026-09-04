@@ -293,8 +293,27 @@ fn vault_mcp_bindings(
     read_only: bool,
     local_daemon: bool,
     notesmith_bin: String,
+    run_id: Option<&str>,
 ) -> (McpBinding, Option<McpBinding>) {
-    let http = McpBinding::daemon_http(daemon_url, vault, read_only);
+    // A write-tracked agent-job run (`NOTESMITH_RUN_ID` set) stamps its run id
+    // on the daemon HTTP vault binding so the daemon can attribute this run's
+    // writes and record `no_writes` when it wrote nothing (job success
+    // criteria, ADR 0025 amendment 2026-09-04). Scope A to the HTTP-bound
+    // session: the briefing uses HTTP on every supported agent, and the stdio
+    // bridge is a separate process that would not carry the header, so the
+    // fallback deliberately goes untagged (see the plan's stdio-fallback risk).
+    let http = match run_id {
+        Some(id) => McpBinding::daemon_http_with_headers(
+            daemon_url,
+            vault,
+            read_only,
+            vec![(
+                notesmith_agent::RUN_ID_HEADER.to_string(),
+                id.to_string(),
+            )],
+        ),
+        None => McpBinding::daemon_http(daemon_url, vault, read_only),
+    };
     let fallback = local_daemon.then(|| McpBinding::local_bridge(notesmith_bin, vault, read_only));
     (http, fallback)
 }
@@ -325,12 +344,19 @@ async fn drive_agent_turn(
     let notesmith_bin = std::env::current_exe()
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "notesmith".to_string());
+    // Set by the daemon's job runner for a write-tracked agent-job run; tags
+    // this session's vault writes so the daemon can record `no_writes` when the
+    // run wrote nothing (job success criteria, ADR 0025 amendment 2026-09-04).
+    let run_id = std::env::var("NOTESMITH_RUN_ID")
+        .ok()
+        .filter(|id| !id.trim().is_empty());
     let (http, stdio_fallback) = vault_mcp_bindings(
         daemon_url.as_str(),
         &detected.name,
         read_only,
         !crate::daemon_client::has_remote_override(),
         notesmith_bin,
+        run_id.as_deref(),
     );
     // Enabled external `[[mcp.servers]]` from the global config ride alongside
     // the vault bridge, as in the desktop app (#283). The vault read-only flag
@@ -410,6 +436,7 @@ mod tests {
             false,
             true,
             "notesmith".to_string(),
+            None,
         );
         match &http {
             McpBinding::Http { url, .. } => assert_eq!(url, "http://127.0.0.1:27183/mcp/work"),
@@ -431,6 +458,7 @@ mod tests {
             true,
             true,
             "notesmith".to_string(),
+            None,
         );
         match &http {
             McpBinding::Http { url, .. } => assert_eq!(url, "http://127.0.0.1:27183/mcp-ro/work"),
@@ -448,6 +476,7 @@ mod tests {
             false,
             false,
             "notesmith".to_string(),
+            None,
         );
         match &http {
             McpBinding::Http { url, .. } => {
@@ -458,6 +487,52 @@ mod tests {
         // The stdio bridge only reaches the local daemon; a remote --url /
         // NOTESMITH_URL session must not advertise it.
         assert!(fallback.is_none());
+    }
+
+    #[test]
+    fn vault_bindings_stamp_the_run_id_header_when_set() {
+        let (http, fallback) = vault_mcp_bindings(
+            "http://127.0.0.1:27183",
+            "work",
+            false,
+            true,
+            "notesmith".to_string(),
+            Some("run-xyz"),
+        );
+        match &http {
+            McpBinding::Http { url, headers, .. } => {
+                assert_eq!(url, "http://127.0.0.1:27183/mcp/work");
+                assert_eq!(
+                    headers,
+                    &[(
+                        notesmith_agent::RUN_ID_HEADER.to_string(),
+                        "run-xyz".to_string()
+                    )]
+                );
+            }
+            other => panic!("expected an http primary binding, got {other:?}"),
+        }
+        // Scope A to HTTP: the stdio fallback deliberately carries no header.
+        match fallback.expect("local daemon gets a stdio fallback") {
+            McpBinding::Stdio { .. } => {}
+            other => panic!("expected a stdio fallback, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn vault_bindings_carry_no_header_without_a_run_id() {
+        let (http, _fallback) = vault_mcp_bindings(
+            "http://127.0.0.1:27183",
+            "work",
+            false,
+            true,
+            "notesmith".to_string(),
+            None,
+        );
+        match &http {
+            McpBinding::Http { headers, .. } => assert!(headers.is_empty()),
+            other => panic!("expected an http primary binding, got {other:?}"),
+        }
     }
 
     #[test]

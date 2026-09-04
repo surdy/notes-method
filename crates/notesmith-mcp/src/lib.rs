@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use notesmith_config::VaultConfig;
 use notesmith_index::{SearchIndex, VaultCache};
@@ -20,6 +20,88 @@ use serde_json::{Map, Value, json};
 
 mod bridge;
 pub use bridge::{run_bridge, run_stdio_bridge};
+
+/// HTTP request header carrying the job-run id an agent-job session tags its
+/// vault writes with (job success criteria, ADR 0025 amendment 2026-09-04).
+/// The job runner mints the id, the CLI stamps it on the daemon HTTP vault
+/// binding, and the daemon attributes every write tool call under it to that
+/// run so a run that wrote nothing can be recorded as `no_writes` rather than a
+/// false `succeeded`. Header lookup is case-insensitive, so the CLI's
+/// `X-Notesmith-Run-Id` matches this lower-case form.
+pub const RUN_ID_HEADER: &str = "x-notesmith-run-id";
+
+/// Process-global per-run write tally, keyed by run id.
+///
+/// The daemon is a single process: the job runner and the HTTP MCP write
+/// dispatch share it, and run ids are globally unique (UUIDs), so a process
+/// global is the whole surface — no persistence, no per-vault scoping. Entries
+/// are created on the first attributed write and removed by the runner
+/// ([`take_run_writes`]) once the run has exited, so the map stays small.
+fn run_write_counter() -> &'static Mutex<HashMap<String, u32>> {
+    static COUNTER: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
+    COUNTER.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Record one successful vault write attributed to `run_id`.
+pub fn record_run_write(run_id: &str) {
+    let mut map = run_write_counter()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *map.entry(run_id.to_string()).or_insert(0) += 1;
+}
+
+/// Read and remove the write tally for `run_id`. `None` means no attributed
+/// write was ever recorded for that run (the map entry is created lazily on the
+/// first write). The runner treats `None` as zero writes.
+pub fn take_run_writes(run_id: &str) -> Option<u32> {
+    run_write_counter()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(run_id)
+}
+
+/// Whether a tool call mutates the vault, for per-run write attribution.
+///
+/// The line is drawn at tools whose sole purpose is an unconditional vault
+/// mutation, matching the ADR-amendment plan's enumerated set. Deliberately
+/// EXCLUDED: the `memory_*` tools (preview unless `confirm_apply`/
+/// `confirm_delete`, so a call is usually a no-write preview) and
+/// `read_document` (writes only when `save: true`); counting either at the
+/// dispatch level — without inspecting arguments — would over-count a run as
+/// having written. Neither is used by the daily briefing this attribution
+/// targets. Every listed tool goes through the write-gated `Ops` surface.
+fn is_write_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "create_note"
+            | "update_note"
+            | "update_managed_section"
+            | "append_to_note"
+            | "archive_note"
+            | "update_task_status"
+            | "inbox_add"
+            | "create_daily_note"
+            | "create_from_template"
+    )
+}
+
+/// Extract the job-run id from the HTTP request parts rmcp injects into the
+/// request extensions (streamable-HTTP transport only). `None` for the stdio
+/// bridge or any request without the header.
+fn run_id_from_context(context: &RequestContext<RoleServer>) -> Option<String> {
+    run_id_from_extensions(&context.extensions)
+}
+
+/// The run-id header value carried by the `http::request::Parts` rmcp stores in
+/// a request's extensions. Split out from [`run_id_from_context`] so it can be
+/// unit-tested without constructing a full [`RequestContext`].
+fn run_id_from_extensions(extensions: &Extensions) -> Option<String> {
+    extensions
+        .get::<http::request::Parts>()
+        .and_then(|parts| parts.headers.get(RUN_ID_HEADER))
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string())
+}
 
 pub struct NotesmithMcp {
     ops: Arc<dyn Ops>,
@@ -904,8 +986,9 @@ impl ServerHandler for NotesmithMcp {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
+        let is_write = is_write_tool(request.name.as_ref());
         let result = match request.name.as_ref() {
             "create_note" => {
                 self.handle_tool_call::<CreateNoteParams, _>(request.arguments, |params| {
@@ -1119,6 +1202,15 @@ impl ServerHandler for NotesmithMcp {
                 ));
             }
         };
+        // Attribute a successful write to the tagging run (if any). Counting
+        // only non-error results means a rejected write (e.g. a read-only
+        // surface, a write conflict) does not falsely mark the run as having
+        // written — `no_writes` must reflect what actually landed in the vault.
+        if is_write && result.is_error != Some(true) {
+            if let Some(run_id) = run_id_from_context(&context) {
+                record_run_write(&run_id);
+            }
+        }
         Ok(result)
     }
 
@@ -1747,6 +1839,77 @@ mod tests {
             .read_document_op("attachments/nope.pdf", false, None)
             .unwrap_err();
         assert!(err.to_string().contains("cannot read document"));
+    }
+
+    fn extensions_with_run_id(run_id: &str) -> Extensions {
+        let parts = http::Request::builder()
+            .header(RUN_ID_HEADER, run_id)
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
+        let mut extensions = Extensions::new();
+        extensions.insert(parts);
+        extensions
+    }
+
+    #[test]
+    fn write_tool_set_covers_mutations_not_reads() {
+        for write in [
+            "create_note",
+            "update_note",
+            "update_managed_section",
+            "append_to_note",
+            "archive_note",
+            "update_task_status",
+            "inbox_add",
+            "create_daily_note",
+            "create_from_template",
+        ] {
+            assert!(is_write_tool(write), "{write} should count as a write");
+        }
+        // Reads and the deliberately-excluded conditional/preview tools.
+        for read in [
+            "get_note",
+            "search_notes",
+            "vault_search",
+            "query_sql",
+            "list_notes",
+            "list_tasks",
+            "read_document",
+            "memory_save",
+            "memory_update",
+            "memory_supersede",
+            "memory_delete",
+        ] {
+            assert!(!is_write_tool(read), "{read} must not count as a write");
+        }
+    }
+
+    #[test]
+    fn run_id_is_read_from_the_request_parts_header() {
+        let extensions = extensions_with_run_id("run-abc");
+        assert_eq!(run_id_from_extensions(&extensions).as_deref(), Some("run-abc"));
+        // No parts at all → no run id (the stdio bridge case).
+        assert_eq!(run_id_from_extensions(&Extensions::new()), None);
+    }
+
+    #[test]
+    fn write_counter_is_per_run_id_and_isolated() {
+        // Unique ids so parallel tests never collide on the process-global map.
+        let a = "counter-test-run-a";
+        let b = "counter-test-run-b";
+        record_run_write(a);
+        record_run_write(a);
+        record_run_write(b);
+        // take() reads and removes; two ids stay isolated.
+        assert_eq!(take_run_writes(a), Some(2));
+        assert_eq!(take_run_writes(b), Some(1));
+        // Draining leaves nothing behind.
+        assert_eq!(take_run_writes(a), None);
+        assert_eq!(take_run_writes(b), None);
+        // A run that never wrote has no entry.
+        assert_eq!(take_run_writes("counter-test-run-never"), None);
     }
 
     #[test]

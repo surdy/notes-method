@@ -3523,6 +3523,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "uuid",
  "walkdir",
 ]
 
@@ -3589,6 +3590,7 @@ name = "notesmith-mcp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "http",
  "notesmith-config",
  "notesmith-core",
  "notesmith-index",

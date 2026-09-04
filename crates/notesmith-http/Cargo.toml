@@ -51,6 +51,7 @@ futures = { workspace = true }
 libc = "0.2"
 walkdir = { workspace = true }
 rusqlite = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 reqwest = { workspace = true }

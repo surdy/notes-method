@@ -126,6 +126,12 @@ pub enum EventType {
     /// A job run exited non-zero, timed out, or could not be launched.
     #[serde(rename = "job.failed")]
     JobFailed,
+    /// A write-tracked agent run exited 0 but wrote nothing to the vault
+    /// (ADR 0025, 2026-09-04 amendment). Distinct from `job.failed` on purpose:
+    /// a quiet run is not an error, so alerting that pages on failures must not
+    /// page on this — but it is not silently `succeeded` either.
+    #[serde(rename = "job.no_writes")]
+    JobNoWrites,
 }
 
 impl EventType {
@@ -150,6 +156,7 @@ impl EventType {
             EventType::JobStarted => "job.started",
             EventType::JobSucceeded => "job.succeeded",
             EventType::JobFailed => "job.failed",
+            EventType::JobNoWrites => "job.no_writes",
         }
     }
 }
@@ -438,6 +445,7 @@ mod tests {
             (EventType::JobStarted, "job.started"),
             (EventType::JobSucceeded, "job.succeeded"),
             (EventType::JobFailed, "job.failed"),
+            (EventType::JobNoWrites, "job.no_writes"),
         ] {
             let event = VaultEvent::new("work", event_type.clone(), "calendar-sync");
             let json: serde_json::Value = serde_json::to_value(&event).unwrap();

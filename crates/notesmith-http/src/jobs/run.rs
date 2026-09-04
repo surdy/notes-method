@@ -58,6 +58,11 @@ pub struct JobEnv {
     pub vault_name: String,
     /// Per-job connector-state dir (created before the run).
     pub state_dir: std::path::PathBuf,
+    /// Run id exported as `NOTESMITH_RUN_ID` so the spawned `notesmith ai
+    /// prompt` tags its vault writes with it (job success criteria, ADR 0025
+    /// amendment 2026-09-04). Set only for write-tracked agent jobs; `None`
+    /// for command jobs and read-only agent jobs, which are not attributed.
+    pub run_id: Option<String>,
 }
 
 /// Run a job command with cwd = `vault_root`, the connector env, and a hard
@@ -226,12 +231,18 @@ fn apply_job_contract(command: &mut Command, vault_root: &Path, env: &JobEnv) {
         // Never let an inherited NOTESMITH_URL point a connector's CLI calls
         // at a remote daemon; NOTESMITH_API_BASE is the job contract.
         .env_remove("NOTESMITH_URL")
+        // Never inherit a stray run id from the daemon's own environment; only
+        // an explicitly-set write-tracked run tags this subprocess's writes.
+        .env_remove("NOTESMITH_RUN_ID")
         .env("NOTESMITH_API_BASE", &env.api_base)
         .env("NOTESMITH_VAULT", &env.vault_name)
         .env("NOTESMITH_STATE_DIR", &env.state_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(run_id) = &env.run_id {
+        command.env("NOTESMITH_RUN_ID", run_id);
+    }
 }
 
 #[cfg(test)]
@@ -255,6 +266,7 @@ mod tests {
             api_base: "http://127.0.0.1:27183".to_string(),
             vault_name: "work".to_string(),
             state_dir: dir.path().join("state"),
+            run_id: None,
         }
     }
 
@@ -356,6 +368,36 @@ mod tests {
             cwd.canonicalize().unwrap(),
             vault.path().canonicalize().unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn agent_job_exports_the_run_id_when_set() {
+        let vault = TempDir::new().unwrap();
+        let bin_dir = TempDir::new().unwrap();
+        let stub = bin_dir.path().join("notesmith-stub");
+        write_executable(&stub, "#!/bin/sh\necho \"${NOTESMITH_RUN_ID:-<unset>}\"\n");
+
+        let mut env = env_for(&vault);
+        env.run_id = Some("run-xyz".to_string());
+        let agent = JobAgentConfig {
+            prompt: "daily-note".to_string(),
+            allow_writes: true,
+        };
+        let outcome = run_agent_job(&stub, vault.path(), &agent, Duration::from_secs(10), &env)
+            .await
+            .unwrap();
+        assert_eq!(outcome.stdout.trim(), "run-xyz");
+
+        // With no run id set, the subprocess sees no NOTESMITH_RUN_ID (even if
+        // one leaked into the daemon's own environment, it is removed).
+        // SAFETY: single-threaded test; restored immediately after the run.
+        unsafe { std::env::set_var("NOTESMITH_RUN_ID", "leaked") };
+        let env = env_for(&vault);
+        let outcome = run_agent_job(&stub, vault.path(), &agent, Duration::from_secs(10), &env)
+            .await
+            .unwrap();
+        unsafe { std::env::remove_var("NOTESMITH_RUN_ID") };
+        assert_eq!(outcome.stdout.trim(), "<unset>");
     }
 
     #[tokio::test]

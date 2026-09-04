@@ -25,11 +25,17 @@ use crate::server::SharedAppState;
 #[derive(Debug, Serialize)]
 pub struct JobLastRun {
     pub at: String,
+    /// Terminal status, e.g. `succeeded`, `failed`, `timed_out`, `missed`, or
+    /// `no_writes` (a write-tracked agent run that exited 0 but wrote nothing).
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
+    /// Vault writes this run performed, for write-tracked agent runs
+    /// (allow_writes). Absent for command jobs and read-only agent jobs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writes: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -105,6 +111,7 @@ pub async fn list_jobs(
                 status: record.status.as_str().to_string(),
                 exit_code: record.exit_code,
                 duration_ms: record.duration_ms,
+                writes: record.writes,
             });
             JobListEntry {
                 name: job.name.clone(),

@@ -131,14 +131,27 @@ fn format_job_line(job: &Value) -> String {
     };
 
     let last = match job["last_run"].as_object() {
-        Some(last_run) => format!(
-            "last: {} {}",
-            last_run
+        Some(last_run) => {
+            let status = last_run
                 .get("status")
                 .and_then(Value::as_str)
-                .unwrap_or("?"),
-            last_run.get("at").and_then(Value::as_str).unwrap_or("?")
-        ),
+                .unwrap_or("?");
+            // `no_writes` reads better as "no writes" in the table.
+            let status_label = if status == "no_writes" {
+                "no writes"
+            } else {
+                status
+            };
+            let at = last_run.get("at").and_then(Value::as_str).unwrap_or("?");
+            // Include the write count where the other run metadata is shown, for
+            // write-tracked agent runs (present only then).
+            let writes = match last_run.get("writes").and_then(Value::as_u64) {
+                Some(1) => " (1 write)".to_string(),
+                Some(n) => format!(" ({n} writes)"),
+                None => String::new(),
+            };
+            format!("last: {status_label} {at}{writes}")
+        }
         None => "last: never".to_string(),
     };
 
@@ -229,6 +242,41 @@ mod tests {
             line,
             "email-digest  [at 07:30 weekdays (America/Vancouver)]  enabled  last: succeeded 2026-08-05T07:30:02+00:00"
         );
+    }
+
+    #[test]
+    fn format_job_line_renders_no_writes_with_the_count() {
+        let no_writes = format_job_line(&json!({
+            "name": "daily-briefing",
+            "enabled": true,
+            "at": "07:30",
+            "agent": { "prompt": "daily-note", "allow_writes": true },
+            "valid": true,
+            "running": false,
+            "last_run": { "status": "no_writes", "at": "2026-08-05T07:30:02+00:00", "writes": 0 }
+        }));
+        assert!(
+            no_writes.contains("last: no writes 2026-08-05T07:30:02+00:00"),
+            "{no_writes}"
+        );
+
+        // A succeeded write-tracked run shows its write count too.
+        let wrote = format_job_line(&json!({
+            "name": "daily-briefing",
+            "enabled": true,
+            "at": "07:30",
+            "valid": true,
+            "running": false,
+            "last_run": { "status": "succeeded", "at": "2026-08-05T07:30:02+00:00", "writes": 3 }
+        }));
+        assert!(wrote.contains("last: succeeded 2026-08-05T07:30:02+00:00 (3 writes)"), "{wrote}");
+
+        // Singular for a single write.
+        let one = format_job_line(&json!({
+            "name": "x", "enabled": true, "every": "5m", "valid": true, "running": false,
+            "last_run": { "status": "succeeded", "at": "t", "writes": 1 }
+        }));
+        assert!(one.contains("(1 write)"), "{one}");
     }
 
     #[test]

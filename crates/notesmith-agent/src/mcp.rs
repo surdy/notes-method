@@ -35,6 +35,12 @@ use notesmith_config::{McpConfig, expand_path_vars};
 /// Server name surfaced to the agent for the vault's MCP server.
 pub const MCP_SERVER_NAME: &str = "notesmith";
 
+/// HTTP request header carrying the job-run id an agent-job session tags its
+/// vault writes with, so the daemon can attribute those writes to the run (job
+/// success criteria, ADR 0025 amendment 2026-09-04). The daemon reads it
+/// case-insensitively (its constant is the lower-case form).
+pub const RUN_ID_HEADER: &str = "X-Notesmith-Run-Id";
+
 fn sanitize_server_component(value: &str) -> String {
     value
         .trim()
@@ -156,11 +162,26 @@ impl McpBinding {
     /// as the stdio [`local_bridge`](Self::local_bridge) for that vault,
     /// whichever transport the session ends up selecting.
     pub fn daemon_http(daemon_url: &str, vault: &str, read_only: bool) -> Self {
+        Self::daemon_http_with_headers(daemon_url, vault, read_only, Vec::new())
+    }
+
+    /// Like [`daemon_http`](Self::daemon_http) but with request headers on every
+    /// call to the daemon endpoint — used to stamp the per-run
+    /// `X-Notesmith-Run-Id` on an agent-job session so the daemon can attribute
+    /// that run's vault writes (job success criteria, ADR 0025 amendment
+    /// 2026-09-04).
+    pub fn daemon_http_with_headers(
+        daemon_url: &str,
+        vault: &str,
+        read_only: bool,
+        headers: Vec<(String, String)>,
+    ) -> Self {
         let base = daemon_url.trim_end_matches('/');
         let scope = if read_only { "mcp-ro" } else { "mcp" };
-        Self::http(
+        Self::http_with_headers(
             server_name_for_vault(vault),
             format!("{base}/{scope}/{vault}"),
+            headers,
         )
     }
 
@@ -380,6 +401,33 @@ mod tests {
             McpBinding::Http { url, .. } => {
                 assert_eq!(url, "https://notes.example.com/mcp-ro/journal");
             }
+            other => panic!("expected an http binding, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn daemon_http_with_headers_stamps_the_run_id_header() {
+        let binding = McpBinding::daemon_http_with_headers(
+            "http://127.0.0.1:27183",
+            "work",
+            false,
+            vec![(RUN_ID_HEADER.to_string(), "run-123".to_string())],
+        );
+        assert_eq!(binding.name(), "notesmith-work");
+        assert!(!binding.read_only());
+        match &binding {
+            McpBinding::Http { url, headers, .. } => {
+                assert_eq!(url, "http://127.0.0.1:27183/mcp/work");
+                assert_eq!(
+                    headers,
+                    &[(RUN_ID_HEADER.to_string(), "run-123".to_string())]
+                );
+            }
+            other => panic!("expected an http binding, got {other:?}"),
+        }
+        // The plain constructor carries no headers.
+        match McpBinding::daemon_http("http://127.0.0.1:27183", "work", false) {
+            McpBinding::Http { headers, .. } => assert!(headers.is_empty()),
             other => panic!("expected an http binding, got {other:?}"),
         }
     }

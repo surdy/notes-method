@@ -24,6 +24,11 @@ pub enum JobRunStatus {
     /// The scheduled fire was skipped because its `after` prerequisites were
     /// never met that day (issue #282). No subprocess ran.
     Missed,
+    /// An agent job with `allow_writes = true` exited 0 but wrote nothing to
+    /// the vault (job success criteria, ADR 0025 amendment 2026-09-04). NOT a
+    /// success: it did not deliver, so it does not advance `last_success` and
+    /// does not satisfy an `after` prerequisite.
+    NoWrites,
 }
 
 impl JobRunStatus {
@@ -33,6 +38,7 @@ impl JobRunStatus {
             JobRunStatus::Failed => "failed",
             JobRunStatus::TimedOut => "timed_out",
             JobRunStatus::Missed => "missed",
+            JobRunStatus::NoWrites => "no_writes",
         }
     }
 }
@@ -48,6 +54,13 @@ pub struct JobRunRecord {
     pub exit_code: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
+    /// How many vault writes this run performed, when the run was write-tracked
+    /// (an agent job with `allow_writes = true`; job success criteria, ADR 0025
+    /// amendment 2026-09-04). `None` for command jobs and read-only agent jobs,
+    /// which are not attributed. Diagnostic metadata; the verdict is in
+    /// `status` (`writes == 0` on an exit-0 tracked run yields `NoWrites`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writes: Option<u32>,
     /// When this job last SUCCEEDED (start time of that run), kept separately
     /// from `last_run` so a later failure does not erase it — same-day `after`
     /// gating (issue #282) needs "has this job succeeded today". Maintained by
@@ -167,6 +180,7 @@ mod tests {
             status,
             exit_code: Some(0),
             duration_ms: Some(1234),
+            writes: None,
             last_success: None,
         }
     }
@@ -232,6 +246,57 @@ mod tests {
             serde_json::to_value(JobRunStatus::Missed).unwrap(),
             serde_json::json!("missed")
         );
+    }
+
+    #[test]
+    fn no_writes_round_trips_through_its_string_form() {
+        assert_eq!(JobRunStatus::NoWrites.as_str(), "no_writes");
+        let json = serde_json::to_value(JobRunStatus::NoWrites).unwrap();
+        assert_eq!(json, serde_json::json!("no_writes"));
+        let parsed: JobRunStatus = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed, JobRunStatus::NoWrites);
+    }
+
+    #[test]
+    fn no_writes_does_not_advance_last_success() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = store_in(&dir);
+
+        // A success stamps last_success.
+        store
+            .record(
+                "briefing",
+                record_at(JobRunStatus::Succeeded, "2026-08-05T07:00:00Z"),
+            )
+            .unwrap();
+        let success_at: DateTime<Utc> = "2026-08-05T07:00:00Z".parse().unwrap();
+        assert_eq!(store.get("briefing").unwrap().last_success, Some(success_at));
+
+        // A later NoWrites run does NOT advance last_success (it did not
+        // deliver) — the earlier success is carried forward, like a failure.
+        let mut no_writes = record_at(JobRunStatus::NoWrites, "2026-08-06T07:00:00Z");
+        no_writes.writes = Some(0);
+        store.record("briefing", no_writes).unwrap();
+        let after = store.get("briefing").unwrap();
+        assert_eq!(after.status, JobRunStatus::NoWrites);
+        assert_eq!(after.writes, Some(0));
+        assert_eq!(after.last_success, Some(success_at));
+
+        // And a fresh job whose only run is NoWrites has never succeeded.
+        let mut fresh = record_at(JobRunStatus::NoWrites, "2026-08-06T08:00:00Z");
+        fresh.writes = Some(0);
+        store.record("fresh", fresh).unwrap();
+        assert_eq!(store.get("fresh").unwrap().last_success, None);
+    }
+
+    #[test]
+    fn writes_metadata_round_trips() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = store_in(&dir);
+        let mut record = record(JobRunStatus::Succeeded);
+        record.writes = Some(3);
+        store.record("briefing", record).unwrap();
+        assert_eq!(store.get("briefing").unwrap().writes, Some(3));
     }
 
     #[test]
