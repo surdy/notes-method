@@ -4,9 +4,10 @@
 
 Accepted (2026-08-04). Decisions settled interactively; full design in
 [`plans/integrations-control-center-plan.md`](../../plans/integrations-control-center-plan.md).
-Implementation pending — blocked on that plan's Phase-0 spike (Work IQ auth,
-transcript availability, corp policy). This ADR records the decisions and
-trade-offs so they survive until (and beyond) implementation.
+Phases 1–4 are implemented. The transcript-access and storage-policy gates for
+phase 5 were resolved on 2026-09-04; its remaining implementation constraints
+are recorded in the amendment below and
+[`plans/transcript-sync-spike-results.md`](../../plans/transcript-sync-spike-results.md).
 
 Scopes — does not supersede — [ADR 0019](0019-media-ingestion-pipeline.md)
 (see Decision 1) and carves a deliberate exception to the derived-state
@@ -251,3 +252,36 @@ predicate — so it needs no `success_when`.
 "Core ships mechanisms" holds: write attribution and a post-run SQL predicate
 are generic job machinery with no knowledge of briefings. Implementation plan:
 `plans/job-success-criteria-plan.md`.
+
+## Amendment (2026-09-04) — transcript transport and occurrence matching
+
+Real-machine verification resolved the Phase-0 transcript gate. A delegated
+Work IQ user token can resolve a calendar event's Teams join URL to an online
+meeting, list transcript metadata, and fetch transcript content; no application
+permission or Teams application-access-policy error occurred. The CLI returns
+content as a JSON string containing WebVTT rather than as raw VTT or a Graph
+object.
+
+**Decision 4 remains, with a more precise join.** Calendar sync must persist
+`isOnlineMeeting` and `join_url`. A join URL identifies the online meeting, but
+recurring calendar occurrences reuse one join URL, so it does not identify one
+`event_id`. Transcript sync resolves the online meeting, then matches each
+transcript's timestamps to the calendar occurrence before writing that
+occurrence's `event_id` into the Transcript Note.
+
+**The shared transcript model gains an optional speaker.** Real Teams VTT
+carries `<v Speaker>` on each cue. `TranscriptSegment` therefore gains
+`speaker: Option<String>`, rendered as `[M:SS] Name: text` when present;
+YouTube and local Whisper sources pass `None`. A separate Teams renderer is
+rejected because it would break Decision 4's one Transcript Note concept.
+Teams parsing preserves source order because VTT cue intervals may overlap.
+
+**Retention is best-effort.** A 17-day-old transcript remained fetchable, while
+older occurrences whose meeting records still said they were transcribed were
+not present in the current recurring-meeting transcript collection. The
+connector stores a cursor outside the vault and ingests promptly; historical
+backfill is not guaranteed until the tenant retention policy is known.
+
+**Storage policy gate passed.** Verbatim customer-call transcripts are approved
+for the local work vault and its corporate Git remote. The laptop-only
+placement in Decision 6 remains unchanged.

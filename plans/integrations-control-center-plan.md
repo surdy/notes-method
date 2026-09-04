@@ -1,6 +1,7 @@
 # Integrations & Control-Center Plan
 
-> Status: **decisions settled 2026-08-04** (interactive review with Harpreet).
+> Status: **phases 1–4 built; phase 5 unblocked 2026-09-04** by
+> `plans/transcript-sync-spike-results.md`.
 > Turns Notesmith into the daily work dashboard by integrating external work
 > systems (calendar, email, meeting transcripts via Microsoft Work IQ) while
 > keeping every integration out of core — config-declared, subprocess-based,
@@ -329,11 +330,17 @@ boundary here.
 
 - `transcript-sync` job (deterministic MCP client) fetches transcripts for
   recently-ended meetings from Work IQ, writes sidecar transcript notes (§E),
-  matches to meeting notes by `event_id`, links both ways. An
+  resolves the event's persisted `join_url` to an online meeting, and maps the
+  transcript back to the calendar occurrence by transcript/event timestamps
+  before assigning `event_id` (recurring instances reuse one join URL). It
+  parses the CLI's JSON-string-wrapped WebVTT, preserves `<v Speaker>` labels
+  through the shared transcript renderer, and links both ways. An
   `on_note_create` hook can nudge when a transcript arrived with no matching
   meeting note.
-- Fallback for sources Work IQ can't reach (eoriq exports?): drop files into
-  the existing ingest folder; routing files them.
+- Generic fallback for sources Work IQ cannot reach: drop files into the
+  existing ingest folder and route them. The unexplained `eoriq` name did not
+  resolve to a known system during the spike; add no source-specific work
+  until a real export contract exists.
 
 ### 3. Morning daily note (decision 6)
 
@@ -375,7 +382,7 @@ history + corp device backup for off-device safety. Never the homelab.
 | **2. Job runner** | `[[jobs]]` (command + agent kinds, `every`/`at`, catch-up, `after`, `job.*` events, manual run). Port calendar-sync into it. Fix daily-note path divergence + timezone. `[mcp.servers]` auth if the spike says it's missing. | yes — the main build |
 | **3. Calendar-aware meeting template** | `pre_render_hook` script + template updates + optional url-action. **Built** (url-action not done). | none (kit only) — confirmed, but see the deviations under feature 1: editable prompt defaults would need core |
 | **4. Daily briefing** | `daily-note` prompt with marked sections, `daily-briefing` agent job with Work IQ MCP attached, section-marker convention. | small (prompt-context plumbing, optional `replace_section` helper) |
-| **5. Transcripts** | `transcript-sync` connector, sidecar notes, two-way linking; drop-folder fallback documented. **Blocked** on `plans/transcript-sync-spike.md`. | none, then small |
+| **5. Transcripts** | `transcript-sync` connector, sidecar notes, two-way linking; persist calendar `join_url`, timestamp-match recurring occurrences, parse JSON-wrapped VTT, and extend the shared segment model with optional speaker. **Unblocked** by `plans/transcript-sync-spike-results.md`. | none, then small |
 
 Each phase is independently useful; stop anywhere.
 
@@ -384,16 +391,18 @@ Each phase is independently useful; stop anywhere.
 - **Work IQ MCP auth for a headless local client**: Entra flow (device code?),
   token refresh, whether corp tenant admin has enabled Work IQ and what the
   usage billing looks like at our polling cadence.
-- **Transcript availability**: are Teams transcripts exposed through Work IQ
-  with a joinable calendar event id? **Still unanswered** — written up as
-  runnable questions in `plans/transcript-sync-spike.md`, which also finds that
-  no join key is persisted today and that the shared transcript renderer has no
-  speaker field. Phase 5 is blocked on it.
+- **Transcript availability**: **resolved 2026-09-04.** A delegated Work IQ
+  token can resolve a calendar `joinUrl`, list transcript metadata, and fetch
+  JSON-string-wrapped WebVTT. Calendar sync must persist `join_url`; recurring
+  instances reuse it, so transcript timestamps disambiguate the occurrence.
+  The shared renderer must gain `speaker: Option<String>`. See
+  `plans/transcript-sync-spike-results.md`.
 - **eoriq**: separate system or the same Teams/Work IQ data? Determines
-  whether the drop-folder fallback is actually needed. Also still unanswered;
-  question E of the transcript spike.
+  whether a source-specific drop-folder fallback is needed. **Still
+  unidentified**: the user did not recognize the name and no relevant public
+  product was found. It no longer blocks the primary Work IQ path.
 - **`[mcp.servers]` HTTP auth support**: can Notesmith's remote-MCP config
   carry the required auth headers/OAuth today, or is that a core addition?
-- **Corp policy**: local markdown vault of meeting/email summaries on the
-  managed laptop; git push to which remote; any data-class restrictions on
-  what the vault may contain.
+- **Corp policy**: **resolved for transcripts 2026-09-04.** Verbatim
+  customer-call transcripts may live in the local work vault and its
+  corporate Git remote. The work-laptop-only placement remains mandatory.
