@@ -2,6 +2,8 @@
 kind: customer
 tags:
   - enterprise
+domains:
+  - acme.com
 created: 2024-06-01 10:00
 updated: 2026-05-22 04:13
 ---

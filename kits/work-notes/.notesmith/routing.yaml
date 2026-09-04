@@ -30,3 +30,17 @@ rules:
     then:
       move_to: "People/{{ filename }}"
       remove_tags: [inbox]
+
+  # The calendar-sync connector writes event notes straight to their
+  # deterministic Calendar/YYYY/MM path, so they never pass through the Inbox.
+  # This rule only catches an event that was captured to the Inbox by hand,
+  # filing it the same way meetings are filed by date (here by `start`).
+  - id: file-event
+    when:
+      all:
+        - path: "Inbox/**"
+        - field.kind: "event"
+        - field.start: "*"
+    then:
+      move_to: "Calendar/{{ field.start | year }}/{{ field.start | month }}/{{ filename }}"
+      remove_tags: [inbox]

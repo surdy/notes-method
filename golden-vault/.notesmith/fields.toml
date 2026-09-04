@@ -3,7 +3,7 @@ version = 1
 [fields.kind]
 type = "enum"
 description = "Canonical note type"
-values = ["meeting", "stream", "customer", "account", "person"]
+values = ["meeting", "stream", "customer", "account", "person", "event"]
 
 [fields.date]
 type = "date"
@@ -61,3 +61,31 @@ type = "string"
 [fields.tags]
 type = "list"
 multivalue = true
+
+# Calendar event fields (ADR 0025 heading D). Populated by the calendar-sync
+# connector on `kind: event` notes; `start`/`end` hold ISO datetimes as
+# strings so SQL `date()` parses them.
+[fields.event_id]
+type = "string"
+description = "Stable external calendar id — the upsert key for event notes"
+
+[fields.start]
+type = "string"
+description = "Event start (ISO datetime)"
+
+[fields.end]
+type = "string"
+description = "Event end (ISO datetime)"
+
+[fields.organizer]
+type = "string"
+description = "Event organizer email"
+
+# Lives on customer notes: maps attendee email domains to the customer so the
+# connector can derive `customers`/`audience`. Teaching the connector = editing
+# a customer note's `domains`.
+[fields.domains]
+type = "list"
+description = "Email domains that identify this customer"
+multivalue = true
+suggest_from = "SELECT DISTINCT value FROM v_field_values WHERE key = 'domains' ORDER BY value"

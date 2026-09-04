@@ -26,6 +26,11 @@ pub(crate) const FILES: &[KitFile] = &[
     kit_file!(".notesmith/routing.yaml"),
     kit_file!(".notesmith/skill.md"),
     kit_file!(".notesmith/prompts/daily-note.md"),
+    // Calendar-sync connector (ADR 0025). `include_str!` embeds text only, so
+    // `kit apply` writes the script without its executable bit — the docs tell
+    // users to `chmod +x` it after installing.
+    kit_file!(".notesmith/connectors/calendar-sync.py"),
+    kit_file!(".notesmith/connectors/calendar-sync.config.json"),
     kit_file!(".notesmith/templates/internal-meeting.md"),
     kit_file!(".notesmith/templates/external-meeting.md"),
     kit_file!(".notesmith/templates/stream.md"),
@@ -51,5 +56,6 @@ pub(crate) const FOLDERS: &[&str] = &[
     "Daily",
     "Weekly",
     "Quarterly",
+    "Calendar",
     "Dashboards",
 ];

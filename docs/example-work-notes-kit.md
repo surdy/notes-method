@@ -46,6 +46,9 @@ People/
 Daily/
 Weekly/
 Quarterly/
+Calendar/                   # kind: event notes, synced from the calendar
+  2026/
+    08/
 Dashboards/
 .notesmith/
   vault.toml
@@ -53,6 +56,9 @@ Dashboards/
   routing.yaml
   templates/
   skill.md
+  connectors/
+    calendar-sync.py        # M365 -> event notes (ADR 0025)
+    calendar-sync.config.json
 ```
 
 Notes on the layout:
@@ -74,7 +80,7 @@ Notes on the layout:
 
 | Field | On | Values |
 |---|---|---|
-| `kind` | all | `meeting` `stream` `customer` `account` `person` |
+| `kind` | all | `meeting` `stream` `customer` `account` `person` `event` |
 | `date` | meeting | ISO date |
 | `audience` | meeting | `internal` `external` (did customers attend?). **External meetings have exactly one customer**; only internal meetings may list several. |
 | `meeting_type` | meeting (optional) | The meeting's **format**: `qbr` `discovery` `status` `planning` `retrospective` `1:1`. Single-valued, set during enrichment (never prompted). Themes that came up (`#escalation`) stay tags. |
@@ -85,13 +91,17 @@ Notes on the layout:
 | `priority` | stream | `P0` `P1` `P2` `P3` |
 | `started` / `target` | stream | ISO date |
 | `org` / `role` | person | org may be a customer wikilink; `Internal` for coworkers |
+| `event_id` | event | stable external calendar id (the upsert key) |
+| `start` / `end` | event | ISO datetime (string; SQL `date()` parses it) |
+| `organizer` | event | organizer email |
+| `domains` | customer | list of email domains that identify the customer (feeds calendar sync) |
 
 ```toml
 version = 1
 
 [fields.kind]
 type = "enum"
-values = ["meeting", "stream", "customer", "account", "person"]
+values = ["meeting", "stream", "customer", "account", "person", "event"]
 
 [fields.date]
 type = "date"
@@ -138,6 +148,24 @@ type = "string"
 
 [fields.role]
 type = "string"
+
+# Calendar event fields (ADR 0025); `domains` lives on customer notes.
+[fields.event_id]
+type = "string"
+
+[fields.start]
+type = "string"
+
+[fields.end]
+type = "string"
+
+[fields.organizer]
+type = "string"
+
+[fields.domains]
+type = "list"
+multivalue = true
+suggest_from = "SELECT DISTINCT value FROM v_field_values WHERE key = 'domains' ORDER BY value"
 ```
 
 YAML rule worth repeating: **wikilinks in frontmatter must be quoted** —
@@ -493,6 +521,82 @@ managed `briefing/*` sections — meetings, email summary, tasks, attention —
 replacing them in place on re-runs. See `docs/managed-sections.md`. Prefer the
 agent job when an external agent CLI is available; keep this hook where it
 isn't.
+
+## Calendar sync
+
+The kit ships a **connector** (ADR 0025) that turns your Microsoft 365 calendar
+into vault notes. A connector is an external executable in
+`.notesmith/connectors/` that the daemon's generic `[[jobs]]` runner invokes on
+a schedule — not core code, and it holds no corp credentials of its own.
+
+**What it does.** `calendar-sync.py` shells out to the official Work IQ CLI
+(`workiq fetch -u "/me/calendarView?..."`), which returns Graph JSON and uses
+its *own* auth cache — Notesmith never stores corp credentials. It fetches a
+rolling window (start of today through +7 days) and, for each non-cancelled
+event, upserts a `kind: event` note keyed by `event_id` via the REST API
+(`POST /notes` to create, `PATCH /notes/{path}` to update in place). Re-runs are
+idempotent.
+
+**The event note** lands at a deterministic path so a resync is an upsert:
+
+```yaml
+# Calendar/2026/08/2026-08-04 0930 Acme Corp sync.md
+---
+kind: event
+event_id: AAMkAGI2-...        # stable upsert key
+start: 2026-08-04T09:30:00
+end: 2026-08-04T10:00:00
+attendees: ["alice@acme.com", "harpreet@corp.example.com"]
+audience: external            # derived: any non-corp attendee domain present
+customers: ["[[Acme Corp]]"]  # derived via domains -> customer mapping; [] if none
+organizer: alice@acme.com
+tags: ["calendar"]
+---
+```
+
+Events are *records of the calendar*, distinct from `kind: meeting` notes; the
+meeting note stays the authoritative record. `todays_meetings` and
+`unmatched_events` in the `daily-note` prompt read these notes for the briefing.
+
+**Corp domains and customer mapping.** Classification lives in config, so
+teaching the connector means editing config, not code:
+
+- `.notesmith/connectors/calendar-sync.config.json` holds `corp_domains` (your
+  own company's email domains) and `sync_days_ahead`. Any attendee whose domain
+  is *not* in `corp_domains` makes the event `audience: external`.
+
+  ```json
+  { "corp_domains": ["corp.example.com"], "sync_days_ahead": 7 }
+  ```
+
+- Customer matching is *vault* metadata: a customer note carries a `domains`
+  list (`domains: ["acme.com"]`, registered in `fields.toml`). The connector
+  queries `v_field_values` for every `domains` entry, resolves each to its
+  customer-note title, and sets `customers: ["[[<Customer>]]"]` on any event
+  with a matching attendee domain. Unmatched external domains leave
+  `customers: []` for manual triage (the briefing's Attention section surfaces
+  them). Teaching the connector a new customer = adding `domains` to that
+  customer note.
+
+**Enabling it** (on the machine that has the calendar — the corp laptop):
+
+1. `chmod +x .notesmith/connectors/calendar-sync.py` — `kit apply` writes the
+   file without its executable bit (the kit manifest embeds text only).
+2. Install and authenticate the Work IQ CLI (`workiq auth login`); confirm
+   `workiq fetch -u "/me"` returns JSON.
+3. Set your real `corp_domains` in `calendar-sync.config.json`.
+4. Flip `enabled = true` on the `calendar-sync` `[[jobs]]` entry in
+   `vault.toml` (hot-reloaded; no daemon restart). Develop against it with
+   `notesmith job run calendar-sync`.
+
+The `daily-briefing` job declares `after = ["calendar-sync"]`, so when both are
+enabled the briefing waits for the day's events to sync before it composes
+"Today's meetings". Enable the two together — a briefing whose `after`
+prerequisite never runs stays held back.
+
+You can sanity-check the connector's pure logic offline with
+`python3 .notesmith/connectors/calendar-sync.py --self-test` (no network; prints
+`OK`).
 
 ## Query recipes
 

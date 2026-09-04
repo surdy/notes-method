@@ -36,16 +36,32 @@ enabled = false
 # the daemon after enabling one.
 [hooks]
 
+# Calendar sync (ADR 0025 Decisions 1/3/4): a connector subprocess that pulls
+# M365 calendar events via the Work IQ CLI and upserts them as `kind: event`
+# notes under Calendar/ (docs/example-work-notes-kit.md, "Calendar sync").
+# Disabled here because it needs the `workiq` CLI installed and authenticated
+# plus corp_domains set in .notesmith/connectors/calendar-sync.config.json on
+# the machine that runs it; set enabled = true there (takes effect without a
+# daemon restart), and remember to `chmod +x` the connector after `kit apply`.
+[[jobs]]
+name = "calendar-sync"
+enabled = false
+every = "15m"
+command = ".notesmith/connectors/calendar-sync.py"
+timeout = "120s"
+
 # Morning daily briefing (issue #288, ADR 0025 Decision 5): renders
 # .notesmith/prompts/daily-note.md and drives a headless agent that fills the
 # daily note's managed sections (docs/managed-sections.md). Disabled here
 # because it needs an external agent CLI on the machine that runs it; set
 # enabled = true on that machine (takes effect without a daemon restart).
-# Once a calendar-sync connector job exists, add after = ["calendar-sync"]
-# so the briefing sees today's freshly synced event notes.
+# `after = ["calendar-sync"]` holds the briefing until calendar-sync has
+# succeeded today, so today's meetings are fresh — enable both together on the
+# machine, or the briefing waits on a prerequisite that never runs.
 [[jobs]]
 name = "daily-briefing"
 enabled = false
 at = "07:30"
 weekdays_only = true
+after = ["calendar-sync"]
 agent = { prompt = "daily-note", allow_writes = true }

@@ -1,0 +1,4 @@
+{
+  "corp_domains": ["corp.example.com"],
+  "sync_days_ahead": 7
+}
