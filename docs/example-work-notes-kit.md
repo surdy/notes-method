@@ -792,7 +792,7 @@ means transcript text never touches disk.
 The note (plan §E):
 
 ```yaml
-# Meetings/Transcripts/2026-09-09 - Acme sync (transcript).md
+# Meetings/Transcripts/2026-09-09 0900 - Acme sync (transcript).md
 ---
 kind: transcript
 source_type: teams
@@ -822,6 +822,22 @@ meeting up the next day and its transcript was ingested (and is now skipped)
 long before. Each run therefore re-pairs any transcript and meeting sharing an
 `event_id` that are linked on neither side, which is idempotent because a
 completed pair produces no patch.
+
+**It very likely only covers meetings you organized.** A join URL is resolved
+through `/me/onlineMeetings`, which holds the signed-in user's *own* meetings.
+For a call someone else booked — a customer-hosted call, an internal meeting a
+colleague set up — you are an attendee and the meeting is not in that
+collection, so the lookup comes back empty and the series is skipped. Live runs
+saw exactly that shape: seven series returning empty responses persistently
+while others succeeded. Treat it as the working explanation rather than a
+settled fact; it has not been confirmed against Graph's documented behaviour.
+If it holds, transcript coverage is a subset of your calendar, and the run
+summary's `failed` count is where that shows up.
+
+**Two transcripts, one meeting.** A recording stopped and restarted produces
+two transcript records with different ids. Both clear the `source_url` dedup
+and derive the same path from the same occurrence, so the second is written to
+`… (transcript 2).md` rather than lost to a path conflict.
 
 **Enabling it** (on the corp laptop, after `calendar-sync` is working):
 
