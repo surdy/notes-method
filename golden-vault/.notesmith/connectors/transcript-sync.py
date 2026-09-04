@@ -184,16 +184,29 @@ def subject_from_event_path(path: str) -> str:
 
 
 def transcript_note_path(occurrence: dict) -> str:
-    """`Meetings/Transcripts/YYYY-MM-DD - <subject> (transcript).md` (plan §E).
+    """`Meetings/Transcripts/YYYY-MM-DD HHMM - <subject> (transcript).md`.
 
     Derived from the occurrence, not the transcript, so a re-run of the same
     meeting lands on the same path.
+
+    Plan §E sketched this without the time. Real data disagreed: a recurring
+    standup and a same-day repeat of the same subject both collapse onto one
+    path, and the loser of that collision is dropped on a 409. `HHMM` matches
+    the shape `calendar-sync` already uses for event notes.
     """
     start = occurrence["start"]
     subject = sanitize_segment(subject_from_event_path(occurrence.get("path", "")))
     return (
-        f"Meetings/Transcripts/{start:%Y-%m-%d} - {subject} (transcript).md"
+        f"Meetings/Transcripts/{start:%Y-%m-%d %H%M} - {subject} (transcript).md"
     )
+
+
+def suffixed_path(path: str, n: int) -> str:
+    """`... (transcript).md` -> `... (transcript 2).md`."""
+    base = path[:-3] if path.endswith(".md") else path
+    if base.endswith(" (transcript)"):
+        return f"{base[:-1]} {n}).md"
+    return f"{base} ({n}).md"
 
 
 def source_url_for(transcript_id: str) -> str:
@@ -277,6 +290,24 @@ def group_by_join_url(occurrences) -> dict:
     for occs in series.values():
         occs.sort(key=lambda o: o["start"] or datetime.min)
     return series
+
+
+def transcript_in_window(transcript, now, lookback_days: int) -> bool:
+    """Could this transcript possibly match a cached occurrence?
+
+    Occurrences are filtered to the lookback window, so a transcript created
+    before it has nothing to match and never will. Without this the same
+    permanently-unmatchable transcripts are re-reported on every run -- noise
+    that teaches you to stop reading the output, which is precisely when a real
+    unmatched transcript slips past.
+
+    A transcript with no timestamp is kept, so `match_transcript` reports it
+    once rather than it being dropped here without explanation.
+    """
+    created = transcript.get("created")
+    if created is None:
+        return True
+    return created >= now - timedelta(days=lookback_days)
 
 
 def eligible(occurrence, now, lookback_days: int) -> bool:
@@ -527,6 +558,26 @@ def render_body(vtt: str, title: str, source_url: str) -> str:
     return body
 
 
+def create_note_at_free_path(path: str, frontmatter: dict, body: str, attempts: int = 5) -> str:
+    """Create the note, stepping to `(transcript 2)`, `(3)`… if the path is taken.
+
+    One meeting can produce two transcripts -- a recording stopped and
+    restarted yields two records with different ids, which both clear the
+    `source_url` dedup and then derive the same path from the same occurrence.
+    Letting the second die on a 409 loses a real transcript silently, so take
+    the next free name instead.
+    """
+    for attempt in range(1, attempts + 1):
+        candidate = path if attempt == 1 else suffixed_path(path, attempt)
+        try:
+            create_note(candidate, frontmatter, body)
+            return candidate
+        except urllib.error.HTTPError as error:
+            if error.code != 409:
+                raise
+    raise RuntimeError(f"no free path for {path} after {attempts} attempts")
+
+
 def create_note(path: str, frontmatter: dict, body: str) -> None:
     folder, _, filename = path.rpartition("/")
     title = filename[:-3] if filename.endswith(".md") else filename
@@ -636,6 +687,8 @@ def run_sync() -> int:
             continue
 
         for transcript in transcripts:
+            if not transcript_in_window(transcript, now, lookback_days):
+                continue
             source_url = source_url_for(transcript["id"])
             if transcript_already_ingested(source_url):
                 skipped += 1
@@ -656,11 +709,11 @@ def run_sync() -> int:
             try:
                 vtt = fetch_vtt(meeting_id, transcript["id"])
                 path = transcript_note_path(occurrence)
-                title = link_target(path)
-                body = render_body(vtt, title, source_url)
+                body = render_body(vtt, link_target(path), source_url)
                 meeting_path = find_meeting_note(occurrence.get("event_id"))
                 frontmatter = transcript_frontmatter(occurrence, transcript, meeting_path)
-                create_note(path, frontmatter, body)
+                # The written path may be suffixed, so link against what landed.
+                path = create_note_at_free_path(path, frontmatter, body)
                 created += 1
                 if meeting_path:
                     link_meeting_to_transcript(meeting_path, path)
@@ -754,12 +807,12 @@ def self_test() -> int:
     occ = _occ(9, 9)
     assert (
         transcript_note_path(occ)
-        == "Meetings/Transcripts/2026-09-09 - Acme sync (transcript).md"
+        == "Meetings/Transcripts/2026-09-09 0900 - Acme sync (transcript).md"
     ), transcript_note_path(occ)
     # `calendar-sync` sanitizes the subject before building its path, so the
     # subject recovered here is already filename-safe and carries through.
     assert transcript_note_path(_occ(9, 9, subject="Acme Q3 sync roadmap")) == (
-        "Meetings/Transcripts/2026-09-09 - Acme Q3 sync roadmap (transcript).md"
+        "Meetings/Transcripts/2026-09-09 0900 - Acme Q3 sync roadmap (transcript).md"
     )
     # The guard is still there for a path that somehow is not.
     assert sanitize_segment('a/b:c*d?"e') == "a b c d e"
@@ -796,6 +849,26 @@ def self_test() -> int:
     grouped = group_by_join_url([_occ(9, 9), _occ(2, 9), _occ(9, 14, join="join-b")])
     assert set(grouped) == {"join-a", "join-b"}
     assert [o["event_id"] for o in grouped["join-a"]] == ["evt-02-0900", "evt-09-0900"]
+
+    # Path identity carries the time: a same-day repeat of a subject, or a
+    # recurring standup, must not collapse onto one path.
+    assert transcript_note_path(_occ(9, 9)) == (
+        "Meetings/Transcripts/2026-09-09 0900 - Acme sync (transcript).md"
+    ), transcript_note_path(_occ(9, 9))
+    assert transcript_note_path(_occ(9, 9)) != transcript_note_path(_occ(9, 14))
+
+    # And a genuine collision (two transcripts, one occurrence) steps aside.
+    assert suffixed_path(
+        "Meetings/Transcripts/2026-09-09 0900 - Acme sync (transcript).md", 2
+    ) == "Meetings/Transcripts/2026-09-09 0900 - Acme sync (transcript 2).md"
+    assert suffixed_path("A/B.md", 3) == "A/B (3).md"
+
+    # Transcripts older than the lookback can never match a cached occurrence,
+    # so they are dropped rather than re-reported as unfiled on every run.
+    now = datetime(2026, 9, 9, 12, 0)
+    assert transcript_in_window({"created": datetime(2026, 9, 9, 9, 0)}, now, 3) is True
+    assert transcript_in_window({"created": datetime(2026, 8, 1, 9, 0)}, now, 3) is False
+    assert transcript_in_window({"created": None}, now, 3) is True, "reported once, not dropped"
 
     # Back-link reconciliation: the late-write case the create-time link misses.
     t_path = "Meetings/Transcripts/2026-09-09 - Acme sync (transcript).md"
