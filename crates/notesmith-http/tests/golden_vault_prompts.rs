@@ -498,6 +498,34 @@ fn transcript_sync_queries_execute_against_the_index() {
                  WHERE key = 'source_url' AND value = 'teams:none'";
     assert!(execute_sql(&cache, dedup).unwrap().rows.is_empty());
 
+    // Back-link reconciliation reads both sides every run, so a meeting note
+    // written after its transcript synced still gets paired up.
+    for (sql, columns) in [
+        (
+            "SELECT n.path AS path, \
+             MAX(CASE WHEN f.key = 'event_id' THEN f.value END) AS event_id, \
+             MAX(CASE WHEN f.key = 'meeting' THEN f.value END) AS meeting \
+             FROM v_notes n \
+             JOIN v_fields f ON f.vault_name = n.vault_name AND f.note_path = n.path \
+             WHERE n.path IN (SELECT note_path FROM v_fields WHERE key = 'kind' AND value = 'transcript') \
+             GROUP BY n.path",
+            vec!["path", "event_id", "meeting"],
+        ),
+        (
+            "SELECT n.path AS path, \
+             MAX(CASE WHEN f.key = 'event_id' THEN f.value END) AS event_id, \
+             MAX(CASE WHEN f.key = 'transcript' THEN f.value END) AS transcript \
+             FROM v_notes n \
+             JOIN v_fields f ON f.vault_name = n.vault_name AND f.note_path = n.path \
+             WHERE n.path IN (SELECT note_path FROM v_fields WHERE key = 'kind' AND value = 'meeting') \
+             GROUP BY n.path",
+            vec!["path", "event_id", "transcript"],
+        ),
+    ] {
+        let result = execute_sql(&cache, sql).expect("reconciliation query must be valid");
+        assert_eq!(result.columns, columns);
+    }
+
     // The meeting back-link lookup.
     let meeting = "SELECT note_path AS path FROM v_field_values \
                    WHERE key = 'event_id' AND note_path IN \

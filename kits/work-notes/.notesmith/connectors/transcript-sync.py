@@ -229,6 +229,44 @@ def link_target(path) -> str:
     return stem[:-3] if stem.endswith(".md") else stem
 
 
+def missing_links(transcripts, meetings):
+    """Frontmatter patches needed to complete meeting<->transcript pairs.
+
+    Returns ``[(note_path, {field: value}), ...]``.
+
+    The create-time link only fires when a meeting note *already exists* as the
+    transcript lands. That covers the common flow -- prefill writes the meeting
+    note during the call, the transcript appears an hour later -- but not the
+    late one: write the meeting up the next day and the transcript has already
+    been ingested, so it is skipped on every subsequent run and the link never
+    appears. Reconciling on each run closes that, and is idempotent because a
+    pair that is already linked produces no patch.
+    """
+    by_event = {}
+    for meeting in sorted(meetings, key=lambda m: m.get("path") or ""):
+        event_id = (meeting.get("event_id") or "").strip()
+        if event_id:
+            by_event.setdefault(event_id, meeting)
+
+    patches = []
+    for transcript in sorted(transcripts, key=lambda t: t.get("path") or ""):
+        event_id = (transcript.get("event_id") or "").strip()
+        if not event_id:
+            continue
+        meeting = by_event.get(event_id)
+        if not meeting:
+            continue
+        if not (transcript.get("meeting") or "").strip():
+            patches.append(
+                (transcript["path"], {"meeting": f"[[{link_target(meeting['path'])}]]"})
+            )
+        if not (meeting.get("transcript") or "").strip():
+            patches.append(
+                (meeting["path"], {"transcript": f"[[{link_target(transcript['path'])}]]"})
+            )
+    return patches
+
+
 def group_by_join_url(occurrences) -> dict:
     """Occurrences keyed by join URL — that grouping is the Teams series."""
     series = {}
@@ -319,6 +357,26 @@ MEETING_BY_EVENT_SQL = (
     "WHERE key = 'event_id' AND note_path IN "
     "(SELECT note_path FROM v_fields WHERE key = 'kind' AND value = 'meeting') "
     "AND value = '{event_id}'"
+)
+
+TRANSCRIPT_LINKS_SQL = (
+    "SELECT n.path AS path, "
+    "MAX(CASE WHEN f.key = 'event_id' THEN f.value END) AS event_id, "
+    "MAX(CASE WHEN f.key = 'meeting' THEN f.value END) AS meeting "
+    "FROM v_notes n "
+    "JOIN v_fields f ON f.vault_name = n.vault_name AND f.note_path = n.path "
+    "WHERE n.path IN (SELECT note_path FROM v_fields WHERE key = 'kind' AND value = 'transcript') "
+    "GROUP BY n.path"
+)
+
+MEETING_LINKS_SQL = (
+    "SELECT n.path AS path, "
+    "MAX(CASE WHEN f.key = 'event_id' THEN f.value END) AS event_id, "
+    "MAX(CASE WHEN f.key = 'transcript' THEN f.value END) AS transcript "
+    "FROM v_notes n "
+    "JOIN v_fields f ON f.vault_name = n.vault_name AND f.note_path = n.path "
+    "WHERE n.path IN (SELECT note_path FROM v_fields WHERE key = 'kind' AND value = 'meeting') "
+    "GROUP BY n.path"
 )
 
 EXISTING_TRANSCRIPT_SQL = (
@@ -480,18 +538,41 @@ def create_note(path: str, frontmatter: dict, body: str) -> None:
     )
 
 
-def link_meeting_to_transcript(meeting_path: str, transcript_path: str) -> None:
-    """Add the back-link as a frontmatter merge.
+def patch_frontmatter(path: str, fields: dict) -> None:
+    """Merge frontmatter fields into a note.
 
     A PATCH, deliberately: meeting notes are human-owned and ship no managed
     section, so the body is never touched. Frontmatter wikilinks are indexed as
     real links, which is how the rest of this vault models relationships.
     """
-    encoded = "/".join(urllib.parse.quote(p) for p in meeting_path.split("/"))
+    encoded = "/".join(urllib.parse.quote(part) for part in path.split("/"))
     url = f"{_api_base()}/api/v/{urllib.parse.quote(_vault())}/notes/{encoded}"
-    _http_json(
-        "PATCH", url, {"frontmatter": {"transcript": f"[[{link_target(transcript_path)}]]"}}
+    _http_json("PATCH", url, {"frontmatter": fields})
+
+
+def link_meeting_to_transcript(meeting_path: str, transcript_path: str) -> None:
+    """Point a meeting note at its freshly created transcript."""
+    patch_frontmatter(
+        meeting_path, {"transcript": f"[[{link_target(transcript_path)}]]"}
     )
+
+
+def reconcile_backlinks() -> int:
+    """Complete any meeting<->transcript pair that is linked on neither side.
+
+    Runs every time, independently of whether anything new was ingested: the
+    pair may only have become completable because a human wrote the meeting
+    note today for a call whose transcript synced last week.
+    """
+    patches = missing_links(query_sql(TRANSCRIPT_LINKS_SQL), query_sql(MEETING_LINKS_SQL))
+    linked = 0
+    for path, fields in patches:
+        try:
+            patch_frontmatter(path, fields)
+            linked += 1
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            print(f"transcript-sync: could not link {path}: {error}", file=sys.stderr)
+    return linked
 
 
 # --------------------------------------------------------------------------
@@ -520,7 +601,13 @@ def run_sync() -> int:
     occurrences = load_occurrences()
     candidates = [o for o in occurrences if eligible(o, now, lookback_days)]
     if not candidates:
-        print("transcript-sync: no recently-ended online meetings to check")
+        # Still reconcile: a meeting note written today can complete a pair
+        # whose transcript arrived days ago.
+        linked = reconcile_backlinks()
+        print(
+            "transcript-sync: no recently-ended online meetings to check, "
+            f"{linked} link(s) completed"
+        )
         return 0
 
     # A series is fetched once even when several of its occurrences qualify.
@@ -581,9 +668,11 @@ def run_sync() -> int:
                 failed_series += 1
                 print(f"transcript-sync: transcript failed: {error}", file=sys.stderr)
 
+    linked = reconcile_backlinks()
     print(
         f"transcript-sync: {created} created, {skipped} already present, "
-        f"{unmatched} left unfiled, {failed_series} failed"
+        f"{unmatched} left unfiled, {linked} link(s) completed, "
+        f"{failed_series} failed"
     )
     return 0
 
@@ -707,6 +796,35 @@ def self_test() -> int:
     grouped = group_by_join_url([_occ(9, 9), _occ(2, 9), _occ(9, 14, join="join-b")])
     assert set(grouped) == {"join-a", "join-b"}
     assert [o["event_id"] for o in grouped["join-a"]] == ["evt-02-0900", "evt-09-0900"]
+
+    # Back-link reconciliation: the late-write case the create-time link misses.
+    t_path = "Meetings/Transcripts/2026-09-09 - Acme sync (transcript).md"
+    m_path = "Meetings/2026/09/2026-09-09 - Acme - Sync.md"
+    unlinked_t = [{"path": t_path, "event_id": "evt-1", "meeting": None}]
+    unlinked_m = [{"path": m_path, "event_id": "evt-1", "transcript": None}]
+    assert missing_links(unlinked_t, unlinked_m) == [
+        (t_path, {"meeting": "[[2026-09-09 - Acme - Sync]]"}),
+        (m_path, {"transcript": "[[2026-09-09 - Acme sync (transcript)]]"}),
+    ], missing_links(unlinked_t, unlinked_m)
+
+    # Idempotent: an already-linked pair needs no patch.
+    linked_t = [{"path": t_path, "event_id": "evt-1", "meeting": "[[x]]"}]
+    linked_m = [{"path": m_path, "event_id": "evt-1", "transcript": "[[y]]"}]
+    assert missing_links(linked_t, linked_m) == []
+
+    # Half-linked: only the missing side is patched.
+    assert missing_links(linked_t, unlinked_m) == [
+        (m_path, {"transcript": "[[2026-09-09 - Acme sync (transcript)]]"})
+    ]
+
+    # No counterpart, or no event_id: nothing to do, and no crash.
+    assert missing_links(unlinked_t, []) == []
+    assert missing_links([{"path": t_path, "event_id": "", "meeting": None}], unlinked_m) == []
+    assert missing_links([], []) == []
+
+    # A transcript whose meeting is a different event is not cross-linked.
+    other_m = [{"path": m_path, "event_id": "evt-2", "transcript": None}]
+    assert missing_links(unlinked_t, other_m) == []
 
     assert (
         _relative_graph_url("https://graph.microsoft.com/v1.0/me/x?$skiptoken=a")

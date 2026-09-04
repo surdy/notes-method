@@ -814,6 +814,15 @@ The back-link onto the meeting note is a **frontmatter PATCH** adding
 section, so the body is never touched; frontmatter wikilinks are indexed as
 real links, which is how this vault models every other relationship.
 
+Linking happens at creation *and* is reconciled on every run. The create-time
+link only fires when the meeting note already exists as the transcript lands —
+true for the common flow, where prefill writes the note during the call and the
+transcript appears an hour later. It is false for the late one: write the
+meeting up the next day and its transcript was ingested (and is now skipped)
+long before. Each run therefore re-pairs any transcript and meeting sharing an
+`event_id` that are linked on neither side, which is idempotent because a
+completed pair produces no patch.
+
 **Enabling it** (on the corp laptop, after `calendar-sync` is working):
 
 1. `chmod +x .notesmith/connectors/transcript-sync.py`.
