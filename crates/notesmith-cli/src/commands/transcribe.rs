@@ -186,12 +186,22 @@ impl TranscribeCommand {
 
         match format {
             OutputFormat::Json => {
+                // `body` is the rendered transcript without the frontmatter
+                // fence. A connector builds its own vault-model frontmatter and
+                // POSTs the two separately, so handing it the body directly
+                // saves it slicing the note apart on a `---` that a quoted
+                // frontmatter value could also contain.
+                let body = note
+                    .split_once("\n---\n")
+                    .map(|(_, rest)| rest.trim_start_matches('\n').to_string())
+                    .unwrap_or_else(|| note.clone());
                 let payload = serde_json::json!({
                     "source": meta.source,
                     "segments": transcript.segments.len(),
                     "speakers": speakers,
                     "output": self.output.as_ref().map(|p| p.display().to_string()),
                     "note": if self.output.is_none() { Some(note.clone()) } else { None },
+                    "body": body,
                 });
                 println!("{}", serde_json::to_string_pretty(&payload)?);
             }

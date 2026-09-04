@@ -36,6 +36,11 @@ pub(crate) const FILES: &[KitFile] = &[
     // script without its executable bit — the docs tell users to `chmod +x` it.
     kit_file!(".notesmith/connectors/email-summary.py"),
     kit_file!(".notesmith/connectors/email-summary.config.json"),
+    // Teams transcript connector (ADR 0025 Decision 4). Same `chmod +x` story
+    // as its siblings; it also shells out to `notesmith transcribe --from-vtt`
+    // so the transcript body format stays owned by core.
+    kit_file!(".notesmith/connectors/transcript-sync.py"),
+    kit_file!(".notesmith/connectors/transcript-sync.config.json"),
     // Meeting-prefill pre-render hook (integrations plan, feature 1). The
     // engine invokes hooks as `sh <script>`, so the shim is shell and the
     // logic is Python — neither needs the executable bit `include_str!` drops.
@@ -60,6 +65,7 @@ pub(crate) const FILES: &[KitFile] = &[
 pub(crate) const FOLDERS: &[&str] = &[
     "Inbox",
     "Meetings",
+    "Meetings/Transcripts",
     "Streams",
     "Customers",
     "People",

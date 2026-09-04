@@ -435,6 +435,46 @@ def update_note(path: str, frontmatter: dict) -> None:
     _http_json("PATCH", url, {"frontmatter": frontmatter})
 
 
+# Graph paginates with an absolute `@odata.nextLink`, but `workiq fetch -u`
+# takes an entity path. Strip the service prefix so the follow-up is the same
+# shape as the first request.
+_GRAPH_PREFIX = re.compile(r"^https://graph\.microsoft\.com/(?:v1\.0|beta)", re.I)
+
+# A guard against a server that keeps handing back a nextLink. A calendar window
+# needing more than this many pages is a config problem, not a sync.
+MAX_PAGES = 20
+
+
+def _relative_graph_url(next_link: str) -> str:
+    """`https://graph.microsoft.com/v1.0/me/calendarView?...` -> `/me/calendarView?...`."""
+    return _GRAPH_PREFIX.sub("", (next_link or "").strip(), count=1)
+
+
+def fetch_all_pages(entity_url: str) -> list:
+    """Every `value` entry across Graph's pages for `entity_url`.
+
+    `$top` caps a *page*, not the result set. Reading only the first page
+    silently drops events once a window exceeds it -- and a dropped event is one
+    whose transcript can never be matched to an occurrence, so the loss is
+    invisible twice over.
+    """
+    items = []
+    url = entity_url
+    for page in range(MAX_PAGES):
+        payload = workiq_fetch(url)
+        items.extend(payload.get("value") or [])
+        next_link = payload.get("@odata.nextLink")
+        if not next_link:
+            return items
+        url = _relative_graph_url(next_link)
+    print(
+        f"calendar-sync: stopped after {MAX_PAGES} pages; the window is too "
+        "large. Reduce sync_days_ahead.",
+        file=sys.stderr,
+    )
+    return items
+
+
 def workiq_fetch(entity_url: str) -> dict:
     """Shell out to `workiq fetch -u <url>` and return the parsed Graph JSON."""
     proc = subprocess.run(
@@ -501,12 +541,12 @@ def run_sync() -> int:
     days_ahead = int(config.get("sync_days_ahead", 7))
 
     domain_to_customer = load_domain_to_customer()
-    graph = workiq_fetch(calendar_view_url(days_ahead))
+    events = fetch_all_pages(calendar_view_url(days_ahead))
 
     created = 0
     updated = 0
     skipped = 0
-    for event in graph.get("value", []):
+    for event in events:
         if event.get("isCancelled"):
             skipped += 1
             continue
@@ -725,6 +765,22 @@ def _self_test_fixtures() -> int:
     assert "Machine-owned calendar record" in rendered
 
     # Empty / unsafe subjects still yield a well-formed path.
+    # Pagination: `$top` caps a page, so the nextLink must be followed and
+    # relativised back into the entity-path shape `workiq fetch -u` takes.
+    assert (
+        _relative_graph_url(
+            "https://graph.microsoft.com/v1.0/me/calendarView?$skiptoken=abc"
+        )
+        == "/me/calendarView?$skiptoken=abc"
+    )
+    assert (
+        _relative_graph_url("https://graph.microsoft.com/beta/me/events?$top=10")
+        == "/me/events?$top=10"
+    )
+    # An unrecognised shape passes through rather than being mangled.
+    assert _relative_graph_url("/me/calendarView?x=1") == "/me/calendarView?x=1"
+    assert _relative_graph_url("") == ""
+
     # The calendarView request must ask for the bridge fields; without them
     # `onlineMeeting` comes back absent and every event looks offline.
     url = calendar_view_url(7)
