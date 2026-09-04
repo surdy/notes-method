@@ -170,3 +170,10 @@ Phase 5 is **unblocked**, with these implementation prerequisites:
 7. Keep generic drop-folder ingest as a documented manual fallback, but add no
    eoriq-specific work unless that system is identified.
 
+Prerequisite 2's occurrence-selection rule was verified on the work laptop in
+`spikes/transcript-occurrence-matching/FINDINGS.md`. The observed retained
+recent transcript had a 13-day, 23:35:12 margin over the runner-up, so the
+probe's `match_transcript` function can move into the connector unchanged.
+Production sync must explicitly normalize UTC timestamps, follow
+`calendarView` pagination, and leave out-of-window or ambiguous transcripts
+unmatched.

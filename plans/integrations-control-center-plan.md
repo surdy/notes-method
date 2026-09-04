@@ -336,7 +336,11 @@ boundary here.
   parses the CLI's JSON-string-wrapped WebVTT, preserves `<v Speaker>` labels
   through the shared transcript renderer, and links both ways. An
   `on_note_create` hook can nudge when a transcript arrived with no matching
-  meeting note.
+  meeting note. The real-series occurrence probe verified the existing
+  `match_transcript` rule with a 13-day, 23:35:12 runner-up margin. Production
+  sync must normalize the calendar `timeZone` field and transcript `Z` stamps
+  explicitly to UTC, follow `calendarView` pagination, and isolate
+  online-meeting lookup failures per series.
 - Generic fallback for sources Work IQ cannot reach: drop files into the
   existing ingest folder and route them. The unexplained `eoriq` name did not
   resolve to a known system during the spike; add no source-specific work
@@ -382,7 +386,7 @@ history + corp device backup for off-device safety. Never the homelab.
 | **2. Job runner** | `[[jobs]]` (command + agent kinds, `every`/`at`, catch-up, `after`, `job.*` events, manual run). Port calendar-sync into it. Fix daily-note path divergence + timezone. `[mcp.servers]` auth if the spike says it's missing. | yes — the main build |
 | **3. Calendar-aware meeting template** | `pre_render_hook` script + template updates + optional url-action. **Built** (url-action not done). | none (kit only) — confirmed, but see the deviations under feature 1: editable prompt defaults would need core |
 | **4. Daily briefing** | `daily-note` prompt with marked sections, `daily-briefing` agent job with Work IQ MCP attached, section-marker convention. | small (prompt-context plumbing, optional `replace_section` helper) |
-| **5. Transcripts** | `transcript-sync` connector, sidecar notes, two-way linking; persist calendar `join_url`, timestamp-match recurring occurrences, parse JSON-wrapped VTT, and extend the shared segment model with optional speaker. **Unblocked** by `plans/transcript-sync-spike-results.md`. | none, then small |
+| **5. Transcripts** | `transcript-sync` connector, sidecar notes, two-way linking; persist calendar `join_url`, timestamp-match recurring occurrences, parse JSON-wrapped VTT, and extend the shared segment model with optional speaker. **Unblocked** by `plans/transcript-sync-spike-results.md`; occurrence matching verified in `spikes/transcript-occurrence-matching/FINDINGS.md`. | none, then small |
 
 Each phase is independently useful; stop anywhere.
 
@@ -395,8 +399,11 @@ Each phase is independently useful; stop anywhere.
   token can resolve a calendar `joinUrl`, list transcript metadata, and fetch
   JSON-string-wrapped WebVTT. Calendar sync must persist `join_url`; recurring
   instances reuse it, so transcript timestamps disambiguate the occurrence.
-  The shared renderer must gain `speaker: Option<String>`. See
-  `plans/transcript-sync-spike-results.md`.
+  A real recurring series produced an unambiguous match with a nearly 14-day
+  runner-up margin; UTC normalization and calendar pagination remain required
+  connector behavior. The shared renderer must gain
+  `speaker: Option<String>`. See `plans/transcript-sync-spike-results.md` and
+  `spikes/transcript-occurrence-matching/FINDINGS.md`.
 - **eoriq**: separate system or the same Teams/Work IQ data? Determines
   whether a source-specific drop-folder fallback is needed. **Still
   unidentified**: the user did not recognize the name and no relevant public

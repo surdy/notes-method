@@ -269,6 +269,20 @@ recurring calendar occurrences reuse one join URL, so it does not identify one
 transcript's timestamps to the calendar occurrence before writing that
 occurrence's `event_id` into the Transcript Note.
 
+The follow-up occurrence probe verified the proposed matcher against a real
+recurring series. The retained recent transcript selected one occurrence with
+a 13-day, 23:35:12 margin over the runner-up, so `match_transcript` moves into
+the connector unchanged. A transcript outside the fetched occurrence window
+remained unmatched, which is the required safe failure.
+
+Calendar and transcript timestamps were both UTC, but Graph represented the
+calendar value as a naive `dateTime` plus a separate `timeZone: UTC` field and
+the transcript value with `Z`. The connector must normalize both explicitly to
+UTC rather than discard the zone field. It must also follow `calendarView`
+pagination and isolate per-series lookup failures; one missing page or
+zero-byte Work IQ response must not cause a guessed match or abort unrelated
+series. See `spikes/transcript-occurrence-matching/FINDINGS.md`.
+
 **The shared transcript model gains an optional speaker.** Real Teams VTT
 carries `<v Speaker>` on each cue. `TranscriptSegment` therefore gains
 `speaker: Option<String>`, rendered as `[M:SS] Name: text` when present;

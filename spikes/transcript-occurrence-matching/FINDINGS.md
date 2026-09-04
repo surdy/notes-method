@@ -1,0 +1,133 @@
+# Transcript Occurrence Matching Spike - Findings
+
+**Date:** 2026-09-04
+**Environment:** Work laptop with the delegated Work IQ CLI
+**Privacy:** Subjects, customer names, attendee identities, meeting IDs, join
+URLs, and transcript IDs are omitted.
+
+## Executive Summary
+
+Timestamp matching is viable for the retained recent transcript that could be
+compared with its recurring calendar series. It selected one occurrence with a
+runner-up margin of **13 days, 23:35:12**, so the observed series is nowhere
+near the one-hour ambiguity threshold.
+
+The timezone prerequisite also passes semantically: `calendarView` returned a
+naive `dateTime` paired with `timeZone: UTC`, while transcript
+`createdDateTime` used a trailing `Z`. Both surfaces therefore describe UTC,
+and there is no offset disagreement in the sampled data. The differing
+serialization still confirms that production code must use the calendar
+`timeZone` field and normalize both values explicitly rather than relying on
+naive wall-clock parsing.
+
+**Decision:** Move `match_transcript` into `transcript-sync.py` unchanged.
+Unmatched transcripts remain unfiled rather than guessed. Production sync must
+also follow `calendarView` pagination and preserve explicit timezone
+information.
+
+## Probe Results
+
+### 1. Calendar sample
+
+The 30-day query returned a bounded first page:
+
+| Measurement | Result |
+|---|---:|
+| Online-meeting occurrences | 44 |
+| Distinct join URLs | 28 |
+| Join URLs reused by multiple occurrences | 7 |
+| Calendar response paged | Yes |
+
+The retained recurring series used for the matching check had three visible
+occurrences and two transcript metadata records. Consecutive visible
+occurrences were 14 days apart.
+
+### 2. Timezone relationship
+
+| Surface | Representation | Effective zone |
+|---|---|---|
+| `calendarView.start.dateTime` | No inline zone marker | UTC from the adjacent `timeZone` field |
+| Transcript `createdDateTime` | Trailing `Z` | UTC |
+
+The zones agree. However, the current `calendar-sync.py` parser discards the
+calendar `timeZone` field and persists a naive timestamp. That is safe only
+while Graph continues returning UTC clock values. Calendar and transcript sync
+should instead normalize aware values to UTC before comparison or persistence.
+
+### 3. Matching margins
+
+| Transcript | Outcome | Evidence |
+|---|---|---|
+| Recent retained transcript | Matched | Runner-up margin was 1,208,112 seconds (13 days, 23:35:12). |
+| Older retained transcript | Unmatched in the 30-day sample | The nearest visible occurrence was 671.8 hours away, beyond the four-hour tolerance. |
+
+The unmatched result is the correct safe behavior. It does not indicate an
+ambiguous match: the required occurrence was not present in the bounded
+calendar sample.
+
+### 4. Sixty-day retry
+
+The suggested `--days-back 60` retry did not include the target series because
+the probe requests only the first 200 calendar records and does not follow
+`@odata.nextLink`. The response was paged, and the first page contained zero
+occurrences for the tested join URL. This result is not evidence against
+timestamp matching.
+
+Production `transcript-sync.py` must follow pagination. The probe should also
+follow pagination before it is reused to investigate older transcripts.
+
+### 5. Work IQ response behavior
+
+During automatic series selection, some online-meeting lookups exited zero
+with empty stdout. Identical isolated requests returned valid JSON, while other
+series continued to return zero-byte responses. The current probe aborts on
+the first such response, which can prevent it from reaching a later series
+that has retained transcripts.
+
+This did not affect the tested series, but production sync should surface the
+empty response as a failed lookup and continue processing unrelated series.
+
+## Batched Work-Laptop Verification
+
+### Calendar `join_url`
+
+The updated work-notes kit was applied to the isolated phase-4 verification
+vault and calendar sync was run against live Work IQ data. It created five
+event notes, updated fourteen, and skipped six cancelled events.
+
+The live Graph window contained nineteen active events:
+
+| Event class | Graph | Persisted correctly |
+|---|---:|---:|
+| Online event with `join_url` | 11 | 11 |
+| Offline event without `join_url` | 8 | 8 |
+
+All nineteen events were found by `event_id`. There were zero missing events,
+zero URL mismatches, and no offline event acquired a `join_url`. The connector
+bridge prerequisite is verified. Because calendar sync has no lookback, this
+coverage begins with events synced after the updated connector was applied.
+
+### Meeting prefill
+
+One live external meeting overlapped the hook's current-time window. Rendering
+the external-meeting template with blank prompts selected that event, attached
+its `event_id` and event-note backlink, and did not use the `Untitled`
+fallback. Instantiating the template created a meeting note in the isolated
+vault whose indexed frontmatter retained:
+
+- `kind: meeting`
+- the matching `event_id`
+- the event-note backlink
+
+The positive mid-call meeting-prefill path is verified.
+
+## Phase-5 Requirements
+
+1. Use the existing `match_transcript` algorithm.
+2. Leave results unmatched when no occurrence is within the four-hour
+   tolerance or when the best candidate is ambiguous.
+3. Normalize calendar and transcript timestamps explicitly to UTC; do not
+   discard `calendarView`'s `timeZone` field.
+4. Follow every `calendarView` continuation page needed by the sync window.
+5. Isolate online-meeting lookup failures per series so one zero-byte Work IQ
+   response does not abort the whole sync.
