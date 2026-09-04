@@ -308,10 +308,20 @@ boundary here.
 
 - `calendar-sync` job (every 15m during work hours) upserts event notes (§D).
 - Meeting templates gain a `pre_render_hook` (existing mechanism) — a small
-  script querying the local cache for an event overlapping now (±10m),
-  returning `{title, audience, customers, attendees, event_id}` as JSON
-  context. Prompts default from it; you confirm/override. Blank fallback when
-  no event matches. No network at note-creation time.
+  script picking the event overlapping now (±10m) and returning
+  `{title, customers, attendees, event_id, ...}` as JSON context. Blank
+  fallback when no event matches. No network at note-creation time.
+  **Built** — `.notesmith/scripts/meeting-prefill.{sh,py}`, kit-only, no core
+  changes. Two deviations from this sketch, both forced by the engine:
+  - The hook does *no* SQL. `pre_render_hook` gets no db handle or path (the
+    cache lives outside the vault root), so the templates' `context_queries`
+    fetch the candidate rows and the hook only picks among them.
+  - Prompts are collected and validated *before* the hook runs, so a
+    prefilled-but-editable prompt field is not achievable in vault config.
+    What ships instead: `title`/`customer` became `required: false`, and
+    leaving one blank takes the calendar's value. True confirm/override needs
+    a core change — either run the hook before prompt collection, or let
+    `prompts[].default` reference context.
 - Optional polish: a `url-actions.yaml` action / sidebar button "note for
   current meeting".
 
@@ -363,9 +373,9 @@ history + corp device backup for off-device safety. Never the homelab.
 | **0. Spike** | Verify the open facts below. Blocks everything; do first. | none |
 | **1. Local daemon + calendar connector, cron-scheduled** | Work vault + daemon on laptop (launchd). `calendar-sync.py` as a deterministic Work IQ MCP client writing event notes via REST; scheduled with cron/launchd directly. Add `domains` field + event template/routing. Proves auth, billing behavior, and the data model with zero core changes. | none |
 | **2. Job runner** | `[[jobs]]` (command + agent kinds, `every`/`at`, catch-up, `after`, `job.*` events, manual run). Port calendar-sync into it. Fix daily-note path divergence + timezone. `[mcp.servers]` auth if the spike says it's missing. | yes — the main build |
-| **3. Calendar-aware meeting template** | `pre_render_hook` script + template updates + optional url-action. | none (kit only) |
+| **3. Calendar-aware meeting template** | `pre_render_hook` script + template updates + optional url-action. **Built** (url-action not done). | none (kit only) — confirmed, but see the deviations under feature 1: editable prompt defaults would need core |
 | **4. Daily briefing** | `daily-note` prompt with marked sections, `daily-briefing` agent job with Work IQ MCP attached, section-marker convention. | small (prompt-context plumbing, optional `replace_section` helper) |
-| **5. Transcripts** | `transcript-sync` connector, sidecar notes, two-way linking; drop-folder fallback documented. | none, then small |
+| **5. Transcripts** | `transcript-sync` connector, sidecar notes, two-way linking; drop-folder fallback documented. **Blocked** on `plans/transcript-sync-spike.md`. | none, then small |
 
 Each phase is independently useful; stop anywhere.
 
@@ -375,9 +385,13 @@ Each phase is independently useful; stop anywhere.
   token refresh, whether corp tenant admin has enabled Work IQ and what the
   usage billing looks like at our polling cadence.
 - **Transcript availability**: are Teams transcripts exposed through Work IQ
-  with a joinable calendar event id?
+  with a joinable calendar event id? **Still unanswered** — written up as
+  runnable questions in `plans/transcript-sync-spike.md`, which also finds that
+  no join key is persisted today and that the shared transcript renderer has no
+  speaker field. Phase 5 is blocked on it.
 - **eoriq**: separate system or the same Teams/Work IQ data? Determines
-  whether the drop-folder fallback is actually needed.
+  whether the drop-folder fallback is actually needed. Also still unanswered;
+  question E of the transcript spike.
 - **`[mcp.servers]` HTTP auth support**: can Notesmith's remote-MCP config
   carry the required auth headers/OAuth today, or is that a core addition?
 - **Corp policy**: local markdown vault of meeting/email summaries on the
