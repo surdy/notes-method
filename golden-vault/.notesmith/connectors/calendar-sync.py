@@ -155,6 +155,24 @@ def map_customers(domains, domain_to_customer) -> list:
     return sorted(links)
 
 
+def join_url(event: dict) -> str:
+    """The Teams join URL for an online meeting, or '' when there is none.
+
+    This is the bridge transcript-sync needs: a calendar event carries the join
+    URL, the join URL resolves to an online meeting, and transcripts hang off
+    that (ADR 0025's 2026-09-04 amendment). The event itself exposes no
+    transcript link, so without this the two can never be connected.
+
+    Note the URL identifies the *series*, not the occurrence -- recurring
+    instances reuse one URL (verified in the spike). Transcript sync therefore
+    matches transcript timestamps to the occurrence before assigning
+    `event_id`; this field only gets it to the right meeting thread.
+    """
+    if not event.get("isOnlineMeeting"):
+        return ""
+    return ((event.get("onlineMeeting") or {}).get("joinUrl") or "").strip()
+
+
 def graph_event_to_frontmatter(event, corp_domains, domain_to_customer) -> dict:
     """Build the `kind: event` frontmatter dict for a Graph event."""
     addresses = attendee_addresses(event)
@@ -174,6 +192,9 @@ def graph_event_to_frontmatter(event, corp_domains, domain_to_customer) -> dict:
     organizer = organizer_address(event)
     if organizer:
         frontmatter["organizer"] = organizer
+    join = join_url(event)
+    if join:
+        frontmatter["join_url"] = join
     return frontmatter
 
 
@@ -189,6 +210,7 @@ _FRONTMATTER_ORDER = [
     "audience",
     "customers",
     "organizer",
+    "join_url",
     "tags",
 ]
 
@@ -359,7 +381,10 @@ def calendar_view_url(days_ahead: int) -> str:
     params = {
         "startDateTime": _iso_naive(today),
         "endDateTime": _iso_naive(end),
-        "$select": "id,subject,start,end,attendees,organizer,isCancelled",
+        "$select": (
+            "id,subject,start,end,attendees,organizer,isCancelled,"
+            "isOnlineMeeting,onlineMeeting"
+        ),
         "$top": "100",
     }
     return "/me/calendarView?" + urllib.parse.urlencode(params, safe="$,")
@@ -436,6 +461,10 @@ _SELF_TEST_GRAPH = {
             "start": {"dateTime": "2026-08-04T09:30:00.0000000", "timeZone": "UTC"},
             "end": {"dateTime": "2026-08-04T10:00:00.0000000", "timeZone": "UTC"},
             "isCancelled": False,
+            "isOnlineMeeting": True,
+            "onlineMeeting": {
+                "joinUrl": "https://teams.microsoft.com/l/meetup-join/19%3aselftest%40thread.v2/0"
+            },
             "organizer": {"emailAddress": {"name": "Alice", "address": "Alice@Acme.com"}},
             "attendees": [
                 {"emailAddress": {"name": "Alice", "address": "alice@acme.com"}},
@@ -491,6 +520,7 @@ def self_test() -> int:
         "audience": "external",
         "customers": ["[[Acme Corp]]"],
         "organizer": "alice@acme.com",
+        "join_url": "https://teams.microsoft.com/l/meetup-join/19%3aselftest%40thread.v2/0",
         "tags": ["calendar"],
     }, fm
 
@@ -504,15 +534,40 @@ def self_test() -> int:
     assert fm_int["audience"] == "internal"
     assert fm_int["customers"] == []
 
+    # The Teams bridge transcript-sync joins on (ADR 0025 2026-09-04).
+    assert join_url(external).endswith("thread.v2/0"), join_url(external)
+    assert "join_url" not in fm_int, "a non-online meeting has no bridge"
+
+    # A meeting flagged online but carrying no URL yields no key, rather than
+    # an empty one that would look like a bridge and resolve to nothing.
+    assert join_url({"isOnlineMeeting": True}) == ""
+    assert join_url({"isOnlineMeeting": True, "onlineMeeting": {}}) == ""
+    assert join_url({"isOnlineMeeting": True, "onlineMeeting": {"joinUrl": "  "}}) == ""
+
+    # A stale joinUrl on an event no longer flagged online is ignored.
+    assert (
+        join_url({"isOnlineMeeting": False, "onlineMeeting": {"joinUrl": "https://x"}})
+        == ""
+    )
+
     # Rendered note round-trips the frontmatter and carries a machine-owned body.
     rendered = render_note(fm)
     assert rendered.startswith("---\nkind: event\n")
     assert 'attendees: ["alice@acme.com", "harpreet@corp.example.com"]' in rendered
     assert 'customers: ["[[Acme Corp]]"]' in rendered
     assert "audience: external" in rendered
+    assert (
+        'join_url: "https://teams.microsoft.com/l/meetup-join/19%3aselftest%40thread.v2/0"'
+        in rendered
+    ), rendered
     assert "Machine-owned calendar record" in rendered
 
     # Empty / unsafe subjects still yield a well-formed path.
+    # The calendarView request must ask for the bridge fields; without them
+    # `onlineMeeting` comes back absent and every event looks offline.
+    url = calendar_view_url(7)
+    assert "isOnlineMeeting" in url and "onlineMeeting" in url, url
+
     assert sanitize_subject("") == "Untitled"
     assert sanitize_subject('a/b:c*d?"e') == "a b c d e"
 

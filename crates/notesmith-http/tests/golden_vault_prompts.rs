@@ -429,3 +429,29 @@ fn the_prefill_shim_degrades_when_python_is_missing() {
         serde_json::from_slice(&output.stdout).expect("the shim must always emit JSON");
     assert_eq!(parsed.get("event_matched"), Some(&serde_json::json!(false)));
 }
+
+/// The Teams transcript bridge (ADR 0025's 2026-09-04 amendment). `join_url` is
+/// what lets transcript-sync reach a meeting's transcripts at all, so pin that
+/// calendar-sync persists it and that it is queryable from the index.
+#[test]
+fn calendar_event_notes_persist_the_teams_join_url() {
+    let cache = indexed_golden_vault();
+    let sql = "SELECT n.path AS path, f.value AS join_url \
+               FROM v_notes n \
+               JOIN v_fields f ON f.vault_name = n.vault_name AND f.note_path = n.path \
+               WHERE f.key = 'join_url'";
+    let result = execute_sql(&cache, sql).unwrap();
+    assert_eq!(
+        result.rows.len(),
+        1,
+        "the golden-vault online meeting must carry a join_url"
+    );
+    assert!(
+        result.rows[0][1]
+            .as_str()
+            .unwrap()
+            .starts_with("https://teams.microsoft.com/l/meetup-join/"),
+        "{:?}",
+        result.rows[0]
+    );
+}
