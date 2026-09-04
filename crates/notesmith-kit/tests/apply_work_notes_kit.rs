@@ -317,3 +317,259 @@ fn notesmith_sql_blocks(content: &str) -> Vec<String> {
 
     blocks
 }
+
+// ── Meeting prefill (integrations plan, feature 1) ───────────────────────────
+
+/// Writes a `kind: event` note shaped exactly like calendar-sync.py's output,
+/// offset from `now`, and returns its vault path. A negative offset puts the
+/// meeting already in progress — including across midnight, which is exactly
+/// the case the candidate query's three-day window exists for.
+fn write_event_note(root: &Path, offset_minutes: i64) -> (String, chrono::DateTime<chrono::Local>) {
+    let start = chrono::Local::now() + chrono::Duration::minutes(offset_minutes);
+    let end = start + chrono::Duration::minutes(30);
+    let path = format!(
+        "Calendar/{}/{}/{} {} Acme Q3 sync.md",
+        start.format("%Y"),
+        start.format("%m"),
+        start.format("%Y-%m-%d"),
+        start.format("%H%M"),
+    );
+    let note = format!(
+        "---\nkind: event\nevent_id: AAMkAGI2-prefill-0001\nstart: {}\nend: {}\n\
+         attendees: [\"alice@acme.com\", \"harpreet@corp.example.com\"]\n\
+         audience: external\ncustomers: [\"[[Acme Corp]]\"]\norganizer: alice@acme.com\n\
+         tags: [\"calendar\"]\n---\n\n<!-- Machine-owned calendar record -->\n",
+        start.format("%Y-%m-%dT%H:%M:%S"),
+        end.format("%Y-%m-%dT%H:%M:%S"),
+    );
+    let full = root.join(&path);
+    std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+    std::fs::write(&full, note).unwrap();
+    (path, start)
+}
+
+/// Indexes the vault into an on-disk cache the template engine can query.
+fn indexed_cache(root: &Path, cache_path: &Path) {
+    let notes = notesmith_core::VaultEngine::scan(&notesmith_vault::NativeVaultEngine, root)
+        .expect("vault should scan");
+    let cache = notesmith_index::VaultCache::open(cache_path).unwrap();
+    cache.reindex("kit", &notes).unwrap();
+}
+
+/// The whole feature end to end: a real calendar event in the cache, the real
+/// kit templates, the real `sh`-invoked hook. Creating a meeting mid-call must
+/// carry the event's title, customer, attendees and `event_id` across without
+/// the user typing any of them.
+#[test]
+fn creating_a_meeting_during_a_call_prefills_from_the_calendar_event() {
+    if std::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        println!("skipping: python3 not on PATH");
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    apply_into(root);
+    // Started five minutes ago — we are in the meeting.
+    let (event_path, event_start) = write_event_note(root, -5);
+
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_path = cache_dir.path().join("cache.db");
+    indexed_cache(root, &cache_path);
+
+    let engine = notesmith_templates::TemplateEngine::new(root.to_path_buf(), Some(cache_path));
+    // No prompts at all: everything below comes from the calendar.
+    let rendered = engine
+        .render("external-meeting", &std::collections::HashMap::new())
+        .unwrap();
+
+    // The note is dated by when the meeting *started*, not by today — those
+    // differ for a call running across midnight, and the start is the truth.
+    let event_day = event_start.format("%Y-%m-%d").to_string();
+    assert_eq!(
+        rendered.path,
+        format!("Inbox/{event_day} - Acme Corp - Acme Q3 sync.md"),
+        "path must take the event's date, customer and subject"
+    );
+    assert!(rendered.content.contains("kind: meeting"));
+    assert!(rendered.content.contains("audience: external"));
+    assert!(rendered.content.contains(&format!("date: {event_day}")));
+    assert!(
+        rendered.content.contains("- \"[[Acme Corp]]\""),
+        "customer must resolve from the event's domain mapping:\n{}",
+        rendered.content
+    );
+    assert!(
+        rendered
+            .content
+            .contains("event_id: \"AAMkAGI2-prefill-0001\""),
+        "the meeting must carry the event id transcript-sync will join on:\n{}",
+        rendered.content
+    );
+
+    // Two-way link: the meeting points back at the machine-owned event note.
+    let link_target = event_path
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .trim_end_matches(".md");
+    assert!(
+        rendered
+            .content
+            .contains(&format!("event: \"[[{link_target}]]\"")),
+        "expected a wikilink to {link_target} in:\n{}",
+        rendered.content
+    );
+
+    // The roster lands in the body for enrichment — `attendees` stays an empty
+    // wikilink list, because raw addresses are not `[[Person]]` links.
+    assert!(rendered.content.contains("attendees: []"));
+    assert!(rendered.content.contains("- alice@acme.com"));
+    assert!(rendered.content.contains("- harpreet@corp.example.com"));
+}
+
+/// Typed values are not overruled: the hook fills blanks only.
+#[test]
+fn typed_prompts_win_over_the_calendar_event() {
+    if std::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        println!("skipping: python3 not on PATH");
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    apply_into(root);
+    let (_, event_start) = write_event_note(root, -5);
+
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_path = cache_dir.path().join("cache.db");
+    indexed_cache(root, &cache_path);
+
+    let engine = notesmith_templates::TemplateEngine::new(root.to_path_buf(), Some(cache_path));
+    let prompts = std::collections::HashMap::from([
+        ("title".to_string(), "Renewal risk".to_string()),
+        ("customer".to_string(), "Globex".to_string()),
+    ]);
+    let rendered = engine.render("external-meeting", &prompts).unwrap();
+
+    let event_day = event_start.format("%Y-%m-%d").to_string();
+    assert_eq!(
+        rendered.path,
+        format!("Inbox/{event_day} - Globex - Renewal risk.md")
+    );
+    assert!(rendered.content.contains("- \"[[Globex]]\""));
+    assert!(!rendered.content.contains("Acme Corp"));
+    // The event identity still attaches, so the note is still joinable.
+    assert!(
+        rendered
+            .content
+            .contains("event_id: \"AAMkAGI2-prefill-0001\"")
+    );
+}
+
+/// No meeting in progress: the templates must still render a clean note from
+/// the typed title alone, with no calendar residue and no `event_id`.
+#[test]
+fn meeting_templates_render_cleanly_with_no_calendar_event() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    apply_into(root);
+    // An event, but hours away — a candidate row the hook must still reject.
+    write_event_note(root, 300);
+
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_path = cache_dir.path().join("cache.db");
+    indexed_cache(root, &cache_path);
+
+    let engine = notesmith_templates::TemplateEngine::new(root.to_path_buf(), Some(cache_path));
+    let prompts =
+        std::collections::HashMap::from([("title".to_string(), "Ad hoc chat".to_string())]);
+
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    let internal = engine.render("internal-meeting", &prompts).unwrap();
+    assert_eq!(internal.path, format!("Inbox/{today} - Ad hoc chat.md"));
+    assert!(internal.content.contains("audience: internal"));
+    assert!(!internal.content.contains("event_id"));
+    assert!(!internal.content.contains("Acme"));
+    assert!(internal.content.contains("# "));
+
+    let external = engine.render("external-meeting", &prompts).unwrap();
+    assert_eq!(external.path, format!("Inbox/{today} - Ad hoc chat.md"));
+    assert!(external.content.contains("customers: []"));
+    assert!(external.content.contains("streams: []"));
+    assert!(!external.content.contains("event_id"));
+}
+
+/// The hook is defensive by contract: with no cache at all (so no context
+/// queries ran) the templates still render rather than erroring.
+#[test]
+fn meeting_templates_render_without_a_cache() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    apply_into(root);
+
+    let engine = notesmith_templates::TemplateEngine::new(root.to_path_buf(), None);
+    let prompts = std::collections::HashMap::from([
+        ("title".to_string(), "Kickoff".to_string()),
+        ("customer".to_string(), "Acme Corp".to_string()),
+    ]);
+
+    let rendered = engine.render("external-meeting", &prompts).unwrap();
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    assert_eq!(
+        rendered.path,
+        format!("Inbox/{today} - Acme Corp - Kickoff.md")
+    );
+    assert!(rendered.content.contains("- \"[[Acme Corp]]\""));
+}
+
+/// A meeting note created from a prefilled template must still route by date
+/// like any other — the added `event_id`/`event` keys must not break the rule.
+#[test]
+fn a_prefilled_meeting_note_still_routes() {
+    if std::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        println!("skipping: python3 not on PATH");
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    apply_into(root);
+    let (_, event_start) = write_event_note(root, -5);
+
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_path = cache_dir.path().join("cache.db");
+    indexed_cache(root, &cache_path);
+
+    let engine = notesmith_templates::TemplateEngine::new(root.to_path_buf(), Some(cache_path));
+    let rendered = engine
+        .render("external-meeting", &std::collections::HashMap::new())
+        .unwrap();
+    let router = notesmith_routing::RoutingEngine::load(root).expect("routing.yaml should load");
+    let decision = router
+        .preview(&rendered.path, &rendered.content)
+        .expect("a prefilled meeting must still match the file-meeting rule");
+    assert_eq!(
+        decision.destination,
+        format!(
+            "Meetings/{}/{}/{}",
+            event_start.format("%Y"),
+            event_start.format("%m"),
+            rendered.path.trim_start_matches("Inbox/")
+        ),
+        "routing files by the meeting's own `date`, which prefill took from the event"
+    );
+}

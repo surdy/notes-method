@@ -36,6 +36,11 @@ pub(crate) const FILES: &[KitFile] = &[
     // script without its executable bit — the docs tell users to `chmod +x` it.
     kit_file!(".notesmith/connectors/email-summary.py"),
     kit_file!(".notesmith/connectors/email-summary.config.json"),
+    // Meeting-prefill pre-render hook (integrations plan, feature 1). The
+    // engine invokes hooks as `sh <script>`, so the shim is shell and the
+    // logic is Python — neither needs the executable bit `include_str!` drops.
+    kit_file!(".notesmith/scripts/meeting-prefill.sh"),
+    kit_file!(".notesmith/scripts/meeting-prefill.py"),
     kit_file!(".notesmith/templates/internal-meeting.md"),
     kit_file!(".notesmith/templates/external-meeting.md"),
     kit_file!(".notesmith/templates/stream.md"),

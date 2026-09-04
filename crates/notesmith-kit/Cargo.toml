@@ -17,3 +17,4 @@ notesmith-index = { workspace = true }
 notesmith-query = { workspace = true }
 notesmith-vault = { workspace = true }
 notesmith-core = { workspace = true }
+chrono = { workspace = true }

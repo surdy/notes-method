@@ -496,6 +496,16 @@ Suggestions come from the field's `values` or `suggest_from` query (see [Field R
 - `context_queries` — map of template variable names to read-only SQL queries; each result becomes an array of row objects
 - `pre_render_hook` — optional script path, relative to the vault root; it receives the current context as JSON on stdin and returns extra context JSON on stdout
 
+The hook is invoked as `sh <script>` with the vault root as its working
+directory, so the configured file must be shell — a script in another language
+needs a shell shim that `exec`s it. Its keys are merged over the context, so
+namespace them to avoid clobbering a prompt value. It runs *after* prompts are
+collected and validated, which means it can fill the body and the output path
+but cannot supply a value for a `required` prompt. Anything that goes wrong —
+a missing script, a non-zero exit, unparseable stdout, or a timeout (10s) —
+is logged and contributes no context, so the template must still render
+without it.
+
 ---
 ## Hooks
 Hook scripts run as subprocesses when certain events occur. Configure them in `vault.toml` under `[hooks]`.
