@@ -93,7 +93,8 @@ Notes on the layout:
 | `priority` | stream | `P0` `P1` `P2` `P3` |
 | `started` / `target` | stream | ISO date |
 | `org` / `role` | person | org may be a customer wikilink; `Internal` for coworkers |
-| `event_id` | event | stable external calendar id (the upsert key) |
+| `event_id` | event, meeting | stable external calendar id (the upsert key); copied onto a meeting note by [meeting prefill](#meeting-prefill) so the two join |
+| `event` | meeting (optional) | `"[[<event note>]]"` — wikilink back to the calendar record the meeting was captured from |
 | `start` / `end` | event | ISO datetime (string; SQL `date()` parses it) |
 | `organizer` | event | organizer email |
 | `domains` | customer | list of email domains that identify the customer (feeds calendar sync) |
@@ -260,21 +261,27 @@ rules:
 ```markdown
 ---
 name: internal-meeting
-description: "New internal meeting — fastest capture; customers/streams added during enrichment"
-output_path: "Inbox/{{ date }} - {{ title }}.md"
+description: "New internal meeting — prefilled from the calendar event in progress; leave the title blank to take the calendar's"
+output_path: "Inbox/{{ meeting_date or date }} - {{ meeting_slug or title or 'Untitled' }}.md"
 prompts:
-  - { name: title, type: text, required: true }
+  - { name: title, type: text, required: false }
+context_queries:      # elided — see the template file, and "Meeting prefill" below
+  calendar_events: >- ...
+  calendar_event_members: >- ...
+pre_render_hook: ".notesmith/scripts/meeting-prefill.sh"
 ---
 ---
 kind: meeting
 audience: internal
-date: {{ date }}
+date: {{ meeting_date or date }}
 customers: []
 streams: []
 attendees: []
----
+{% if event_id %}event_id: "{{ event_id }}"
+event: "[[{{ event_link }}]]"
+{% endif %}---
 
-# {{ date }} — {{ title }}
+# {{ meeting_date or date }} — {{ meeting_title or title or 'Untitled' }}
 
 ## Notes
 
@@ -287,32 +294,39 @@ attendees: []
 
 Title-only on purpose: which customers an internal meeting concerns is often
 only clear after the discussion, so `customers` (zero, one, or many) is
-enrichment, not capture.
+enrichment, not capture. The title itself is optional because the calendar
+usually already knows it — see [Meeting prefill](#meeting-prefill).
 
 ### `external-meeting.md`
 
 ```markdown
 ---
 name: external-meeting
-description: "New customer-attended meeting — always exactly one customer"
-output_path: "Inbox/{{ date }} - {{ customer }} - {{ title }}.md"
+description: "New customer-attended meeting — prefilled from the calendar event in progress; leave title/customer blank to take the calendar's"
+output_path: "Inbox/{{ meeting_date or date }}{% if meeting_customer %} - {{ meeting_customer }}{% endif %} - {{ meeting_slug or title or 'Untitled' }}.md"
 prompts:
-  - { name: title, type: text, required: true }
-  - { name: customer, type: field-picker, field: customers, required: true }
+  - { name: title, type: text, required: false }
+  - { name: customer, type: field-picker, field: customers, required: false }
   - { name: stream, type: field-picker, field: streams, required: false }
+context_queries:      # elided — see the template file, and "Meeting prefill" below
+  calendar_events: >- ...
+  calendar_event_members: >- ...
+pre_render_hook: ".notesmith/scripts/meeting-prefill.sh"
 ---
 ---
 kind: meeting
 audience: external
-date: {{ date }}
-customers:
-  - "{{ customer | as_wikilink }}"
+date: {{ meeting_date or date }}
+customers:{% for name in meeting_customers or [] %}
+  - "{{ name | as_wikilink }}"{% else %} []{% endfor %}
 streams:{% if stream %}
   - "{{ stream | as_wikilink }}"{% else %} []{% endif %}
 attendees: []
----
+{% if event_id %}event_id: "{{ event_id }}"
+event: "[[{{ event_link }}]]"
+{% endif %}---
 
-# {{ date }} — {{ customer }} — {{ title }}
+# {{ meeting_date or date }} — {% if meeting_customer %}{{ meeting_customer }} — {% endif %}{{ meeting_title or title or 'Untitled' }}
 
 ## Attendees
 
@@ -599,6 +613,89 @@ prerequisite never runs stays held back.
 You can sanity-check the connector's pure logic offline with
 `python3 .notesmith/connectors/calendar-sync.py --self-test` (no network; prints
 `OK`).
+
+## Meeting prefill
+
+Calendar sync knows what you are in right now. **Meeting prefill** is the
+template side of that: create a meeting note mid-call and the title, customer,
+attendee roster and `event_id` come from the calendar event instead of your
+keyboard.
+
+**How it is wired.** Both meeting templates declare two `context_queries` and a
+`pre_render_hook`:
+
+- the queries fetch today's `kind: event` notes (scalars via `v_fields`,
+  `attendees`/`customers` members via `v_field_values`) — the engine runs them
+  against the cache it already holds open;
+- `.notesmith/scripts/meeting-prefill.sh` receives that context as JSON on
+  stdin and returns the chosen event flattened into scalars on stdout.
+
+The hook does no SQL and no network — it only picks the right row. That split
+is deliberate: note creation stays offline and instant, and the queries stay
+visible in the template where you can edit them.
+
+**Which event wins.** The one overlapping *now*, where the window extends ten
+minutes either side of the event (joining early, running over). An event with
+no `end` matches only within ten minutes of its start. Back-to-back meetings
+resolve to the nearer start, deterministically.
+
+The SQL fetches a three-day window (yesterday through tomorrow) and the hook
+makes the ±10m decision. That split matters at midnight: a call that starts at
+23:55 is still running at 00:05, and a today-only query would have lost it. The
+note is dated by when the meeting *started*, so such a call files under the
+previous day — which is where you will look for it.
+
+**What it fills.** With nothing typed at the prompt, an external meeting note
+created five minutes into an Acme call renders as:
+
+```yaml
+# Inbox/2026-08-04 - Acme Corp - Acme Q3 sync.md
+---
+kind: meeting
+audience: external
+date: 2026-08-04
+customers:
+  - "[[Acme Corp]]"
+streams: []
+attendees: []
+event_id: "AAMkAGI2-..."
+event: "[[2026-08-04 0930 Acme Q3 sync]]"
+---
+
+# 2026-08-04 — Acme Corp — Acme Q3 sync
+
+> 09:30 · organized by alice@acme.com · from [[2026-08-04 0930 Acme Q3 sync]]
+
+## Attendees
+
+<!-- From the calendar. Replace with "[[Person]]" wikilinks in the attendees field during enrichment. -->
+- alice@acme.com
+- harpreet@corp.example.com
+```
+
+Note what does *not* happen: the calendar's raw addresses stay in the body,
+because on a meeting note `attendees` means `"[[Person]]"` wikilinks. Turning
+the roster into links is enrichment, same as always — the calendar just saves
+you from typing the list.
+
+`event_id` and `event` are the join back to the machine-owned calendar record,
+in both directions.
+
+**Typed values always win.** The hook fills blanks; it never overrules the
+prompt. Type a title and you get your title, with the event identity still
+attached. This is why both prompts are now `required: false` — leaving one
+blank is how you say "use the calendar's". There is no *displayed* default to
+edit: prompts are collected before the hook runs, so a prefilled-and-editable
+prompt field would need a core change to the template engine.
+
+**When nothing matches** — a free slot, calendar-sync not enabled, python3
+missing, the hook erroring or timing out — every path degrades to the same
+place: a clean note from whatever you typed, no calendar residue, no `event_id`.
+A meeting note must always be creatable.
+
+Sanity-check the hook's logic offline with
+`python3 .notesmith/scripts/meeting-prefill.py --self-test` (no network, no
+cache; prints `OK`).
 
 ## Deterministic email summary
 

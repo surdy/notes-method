@@ -259,3 +259,173 @@ fn email_summary_connector_self_test_passes() {
         "connector self-test did not print OK"
     );
 }
+
+// ── Meeting prefill (integrations plan, feature 1) ───────────────────────────
+
+/// The `context_queries` the meeting templates declare, as written in the
+/// fixture. Reading them back rather than restating them here is what keeps
+/// this test honest when the templates change.
+fn meeting_template_queries(template: &str) -> Vec<(String, String)> {
+    let contents =
+        std::fs::read_to_string(golden_vault().join(format!(".notesmith/templates/{template}.md")))
+            .unwrap();
+    let (frontmatter, _) = notesmith_vault::extract_frontmatter(&contents);
+    let yaml: serde_yaml::Value = serde_yaml::from_str(&frontmatter.expect("frontmatter")).unwrap();
+    yaml.get("context_queries")
+        .and_then(|value| value.as_mapping())
+        .expect("meeting templates must declare context_queries")
+        .iter()
+        .map(|(key, value)| {
+            (
+                key.as_str().unwrap().to_string(),
+                value.as_str().unwrap().to_string(),
+            )
+        })
+        .collect()
+}
+
+/// The prefill queries are the only thing standing between the hook and the
+/// real schema — the hook itself never touches SQL. Prove they execute, return
+/// the columns `meeting-prefill.py` reads, and stay read-only.
+#[test]
+fn meeting_template_context_queries_execute_against_the_index() {
+    let cache = indexed_golden_vault();
+    let mut checked = 0;
+
+    for template in ["internal-meeting", "external-meeting"] {
+        let queries = meeting_template_queries(template);
+        assert_eq!(
+            queries.len(),
+            2,
+            "{template} must declare both prefill queries"
+        );
+
+        for (name, sql) in queries {
+            let result = execute_sql(&cache, &sql)
+                .unwrap_or_else(|error| panic!("{template}/{name} failed: {error}\nSQL: {sql}"));
+            checked += 1;
+
+            let expected: &[&str] = match name.as_str() {
+                "calendar_events" => &["path", "event_id", "start", "end", "audience", "organizer"],
+                "calendar_event_members" => &["path", "key", "ordinal", "value"],
+                other => panic!("unexpected prefill query {other}"),
+            };
+            assert_eq!(
+                result.columns, expected,
+                "{template}/{name} must return the columns meeting-prefill.py reads"
+            );
+        }
+    }
+
+    assert_eq!(checked, 4, "expected four prefill queries");
+}
+
+/// Both meeting templates must ask the *same* questions — the hook is shared,
+/// so a query that drifts on one template silently changes the other's answers.
+#[test]
+fn both_meeting_templates_share_the_same_prefill_queries() {
+    assert_eq!(
+        meeting_template_queries("internal-meeting"),
+        meeting_template_queries("external-meeting"),
+    );
+    assert_eq!(
+        std::fs::read_to_string(golden_vault().join(".notesmith/scripts/meeting-prefill.sh"))
+            .unwrap(),
+        std::fs::read_to_string(work_notes_kit().join(".notesmith/scripts/meeting-prefill.sh"))
+            .unwrap(),
+    );
+}
+
+/// The event note the prefill queries look for is the one calendar-sync writes.
+/// Pin the shape here so a change to either side is caught: the golden-vault
+/// fixture event must be visible to the candidate query when its day is today.
+#[test]
+fn the_prefill_candidate_query_shape_matches_calendar_sync_notes() {
+    let cache = indexed_golden_vault();
+    // Same query, with the day window pinned around the fixture's date instead
+    // of `now` — the fixture event is deliberately in the past.
+    let sql = meeting_template_queries("internal-meeting")
+        .into_iter()
+        .find(|(name, _)| name == "calendar_events")
+        .unwrap()
+        .1
+        .replace("date('now', 'localtime', '-1 day')", "'2026-08-03'")
+        .replace("date('now', 'localtime', '+1 day')", "'2026-08-05'");
+    assert!(
+        !sql.contains("now"),
+        "the pinned query must not still depend on the clock: {sql}"
+    );
+
+    let result = execute_sql(&cache, &sql).unwrap();
+    assert_eq!(
+        result.rows.len(),
+        1,
+        "the golden-vault calendar event must be a prefill candidate"
+    );
+    let row = &result.rows[0];
+    assert_eq!(
+        row[0].as_str(),
+        Some("Calendar/2026/08/2026-08-04 0930 Acme Corp sync.md")
+    );
+    assert_eq!(row[1].as_str(), Some("AAMkAGI2-golden-0001"));
+    assert_eq!(row[2].as_str(), Some("2026-08-04T09:30:00"));
+    assert_eq!(row[3].as_str(), Some("2026-08-04T10:00:00"));
+    assert_eq!(row[4].as_str(), Some("external"));
+    assert_eq!(row[5].as_str(), Some("alice@acme.com"));
+}
+
+/// Runs the prefill hook's embedded `--self-test` (no network, no cache) so its
+/// pure logic — the ±10m window, nearest-start selection, typed values winning
+/// over the calendar, and the degrade-to-blank path — has real coverage.
+/// Skipped gracefully when python3 is not on PATH.
+#[test]
+fn meeting_prefill_hook_self_test_passes() {
+    let python = "python3";
+    if std::process::Command::new(python)
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        println!("skipping: python3 not on PATH");
+        return;
+    }
+
+    let output = std::process::Command::new(python)
+        .arg(".notesmith/scripts/meeting-prefill.py")
+        .arg("--self-test")
+        .current_dir(golden_vault())
+        .output()
+        .expect("failed to spawn meeting-prefill.py");
+
+    assert!(
+        output.status.success(),
+        "hook self-test failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("OK"),
+        "hook self-test did not print OK"
+    );
+}
+
+/// The shim is what the engine actually executes (`sh <script>`), and it must
+/// still answer when python3 is missing — a broken toolchain must not stop a
+/// meeting note being created.
+#[test]
+fn the_prefill_shim_degrades_when_python_is_missing() {
+    let output = std::process::Command::new("/bin/sh")
+        .arg(".notesmith/scripts/meeting-prefill.sh")
+        .current_dir(golden_vault())
+        // An empty PATH is the strongest form of "python3 is missing"; the
+        // shim uses only shell builtins before it gives up, so it still works.
+        .env("PATH", "")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("failed to spawn the prefill shim");
+
+    assert!(output.status.success(), "the shim must exit 0");
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("the shim must always emit JSON");
+    assert_eq!(parsed.get("event_matched"), Some(&serde_json::json!(false)));
+}
