@@ -189,6 +189,55 @@ Historical testing requires a one-time matching calendar backfill, but normal
 scheduled operation does not: calendar events will already exist before their
 transcripts become available.
 
+### Late meeting-to-transcript backlink
+
+The September 2 transcript sidecar was selected for the late-write test. Its
+`event_id` was used to locate the matching historical event, and the actual
+meeting-prefill selector was run with that occurrence's timestamp to create the
+meeting note after the transcript already existed.
+
+The next transcript-sync run reported **two links completed**:
+
+- the transcript gained a `meeting` wikilink;
+- the meeting gained a `transcript` wikilink.
+
+The meeting body was hashed before and after reconciliation and remained
+byte-identical. Only frontmatter changed. A reconcile-only second run reported
+**zero links completed**, and the body remained byte-identical again.
+
+The first reconciliation run also reported operational noise that did not
+affect the repaired pair:
+
+- seven series lookups returned an empty Work IQ response and were isolated;
+- five old transcripts were left unfiled because their nearest cached
+  occurrence was far outside the four-hour tolerance;
+- one attempted transcript creation hit an existing-path conflict.
+
+The connector still completed the intended backlinks and did not guess at any
+of the unfiled transcripts.
+
+### Live calendar pagination
+
+Running:
+
+```text
+calendar-sync.py --since 2026-08-01
+```
+
+completed successfully and upserted the extended window. A separate
+instrumented read of the same live window fetched **two pages and 132 events**:
+the first page carried `@odata.nextLink`, and the second/final page did not.
+This verifies that stripping the Graph service prefix produces an entity path
+accepted by `workiq fetch`; the connector neither failed mid-run nor silently
+stopped at the first page.
+
+### Verification-vault scope
+
+The user approved continued use of
+`/Users/surdy/vaults/verify-work-phase4-2026-09-04` for work-laptop integration
+verification. The registered `work` fixture and `Customer Notes` vault both
+lacked connector installations and Calendar trees, so neither was modified.
+
 ## Phase-5 Requirements
 
 1. Use the existing `match_transcript` algorithm.
