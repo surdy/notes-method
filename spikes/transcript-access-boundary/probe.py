@@ -166,18 +166,38 @@ def workiq_fetch(entity_url):
         return None, detail.strip()
 
 
-def own_tenant_id():
-    """The tenant GUID, so a join URL's Tid can be called own vs foreign.
+def own_tenant_id(rows=()):
+    """-> (tenant_guid, how_it_was_determined). Either may be None.
 
-    /organization's id IS the tenant id. /me's id is a user id and is not a
-    fallback for it.
+    Two calls, neither per-series.
+
+    /organization's id IS the tenant id, but reading it needs
+    Organization.Read.All, which a delegated user token usually lacks. The
+    2026-09-05 work-laptop run failed here, so nothing could be labelled
+    own-tenant and a 34-series own-tenant group printed as `foreign-2` --
+    which understated the finding.
+
+    The fallback needs no extra scope: a meeting the signed-in user organized
+    is hosted in the user's own tenant, so /me's id matched against a join
+    URL's context `Oid` identifies that tenant. It is an inference, and the
+    report says so, because it rests on the join URL's own claim about who
+    organized the meeting.
     """
     payload, _ = workiq_fetch("/organization?$select=id")
     if isinstance(payload, dict):
         values = payload.get("value") or []
         if values and isinstance(values[0], dict) and values[0].get("id"):
-            return str(values[0]["id"]).lower()
-    return None
+            return str(values[0]["id"]).lower(), "/organization"
+
+    me, _ = workiq_fetch("/me?$select=id")
+    my_id = me.get("id") if isinstance(me, dict) else None
+    if not my_id:
+        return None, None
+    my_id = str(my_id).lower()
+    for row in rows:
+        if row.get("organizer_oid") == my_id and row.get("tenant"):
+            return row["tenant"], "inferred from a meeting you organized"
+    return None, None
 
 
 def resolve_online_meeting(join_url):
@@ -228,6 +248,8 @@ def main():
                         help="print raw tenant GUIDs instead of own-tenant/foreign-N labels")
     parser.add_argument("--limit", type=int, default=0,
                         help="cap the number of live lookups in --probe mode")
+    parser.add_argument("--no-identify", action="store_true",
+                        help="skip the two identity calls that label your own tenant")
     args = parser.parse_args()
 
     events = [e for e in query_sql(EVENT_SQL) if (e.get("join_url") or "").strip()]
@@ -248,8 +270,6 @@ def main():
         })
         entry["occurrences"] += 1
 
-    own = own_tenant_id() if args.probe else None
-
     rows = []
     for join, entry in series.items():
         tid, oid = parse_context(join)
@@ -264,6 +284,10 @@ def main():
             "status": "denied" if key in denials else "unclassified",
             "source": "cache" if key in denials else "-",
         })
+
+    # After rows: the scope-free fallback matches /me's id against each row's
+    # organizer Oid, so it needs them built. Two calls, not per-series.
+    own, own_how = (None, None) if args.no_identify else own_tenant_id(rows)
 
     if args.probe:
         todo = [r for r in rows if r["status"] == "unclassified"]
@@ -285,7 +309,19 @@ def main():
     print(f"event notes with join_url : {len(events)}")
     print(f"distinct series           : {len(rows)}")
     print(f"denial cache              : {len(denials)} entries ({deny_note})")
-    print(f"own tenant id             : {own or 'unknown (use --probe)'}")
+    if own:
+        print(f"own tenant id             : identified via {own_how}")
+    elif args.no_identify:
+        print("own tenant id             : not looked up (--no-identify)")
+    else:
+        print("own tenant id             : UNKNOWN -- every tenant prints as "
+              "foreign-N below.")
+        print("                            /organization needs "
+              "Organization.Read.All, and no sampled")
+        print("                            series was organized by you. A "
+              "large foreign-N group is")
+        print("                            probably your own tenant; confirm "
+              "before escalating.")
     print()
 
     statuses = sorted({r["status"] for r in rows})
