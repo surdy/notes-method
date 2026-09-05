@@ -825,13 +825,16 @@ completed pair produces no patch.
 
 **Coverage is incomplete, but not organizer-only.** A live 35-series sample
 resolved every self-organized series and also eleven series organized by
-someone else. Twenty-one other-organized series returned an empty Work IQ body
-even after a retry. Both resolved and unresolved groups included single and
-recurring external-audience meetings, with internal and external organizers,
-so those cached fields do not explain the split. Treat an empty series lookup
-as an isolated failure and monitor the run summary's `failed` count; do not
-infer that every attendee meeting is unavailable or that every organizer-owned
-meeting is the only supported case.
+someone else. Diagnostic replay classified all twenty-one unresolved
+other-organized series as `failed`, not `series not in Work IQ`: Work IQ
+reported `403 Forbidden` with `3003: User does not have access to lookup
+meeting`. Both resolved and failed groups included single and recurring
+external-audience meetings, with internal and external organizers. All 35 join
+URLs used `thread.v2` and carried a query string, so those URL properties do
+not explain the access boundary either. Treat each denial as an isolated
+failure and monitor the run summary's `failed` count; do not infer that every
+attendee meeting is unavailable or that only organizer-owned meetings are
+supported.
 
 The run summary separates three outcomes, because they have different causes:
 

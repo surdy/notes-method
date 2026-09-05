@@ -258,9 +258,8 @@ full sample, both resolved and unresolved other-organized sets included:
 - internal-domain and external-domain organizers;
 - external-audience events.
 
-Those cached fields do not explain the split. Coverage is therefore partial,
-but it is not accurate to document it as organizer-owned meetings only. Empty
-responses remain isolated per series and visible in the run's failure count.
+Those cached fields did not explain the split. Coverage is therefore partial,
+but it is not accurate to document it as organizer-owned meetings only.
 
 The collision-fixed transcript run reported:
 
@@ -287,6 +286,40 @@ This confirms deduplication and shows that the collision and stale-occurrence
 fixes reduced `left unfiled` from five to zero. Six current-window series still
 returned empty Work IQ bodies; their failure was isolated and did not block
 the three available transcripts.
+
+### Empty-body diagnostic classification
+
+The September 4 local-time diagnostic run used the connector from `3de8a32`,
+which preserves Work IQ stderr and separates an empty Graph result from a
+failed call. The normal three-day run reported:
+
+```text
+0 created, 3 already present, 0 left unfiled,
+0 links completed, 0 series not in Work IQ, 6 failed
+```
+
+All six current-window failures carried the same explicit error. A read-only
+replay of only the online-meeting lookup across the original 35-series sample
+then produced:
+
+```text
+14 resolved, 0 series not in Work IQ, 21 failed
+```
+
+One representative stderr line, with only the meeting subject redacted:
+
+```text
+transcript-sync: series '<redacted>' lookup failed: workiq exited 0 with an empty body: {"results":[{"data":null,"statusCode":403,"error":{"error":{"code":"Forbidden","message":"3003: User does not have access to lookup meeting","innerError":{"date":"2026-09-05T00:53:59","request-id":"e50b2a7e-ad2f-4d97-8213-251345cdc063","client-request-id":"e99e560f-0122-4da0-a80f-1dbb724f24f5"}}}}],"requestId":"e99e560f-0122-4da0-a80f-1dbb724f24f5"}
+```
+
+The unexplained twenty-one are therefore access denials, not successful Graph
+lookups with no matching online meeting. Query-string stripping is not the
+next fix indicated by this evidence. All 35 sampled join URLs used
+`thread.v2` and included a query string, so neither the channel-meeting marker
+nor query-string presence distinguished the fourteen resolvable series from
+the twenty-one denied series. Organizer identity, organizer domain, recurrence,
+audience, and the persisted join-URL structure still do not expose the actual
+access boundary.
 
 ## Phase-5 Requirements
 

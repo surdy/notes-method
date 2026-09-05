@@ -285,13 +285,16 @@ series. See `spikes/transcript-occurrence-matching/FINDINGS.md`.
 
 **Delegated meeting resolution is partial, not organizer-only.** A live
 35-series sample resolved all three self-organized series and eleven of
-thirty-two other-organized series. The remaining twenty-one other-organized
-lookups returned an empty Work IQ body after a retry. Resolved and unresolved
-sets both contained single and recurring meetings and both internal-domain and
-external-domain organizers, so the available event metadata does not provide a
-safe pre-filter. The connector continues per-series isolation and reports
-failures; it must not describe its supported scope as only organizer-owned
-meetings.
+thirty-two other-organized series. A diagnostic replay classified all
+twenty-one unresolved other-organized lookups as access failures: Work IQ
+returned `403 Forbidden` with `3003: User does not have access to lookup
+meeting`, rather than Graph returning an empty `value` collection. Resolved and
+failed sets both contained single and recurring meetings and both
+internal-domain and external-domain organizers. All sampled join URLs used
+`thread.v2` and carried a query string, so the available event and URL metadata
+does not provide a safe pre-filter. The connector continues per-series
+isolation and reports these under `failed`; it must not describe its supported
+scope as only organizer-owned meetings.
 
 **The shared transcript model gains an optional speaker.** Real Teams VTT
 carries `<v Speaker>` on each cue. `TranscriptSegment` therefore gains
