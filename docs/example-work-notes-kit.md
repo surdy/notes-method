@@ -823,16 +823,15 @@ long before. Each run therefore re-pairs any transcript and meeting sharing an
 `event_id` that are linked on neither side, which is idempotent because a
 completed pair produces no patch.
 
-**It very likely only covers meetings you organized.** A join URL is resolved
-through `/me/onlineMeetings`, which holds the signed-in user's *own* meetings.
-For a call someone else booked — a customer-hosted call, an internal meeting a
-colleague set up — you are an attendee and the meeting is not in that
-collection, so the lookup comes back empty and the series is skipped. Live runs
-saw exactly that shape: seven series returning empty responses persistently
-while others succeeded. Treat it as the working explanation rather than a
-settled fact; it has not been confirmed against Graph's documented behaviour.
-If it holds, transcript coverage is a subset of your calendar, and the run
-summary's `failed` count is where that shows up.
+**Coverage is incomplete, but not organizer-only.** A live 35-series sample
+resolved every self-organized series and also eleven series organized by
+someone else. Twenty-one other-organized series returned an empty Work IQ body
+even after a retry. Both resolved and unresolved groups included single and
+recurring external-audience meetings, with internal and external organizers,
+so those cached fields do not explain the split. Treat an empty series lookup
+as an isolated failure and monitor the run summary's `failed` count; do not
+infer that every attendee meeting is unavailable or that every organizer-owned
+meeting is the only supported case.
 
 **Two transcripts, one meeting.** A recording stopped and restarted produces
 two transcript records with different ids. Both clear the `source_url` dedup

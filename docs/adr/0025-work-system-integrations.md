@@ -283,6 +283,16 @@ pagination and isolate per-series lookup failures; one missing page or
 zero-byte Work IQ response must not cause a guessed match or abort unrelated
 series. See `spikes/transcript-occurrence-matching/FINDINGS.md`.
 
+**Delegated meeting resolution is partial, not organizer-only.** A live
+35-series sample resolved all three self-organized series and eleven of
+thirty-two other-organized series. The remaining twenty-one other-organized
+lookups returned an empty Work IQ body after a retry. Resolved and unresolved
+sets both contained single and recurring meetings and both internal-domain and
+external-domain organizers, so the available event metadata does not provide a
+safe pre-filter. The connector continues per-series isolation and reports
+failures; it must not describe its supported scope as only organizer-owned
+meetings.
+
 **The shared transcript model gains an optional speaker.** Real Teams VTT
 carries `<v Speaker>` on each cue. `TranscriptSegment` therefore gains
 `speaker: Option<String>`, rendered as `[M:SS] Name: text` when present;

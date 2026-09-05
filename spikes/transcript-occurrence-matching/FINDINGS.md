@@ -238,6 +238,56 @@ The user approved continued use of
 verification. The registered `work` fixture and `Customer Notes` vault both
 lacked connector installations and Calendar trees, so neither was modified.
 
+### Organizer coverage and transcript-path collision
+
+The hypothesis that `/me/onlineMeetings` only resolves meetings organized by
+the signed-in user is **false**.
+
+The isolated vault contained 35 distinct online-meeting series:
+
+| Organizer category | Resolved | Empty Work IQ body |
+|---|---:|---:|
+| Signed-in user | 3 | 0 |
+| Other organizer | 11 | 21 |
+
+The other-organized counterexamples were repeatable: one sampled recurring
+external-audience series resolved on three consecutive attempts. Across the
+full sample, both resolved and unresolved other-organized sets included:
+
+- single and recurring series;
+- internal-domain and external-domain organizers;
+- external-audience events.
+
+Those cached fields do not explain the split. Coverage is therefore partial,
+but it is not accurate to document it as organizer-owned meetings only. Empty
+responses remain isolated per series and visible in the run's failure count.
+
+The collision-fixed transcript run reported:
+
+```text
+1 created, 2 already present, 0 left unfiled,
+0 links completed, 6 failed
+```
+
+The newly created note recovered the transcript previously lost to a path
+conflict. The affected event now has two transcript notes. Its older note kept
+the legacy date-only filename, while the recovered note used the new
+date-and-time filename, so this live migration case did not require a
+`(transcript 2)` suffix. The suffix allocator remains covered by the
+connector's self-test but was not exercised by live data.
+
+A second run reported:
+
+```text
+0 created, 3 already present, 0 left unfiled,
+0 links completed, 6 failed
+```
+
+This confirms deduplication and shows that the collision and stale-occurrence
+fixes reduced `left unfiled` from five to zero. Six current-window series still
+returned empty Work IQ bodies; their failure was isolated and did not block
+the three available transcripts.
+
 ## Phase-5 Requirements
 
 1. Use the existing `match_transcript` algorithm.
