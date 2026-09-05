@@ -280,6 +280,20 @@ def missing_links(transcripts, meetings):
     return patches
 
 
+def series_label(occurrences) -> str:
+    """A human-readable name for a series, for the failure log.
+
+    The alternative is the percent-encoded `$filter` URL, which is unreadable
+    and identifies the meeting anyway; the subject is what makes a reported
+    failure actionable.
+    """
+    for occ in occurrences:
+        subject = subject_from_event_path(occ.get("path") or "")
+        if subject:
+            return subject
+    return "unknown series"
+
+
 def group_by_join_url(occurrences) -> dict:
     """Occurrences keyed by join URL — that grouping is the Teams series."""
     series = {}
@@ -470,9 +484,20 @@ def workiq_fetch(entity_url: str):
             f"{proc.stderr.strip()}"
         )
     if not proc.stdout.strip():
-        # Observed during the occurrence probe: some lookups exit 0 with an
-        # empty body. That is a failed lookup, not an empty result.
-        raise RuntimeError(f"workiq returned an empty body for {entity_url}")
+        # Some lookups exit 0 with an empty body. That is a failed lookup, not
+        # an empty result -- Graph renders "no match" as `{"value": []}`.
+        #
+        # Whatever the CLI put on stderr is the only evidence of *why*, and a
+        # live sample left 21 of 35 series unexplained because this discarded
+        # it. The entity URL is deliberately not repeated here: it is a
+        # percent-encoded join URL, unreadable and meeting-identifying. The
+        # caller names the series instead.
+        detail = proc.stderr.strip()
+        raise RuntimeError(
+            f"workiq exited 0 with an empty body: {detail}"
+            if detail
+            else "workiq exited 0 with an empty body and no stderr"
+        )
     return json.loads(proc.stdout)
 
 
@@ -554,7 +579,12 @@ def render_body(vtt: str, title: str, source_url: str) -> str:
     payload = json.loads(proc.stdout)
     body = payload.get("body")
     if not body:
-        raise RuntimeError("notesmith transcribe returned an empty body")
+        detail = proc.stderr.strip()
+        raise RuntimeError(
+            f"notesmith transcribe returned an empty body: {detail}"
+            if detail
+            else "notesmith transcribe returned an empty body"
+        )
     return body
 
 
@@ -672,18 +702,27 @@ def run_sync() -> int:
     skipped = 0
     unmatched = 0
     failed_series = 0
+    no_meeting = 0
 
     for join, occs in series.items():
         # One bad series must not abort the rest (observed in the probe: some
         # lookups exit 0 with an empty body while others succeed).
+        label = series_label(occs)
         try:
             meeting_id = resolve_online_meeting(join)
             if not meeting_id:
+                # Graph answered, and has no online meeting for this join URL.
+                # Distinct from a failed call, and worth its own count: the two
+                # have different causes and different fixes.
+                no_meeting += 1
                 continue
             transcripts = list_transcripts(meeting_id)
         except (RuntimeError, ValueError, urllib.error.URLError) as error:
             failed_series += 1
-            print(f"transcript-sync: series lookup failed: {error}", file=sys.stderr)
+            print(
+                f"transcript-sync: series {label!r} lookup failed: {error}",
+                file=sys.stderr,
+            )
             continue
 
         for transcript in transcripts:
@@ -719,13 +758,16 @@ def run_sync() -> int:
                     link_meeting_to_transcript(meeting_path, path)
             except (RuntimeError, ValueError, OSError, urllib.error.URLError) as error:
                 failed_series += 1
-                print(f"transcript-sync: transcript failed: {error}", file=sys.stderr)
+                print(
+                    f"transcript-sync: transcript for {label!r} failed: {error}",
+                    file=sys.stderr,
+                )
 
     linked = reconcile_backlinks()
     print(
         f"transcript-sync: {created} created, {skipped} already present, "
         f"{unmatched} left unfiled, {linked} link(s) completed, "
-        f"{failed_series} failed"
+        f"{no_meeting} series not in Work IQ, {failed_series} failed"
     )
     return 0
 
@@ -869,6 +911,12 @@ def self_test() -> int:
     assert transcript_in_window({"created": datetime(2026, 9, 9, 9, 0)}, now, 3) is True
     assert transcript_in_window({"created": datetime(2026, 8, 1, 9, 0)}, now, 3) is False
     assert transcript_in_window({"created": None}, now, 3) is True, "reported once, not dropped"
+
+    # A failure names the series, not the percent-encoded filter URL.
+    assert series_label([_occ(9, 9)]) == "Acme sync"
+    assert series_label([{"path": ""}, _occ(9, 9)]) == "Acme sync", "skips unnamed"
+    assert series_label([]) == "unknown series"
+    assert series_label([{"path": None}]) == "unknown series"
 
     # Back-link reconciliation: the late-write case the create-time link misses.
     t_path = "Meetings/Transcripts/2026-09-09 - Acme sync (transcript).md"
