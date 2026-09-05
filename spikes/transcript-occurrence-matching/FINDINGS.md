@@ -321,6 +321,44 @@ the twenty-one denied series. Organizer identity, organizer domain, recurrence,
 audience, and the persisted join-URL structure still do not expose the actual
 access boundary.
 
+### Denied-series cache
+
+The connector from `80fda60` gives confirmed access denials their own summary
+bucket and caches them for seven days. The first valid three-day run reported:
+
+```text
+0 created, 1 already present, 0 left unfiled,
+0 links completed, 6 denied (no access),
+0 series not in Work IQ, 1 failed
+```
+
+It made 12 Work IQ calls and wrote
+`transcript-sync-denied.json` under the runner-provided
+`NOTESMITH_STATE_DIR`. The file contained exactly six entries:
+
+- every key was a 32-character hexadecimal hash;
+- every value was a timestamp;
+- no join URL or `teams.microsoft.com` value was present.
+
+The one genuine `failed` item was separate from the denials: a resolvable
+series reached its transcript collection, where the Work IQ transport returned
+`405 Method Not Allowed`. It succeeded on the immediate rerun, so this was a
+transient retryable failure rather than another access denial.
+
+The second run reported:
+
+```text
+0 created, 3 already present, 0 left unfiled,
+0 links completed, 6 denied (no access),
+0 series not in Work IQ, 0 failed
+```
+
+It emitted no per-series denial lines and made six Work IQ calls rather than
+twelve. Those six calls were the resolution and transcript-list requests for
+the three accessible series; the six cached denied series made no Work IQ
+calls. This verifies both persistence and the skip path. The 14 resolved series
+in the 35-series historical sample give observed coverage of **40%**.
+
 ## Phase-5 Requirements
 
 1. Use the existing `match_transcript` algorithm.

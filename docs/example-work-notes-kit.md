@@ -851,6 +851,12 @@ stored — it identifies the meeting and lets its holder join, so it does not
 belong in a state file. Access granted later (a co-organizer added, a policy
 changed) is picked up when the record expires.
 
+Work-laptop verification confirmed that contract. The first three-day run
+stored six 32-character hash keys with timestamps and no join URLs. The next
+run still reported six denied series but emitted no denial lines and made six
+fewer Work IQ calls; only the three resolvable series were queried. The broader
+sample resolved 14 of 35 series, so observed coverage was 40%.
+
 The run summary separates four outcomes, because they have different causes:
 
 - **`denied (no access)`** — a 403. Expected for a substantial share of series

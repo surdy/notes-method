@@ -296,6 +296,16 @@ does not provide a safe pre-filter. The connector continues per-series
 isolation and reports these under `failed`; it must not describe its supported
 scope as only organizer-owned meetings.
 
+**Access denials are cached separately from failures.** A confirmed
+`403 Forbidden` / Teams `3003` denial is counted as `denied (no access)` and
+stored for seven days under `NOTESMITH_STATE_DIR`. The cache persists only a
+32-character hash of the join URL plus a timestamp, never the join URL itself.
+Work-laptop verification wrote six entries; the next run made six fewer Work
+IQ calls, emitted no repeated denial lines, and still reported the six denied
+series while `failed` returned to zero. The original sample resolved 14 of 35
+series, or 40%. Non-denial transport and endpoint errors remain in `failed` and
+are retried on the next run.
+
 **The shared transcript model gains an optional speaker.** Real Teams VTT
 carries `<v Speaker>` on each cue. `TranscriptSegment` therefore gains
 `speaker: Option<String>`, rendered as `[M:SS] Name: text` when present;
