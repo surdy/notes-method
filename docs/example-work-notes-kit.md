@@ -836,8 +836,25 @@ failure and monitor the run summary's `failed` count; do not infer that every
 attendee meeting is unavailable or that only organizer-owned meetings are
 supported.
 
-The run summary separates three outcomes, because they have different causes:
+**Why the split, resolved.** The 2026-09-05 diagnostic run answered it: those
+lookups return HTTP 403 with Teams error `3003: User does not have access to
+lookup meeting`. Twenty-one of thirty-five sampled series were access denials —
+not missing meetings, and not a malformed query. No cached event field
+predicts which: organizer, organizer domain, recurrence, audience and
+join-URL structure were all identical across resolvable and denied series (all
+35 used `thread.v2` with a query string). The boundary is Microsoft's.
 
+Because a denial is a standing condition rather than a defect, the connector
+records it in `NOTESMITH_STATE_DIR` and skips that series for seven days
+instead of re-calling it every hour. The join URL is hashed rather than
+stored — it identifies the meeting and lets its holder join, so it does not
+belong in a state file. Access granted later (a co-organizer added, a policy
+changed) is picked up when the record expires.
+
+The run summary separates four outcomes, because they have different causes:
+
+- **`denied (no access)`** — a 403. Expected for a substantial share of series
+  and not actionable; cached for seven days.
 - **`series not in Work IQ`** — Graph answered and has no online meeting for
   that join URL (`{"value": []}`). Nothing is wrong with the call.
 - **`failed`** — the call itself did not produce an answer. The stderr line

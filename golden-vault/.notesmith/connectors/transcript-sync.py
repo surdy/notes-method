@@ -31,6 +31,7 @@ Stdlib only (json, os, re, subprocess, sys, urllib, datetime, argparse).
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -55,6 +56,22 @@ _GRAPH_PREFIX = re.compile(r"^https://graph\.microsoft\.com/(?:v1\.0|beta)", re.
 MAX_PAGES = 20
 
 _UNSAFE_PATH_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+
+# How long a 403 is trusted before the series is tried again. Access can be
+# granted later (a co-organizer added, a policy changed), so a denial is cached
+# rather than permanent.
+DENY_RECHECK_DAYS = 7
+
+
+class AccessDenied(RuntimeError):
+    """Work IQ refused the lookup: Teams 3003 / HTTP 403.
+
+    Distinct from a failure. Verified 2026-09-05: 21 of 35 sampled series
+    return `"User does not have access to lookup meeting"`, and no cached event
+    field -- organizer, organizer domain, recurrence, audience, or join-URL
+    structure -- predicts which. The boundary is Microsoft's, so the connector
+    records the denial and stops paying for it hourly.
+    """
 
 
 # --------------------------------------------------------------------------
@@ -341,6 +358,42 @@ def _relative_graph_url(next_link: str) -> str:
     return _GRAPH_PREFIX.sub("", (next_link or "").strip(), count=1)
 
 
+def is_access_denied(detail: str) -> bool:
+    """Does this Work IQ diagnostic describe an access denial?
+
+    The CLI exits 0 and prints the Graph envelope, so the signal is in the
+    text: a 403 status, a `Forbidden` code, or Teams' 3003.
+    """
+    text = (detail or "").lower()
+    return (
+        '"statuscode":403' in text.replace(" ", "")
+        or '"code":"forbidden"' in text.replace(" ", "")
+        or "3003:" in text
+        or "does not have access to lookup meeting" in text
+    )
+
+
+def deny_key(join_url: str) -> str:
+    """A stable cache key for a join URL.
+
+    Hashed rather than stored: a join URL identifies a meeting and lets anyone
+    holding it join, so it does not belong in a state file that outlives the
+    run. The log names the series by subject instead.
+    """
+    return hashlib.sha256((join_url or "").encode("utf-8")).hexdigest()[:32]
+
+
+def prune_denials(denials: dict, now, recheck_days: int = DENY_RECHECK_DAYS) -> dict:
+    """Drop denial records old enough to be worth retrying."""
+    cutoff = now - timedelta(days=recheck_days)
+    kept = {}
+    for key, stamp in (denials or {}).items():
+        recorded = parse_local(stamp)
+        if recorded is not None and recorded >= cutoff:
+            kept[key] = stamp
+    return kept
+
+
 # --------------------------------------------------------------------------
 # I/O (network / subprocess / REST)
 # --------------------------------------------------------------------------
@@ -493,6 +546,8 @@ def workiq_fetch(entity_url: str):
         # percent-encoded join URL, unreadable and meeting-identifying. The
         # caller names the series instead.
         detail = proc.stderr.strip()
+        if is_access_denied(detail):
+            raise AccessDenied("Work IQ refused the lookup (no access to this meeting)")
         raise RuntimeError(
             f"workiq exited 0 with an empty body: {detail}"
             if detail
@@ -661,6 +716,35 @@ def reconcile_backlinks() -> int:
 # --------------------------------------------------------------------------
 
 
+def _state_path() -> str:
+    """The denial cache, in the runner-provided per-job state dir."""
+    state_dir = os.environ.get("NOTESMITH_STATE_DIR") or ".notesmith/state"
+    return os.path.join(state_dir, "transcript-sync-denied.json")
+
+
+def load_denials() -> dict:
+    try:
+        with open(_state_path(), "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except (ValueError, OSError) as error:
+        print(f"transcript-sync: ignoring unreadable state: {error}", file=sys.stderr)
+        return {}
+
+
+def save_denials(denials: dict) -> None:
+    path = _state_path()
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(denials, handle, indent=2, sort_keys=True)
+    except OSError as error:
+        # A cache that cannot be written costs repeated calls, nothing more.
+        print(f"transcript-sync: could not save state: {error}", file=sys.stderr)
+
+
 def load_config() -> dict:
     path = os.path.join(".notesmith", "connectors", "transcript-sync.config.json")
     config = {"lookback_days": 3}
@@ -698,16 +782,24 @@ def run_sync() -> int:
         if join in wanted
     }
 
+    denials = prune_denials(load_denials(), now)
+    known_denied = set(denials)
+
     created = 0
     skipped = 0
     unmatched = 0
     failed_series = 0
     no_meeting = 0
+    denied = 0
 
     for join, occs in series.items():
         # One bad series must not abort the rest (observed in the probe: some
         # lookups exit 0 with an empty body while others succeed).
         label = series_label(occs)
+        if deny_key(join) in known_denied:
+            # Refused within the recheck window; do not pay for it hourly.
+            denied += 1
+            continue
         try:
             meeting_id = resolve_online_meeting(join)
             if not meeting_id:
@@ -717,6 +809,17 @@ def run_sync() -> int:
                 no_meeting += 1
                 continue
             transcripts = list_transcripts(meeting_id)
+        except AccessDenied:
+            # Expected for a substantial share of series and not a defect:
+            # record it, say so once, and move on.
+            denied += 1
+            denials[deny_key(join)] = f"{now:%Y-%m-%dT%H:%M:%S}"
+            print(
+                f"transcript-sync: no access to {label!r}; skipping for "
+                f"{DENY_RECHECK_DAYS} days",
+                file=sys.stderr,
+            )
+            continue
         except (RuntimeError, ValueError, urllib.error.URLError) as error:
             failed_series += 1
             print(
@@ -763,11 +866,13 @@ def run_sync() -> int:
                     file=sys.stderr,
                 )
 
+    save_denials(denials)
     linked = reconcile_backlinks()
     print(
         f"transcript-sync: {created} created, {skipped} already present, "
         f"{unmatched} left unfiled, {linked} link(s) completed, "
-        f"{no_meeting} series not in Work IQ, {failed_series} failed"
+        f"{denied} denied (no access), {no_meeting} series not in Work IQ, "
+        f"{failed_series} failed"
     )
     return 0
 
@@ -911,6 +1016,40 @@ def self_test() -> int:
     assert transcript_in_window({"created": datetime(2026, 9, 9, 9, 0)}, now, 3) is True
     assert transcript_in_window({"created": datetime(2026, 8, 1, 9, 0)}, now, 3) is False
     assert transcript_in_window({"created": None}, now, 3) is True, "reported once, not dropped"
+
+    # A 403 is a standing condition, not a defect: classify it so it is neither
+    # reported as an error nor re-called every hour.
+    real_403 = (
+        '{"results":[{"data":null,"statusCode":403,"error":{"error":'
+        '{"code":"Forbidden","message":"3003: User does not have access to '
+        'lookup meeting"}}}]}'
+    )
+    assert is_access_denied(real_403) is True
+    assert is_access_denied('{"error":{"code":"Forbidden"}}') is True
+    assert is_access_denied("3003: User does not have access to lookup meeting") is True
+    # Not every failure is a denial; a real error must stay a real error.
+    assert is_access_denied("connection reset by peer") is False
+    assert is_access_denied('{"statusCode":429}') is False
+    assert is_access_denied("") is False
+    assert is_access_denied(None) is False
+
+    # The cache key never persists the join URL: it identifies the meeting and
+    # lets its holder join.
+    key = deny_key("https://teams.microsoft.com/l/meetup-join/19%3aX%40thread.v2/0")
+    assert len(key) == 32 and key.isalnum(), key
+    assert "teams" not in key
+    assert deny_key("a") == deny_key("a") and deny_key("a") != deny_key("b")
+
+    # Denials expire so access granted later is picked up.
+    now = datetime(2026, 9, 12, 12, 0)
+    fresh = {"k1": "2026-09-10T09:00:00"}
+    stale = {"k2": "2026-09-01T09:00:00"}
+    assert prune_denials(fresh, now) == fresh
+    assert prune_denials(stale, now) == {}
+    assert prune_denials({**fresh, **stale}, now) == fresh
+    assert prune_denials({"bad": "not a date"}, now) == {}, "unparseable is dropped"
+    assert prune_denials({}, now) == {}
+    assert prune_denials(None, now) == {}
 
     # A failure names the series, not the percent-encoded filter URL.
     assert series_label([_occ(9, 9)]) == "Acme sync"
