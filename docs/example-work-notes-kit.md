@@ -833,6 +833,19 @@ as an isolated failure and monitor the run summary's `failed` count; do not
 infer that every attendee meeting is unavailable or that every organizer-owned
 meeting is the only supported case.
 
+The run summary separates three outcomes, because they have different causes:
+
+- **`series not in Work IQ`** — Graph answered and has no online meeting for
+  that join URL (`{"value": []}`). Nothing is wrong with the call.
+- **`failed`** — the call itself did not produce an answer. The stderr line
+  names the series by subject and carries whatever the CLI reported, which is
+  the evidence for *why*. An earlier version discarded that stderr, which is
+  why 21 of 35 series went unexplained.
+- **`left unfiled`** — a transcript arrived but no occurrence could claim it
+  safely.
+
+If empty-body failures persist, that stderr is the thing to read first.
+
 **Two transcripts, one meeting.** A recording stopped and restarted produces
 two transcript records with different ids. Both clear the `source_url` dedup
 and derive the same path from the same occurrence, so the second is written to
