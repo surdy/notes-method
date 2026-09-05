@@ -19,9 +19,11 @@ Organizer email domain does not settle this: an external organizer can appear
 under an internal-looking address, and an internal organizer can forward a
 meeting hosted elsewhere.
 
-Stage 1 needs no Graph calls and costs nothing: every join URL is already
-persisted on the event notes, and the denial cache the connector writes is
-keyed by sha256(join_url)[:32], so denials join back to events by hash.
+Stage 1 makes no per-series Graph call: every join URL is already persisted on
+the event notes, and the denial cache the connector writes is keyed by
+sha256(join_url)[:32], so denials join back to events by hash. It does make up
+to two cheap identity calls to label your own tenant; --no-identify skips
+those for a strictly offline run.
 
 Stage 2 (--probe, requires `workiq`) widens the sample by replaying the
 online-meeting lookup for series the cache has not classified. One read-only
@@ -30,7 +32,7 @@ call per series.
 Usage:
     export NOTESMITH_VAULT=work
     export NOTESMITH_STATE_DIR=...        # same dir the transcript-sync job uses
-    python3 probe.py                      # stage 1, free
+    python3 probe.py                      # stage 1, no per-series calls
     python3 probe.py --probe              # stage 1 + live lookups
     python3 probe.py --probe --show-guids # unredacted tenant GUIDs
 """
