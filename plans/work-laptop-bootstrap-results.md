@@ -122,14 +122,18 @@ unclassified series.
 
 | Tenant label | Denied | Resolved |
 |---|---:|---:|
+| `own-tenant` | 21 | 13 |
 | `foreign-1` | 0 | 1 |
-| `foreign-2` | 21 | 13 |
+
+The table above is the **re-run on `main` at `33bae0d`**, after the own-tenant
+defect below was fixed. The original run printed the 34-series group as
+`foreign-2`; it is the signed-in user's own tenant.
 
 | Check | Verdict | Evidence |
 |---|---|---|
 | Tenant-only boundary | Rejected | One redacted tenant label appears in both groups: 21 series were denied while 13 series from that same tenant resolved. |
 | Cross-tenant explanation for 40% coverage | Rejected | Meeting home tenant does not fully predict whether `/me/onlineMeetings` resolves a series. Cross-tenant hosting therefore does not explain the observed coverage ceiling. |
-| IT escalation warranted | Yes | The 21 denied series in a tenant that also produced 13 successful resolutions are the isolated set worth investigating as a Teams policy, meeting-roster, or access-control boundary. |
+| IT escalation warranted | Yes, and not pursued | The 21 denied series sit in the user's OWN tenant, which also produced 13 successful resolutions — the isolated set worth investigating as a Teams policy, meeting-roster, or access-control boundary. Harpreet declined the escalation on 2026-09-05; 40% stands as the accepted ceiling. |
 | Connector change indicated | No | The connector correctly classifies and caches Graph/Teams access denials. The remaining distinction is not available in the event metadata tested by the connector. |
 
 **Verdict:** tenant does not fully predict transcript access. The probe found
@@ -137,10 +141,24 @@ substantial resolved/denied overlap within one tenant label, so the access
 boundary remains a Microsoft policy or meeting-membership question rather than
 a join-URL normalization or connector-matching defect.
 
-The probe could not identify the signed-in user's own tenant through the
-available `/organization` lookup, so labels remained `foreign-1` and
-`foreign-2`. That prevents naming the tenant but does not affect the overlap
-result.
+### Own-tenant identification — defect, fixed and re-verified
+
+As first run, the probe could not identify the signed-in user's own tenant:
+`/organization` needs `Organization.Read.All`, which the delegated Work IQ
+token lacks. Every group therefore printed as `foreign-N`, and the 34-of-35
+group appeared as `foreign-2` — which understated the finding by letting it
+read as a cross-tenant split.
+
+`own_tenant_id` gained a scope-free fallback in `df66ec5`: a meeting the
+signed-in user organized is hosted in that user's tenant, so `/me`'s id matched
+against a join URL's context `Oid` identifies it. The re-run on `33bae0d`
+labelled the group `own-tenant`, identified via "inferred from a meeting you
+organized" — the fallback, since `/organization` still refuses.
+
+The overlap result was never affected by this; only its presentation was. But
+the corrected label is what makes the finding legible: **21 of 34 series in our
+own tenant deny transcript lookup while 13 resolve**, which is a materially
+stronger statement than the same numbers under an anonymous `foreign-2`.
 
 ## Not exercised
 
