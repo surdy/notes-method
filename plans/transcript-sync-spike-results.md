@@ -116,16 +116,19 @@ work-notes model.
 The sample included overlapping cue intervals, so a VTT parser must preserve
 source order and must not assume each cue starts after the prior cue ends.
 
-## E. eoriq
+## E. eoriq — resolved as a typo for `workiq`
 
 | Check | Verdict | Evidence |
 |---|---|---|
-| Identify the system | Blocked | The user does not recognize the name `eoriq`. A public exact-name search found no relevant meeting/transcript product. |
-| Export behavior | Blocked | No system was identified, so bulk versus per-meeting export cannot be tested. |
+| Identify the system | Resolved — no system | Session-archive search traced the name to one line in the session that wrote the plan (`claude-code:e6f4911c`, 2026-08-05): "maybe I use eoriq/ teams integration to pull meeting transcripts into the note". It is the only human-typed occurrence in that 552-record session. |
+| Typo mechanics | Consistent | The same message spells `workiq` correctly two sentences earlier. `workiq` -> `eoriq` is `w`->`e` (adjacent QWERTY key) plus a dropped `k`, and the sentence's meaning — Teams meeting transcripts — is exactly the Work IQ path this spike verified. |
+| Export behavior | Not applicable | There is no separate system to export from. |
 
-Treat `eoriq` as an unresolved internal name or typo. It does not block the
-now-viable Work IQ connector. Do not build a special fallback for it unless a
-real separate source and export contract are identified.
+Superseded: this section's earlier "Blocked / unresolved internal name" verdict
+was recorded before the session archive was searched. No source-specific
+fallback is a deliverable. The generic drop-folder ingest stays useful on its
+own merits, but it is not a hedge against a second transcript source, because
+there is none.
 
 ## F. Corporate transcript-storage policy
 
@@ -167,8 +170,9 @@ Phase 5 is **unblocked**, with these implementation prerequisites:
    `source_type: teams` in the sidecar note.
 6. Store a connector cursor in `NOTESMITH_STATE_DIR`; sync promptly and treat
    old-history backfill as best-effort until retention is confirmed.
-7. Keep generic drop-folder ingest as a documented manual fallback, but add no
-   eoriq-specific work unless that system is identified.
+7. Keep generic drop-folder ingest as a documented manual fallback. It needs no
+   source-specific work: `eoriq` was a typo for `workiq` (section E), so no
+   second transcript system exists.
 
 Prerequisite 2's occurrence-selection rule was verified on the work laptop in
 `spikes/transcript-occurrence-matching/FINDINGS.md`. The observed retained

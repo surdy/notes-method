@@ -342,9 +342,8 @@ boundary here.
   explicitly to UTC, follow `calendarView` pagination, and isolate
   online-meeting lookup failures per series.
 - Generic fallback for sources Work IQ cannot reach: drop files into the
-  existing ingest folder and route them. The unexplained `eoriq` name did not
-  resolve to a known system during the spike; add no source-specific work
-  until a real export contract exists.
+  existing ingest folder and route them. This is a standing capability, not a
+  hedge against a second transcript source — no such source exists.
 
 ### 3. Morning daily note (decision 6)
 
@@ -404,10 +403,13 @@ Each phase is independently useful; stop anywhere.
   connector behavior. The shared renderer must gain
   `speaker: Option<String>`. See `plans/transcript-sync-spike-results.md` and
   `spikes/transcript-occurrence-matching/FINDINGS.md`.
-- **eoriq**: separate system or the same Teams/Work IQ data? Determines
-  whether a source-specific drop-folder fallback is needed. **Still
-  unidentified**: the user did not recognize the name and no relevant public
-  product was found. It no longer blocks the primary Work IQ path.
+- **`eoriq`**: **resolved 2026-09-04 — it was a typo for `workiq`.** The name
+  entered this plan from one line in the originating session
+  (`claude-code:e6f4911c`, 2026-08-05): "maybe I use eoriq/ teams integration
+  to pull meeting transcripts into the note". The same message spells `workiq`
+  correctly two sentences earlier; `w`->`e` is an adjacent key and the `k`
+  dropped. There is no second transcript system and no source-specific
+  fallback is needed.
 - **`[mcp.servers]` HTTP auth support**: can Notesmith's remote-MCP config
   carry the required auth headers/OAuth today, or is that a core addition?
 - **Corp policy**: **resolved for transcripts 2026-09-04.** Verbatim

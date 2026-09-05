@@ -149,19 +149,18 @@ Then pick, with a real sample in hand:
 Either way the renderer also needs `kind: transcript` and `event_id`, which it
 does not emit today. Note this in the results.
 
-### E. Is eoriq the same data or a separate system?
+### E. Is eoriq the same data or a separate system? — **resolved: neither**
 
-Straight from the phase-0 list, still unanswered, and it decides whether the
-drop-folder fallback is real work:
+**`eoriq` was a typo for `workiq`.** It named no system, so there is nothing to
+ask. The name reached the phase-0 list from a single line in the session that
+wrote the plan (`claude-code:e6f4911c`, 2026-08-05): "maybe I use eoriq/ teams
+integration to pull meeting transcripts into the note". That same message
+spells `workiq` correctly two sentences earlier, `w`->`e` is an adjacent key,
+and the `k` dropped.
 
-- Same Teams/Work IQ data behind a different UI → no fallback needed; A–D
-  settle everything.
-- A separate system with its own exports → the fallback is a real deliverable,
-  and it needs an ingest folder in the work kit's `vault.toml` (there is none
-  today) plus a routing rule for `kind: transcript`.
-
-**Record:** where eoriq's data actually comes from, and whether it can export
-in bulk or only per-meeting.
+Consequence: no source-specific drop-folder fallback is a deliverable. A–D
+settle transcripts entirely. The generic ingest folder remains worth having on
+its own merits, but not as a hedge against a second transcript source.
 
 ### F. Corp policy on storing verbatim transcripts
 
